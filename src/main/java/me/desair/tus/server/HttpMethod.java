@@ -20,43 +20,43 @@ public enum HttpMethod {
 
     DELETE {
         @Override
-        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+        public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse, final FileStorageService fileStorageService) {
             //TODO TOM DELEGATE
         }
     },
     GET {
         @Override
-        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+        public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse, final FileStorageService fileStorageService) {
             //TODO TOM DELEGATE
         }
     },
     HEAD {
         @Override
-        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+        public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse, final FileStorageService fileStorageService) {
             //TODO TOM DELEGATE
         }
     },
     PATCH {
         @Override
-        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+        public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse, final FileStorageService fileStorageService) {
             //TODO TOM DELEGATE
         }
     },
     POST {
         @Override
-        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+        public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse, final FileStorageService fileStorageService) {
             //TODO TOM DELEGATE
         }
     },
     PUT {
         @Override
-        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+        public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse, final FileStorageService fileStorageService) {
             //TODO TOM DELEGATE
         }
     },
     OPTIONS {
         @Override
-        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+        public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse, final FileStorageService fileStorageService) {
             //TODO TOM DELEGATE
         }
     };

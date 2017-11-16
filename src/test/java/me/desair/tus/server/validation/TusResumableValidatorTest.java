@@ -41,4 +41,10 @@ public class TusResumableValidatorTest {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         validator.validate(HttpMethod.POST, servletRequest);
     }
+
+    @Test
+    public void validateNullMethod() throws Exception {
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        validator.validate(null, servletRequest);
+    }
 }

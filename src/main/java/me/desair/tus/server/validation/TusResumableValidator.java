@@ -8,6 +8,7 @@ import me.desair.tus.server.exception.TusException;
 import org.apache.commons.lang3.StringUtils;
 
 import javax.servlet.http.HttpServletRequest;
+import java.util.Objects;
 
 /** Class that will validate if the tus version in the request corresponds to our implementation version
  *
@@ -25,7 +26,7 @@ public class TusResumableValidator implements RequestValidator {
 
     public void validate(final HttpMethod method, final HttpServletRequest request) throws TusException {
         String requestVersion = request.getHeader(HttpHeader.TUS_RESUMABLE);
-        if (!method.equals(HttpMethod.OPTIONS) && !StringUtils.equals(requestVersion, TUS_API_VERSION)) {
+        if (!HttpMethod.OPTIONS.equals(method) && !StringUtils.equals(requestVersion, TUS_API_VERSION)) {
             throw new InvalidTusResumableException("This server does not support tus protocol version " + requestVersion);
         }
     }
