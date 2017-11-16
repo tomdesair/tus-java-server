@@ -1,6 +1,9 @@
-package me.desair.tus.server;
+package me.desair.tus.server.validation;
 
+import me.desair.tus.server.HttpHeader;
+import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.InvalidTusResumableException;
+import me.desair.tus.server.validation.TusResumableValidator;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -13,32 +16,29 @@ public class TusResumableValidatorTest {
     @Before
     public void setUp() {
         servletRequest = new MockHttpServletRequest();
+        validator = new TusResumableValidator();
     }
 
     @Test(expected = InvalidTusResumableException.class)
     public void validateNoVersion() throws Exception {
-        validator = new TusResumableValidator(HttpMethod.POST, servletRequest);
-        validator.validate();
+        validator.validate(HttpMethod.POST, servletRequest);
     }
 
     @Test(expected = InvalidTusResumableException.class)
     public void validateInvalidVersion() throws Exception {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "2.0.0");
-        validator = new TusResumableValidator(HttpMethod.POST, servletRequest);
-        validator.validate();
+        validator.validate(HttpMethod.POST, servletRequest);
     }
 
     @Test
     public void validateOptions() throws Exception {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "2.0.0");
-        validator = new TusResumableValidator(HttpMethod.OPTIONS, servletRequest);
-        validator.validate();
+        validator.validate(HttpMethod.OPTIONS, servletRequest);
     }
 
     @Test
     public void validateValid() throws Exception {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-        validator = new TusResumableValidator(HttpMethod.POST, servletRequest);
-        validator.validate();
+        validator.validate(HttpMethod.POST, servletRequest);
     }
 }

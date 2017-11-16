@@ -1,7 +1,10 @@
-package me.desair.tus.server;
+package me.desair.tus.server.validation;
 
 import lombok.RequiredArgsConstructor;
+import me.desair.tus.server.HttpHeader;
+import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.InvalidTusResumableException;
+import me.desair.tus.server.exception.TusException;
 import org.apache.commons.lang3.StringUtils;
 
 import javax.servlet.http.HttpServletRequest;
@@ -16,15 +19,11 @@ import javax.servlet.http.HttpServletRequest;
  *
  * (https://tus.io/protocols/resumable-upload.html#tus-resumable)
  */
-@RequiredArgsConstructor
-public class TusResumableValidator {
+public class TusResumableValidator implements RequestValidator {
 
     public static final String TUS_API_VERSION = "1.0.0";
 
-    private final HttpMethod method;
-    private final HttpServletRequest request;
-
-    public void validate() throws InvalidTusResumableException {
+    public void validate(final HttpMethod method, final HttpServletRequest request) throws TusException {
         String requestVersion = request.getHeader(HttpHeader.TUS_RESUMABLE);
         if (!method.equals(HttpMethod.OPTIONS) && !StringUtils.equals(requestVersion, TUS_API_VERSION)) {
             throw new InvalidTusResumableException("This server does not support tus protocol version " + requestVersion);
