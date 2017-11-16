@@ -57,7 +57,7 @@ public class TusFileUploadHandler {
         try {
             validateRequest(method);
 
-            //TODO process tus upload
+            method.process(servletRequest, servletResponse, fileStorageService);
 
         } catch (TusException e) {
             processTusException(method, e);

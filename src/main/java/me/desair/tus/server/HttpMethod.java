@@ -1,9 +1,11 @@
 package me.desair.tus.server;
 
 import lombok.NonNull;
+import me.desair.tus.server.file.FileStorageService;
 import org.apache.commons.lang3.StringUtils;
 
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /**
  * Class that represents a HTTP method.
@@ -16,7 +18,48 @@ import javax.servlet.http.HttpServletRequest;
  */
 public enum HttpMethod {
 
-    DELETE, GET, HEAD, PATCH, POST, PUT, OPTIONS;
+    DELETE {
+        @Override
+        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+            //TODO TOM DELEGATE
+        }
+    },
+    GET {
+        @Override
+        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+            //TODO TOM DELEGATE
+        }
+    },
+    HEAD {
+        @Override
+        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+            //TODO TOM DELEGATE
+        }
+    },
+    PATCH {
+        @Override
+        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+            //TODO TOM DELEGATE
+        }
+    },
+    POST {
+        @Override
+        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+            //TODO TOM DELEGATE
+        }
+    },
+    PUT {
+        @Override
+        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+            //TODO TOM DELEGATE
+        }
+    },
+    OPTIONS {
+        @Override
+        public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse, FileStorageService fileStorageService) {
+            //TODO TOM DELEGATE
+        }
+    };
 
     public static HttpMethod forName(final String name) {
         for (HttpMethod method : HttpMethod.values()) {
@@ -36,4 +79,8 @@ public enum HttpMethod {
 
         return forName(requestMethod);
     }
+
+    public abstract void process(final HttpServletRequest servletRequest,
+                        final HttpServletResponse servletResponse,
+                        final FileStorageService fileStorageService);
 }
