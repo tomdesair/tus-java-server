@@ -12,7 +12,7 @@ public class Utils {
 
     public static Long getLongHeader(final HttpServletRequest request, final String header) {
         try {
-            return Long.valueOf(request.getHeader(header));
+            return Long.valueOf(getHeader(request, header));
         } catch(NumberFormatException ex) {
             return null;
         }

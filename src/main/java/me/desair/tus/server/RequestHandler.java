@@ -11,5 +11,5 @@ public interface RequestHandler {
 
     boolean supports(final HttpMethod method);
 
-    void process(final HttpMethod method, final HttpServletRequest servletRequest, final HttpServletResponse servletResponse, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws IOException;
+    void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws IOException;
 }

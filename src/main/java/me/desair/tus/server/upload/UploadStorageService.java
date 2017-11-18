@@ -30,4 +30,11 @@ public interface UploadStorageService {
      * @return The new {@link UploadInfo} for this upload
      */
     UploadInfo append(final UUID id, final Long offset, final InputStream inputStream);
+
+    /**
+     * Create an upload location with the given upload information
+     * @param info The Upload information which has a unique ID
+     * @return false if the given ID was already in use and a new attempt should be made, true otherwise
+     */
+    boolean create(final UploadInfo info);
 }

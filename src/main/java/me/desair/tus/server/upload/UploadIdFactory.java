@@ -8,15 +8,15 @@ import java.util.UUID;
 
 public class UploadIdFactory {
 
-    private String contextPath = "/";
+    private String uploadURI = "/";
 
-    public void setContextPath(final String contextPath) {
-        Validate.notNull(contextPath, "The context path cannot be null");
-        this.contextPath = contextPath;
+    public void setUploadURI(final String uploadURI) {
+        Validate.notNull(uploadURI, "The upload URI cannot be null");
+        this.uploadURI = uploadURI;
     }
 
     public UUID readUploadId(final HttpServletRequest request) {
-        String pathId = StringUtils.substringAfter(request.getRequestURI(), contextPath);
+        String pathId = StringUtils.substringAfter(request.getRequestURI(), uploadURI);
         UUID id = null;
 
         if(StringUtils.isNotBlank(pathId)) {
@@ -30,4 +30,11 @@ public class UploadIdFactory {
         return id;
     }
 
+    public String getUploadURI() {
+        return uploadURI;
+    }
+
+    public UUID createId() {
+        return UUID.randomUUID();
+    }
 }

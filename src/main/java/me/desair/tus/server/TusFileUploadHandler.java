@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 
 /**
@@ -44,7 +43,7 @@ public class TusFileUploadHandler {
     }
 
     public TusFileUploadHandler withContextPath(final String contextPath) {
-        this.idFactory.setContextPath(contextPath);
+        this.idFactory.setUploadURI(contextPath);
         return this;
     }
 
@@ -65,14 +64,14 @@ public class TusFileUploadHandler {
         try {
             validateRequest(method, servletRequest);
 
-            processByFeatures(method, servletRequest, servletResponse);
+            processByFeatures(method, servletRequest, new TusServletResponse(servletResponse));
 
         } catch (TusException e) {
             processTusException(method, servletRequest, servletResponse, e);
         }
     }
 
-    protected void processByFeatures(final HttpMethod method, final HttpServletRequest servletRequest, final HttpServletResponse servletResponse) throws IOException {
+    protected void processByFeatures(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse) throws IOException {
         for (TusFeature feature : enabledFeatures.values()) {
             feature.process(method, servletRequest, servletResponse, uploadStorageService, idFactory);
         }

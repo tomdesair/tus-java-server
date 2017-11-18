@@ -1,0 +1,83 @@
+package me.desair.tus.server;
+
+import org.apache.commons.lang3.StringUtils;
+
+import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpServletResponseWrapper;
+import java.util.*;
+
+public class TusServletResponse extends HttpServletResponseWrapper {
+
+    private final Map<String, List<String>> headers = new HashMap<>();
+    /**
+     * Constructs a response adaptor wrapping the given response.
+     *
+     * @param response
+     * @throws IllegalArgumentException if the response is null
+     */
+    public TusServletResponse(final HttpServletResponse response) {
+        super(response);
+    }
+
+    @Override
+    public void setDateHeader(final String name, final long date) {
+        super.setDateHeader(name, date);
+        overwriteHeader(name, Objects.toString(date));
+    }
+
+    @Override
+    public void addDateHeader(final String name, final long date) {
+        super.addDateHeader(name, date);
+        recordHeader(name, Objects.toString(date));
+    }
+
+    @Override
+    public void setHeader(final String name, final String value) {
+        super.setHeader(name, value);
+        overwriteHeader(name, value);
+    }
+
+    @Override
+    public void addHeader(final String name, final String value) {
+        super.addHeader(name, value);
+        recordHeader(name, value);
+    }
+
+    @Override
+    public void setIntHeader(final String name, final int value) {
+        super.setIntHeader(name, value);
+        overwriteHeader(name, Objects.toString(value));
+    }
+
+    @Override
+    public void addIntHeader(final String name, final int value) {
+        super.addIntHeader(name, value);
+        recordHeader(name, Objects.toString(value));
+    }
+
+    private void recordHeader(final String name, final String value) {
+        List<String> values = headers.get(name);
+        if(values == null) {
+            values = new LinkedList<>();
+            headers.put(name, values);
+        }
+
+        values.add(value);
+    }
+
+    private void overwriteHeader(final String name, final String value) {
+        List<String> values = new LinkedList<>();
+        values.add(value);
+        headers.put(name, values);
+    }
+
+    public String getHeader(final String name) {
+        String value = null;
+        List<String> values = headers.get(name);
+        if(values != null && values.size() > 0) {
+            value = values.get(0);
+        }
+
+        return StringUtils.trimToEmpty(value);
+    }
+}

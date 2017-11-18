@@ -2,11 +2,20 @@ package me.desair.tus.server.upload;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.UUID;
+
 public class UploadInfo {
 
     private Long offset;
     private String metadata;
     private Long length;
+    private UUID id;
+
+    public UploadInfo() {
+        offset = 0l;
+        metadata = null;
+        length = null;
+    }
 
     public Long getOffset() {
         return offset;
@@ -48,5 +57,13 @@ public class UploadInfo {
      */
     public boolean isUploadInProgress() {
         return length == null || offset.equals(length);
+    }
+
+    public void setId(final UUID id) {
+        this.id = id;
+    }
+
+    public UUID getId() {
+        return id;
     }
 }

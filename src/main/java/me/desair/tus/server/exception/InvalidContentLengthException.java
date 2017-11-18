@@ -4,6 +4,6 @@ import javax.servlet.http.HttpServletResponse;
 
 public class InvalidContentLengthException extends TusException {
     public InvalidContentLengthException(final String message) {
-        super(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE, message);
+        super(HttpServletResponse.SC_BAD_REQUEST, message);
     }
 }

@@ -1,9 +1,6 @@
 package me.desair.tus.server.core;
 
-import me.desair.tus.server.HttpHeader;
-import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.RequestHandler;
-import me.desair.tus.server.Utils;
+import me.desair.tus.server.*;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -30,7 +27,7 @@ public class CorePatchRequestHandler implements RequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final HttpServletResponse servletResponse,
+    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse,
                         final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws IOException {
 
         UUID id = idFactory.readUploadId(servletRequest);

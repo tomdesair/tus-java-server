@@ -14,6 +14,7 @@ public class HttpHeader {
     public static final String CACHE_CONTROL = "Cache-Control";
     public static final String CONTENT_TYPE = "Content-Type";
     public static final String CONTENT_LENGTH = "Content-Length";
+    public static final String LOCATION = "Location";
 
     /**
      * The Upload-Offset request and response header indicates a byte offset within a resource.
@@ -27,6 +28,13 @@ public class HttpHeader {
      * The value MUST be a non-negative integer.
      */
     public static final String UPLOAD_LENGTH = "Upload-Length";
+
+    /**
+     * The Upload-Defer-Length request and response header indicates that the size of the upload is not known
+     * currently and will be transferred later. Its value MUST be 1. If the length of an upload is not deferred,
+     * this header MUST be omitted.
+     */
+    public static final String UPLOAD_DEFER_LENGTH = "Upload-Defer-Length";
 
     /**
      * The Tus-Version response header MUST be a comma-separated list of protocol versions supported by the Server.
@@ -44,7 +52,7 @@ public class HttpHeader {
      * The Tus-Extension response header MUST be a comma-separated list of the extensions supported by the Server.
      * If no extensions are supported, the Tus-Extension header MUST be omitted.
      */
-    public static final String TUS_EXTENSION = "Tus-Resumable";
+    public static final String TUS_EXTENSION = "Tus-Extension";
 
     /**
      * The Tus-Max-Size response header MUST be a non-negative integer indicating the maximum allowed size of an

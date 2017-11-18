@@ -33,4 +33,10 @@ public class DiskUploadStorageService implements UploadStorageService {
         //TODO
         return null;
     }
+
+    @Override
+    public boolean create(final UploadInfo info) {
+        //TODO
+        return true;
+    }
 }

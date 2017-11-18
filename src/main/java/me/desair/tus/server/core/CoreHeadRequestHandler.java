@@ -3,6 +3,7 @@ package me.desair.tus.server.core;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
+import me.desair.tus.server.TusServletResponse;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -29,13 +30,9 @@ public class CoreHeadRequestHandler implements RequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final HttpServletResponse servletResponse, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) {
+    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) {
         UUID id = idFactory.readUploadId(servletRequest);
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(id);
-
-        if(uploadInfo.hasMetadata()) {
-            servletResponse.setHeader(HttpHeader.UPLOAD_METADATA, uploadInfo.getMetadata());
-        }
 
         if(uploadInfo.hasLength()) {
             servletResponse.setHeader(HttpHeader.UPLOAD_LENGTH, Objects.toString(uploadInfo.getLength()));
