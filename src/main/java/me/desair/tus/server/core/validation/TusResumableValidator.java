@@ -1,14 +1,16 @@
-package me.desair.tus.server.validation;
+package me.desair.tus.server.core.validation;
 
-import lombok.RequiredArgsConstructor;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.TusFileUploadHandler;
+import me.desair.tus.server.Utils;
 import me.desair.tus.server.exception.InvalidTusResumableException;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.upload.UploadIdFactory;
+import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.lang3.StringUtils;
 
 import javax.servlet.http.HttpServletRequest;
-import java.util.Objects;
 
 /** Class that will validate if the tus version in the request corresponds to our implementation version
  *
@@ -20,13 +22,11 @@ import java.util.Objects;
  *
  * (https://tus.io/protocols/resumable-upload.html#tus-resumable)
  */
-public class TusResumableValidator implements RequestValidator {
+public class TusResumableValidator extends AbstractRequestValidator {
 
-    public static final String TUS_API_VERSION = "1.0.0";
-
-    public void validate(final HttpMethod method, final HttpServletRequest request) throws TusException {
-        String requestVersion = request.getHeader(HttpHeader.TUS_RESUMABLE);
-        if (!HttpMethod.OPTIONS.equals(method) && !StringUtils.equals(requestVersion, TUS_API_VERSION)) {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws TusException {
+        String requestVersion = Utils.getHeader(request, HttpHeader.TUS_RESUMABLE);
+        if (!HttpMethod.OPTIONS.equals(method) && !StringUtils.equals(requestVersion, TusFileUploadHandler.TUS_API_VERSION)) {
             throw new InvalidTusResumableException("This server does not support tus protocol version " + requestVersion);
         }
     }

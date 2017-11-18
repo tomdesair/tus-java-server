@@ -17,7 +17,7 @@ public class TusFileUploadHandlerTest {
     public void setUp() {
         servletRequest = new MockHttpServletRequest();
         servletResponse = new MockHttpServletResponse();
-        tusFileUploadHandler = new TusFileUploadHandler(servletRequest, servletResponse);
+        tusFileUploadHandler = new TusFileUploadHandler();
     }
 
     @Test(expected = NullPointerException.class)

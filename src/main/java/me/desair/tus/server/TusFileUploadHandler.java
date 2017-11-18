@@ -1,10 +1,10 @@
 package me.desair.tus.server;
 
+import me.desair.tus.server.core.CoreProtocol;
 import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.file.FileStorageService;
-import me.desair.tus.server.validation.HttpMethodValidator;
-import me.desair.tus.server.validation.RequestValidator;
-import me.desair.tus.server.validation.TusResumableValidator;
+import me.desair.tus.server.upload.DiskUploadStorageService;
+import me.desair.tus.server.upload.UploadIdFactory;
+import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,64 +13,79 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.List;
+import java.util.LinkedHashMap;
 
 /**
  * Helper class that implements the server side tus v1.0.0 upload protocol
  */
 public class TusFileUploadHandler {
 
+    public static final String TUS_API_VERSION = "1.0.0";
+
     private static final Logger log = LoggerFactory.getLogger(TusFileUploadHandler.class);
 
-    private HttpServletRequest servletRequest;
-    private HttpServletResponse servletResponse;
-    private FileStorageService fileStorageService;
-    private List<RequestValidator> requestValidators;
+    private UploadStorageService uploadStorageService;
+    private UploadIdFactory idFactory = new UploadIdFactory();
+    private LinkedHashMap<String, TusFeature> enabledFeatures = new LinkedHashMap<>();
 
-    public TusFileUploadHandler(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse) {
+    public TusFileUploadHandler() {
+        uploadStorageService = new DiskUploadStorageService(System.getProperty("java.io.tmpdir"));
+        initFeatures();
+    }
+
+    protected void initFeatures() {
+        addTusFeature(new CoreProtocol());
+    }
+
+    public TusFileUploadHandler withFileStoreService(final UploadStorageService uploadStorageService) {
+        Validate.notNull(uploadStorageService, "The UploadStorageService cannot be null");
+        this.uploadStorageService = uploadStorageService;
+        return this;
+    }
+
+    public TusFileUploadHandler withContextPath(final String contextPath) {
+        this.idFactory.setContextPath(contextPath);
+        return this;
+    }
+
+    public TusFileUploadHandler addTusFeature(final TusFeature feature) {
+        Validate.notNull(feature, "A custom feature cannot be null");
+        enabledFeatures.put(feature.getName(), feature);
+        return this;
+    }
+
+    public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse) throws IOException {
         Validate.notNull(servletRequest, "The HTTP Servlet request cannot be null");
         Validate.notNull(servletResponse, "The HTTP Servlet response cannot be null");
-        this.servletRequest = servletRequest;
-        this.servletResponse = servletResponse;
 
-        requestValidators = Arrays.asList(
-                new HttpMethodValidator(),
-                new TusResumableValidator());
-    }
-
-    public TusFileUploadHandler withFileStoreService(final FileStorageService fileStorageService) {
-        Validate.notNull(fileStorageService, "The FileStorageService cannot be null");
-        this.fileStorageService = fileStorageService;
-        return this;
-    }
-
-    public TusFileUploadHandler addRequestValidator(final RequestValidator requestValidator) {
-        Validate.notNull(requestValidator, "A request validator cannot be null");
-        requestValidators.add(requestValidator);
-        return this;
-    }
-
-    public void process() throws IOException {
         HttpMethod method = HttpMethod.getMethod(servletRequest);
+
         log.debug("Processing request with method {} and URL {}", method, servletRequest.getRequestURL());
 
         try {
-            validateRequest(method);
+            validateRequest(method, servletRequest);
 
-            method.process(servletRequest, servletResponse, fileStorageService);
+            processByFeatures(method, servletRequest, servletResponse);
 
         } catch (TusException e) {
-            processTusException(method, e);
+            processTusException(method, servletRequest, servletResponse, e);
         }
     }
 
-    protected void validateRequest(final HttpMethod method) throws TusException {
-        for (RequestValidator requestValidator : requestValidators) {
-            requestValidator.validate(method, servletRequest);
+    protected void processByFeatures(final HttpMethod method, final HttpServletRequest servletRequest, final HttpServletResponse servletResponse) throws IOException {
+        for (TusFeature feature : enabledFeatures.values()) {
+            feature.process(method, servletRequest, servletResponse, uploadStorageService, idFactory);
         }
     }
 
-    private void processTusException(final HttpMethod method, final TusException ex) throws IOException {
+    protected void validateRequest(final HttpMethod method, final HttpServletRequest servletRequest) throws TusException {
+        for (TusFeature feature : enabledFeatures.values()) {
+            feature.validate(method, servletRequest, uploadStorageService, idFactory);
+        }
+    }
+
+    private void processTusException(final HttpMethod method, final HttpServletRequest servletRequest,
+                                     final HttpServletResponse servletResponse, final TusException ex) throws IOException {
         int status = ex.getStatus();
         String message = ex.getMessage();
         log.warn("Unable to process request {} {}. Sent response status {} with message \"{}\"", method, servletRequest.getRequestURL(), status, message);
