@@ -2,12 +2,11 @@ package me.desair.tus.server.core.validation;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.Utils;
+import me.desair.tus.server.util.Utils;
 import me.desair.tus.server.exception.InvalidContentTypeException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
-import org.apache.commons.lang3.StringUtils;
 
 import javax.servlet.http.HttpServletRequest;
 

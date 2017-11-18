@@ -3,9 +3,9 @@ package me.desair.tus.server.core;
 import me.desair.tus.server.*;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.TusServletResponse;
 
 import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 /**
  * The Tus-Resumable header MUST be included in every request and response except for OPTIONS requests.

@@ -2,7 +2,7 @@ package me.desair.tus.server.creation.validation;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.Utils;
+import me.desair.tus.server.util.Utils;
 import me.desair.tus.server.core.validation.AbstractRequestValidator;
 import me.desair.tus.server.exception.InvalidContentLengthException;
 import me.desair.tus.server.exception.TusException;

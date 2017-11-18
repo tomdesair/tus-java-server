@@ -1,4 +1,4 @@
-package me.desair.tus.server;
+package me.desair.tus.server.util;
 
 import org.apache.commons.lang3.StringUtils;
 

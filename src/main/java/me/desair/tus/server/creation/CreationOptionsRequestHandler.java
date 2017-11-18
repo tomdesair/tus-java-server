@@ -1,12 +1,6 @@
 package me.desair.tus.server.creation;
 
-import me.desair.tus.server.*;
-import me.desair.tus.server.upload.UploadIdFactory;
-import me.desair.tus.server.upload.UploadStorageService;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.util.Objects;
+import me.desair.tus.server.util.AbstractExtensionRequestHandler;
 
 /**
  * The Client and the Server SHOULD implement the upload creation extension.

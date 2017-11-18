@@ -1,11 +1,14 @@
-package me.desair.tus.server;
+package me.desair.tus.server.util;
 
+import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.RequestHandler;
+import me.desair.tus.server.RequestValidator;
+import me.desair.tus.server.TusFeature;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
 
 import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;

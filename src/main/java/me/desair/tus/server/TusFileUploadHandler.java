@@ -5,6 +5,7 @@ import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.DiskUploadStorageService;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.TusServletResponse;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

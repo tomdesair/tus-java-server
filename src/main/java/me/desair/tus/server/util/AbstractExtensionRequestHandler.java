@@ -1,5 +1,8 @@
-package me.desair.tus.server;
+package me.desair.tus.server.util;
 
+import me.desair.tus.server.HttpHeader;
+import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
 

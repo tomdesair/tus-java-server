@@ -1,4 +1,4 @@
-package me.desair.tus.server;
+package me.desair.tus.server.util;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -6,9 +6,13 @@ import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpServletResponseWrapper;
 import java.util.*;
 
+/**
+ * {@link HttpServletResponseWrapper} to capture header values set on the current {@link HttpServletResponse}
+ */
 public class TusServletResponse extends HttpServletResponseWrapper {
 
     private final Map<String, List<String>> headers = new HashMap<>();
+
     /**
      * Constructs a response adaptor wrapping the given response.
      *

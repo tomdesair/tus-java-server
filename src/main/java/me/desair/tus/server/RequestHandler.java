@@ -2,9 +2,9 @@ package me.desair.tus.server;
 
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.TusServletResponse;
 
 import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
 public interface RequestHandler {

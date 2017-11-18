@@ -2,6 +2,7 @@ package me.desair.tus.server.core;
 
 import me.desair.tus.server.*;
 import me.desair.tus.server.core.validation.*;
+import me.desair.tus.server.util.AbstractTusFeature;
 
 import java.util.List;
 

@@ -5,6 +5,7 @@ import me.desair.tus.server.creation.validation.PostURIValidator;
 import me.desair.tus.server.creation.validation.PostEmptyRequestValidator;
 import me.desair.tus.server.creation.validation.UploadDeferLengthValidator;
 import me.desair.tus.server.creation.validation.UploadLengthValidator;
+import me.desair.tus.server.util.AbstractTusFeature;
 
 import java.util.List;
 
