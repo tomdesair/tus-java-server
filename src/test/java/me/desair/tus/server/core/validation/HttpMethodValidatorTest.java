@@ -1,7 +1,6 @@
 package me.desair.tus.server.core.validation;
 
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.core.validation.HttpMethodValidator;
 import me.desair.tus.server.exception.UnsupportedMethodException;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -24,11 +23,11 @@ public class HttpMethodValidatorTest {
 
     @Test
     public void validateValid() throws Exception {
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, idFactory);
+        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService);
     }
 
     @Test(expected = UnsupportedMethodException.class)
     public void validateInvalid() throws Exception {
-        validator.validate(null, servletRequest, uploadStorageService, idFactory);
+        validator.validate(null, servletRequest, uploadStorageService);
     }
 }

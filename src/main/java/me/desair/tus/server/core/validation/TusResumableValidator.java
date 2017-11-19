@@ -6,7 +6,6 @@ import me.desair.tus.server.TusFileUploadHandler;
 import me.desair.tus.server.util.Utils;
 import me.desair.tus.server.exception.InvalidTusResumableException;
 import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.lang3.StringUtils;
 
@@ -24,7 +23,7 @@ import javax.servlet.http.HttpServletRequest;
  */
 public class TusResumableValidator extends AbstractRequestValidator {
 
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
         String requestVersion = Utils.getHeader(request, HttpHeader.TUS_RESUMABLE);
         if (!HttpMethod.OPTIONS.equals(method) && !StringUtils.equals(requestVersion, TusFileUploadHandler.TUS_API_VERSION)) {
             throw new InvalidTusResumableException("This server does not support tus protocol version " + requestVersion);

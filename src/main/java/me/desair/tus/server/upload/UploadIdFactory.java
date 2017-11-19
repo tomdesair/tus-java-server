@@ -16,7 +16,11 @@ public class UploadIdFactory {
     }
 
     public UUID readUploadId(final HttpServletRequest request) {
-        String pathId = StringUtils.substringAfter(request.getRequestURI(), uploadURI);
+        return readUploadId(request.getRequestURI());
+    }
+
+    public UUID readUploadId(final String url) {
+        String pathId = StringUtils.substringAfter(url, uploadURI);
         UUID id = null;
 
         if(StringUtils.isNotBlank(pathId)) {

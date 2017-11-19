@@ -6,7 +6,6 @@ import me.desair.tus.server.util.Utils;
 import me.desair.tus.server.core.validation.AbstractRequestValidator;
 import me.desair.tus.server.exception.MaxUploadLengthExceededException;
 import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
 
 import javax.servlet.http.HttpServletRequest;
@@ -18,8 +17,7 @@ import javax.servlet.http.HttpServletRequest;
 public class UploadLengthValidator extends AbstractRequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService,
-                         final UploadIdFactory idFactory) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
 
         Long uploadLength = Utils.getLongHeader(request, HttpHeader.UPLOAD_LENGTH);
         if(uploadLength != null

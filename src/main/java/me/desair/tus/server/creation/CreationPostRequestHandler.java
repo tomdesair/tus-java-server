@@ -1,7 +1,6 @@
 package me.desair.tus.server.creation;
 
 import me.desair.tus.server.*;
-import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletResponse;
@@ -30,27 +29,21 @@ public class CreationPostRequestHandler implements RequestHandler {
 
     @Override
     public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse,
-                        final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws IOException {
+                        final UploadStorageService uploadStorageService) throws IOException {
 
-        UUID id;
-        UploadInfo info;
-        do {
-            id = idFactory.createId();
-            info = buildUploadInfo(servletRequest, id);
-        } while(!uploadStorageService.create(info));
+        UploadInfo info = buildUploadInfo(servletRequest);
+        info = uploadStorageService.create(info);
 
         //We've already validated that the current request URL matches our idFactory.getUploadURI() so we can safely use it.
-        String url = servletRequest.getRequestURI() + "/" + id;
+        String url = servletRequest.getRequestURI() + "/" + info.getId();
         servletResponse.setHeader(HttpHeader.LOCATION, url);
         servletResponse.setStatus(HttpServletResponse.SC_CREATED);
 
         log.debug("Create upload location {}", url);
     }
 
-    private UploadInfo buildUploadInfo(final HttpServletRequest servletRequest, final UUID id) {
+    private UploadInfo buildUploadInfo(final HttpServletRequest servletRequest) {
         UploadInfo info = new UploadInfo();
-
-        info.setId(id);
 
         Long length = Utils.getLongHeader(servletRequest, HttpHeader.UPLOAD_LENGTH);
         if(length != null) {
@@ -59,7 +52,7 @@ public class CreationPostRequestHandler implements RequestHandler {
 
         String metadata = Utils.getHeader(servletRequest, HttpHeader.UPLOAD_METADATA);
         if(StringUtils.isNotBlank(metadata)) {
-            info.setMetadata(metadata);
+            info.setEncodedMetadata(metadata);
         }
 
         return info;

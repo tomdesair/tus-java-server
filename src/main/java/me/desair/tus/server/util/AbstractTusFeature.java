@@ -31,7 +31,7 @@ public abstract class AbstractTusFeature implements TusFeature {
     public void validate(final HttpMethod method, final HttpServletRequest servletRequest, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws TusException {
         for (RequestValidator requestValidator : requestValidators) {
             if(requestValidator.supports(method)) {
-                requestValidator.validate(method, servletRequest, uploadStorageService, idFactory);
+                requestValidator.validate(method, servletRequest, uploadStorageService);
             }
         }
     }
@@ -40,7 +40,7 @@ public abstract class AbstractTusFeature implements TusFeature {
     public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws IOException {
         for (RequestHandler requestHandler : requestHandlers) {
             if(requestHandler.supports(method)) {
-                requestHandler.process(method, servletRequest, servletResponse, uploadStorageService, idFactory);
+                requestHandler.process(method, servletRequest, servletResponse, uploadStorageService);
             }
         }
     }

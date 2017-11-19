@@ -7,13 +7,13 @@ import java.util.UUID;
 public class UploadInfo {
 
     private Long offset;
-    private String metadata;
+    private String encodedMetadata;
     private Long length;
     private UUID id;
 
     public UploadInfo() {
         offset = 0l;
-        metadata = null;
+        encodedMetadata = null;
         length = null;
     }
 
@@ -25,16 +25,16 @@ public class UploadInfo {
         this.offset = offset;
     }
 
-    public String getMetadata() {
-        return metadata;
+    public String getEncodedMetadata() {
+        return encodedMetadata;
     }
 
-    public void setMetadata(final String metadata) {
-        this.metadata = metadata;
+    public void setEncodedMetadata(final String encodedMetadata) {
+        this.encodedMetadata = encodedMetadata;
     }
 
     public boolean hasMetadata() {
-        return StringUtils.isNotBlank(metadata);
+        return StringUtils.isNotBlank(encodedMetadata);
     }
 
     public Long getLength() {

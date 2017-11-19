@@ -3,7 +3,6 @@ package me.desair.tus.server.util;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
-import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
 
 import javax.servlet.http.HttpServletRequest;
@@ -19,7 +18,7 @@ public abstract class AbstractExtensionRequestHandler implements RequestHandler 
     }
 
     @Override
-    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) {
+    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService) {
         StringBuilder extensionBuilder = new StringBuilder(servletResponse.getHeader(HttpHeader.TUS_EXTENSION));
 
         appendExtensions(extensionBuilder);

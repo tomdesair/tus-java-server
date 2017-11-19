@@ -5,20 +5,17 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.util.Utils;
 import me.desair.tus.server.exception.InvalidContentLengthException;
 import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 
 import javax.servlet.http.HttpServletRequest;
-import java.util.UUID;
 
 public class ContentLengthValidator extends AbstractRequestValidator {
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
         Long contentLength = Utils.getLongHeader(request, HttpHeader.CONTENT_LENGTH);
 
-        UUID id = idFactory.readUploadId(request);
-        UploadInfo uploadInfo = uploadStorageService.getUploadInfo(id);
+        UploadInfo uploadInfo = uploadStorageService.getUploadInfo(request.getRequestURI());
 
         if(contentLength != null
                 && uploadInfo != null

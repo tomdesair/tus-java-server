@@ -5,14 +5,12 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.util.Utils;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadOffsetMismatchException;
-import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.lang3.StringUtils;
 
 import javax.servlet.http.HttpServletRequest;
 import java.util.Objects;
-import java.util.UUID;
 
 /**
  * The Upload-Offset header’s value MUST be equal to the current offset of the resource.
@@ -21,11 +19,10 @@ import java.util.UUID;
 public class UploadOffsetValidator extends AbstractRequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
         String uploadOffset = Utils.getHeader(request, HttpHeader.UPLOAD_OFFSET);
 
-        UUID id = idFactory.readUploadId(request);
-        UploadInfo uploadInfo = uploadStorageService.getUploadInfo(id);
+        UploadInfo uploadInfo = uploadStorageService.getUploadInfo(request.getRequestURI());
 
         if(uploadInfo != null) {
             String expectedOffset = Objects.toString(uploadInfo.getOffset());

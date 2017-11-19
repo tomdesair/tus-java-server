@@ -1,7 +1,6 @@
 package me.desair.tus.server.core;
 
 import me.desair.tus.server.*;
-import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletResponse;
@@ -11,7 +10,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Objects;
-import java.util.UUID;
 
 /**
  * The Server SHOULD accept PATCH requests against any upload URL and apply the bytes contained in the message at
@@ -30,15 +28,14 @@ public class CorePatchRequestHandler implements RequestHandler {
 
     @Override
     public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse,
-                        final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws IOException {
+                        final UploadStorageService uploadStorageService) throws IOException {
 
-        UUID id = idFactory.readUploadId(servletRequest);
-        UploadInfo uploadInfo = uploadStorageService.getUploadInfo(id);
+        UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI());
 
         if(uploadInfo.isUploadInProgress()) {
             Long offset = Utils.getLongHeader(servletRequest, HttpHeader.UPLOAD_OFFSET);
 
-            uploadInfo = uploadStorageService.append(id, offset, servletRequest.getInputStream());
+            uploadInfo = uploadStorageService.append(uploadInfo.getId(), offset, servletRequest.getInputStream());
         }
 
         servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, Objects.toString(uploadInfo.getOffset()));

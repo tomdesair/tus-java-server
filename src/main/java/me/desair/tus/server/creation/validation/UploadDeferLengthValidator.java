@@ -6,7 +6,6 @@ import me.desair.tus.server.util.Utils;
 import me.desair.tus.server.core.validation.AbstractRequestValidator;
 import me.desair.tus.server.exception.InvalidUploadLengthException;
 import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.lang3.math.NumberUtils;
 
@@ -20,7 +19,7 @@ import javax.servlet.http.HttpServletRequest;
 public class UploadDeferLengthValidator extends AbstractRequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
         boolean valid = false;
 
         if(NumberUtils.isCreatable(Utils.getHeader(request, HttpHeader.UPLOAD_LENGTH))) {

@@ -6,7 +6,6 @@ import me.desair.tus.server.util.Utils;
 import me.desair.tus.server.core.validation.AbstractRequestValidator;
 import me.desair.tus.server.exception.InvalidContentLengthException;
 import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
 
 import javax.servlet.http.HttpServletRequest;
@@ -17,7 +16,7 @@ import javax.servlet.http.HttpServletRequest;
 public class PostEmptyRequestValidator extends AbstractRequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
         Long contentLength = Utils.getLongHeader(request, HttpHeader.CONTENT_LENGTH);
         if(contentLength != null && contentLength > 0) {
             throw new InvalidContentLengthException("A POST request should not have content and a Content-Length header with value 0");
