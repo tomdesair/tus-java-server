@@ -9,10 +9,11 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 
 import javax.servlet.http.HttpServletRequest;
+import java.io.IOException;
 
 public class ContentLengthValidator extends AbstractRequestValidator {
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException, IOException {
         Long contentLength = Utils.getLongHeader(request, HttpHeader.CONTENT_LENGTH);
 
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(request.getRequestURI());

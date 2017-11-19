@@ -2,9 +2,10 @@ package me.desair.tus.server.upload;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.io.Serializable;
 import java.util.UUID;
 
-public class UploadInfo {
+public class UploadInfo implements Serializable {
 
     private Long offset;
     private String encodedMetadata;

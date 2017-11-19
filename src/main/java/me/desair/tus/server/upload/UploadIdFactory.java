@@ -38,7 +38,7 @@ public class UploadIdFactory {
         return uploadURI;
     }
 
-    public UUID createId() {
+    public synchronized UUID createId() {
         return UUID.randomUUID();
     }
 }

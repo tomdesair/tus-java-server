@@ -9,6 +9,7 @@ import me.desair.tus.server.upload.UploadStorageService;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.util.Objects;
 
 /** A HEAD request is used to determine the offset at which the upload should be continued.
@@ -28,7 +29,7 @@ public class CoreHeadRequestHandler implements RequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService) {
+    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService) throws IOException {
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI());
 
         if(uploadInfo.hasLength()) {

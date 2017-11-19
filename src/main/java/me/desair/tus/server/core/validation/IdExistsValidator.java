@@ -6,6 +6,7 @@ import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadStorageService;
 
 import javax.servlet.http.HttpServletRequest;
+import java.io.IOException;
 
 /**
  * If the resource is not found, the Server SHOULD return either the
@@ -14,7 +15,7 @@ import javax.servlet.http.HttpServletRequest;
 public class IdExistsValidator extends AbstractRequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException, IOException {
 
         if(uploadStorageService.getUploadInfo(request.getRequestURI()) == null) {
             throw new UploadNotFoundException("The upload for path " + request.getRequestURI() + " was not found.");

@@ -10,6 +10,7 @@ import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.lang3.StringUtils;
 
 import javax.servlet.http.HttpServletRequest;
+import java.io.IOException;
 import java.util.Objects;
 
 /**
@@ -19,7 +20,7 @@ import java.util.Objects;
 public class UploadOffsetValidator extends AbstractRequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException, IOException {
         String uploadOffset = Utils.getHeader(request, HttpHeader.UPLOAD_OFFSET);
 
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(request.getRequestURI());

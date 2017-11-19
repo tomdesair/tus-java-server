@@ -8,6 +8,7 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 
 import javax.servlet.http.HttpServletRequest;
+import java.io.IOException;
 
 /** A HEAD request can be used to retrieve the metadata that was supplied at creation.
  *
@@ -25,7 +26,7 @@ public class CreationHeadRequestHandler implements RequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService) {
+    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService) throws IOException {
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI());
 
         if(uploadInfo.hasMetadata()) {

@@ -15,7 +15,7 @@ public interface TusFeature {
 
     String getName();
 
-    void validate(final HttpMethod method, final HttpServletRequest servletRequest, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws TusException;
+    void validate(final HttpMethod method, final HttpServletRequest servletRequest, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws TusException, IOException;
 
     void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws IOException;
 

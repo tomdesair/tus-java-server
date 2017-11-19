@@ -4,6 +4,7 @@ import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 
 import javax.servlet.http.HttpServletRequest;
+import java.io.IOException;
 
 /**
  * Interface for request validators
@@ -17,7 +18,7 @@ public interface RequestValidator {
      * @param uploadStorageService The current upload storage service
      * @throws TusException When validation fails and the request should not be processed
      */
-    void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException;
+    void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException, IOException;
 
     /**
      * Test if this validator supports the given HTTP method

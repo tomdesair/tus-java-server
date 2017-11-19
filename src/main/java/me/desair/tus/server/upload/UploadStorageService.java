@@ -1,5 +1,6 @@
 package me.desair.tus.server.upload;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.UUID;
@@ -14,14 +15,14 @@ public interface UploadStorageService {
      * @param id The id for which to lookup the upload info. This parameter can be null.
      * @return The upload info matching the given ID, or null when not found.
      */
-    UploadInfo getUploadInfo(final UUID id);
+    UploadInfo getUploadInfo(final UUID id) throws IOException;
 
     /**
      * Method to retrieve the upload info by its upload URL
      * @param uploadUrl The URL corresponding to this upload. This parameter can be null.
      * @return The upload info matching the given URL, or null when not found.
      */
-    UploadInfo getUploadInfo(final String uploadUrl);
+    UploadInfo getUploadInfo(final String uploadUrl) throws IOException;
 
     /**
      * The URI which is configured as the upload endpoint
@@ -44,25 +45,37 @@ public interface UploadStorageService {
      * @param inputStream The input stream containing the bytes to append
      * @return The new {@link UploadInfo} for this upload
      */
-    UploadInfo append(final UUID id, final Long offset, final InputStream inputStream);
+    UploadInfo append(final UUID id, final Long offset, final InputStream inputStream) throws IOException;
+
+    /**
+     * Limit the maximum upload size to the given value
+     * @param maxUploadSize The maximum upload limit to set
+     */
+    void setMaxUploadSize(Long maxUploadSize);
+
+    /**
+     * Get the maximum upload size configured on this storage service
+     * @return The maximum upload size. Null if not configured.
+     */
+    Long getMaxUploadSize();
 
     /**
      * Create an upload location with the given upload information
      * @param info The Upload information to use to create the new upload
      * @return An {@link UploadInfo} object containing the information used to create the upload and the unique ID of this upload
      */
-    UploadInfo create(final UploadInfo info);
+    UploadInfo create(final UploadInfo info) throws IOException;
 
     /**
      * Update the upload information for the provided ID.
      * @param uploadInfo The upload info object containing the ID and information to update
      */
-    void update(final UploadInfo uploadInfo);
+    void update(final UploadInfo uploadInfo) throws IOException;
 
     /**
      * Get the uploaded bytes corresponding to the given upload URL as a stream
      * @param uploadURI The URI
      * @return an {@link OutputStream} containing the bytes of the upload
      */
-    OutputStream getUploadedBytes(final String uploadURI);
+    InputStream getUploadedBytes(final String uploadURI) throws IOException;
 }

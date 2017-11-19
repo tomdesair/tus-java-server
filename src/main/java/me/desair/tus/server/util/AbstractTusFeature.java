@@ -28,7 +28,7 @@ public abstract class AbstractTusFeature implements TusFeature {
     protected abstract void initRequestHandlers(final List<RequestHandler> requestHandlers);
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest servletRequest, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest servletRequest, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws TusException, IOException {
         for (RequestValidator requestValidator : requestValidators) {
             if(requestValidator.supports(method)) {
                 requestValidator.validate(method, servletRequest, uploadStorageService);
