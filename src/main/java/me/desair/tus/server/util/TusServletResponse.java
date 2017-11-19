@@ -16,7 +16,7 @@ public class TusServletResponse extends HttpServletResponseWrapper {
     /**
      * Constructs a response adaptor wrapping the given response.
      *
-     * @param response
+     * @param response The response that has to be wrapped
      * @throws IllegalArgumentException if the response is null
      */
     public TusServletResponse(final HttpServletResponse response) {

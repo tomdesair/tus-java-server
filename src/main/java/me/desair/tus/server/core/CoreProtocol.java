@@ -32,7 +32,7 @@ public class CoreProtocol extends AbstractTusFeature {
     protected void initRequestHandlers(final List<RequestHandler> requestHandlers) {
         requestHandlers.add(new CoreTusResumableHandler());
         requestHandlers.add(new CoreHeadRequestHandler());
-        requestHandlers.add(new CoreOptionsRequestHandler());
         requestHandlers.add(new CorePatchRequestHandler());
+        requestHandlers.add(new CoreOptionsRequestHandler());
     }
 }

@@ -37,4 +37,10 @@ public interface UploadStorageService {
      * @return false if the given ID was already in use and a new attempt should be made, true otherwise
      */
     boolean create(final UploadInfo info);
+
+    /**
+     * Update the upload information for the provided ID.
+     * @param uploadInfo The upload info object containing the ID and information to update
+     */
+    void update(UploadInfo uploadInfo);
 }

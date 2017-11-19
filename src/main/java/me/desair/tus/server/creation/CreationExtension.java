@@ -30,6 +30,7 @@ public class CreationExtension extends AbstractTusFeature {
     @Override
     protected void initRequestHandlers(final List<RequestHandler> requestHandlers) {
         requestHandlers.add(new CreationHeadRequestHandler());
+        requestHandlers.add(new CreationPatchRequestHandler());
         requestHandlers.add(new CreationPostRequestHandler());
         requestHandlers.add(new CreationOptionsRequestHandler());
     }
