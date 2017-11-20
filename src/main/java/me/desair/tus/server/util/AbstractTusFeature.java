@@ -5,7 +5,6 @@ import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.TusFeature;
 import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
 
 import javax.servlet.http.HttpServletRequest;
@@ -28,7 +27,7 @@ public abstract class AbstractTusFeature implements TusFeature {
     protected abstract void initRequestHandlers(final List<RequestHandler> requestHandlers);
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest servletRequest, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws TusException, IOException {
+    public void validate(final HttpMethod method, final HttpServletRequest servletRequest, final UploadStorageService uploadStorageService) throws TusException, IOException {
         for (RequestValidator requestValidator : requestValidators) {
             if(requestValidator.supports(method)) {
                 requestValidator.validate(method, servletRequest, uploadStorageService);
@@ -37,7 +36,7 @@ public abstract class AbstractTusFeature implements TusFeature {
     }
 
     @Override
-    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final UploadIdFactory idFactory) throws IOException {
+    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService) throws IOException {
         for (RequestHandler requestHandler : requestHandlers) {
             if(requestHandler.supports(method)) {
                 requestHandler.process(method, servletRequest, servletResponse, uploadStorageService);

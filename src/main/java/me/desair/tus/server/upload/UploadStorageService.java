@@ -78,4 +78,10 @@ public interface UploadStorageService {
      * @return an {@link OutputStream} containing the bytes of the upload
      */
     InputStream getUploadedBytes(final String uploadURI) throws IOException;
+
+    /**
+     * Clean up any upload data that is expired according to the configured expiration time
+     * @param uploadLockingService
+     */
+    void cleanupExpiredUploads(final UploadLockingService uploadLockingService);
 }

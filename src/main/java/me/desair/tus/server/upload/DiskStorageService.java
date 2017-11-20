@@ -1,35 +1,38 @@
 package me.desair.tus.server.upload;
 
-import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.Validate;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.channels.*;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.ReadableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Objects;
 import java.util.UUID;
 
-import static java.nio.file.StandardOpenOption.*;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 /**
  * Implementation of {@link UploadStorageService} that implements storage on disk
  */
-public class DiskUploadStorageService implements UploadStorageService, UploadLockingService {
+public class DiskStorageService extends AbstractDiskBasedService implements UploadStorageService {
 
-    private Path storagePath;
+    private static final String UPLOAD_SUB_DIRECTORY = "uploads";
+    private static final String INFO_FILE = "info";
+
     private Long maxUploadSize = null;
     private UploadIdFactory idFactory;
 
-    public DiskUploadStorageService(final UploadIdFactory idFactory, final String storagePath) {
-        Validate.notNull(idFactory, "The UploadIdFactory cannot be null");
-        Validate.notBlank(storagePath, "The storage path cannot be blank");
+    public DiskStorageService(final UploadIdFactory idFactory, final String storagePath) {
+        super(storagePath + File.pathSeparator + UPLOAD_SUB_DIRECTORY);
+        Validate.notNull(idFactory, "The IdFactory cannot be null");
         this.idFactory = idFactory;
-        this.storagePath = Paths.get(storagePath);
     }
 
     @Override
@@ -141,73 +144,25 @@ public class DiskUploadStorageService implements UploadStorageService, UploadLoc
     }
 
     @Override
-    public UploadLock lockUploadByUri(final String requestURI) throws TusException {
-        String message = "The upload " + requestURI + " is already locked";
-        UUID id = idFactory.readUploadId(requestURI);
-
-        UploadLock lock = null;
-        FileChannel fileChannel = null;
-
-        try {
-            Path lockPath = getLockPath(id);
-            //If lockPath is not null, we know this is a valid Upload URI
-            if (lockPath != null) {
-
-                //Try to acquire a lock
-                //TODO we might need to find a way to remove this lock on upload deletion
-                fileChannel = FileChannel.open(lockPath, CREATE, WRITE);
-                FileLock fileLock = fileChannel.tryLock();
-
-                if(fileLock == null) {
-                    fileChannel.close();
-                    throw new UploadAlreadyLockedException(message);
-                } else {
-                    lock = new FileBasedLock(requestURI, fileChannel, fileLock);
-                }
-            }
-
-        } catch (IOException | OverlappingFileLockException e) {
-            if(fileChannel != null) {
-                try {
-                    fileChannel.close();
-                } catch (IOException e1) {
-                    //Should not happen
-                }
-            }
-
-            throw new UploadAlreadyLockedException(message);
-        }
-
-        return lock;
-    }
-
-    private Path getUploadDirectory(final UUID id) throws IOException {
-        if(id == null) {
-            return null;
-        } else {
-            return storagePath.resolve(id.toString());
-        }
-    }
-
-    private Path createUploadDirectory(final UUID id) throws IOException {
-        return Files.createDirectories(getUploadDirectory(id));
+    public void cleanupExpiredUploads(final UploadLockingService uploadLockingService) {
+        //TODO
     }
 
     private Path getBytesPath(final UUID id) throws IOException {
         return getPathInUploadDir(id, Objects.toString(id));
     }
 
-    private Path getLockPath(final UUID id) throws IOException {
-        return getPathInUploadDir(id, "lock");
+    private Path getInfoPath(final UUID id) throws IOException {
+        return getPathInUploadDir(id, INFO_FILE);
     }
 
-    private Path getInfoPath(final UUID id) throws IOException {
-        return getPathInUploadDir(id, "info");
+    private Path createUploadDirectory(final UUID id) throws IOException {
+        return Files.createDirectories(getPathInStorageDirectory(id));
     }
 
     private Path getPathInUploadDir(final UUID id, final String fileName) throws IOException {
         //Get the upload directory
-        Path uploadDir = getUploadDirectory(id);
+        Path uploadDir = getPathInStorageDirectory(id);
         if(uploadDir != null && Files.exists(uploadDir)) {
             return uploadDir.resolve(fileName);
         } else {

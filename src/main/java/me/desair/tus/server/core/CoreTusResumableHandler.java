@@ -20,6 +20,6 @@ public class CoreTusResumableHandler implements RequestHandler {
     @Override
     public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService) {
         //Always set Tus-Resumable header
-        servletResponse.addHeader(HttpHeader.TUS_RESUMABLE, TusFileUploadHandler.TUS_API_VERSION);
+        servletResponse.addHeader(HttpHeader.TUS_RESUMABLE, TusFileUploadReceivingService.TUS_API_VERSION);
     }
 }

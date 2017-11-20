@@ -1,10 +1,10 @@
 package me.desair.tus.server.exception;
 
-import lombok.Getter;
-
+/**
+ * Super class for exception in the tus protocol
+ */
 public class TusException extends Exception {
 
-    @Getter
     private final int status;
 
     public TusException(final int status, final String message) {
@@ -14,5 +14,9 @@ public class TusException extends Exception {
     public TusException(final int status, final String message, Throwable e) {
         super(message, e);
         this.status = status;
+    }
+
+    public int getStatus() {
+        return status;
     }
 }

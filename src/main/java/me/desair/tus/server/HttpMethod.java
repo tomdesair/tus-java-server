@@ -1,7 +1,7 @@
 package me.desair.tus.server;
 
-import lombok.NonNull;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Validate;
 
 import javax.servlet.http.HttpServletRequest;
 
@@ -34,7 +34,9 @@ public enum HttpMethod {
         return null;
     }
 
-    public static HttpMethod getMethod(@NonNull final HttpServletRequest request) {
+    public static HttpMethod getMethod(final HttpServletRequest request) {
+        Validate.notNull(request, "The HttpServletRequest cannot be null");
+
         String requestMethod = request.getHeader(HttpHeader.METHOD_OVERRIDE);
         if (StringUtils.isBlank(requestMethod) || forName(requestMethod) == null) {
             requestMethod = request.getMethod();

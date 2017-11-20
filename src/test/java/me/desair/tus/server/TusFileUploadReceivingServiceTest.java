@@ -7,22 +7,22 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.junit.Ignore;
 import org.junit.Test;
 
-public class TusFileUploadHandlerTest {
+public class TusFileUploadReceivingServiceTest {
 
     private MockHttpServletRequest servletRequest;
     private MockHttpServletResponse servletResponse;
-    private TusFileUploadHandler tusFileUploadHandler;
+    private TusFileUploadReceivingService tusFileUploadReceivingService;
 
     @Before
     public void setUp() {
         servletRequest = new MockHttpServletRequest();
         servletResponse = new MockHttpServletResponse();
-        tusFileUploadHandler = new TusFileUploadHandler();
+        tusFileUploadReceivingService = new TusFileUploadReceivingService();
     }
 
     @Test(expected = NullPointerException.class)
     public void testWithFileStoreServiceNull() throws Exception {
-        tusFileUploadHandler.withFileStoreService(null);
+        tusFileUploadReceivingService.withUploadStorageService(null);
     }
 
     @Test

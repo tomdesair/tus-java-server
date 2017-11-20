@@ -25,6 +25,6 @@ public class CoreOptionsRequestHandler implements RequestHandler {
             servletResponse.setHeader(HttpHeader.TUS_MAX_SIZE, Objects.toString(uploadStorageService.getMaxSizeInBytes()));
         }
 
-        servletResponse.setHeader(HttpHeader.TUS_VERSION, TusFileUploadHandler.TUS_API_VERSION);
+        servletResponse.setHeader(HttpHeader.TUS_VERSION, TusFileUploadReceivingService.TUS_API_VERSION);
     }
 }

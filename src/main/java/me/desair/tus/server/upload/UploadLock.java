@@ -3,7 +3,7 @@ package me.desair.tus.server.upload;
 /**
  * Interface that represents a lock on an upload
  */
-public interface UploadLock {
+public interface UploadLock extends AutoCloseable {
 
     /**
      * Get the upload URI of the upload that is locked by this lock
@@ -12,7 +12,8 @@ public interface UploadLock {
     String getUploadUri();
 
     /**
-     * Method to release the lock on an upload when done processing it
+     * Method to release the lock on an upload when done processing it. It's possible that this method is
+     * called multiple times within the same request
      */
     void release();
 
