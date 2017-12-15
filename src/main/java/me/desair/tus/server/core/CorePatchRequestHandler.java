@@ -4,7 +4,6 @@ import me.desair.tus.server.*;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletResponse;
-import me.desair.tus.server.util.Utils;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -33,9 +32,7 @@ public class CorePatchRequestHandler implements RequestHandler {
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI());
 
         if(uploadInfo.isUploadInProgress()) {
-            Long offset = Utils.getLongHeader(servletRequest, HttpHeader.UPLOAD_OFFSET);
-
-            uploadInfo = uploadStorageService.append(uploadInfo.getId(), offset, servletRequest.getInputStream());
+            uploadInfo = uploadStorageService.append(uploadInfo, servletRequest.getInputStream());
         }
 
         servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, Objects.toString(uploadInfo.getOffset()));

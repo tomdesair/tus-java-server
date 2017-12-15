@@ -31,21 +31,14 @@ public interface UploadStorageService {
     String getUploadURI();
 
     /**
-     * Max upload size in bytes allowed or configured in this Storage Service
-     * @return the maximum number of bytes, or zero if there is no maximum
-     */
-    long getMaxSizeInBytes();
-
-    /**
      * Append the bytes in the give {@link InputStream} to the upload with the given ID starting at the provided offset.
      * This method also updates the {@link UploadInfo} corresponding to this upload. The Upload Storage server should
      * not exceed its max upload size when writing bytes.
-     * @param id The ID of the upload
-     * @param offset The offset at which to start appending
+     * @param upload The ID of the upload
      * @param inputStream The input stream containing the bytes to append
      * @return The new {@link UploadInfo} for this upload
      */
-    UploadInfo append(final UUID id, final Long offset, final InputStream inputStream) throws IOException;
+    UploadInfo append(final UploadInfo upload, final InputStream inputStream) throws IOException;
 
     /**
      * Limit the maximum upload size to the given value
@@ -55,9 +48,9 @@ public interface UploadStorageService {
 
     /**
      * Get the maximum upload size configured on this storage service
-     * @return The maximum upload size. Null if not configured.
+     * @return The maximum upload size or zero if no maximum
      */
-    Long getMaxUploadSize();
+    long getMaxUploadSize();
 
     /**
      * Create an upload location with the given upload information

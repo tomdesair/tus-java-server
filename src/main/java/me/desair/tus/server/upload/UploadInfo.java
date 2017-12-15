@@ -1,6 +1,8 @@
 package me.desair.tus.server.upload;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.apache.commons.lang3.builder.HashCodeBuilder;
 
 import java.io.Serializable;
 import java.util.UUID;
@@ -53,11 +55,11 @@ public class UploadInfo implements Serializable {
     /**
      * An upload is still in progress:
      * - as long as we did not receive information on the total length
-     * - the total length matches the current offset
+     * - the total length does not match the current offset
      * @return true if the upload is still in progress, false otherwise
      */
     public boolean isUploadInProgress() {
-        return length == null || offset.equals(length);
+        return length == null || !offset.equals(length);
     }
 
     public void setId(final UUID id) {
@@ -66,5 +68,31 @@ public class UploadInfo implements Serializable {
 
     public UUID getId() {
         return id;
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+        if (this == o) return true;
+
+        if (o == null || getClass() != o.getClass()) return false;
+
+        UploadInfo info = (UploadInfo) o;
+
+        return new EqualsBuilder()
+                .append(getOffset(), info.getOffset())
+                .append(getEncodedMetadata(), info.getEncodedMetadata())
+                .append(getLength(), info.getLength())
+                .append(getId(), info.getId())
+                .isEquals();
+    }
+
+    @Override
+    public int hashCode() {
+        return new HashCodeBuilder(17, 37)
+                .append(getOffset())
+                .append(getEncodedMetadata())
+                .append(getLength())
+                .append(getId())
+                .toHashCode();
     }
 }

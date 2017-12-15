@@ -41,8 +41,8 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public Long getMaxUploadSize() {
-        return maxUploadSize;
+    public long getMaxUploadSize() {
+        return maxUploadSize == null ? 0 : maxUploadSize;
     }
 
     @Override
@@ -89,19 +89,12 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public long getMaxSizeInBytes() {
-        return maxUploadSize == null ? 0 : maxUploadSize;
-    }
-
-    @Override
-    public UploadInfo append(final UUID id, final Long offset, final InputStream inputStream) throws IOException {
-        UploadInfo info = null;
-        Path bytesPath = getBytesPath(id);
-
-        if(bytesPath != null) {
-            long max = getMaxSizeInBytes() > 0 ? getMaxSizeInBytes() : Long.MAX_VALUE;
+    public UploadInfo append(final UploadInfo info, final InputStream inputStream) throws IOException {
+        if(info != null) {
+            Path bytesPath = getBytesPath(info.getId());
+            long max = getMaxUploadSize() > 0 ? getMaxUploadSize() : Long.MAX_VALUE;
             long transferred = 0;
-            info = getUploadInfo(id);
+            Long offset = info.getOffset();
 
             FileLock lock = null;
             try(ReadableByteChannel uploadedBytes = Channels.newChannel(inputStream);

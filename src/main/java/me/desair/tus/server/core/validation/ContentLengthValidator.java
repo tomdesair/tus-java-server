@@ -2,6 +2,7 @@ package me.desair.tus.server.core.validation;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.util.Utils;
 import me.desair.tus.server.exception.InvalidContentLengthException;
 import me.desair.tus.server.exception.TusException;
@@ -15,7 +16,7 @@ import java.io.IOException;
  * Validate that the given upload length in combination with the bytes we already received,
  * does not exceed the declared initial length on upload creation.
  */
-public class ContentLengthValidator extends AbstractRequestValidator {
+public class ContentLengthValidator implements RequestValidator {
 
     @Override
     public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException, IOException {

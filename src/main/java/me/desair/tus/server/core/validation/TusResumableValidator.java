@@ -2,6 +2,7 @@ package me.desair.tus.server.core.validation;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.TusFileUploadReceivingService;
 import me.desair.tus.server.util.Utils;
 import me.desair.tus.server.exception.InvalidTusResumableException;
@@ -21,7 +22,7 @@ import javax.servlet.http.HttpServletRequest;
  *
  * (https://tus.io/protocols/resumable-upload.html#tus-resumable)
  */
-public class TusResumableValidator extends AbstractRequestValidator {
+public class TusResumableValidator implements RequestValidator {
 
     public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
         String requestVersion = Utils.getHeader(request, HttpHeader.TUS_RESUMABLE);

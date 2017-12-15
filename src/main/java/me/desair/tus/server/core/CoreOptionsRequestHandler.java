@@ -5,6 +5,7 @@ import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletResponse;
 
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.util.Objects;
 
 /**
@@ -21,10 +22,12 @@ public class CoreOptionsRequestHandler implements RequestHandler {
 
     @Override
     public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService) {
-        if(uploadStorageService.getMaxSizeInBytes() > 0) {
-            servletResponse.setHeader(HttpHeader.TUS_MAX_SIZE, Objects.toString(uploadStorageService.getMaxSizeInBytes()));
+        if(uploadStorageService.getMaxUploadSize() > 0) {
+            servletResponse.setHeader(HttpHeader.TUS_MAX_SIZE, Objects.toString(uploadStorageService.getMaxUploadSize()));
         }
 
         servletResponse.setHeader(HttpHeader.TUS_VERSION, TusFileUploadReceivingService.TUS_API_VERSION);
+
+        servletResponse.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
 }

@@ -2,8 +2,8 @@ package me.desair.tus.server.creation.validation;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.util.Utils;
-import me.desair.tus.server.core.validation.AbstractRequestValidator;
 import me.desair.tus.server.exception.InvalidContentLengthException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -13,7 +13,7 @@ import javax.servlet.http.HttpServletRequest;
 /**
  * An empty POST request is used to create a new upload resource.
  */
-public class PostEmptyRequestValidator extends AbstractRequestValidator {
+public class PostEmptyRequestValidator implements RequestValidator {
 
     @Override
     public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {

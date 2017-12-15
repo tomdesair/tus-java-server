@@ -29,7 +29,8 @@ public class CoreHeadRequestHandler implements RequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService) throws IOException {
+    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse,
+                        final UploadStorageService uploadStorageService) throws IOException {
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI());
 
         if(uploadInfo.hasLength()) {

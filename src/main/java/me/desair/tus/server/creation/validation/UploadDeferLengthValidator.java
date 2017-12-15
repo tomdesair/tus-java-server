@@ -2,8 +2,8 @@ package me.desair.tus.server.creation.validation;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.util.Utils;
-import me.desair.tus.server.core.validation.AbstractRequestValidator;
 import me.desair.tus.server.exception.InvalidUploadLengthException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -16,7 +16,7 @@ import javax.servlet.http.HttpServletRequest;
  * a) Upload-Length to indicate the size of an entire upload in bytes.
  * b) Upload-Defer-Length: 1 if upload size is not known at the time.
  */
-public class UploadDeferLengthValidator extends AbstractRequestValidator {
+public class UploadDeferLengthValidator implements RequestValidator {
 
     @Override
     public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
