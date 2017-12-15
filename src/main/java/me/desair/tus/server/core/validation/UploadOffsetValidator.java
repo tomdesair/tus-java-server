@@ -28,7 +28,7 @@ public class UploadOffsetValidator extends AbstractRequestValidator {
         if(uploadInfo != null) {
             String expectedOffset = Objects.toString(uploadInfo.getOffset());
             if(!StringUtils.equals(expectedOffset, uploadOffset)) {
-                throw new UploadOffsetMismatchException("The Upload-Offset was " + uploadOffset + " but expected " + expectedOffset);
+                throw new UploadOffsetMismatchException("The Upload-Offset was " + StringUtils.trimToNull(uploadOffset) + " but expected " + expectedOffset);
             }
         }
 

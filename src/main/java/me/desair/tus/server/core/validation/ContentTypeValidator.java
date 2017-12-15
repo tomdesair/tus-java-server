@@ -14,7 +14,7 @@ import javax.servlet.http.HttpServletRequest;
  */
 public class ContentTypeValidator extends AbstractRequestValidator {
 
-    private static final String APPLICATION_OFFSET_OCTET_STREAM = "application/offset+octet-stream";
+    static final String APPLICATION_OFFSET_OCTET_STREAM = "application/offset+octet-stream";
 
     @Override
     public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {

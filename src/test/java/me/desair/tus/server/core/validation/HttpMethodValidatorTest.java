@@ -8,6 +8,9 @@ import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+
 public class HttpMethodValidatorTest {
 
     private MockHttpServletRequest servletRequest;
@@ -29,5 +32,17 @@ public class HttpMethodValidatorTest {
     @Test(expected = UnsupportedMethodException.class)
     public void validateInvalid() throws Exception {
         validator.validate(null, servletRequest, uploadStorageService);
+    }
+
+    @Test
+    public void supports() throws Exception {
+        assertThat(validator.supports(HttpMethod.GET), is(true));
+        assertThat(validator.supports(HttpMethod.POST), is(true));
+        assertThat(validator.supports(HttpMethod.PUT), is(true));
+        assertThat(validator.supports(HttpMethod.DELETE), is(true));
+        assertThat(validator.supports(HttpMethod.HEAD), is(true));
+        assertThat(validator.supports(HttpMethod.OPTIONS), is(true));
+        assertThat(validator.supports(HttpMethod.PATCH), is(true));
+        assertThat(validator.supports(null), is(true));
     }
 }

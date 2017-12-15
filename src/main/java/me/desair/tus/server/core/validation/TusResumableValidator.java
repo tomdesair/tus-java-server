@@ -25,8 +25,13 @@ public class TusResumableValidator extends AbstractRequestValidator {
 
     public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
         String requestVersion = Utils.getHeader(request, HttpHeader.TUS_RESUMABLE);
-        if (!HttpMethod.OPTIONS.equals(method) && !StringUtils.equals(requestVersion, TusFileUploadReceivingService.TUS_API_VERSION)) {
+        if (!StringUtils.equals(requestVersion, TusFileUploadReceivingService.TUS_API_VERSION)) {
             throw new InvalidTusResumableException("This server does not support tus protocol version " + requestVersion);
         }
+    }
+
+    @Override
+    public boolean supports(final HttpMethod method) {
+        return !HttpMethod.OPTIONS.equals(method);
     }
 }

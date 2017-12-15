@@ -24,12 +24,13 @@ public class IdExistsValidator extends AbstractRequestValidator {
 
     @Override
     public boolean supports(final HttpMethod method) {
-        switch (method) {
-            case HEAD:
-            case PATCH:
-                return true;
-            default:
-                return false;
+        if(method != null && (
+                HttpMethod.HEAD.equals(method) ||
+                HttpMethod.PATCH.equals(method)
+                )) {
+            return true;
+        } else {
+            return false;
         }
     }
 

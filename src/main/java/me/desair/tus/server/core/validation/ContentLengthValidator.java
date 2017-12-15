@@ -11,7 +11,12 @@ import me.desair.tus.server.upload.UploadStorageService;
 import javax.servlet.http.HttpServletRequest;
 import java.io.IOException;
 
+/**
+ * Validate that the given upload length in combination with the bytes we already received,
+ * does not exceed the declared initial length on upload creation.
+ */
 public class ContentLengthValidator extends AbstractRequestValidator {
+
     @Override
     public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException, IOException {
         Long contentLength = Utils.getLongHeader(request, HttpHeader.CONTENT_LENGTH);

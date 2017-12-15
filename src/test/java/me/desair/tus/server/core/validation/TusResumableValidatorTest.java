@@ -9,12 +9,14 @@ import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+
 public class TusResumableValidatorTest {
 
     private MockHttpServletRequest servletRequest;
     private TusResumableValidator validator;
     private UploadStorageService uploadStorageService;
-    private UploadIdFactory idFactory;
 
     @Before
     public void setUp() {
@@ -34,12 +36,6 @@ public class TusResumableValidatorTest {
     }
 
     @Test
-    public void validateOptions() throws Exception {
-        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "2.0.0");
-        validator.validate(HttpMethod.OPTIONS, servletRequest, uploadStorageService);
-    }
-
-    @Test
     public void validateValid() throws Exception {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         validator.validate(HttpMethod.POST, servletRequest, uploadStorageService);
@@ -49,5 +45,17 @@ public class TusResumableValidatorTest {
     public void validateNullMethod() throws Exception {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         validator.validate(null, servletRequest, uploadStorageService);
+    }
+
+    @Test
+    public void supports() throws Exception {
+        assertThat(validator.supports(HttpMethod.GET), is(true));
+        assertThat(validator.supports(HttpMethod.POST), is(true));
+        assertThat(validator.supports(HttpMethod.PUT), is(true));
+        assertThat(validator.supports(HttpMethod.DELETE), is(true));
+        assertThat(validator.supports(HttpMethod.HEAD), is(true));
+        assertThat(validator.supports(HttpMethod.OPTIONS), is(false));
+        assertThat(validator.supports(HttpMethod.PATCH), is(true));
+        assertThat(validator.supports(null), is(true));
     }
 }
