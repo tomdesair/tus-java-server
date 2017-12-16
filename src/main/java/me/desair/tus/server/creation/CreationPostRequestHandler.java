@@ -33,7 +33,7 @@ public class CreationPostRequestHandler implements RequestHandler {
         UploadInfo info = buildUploadInfo(servletRequest);
         info = uploadStorageService.create(info);
 
-        //We've already validated that the current request URL matches our idFactory.getUploadURI() so we can safely use it.
+        //We've already validated that the current request URL matches our upload URL so we can safely use it.
         String url = servletRequest.getRequestURI() + "/" + info.getId();
         servletResponse.setHeader(HttpHeader.LOCATION, url);
         servletResponse.setStatus(HttpServletResponse.SC_CREATED);

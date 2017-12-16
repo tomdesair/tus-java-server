@@ -19,7 +19,7 @@ public class PostEmptyRequestValidator implements RequestValidator {
     public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
         Long contentLength = Utils.getLongHeader(request, HttpHeader.CONTENT_LENGTH);
         if(contentLength != null && contentLength > 0) {
-            throw new InvalidContentLengthException("A POST request should not have content and a Content-Length header with value 0");
+            throw new InvalidContentLengthException("A POST request should have a Content-Length header with value 0 and no content");
         }
     }
 

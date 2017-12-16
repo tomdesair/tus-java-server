@@ -20,19 +20,23 @@ public class UploadDeferLengthValidator implements RequestValidator {
 
     @Override
     public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
-        boolean valid = false;
+        boolean uploadLength = false;
+        boolean deferredLength = false;
 
         if(NumberUtils.isCreatable(Utils.getHeader(request, HttpHeader.UPLOAD_LENGTH))) {
-            valid = true;
+            uploadLength = true;
         }
 
         if(Utils.getHeader(request, HttpHeader.UPLOAD_DEFER_LENGTH).equals("1")) {
-            valid = true;
+            deferredLength = true;
         }
 
-        if(!valid) {
+        if(!uploadLength && !deferredLength) {
             throw new InvalidUploadLengthException("No valid value was found in headers " + HttpHeader.UPLOAD_LENGTH
                 + " and " + HttpHeader.UPLOAD_DEFER_LENGTH);
+        } else if (uploadLength && deferredLength) {
+            throw new InvalidUploadLengthException("A POST request cannot contain both " + HttpHeader.UPLOAD_LENGTH
+            + " and " + HttpHeader.UPLOAD_DEFER_LENGTH + " headers.");
         }
     }
 

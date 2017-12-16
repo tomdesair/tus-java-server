@@ -19,7 +19,7 @@ public class CreationPatchRequestHandler implements RequestHandler {
 
     @Override
     public boolean supports(final HttpMethod method) {
-        return HttpMethod.HEAD.equals(method);
+        return HttpMethod.PATCH.equals(method);
     }
 
     @Override
