@@ -1,11 +1,10 @@
 package me.desair.tus.server;
 
 import org.junit.Before;
-import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.mock.web.MockHttpServletResponse;
-
 import org.junit.Ignore;
 import org.junit.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 public class TusFileUploadReceivingServiceTest {
 

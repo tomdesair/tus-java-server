@@ -1,6 +1,7 @@
 package me.desair.tus.server.core;
 
-import me.desair.tus.server.*;
+import me.desair.tus.server.RequestHandler;
+import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.core.validation.*;
 import me.desair.tus.server.util.AbstractTusFeature;
 

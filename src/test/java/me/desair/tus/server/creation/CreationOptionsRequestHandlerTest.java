@@ -2,9 +2,6 @@ package me.desair.tus.server.creation;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.TusFileUploadReceivingService;
-import me.desair.tus.server.core.CoreOptionsRequestHandler;
-import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
 import org.junit.Test;

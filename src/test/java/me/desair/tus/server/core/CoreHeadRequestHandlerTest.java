@@ -2,7 +2,6 @@ package me.desair.tus.server.core;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.core.validation.ContentLengthValidator;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletResponse;
@@ -19,9 +18,7 @@ import javax.servlet.http.HttpServletResponse;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.*;
 import static org.mockito.Matchers.anyString;
-import static org.mockito.Matchers.isNull;
 import static org.mockito.Mockito.when;
 
 @RunWith(MockitoJUnitRunner.class)

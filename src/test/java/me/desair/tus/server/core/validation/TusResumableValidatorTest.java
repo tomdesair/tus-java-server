@@ -3,7 +3,6 @@ package me.desair.tus.server.core.validation;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.InvalidTusResumableException;
-import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.junit.Before;
 import org.junit.Test;

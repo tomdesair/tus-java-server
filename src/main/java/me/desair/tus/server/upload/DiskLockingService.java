@@ -13,7 +13,6 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.DELETE_ON_CLOSE;
 import static java.nio.file.StandardOpenOption.WRITE;
 
 /**

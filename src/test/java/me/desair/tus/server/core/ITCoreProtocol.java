@@ -1,46 +1,24 @@
 package me.desair.tus.server.core;
 
+import me.desair.tus.server.AbstractTusFeatureIntegrationTest;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.core.validation.ContentTypeValidator;
 import me.desair.tus.server.exception.*;
 import me.desair.tus.server.upload.UploadInfo;
-import me.desair.tus.server.upload.UploadStorageService;
-import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.Mock;
-import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import javax.servlet.http.HttpServletResponse;
-import java.io.IOException;
 import java.io.InputStream;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Matchers.eq;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
-@RunWith(MockitoJUnitRunner.class)
-public class ITCoreProtocol {
-
-    private CoreProtocol tusFeature;
-
-    private MockHttpServletRequest servletRequest;
-
-    private MockHttpServletResponse servletResponse;
-
-    @Mock
-    private UploadStorageService uploadStorageService;
-
-    private UploadInfo uploadInfo;
+public class ITCoreProtocol extends AbstractTusFeatureIntegrationTest {
 
     @Before
     public void setUp() {
@@ -86,7 +64,7 @@ public class ITCoreProtocol {
 
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "2");
-        assertResponseHeader(HttpHeader.UPLOAD_LENGTH, null);
+        assertResponseHeader(HttpHeader.UPLOAD_LENGTH, (String) null);
         assertResponseHeader(HttpHeader.CACHE_CONTROL, "no-store");
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
     }
@@ -119,8 +97,8 @@ public class ITCoreProtocol {
 
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "2");
-        assertResponseHeader(HttpHeader.UPLOAD_LENGTH, null);
-        assertResponseHeader(HttpHeader.CACHE_CONTROL, null);
+        assertResponseHeader(HttpHeader.UPLOAD_LENGTH, (String) null);
+        assertResponseHeader(HttpHeader.CACHE_CONTROL, (String) null);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
     }
 
@@ -161,7 +139,7 @@ public class ITCoreProtocol {
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseHeader(HttpHeader.TUS_VERSION, "1.0.0");
         assertResponseHeader(HttpHeader.TUS_MAX_SIZE, "107374182400");
-        assertResponseHeader(HttpHeader.TUS_EXTENSION, null);
+        assertResponseHeader(HttpHeader.TUS_EXTENSION, (String) null);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
     }
 
@@ -175,8 +153,8 @@ public class ITCoreProtocol {
 
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseHeader(HttpHeader.TUS_VERSION, "1.0.0");
-        assertResponseHeader(HttpHeader.TUS_MAX_SIZE, null);
-        assertResponseHeader(HttpHeader.TUS_EXTENSION, null);
+        assertResponseHeader(HttpHeader.TUS_MAX_SIZE, (String) null);
+        assertResponseHeader(HttpHeader.TUS_EXTENSION, (String) null);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
     }
 
@@ -193,49 +171,7 @@ public class ITCoreProtocol {
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseHeader(HttpHeader.TUS_VERSION, "1.0.0");
         assertResponseHeader(HttpHeader.TUS_MAX_SIZE, "10");
-        assertResponseHeader(HttpHeader.TUS_EXTENSION, null);
+        assertResponseHeader(HttpHeader.TUS_EXTENSION, (String) null);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
-    }
-
-    private void prepareUploadInfo(final Long offset, final Long length) throws IOException {
-        uploadInfo = new UploadInfo();
-        uploadInfo.setOffset(offset);
-        uploadInfo.setLength(length);
-        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(uploadInfo);
-        when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class))).thenReturn(uploadInfo);
-    }
-
-    private void setRequestHeaders(String... headers) {
-        if(headers != null && headers.length > 0) {
-            for (String header : headers) {
-                switch (header) {
-                    case HttpHeader.TUS_RESUMABLE:
-                        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-                        break;
-                    case HttpHeader.CONTENT_TYPE:
-                        servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
-                        break;
-                    case HttpHeader.UPLOAD_OFFSET:
-                        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, uploadInfo.getOffset());
-                        break;
-                    case HttpHeader.CONTENT_LENGTH:
-                        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, uploadInfo.getLength() - uploadInfo.getOffset());
-                        break;
-                }
-            }
-        }
-    }
-
-    private void executeCall(final HttpMethod method) throws TusException, IOException {
-        tusFeature.validate(method, servletRequest, uploadStorageService);
-        tusFeature.process(method, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
-    }
-
-    private void assertResponseHeader(final String header, final String value) {
-        assertThat(servletResponse.getHeader(header), is(value));
-    }
-
-    private void assertResponseStatus(final int httpStatus) {
-        assertThat(servletResponse.getStatus(), is(httpStatus));
     }
 }

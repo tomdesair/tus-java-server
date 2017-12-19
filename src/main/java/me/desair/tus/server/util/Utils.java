@@ -1,6 +1,5 @@
 package me.desair.tus.server.util;
 
-import me.desair.tus.server.upload.UploadInfo;
 import org.apache.commons.lang3.StringUtils;
 
 import javax.servlet.http.HttpServletRequest;
