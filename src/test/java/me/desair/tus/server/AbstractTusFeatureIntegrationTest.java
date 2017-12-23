@@ -1,6 +1,7 @@
 package me.desair.tus.server;
 
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractTusFeature;
@@ -36,7 +37,7 @@ public abstract class AbstractTusFeatureIntegrationTest {
 
     protected UploadInfo uploadInfo;
 
-    protected void prepareUploadInfo(final Long offset, final Long length) throws IOException {
+    protected void prepareUploadInfo(final Long offset, final Long length) throws IOException, TusException {
         uploadInfo = new UploadInfo();
         uploadInfo.setOffset(offset);
         uploadInfo.setLength(length);

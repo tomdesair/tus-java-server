@@ -5,6 +5,7 @@ import me.desair.tus.server.creation.CreationExtension;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.*;
 import me.desair.tus.server.util.TusServletResponse;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +32,7 @@ public class TusFileUploadReceivingService {
     private LinkedHashMap<String, TusFeature> enabledFeatures = new LinkedHashMap<>();
 
     public TusFileUploadReceivingService() {
-        String storagePath = System.getProperty("java.io.tmpdir") + File.pathSeparator + "tus";
+        String storagePath = FileUtils.getTempDirectoryPath() + File.pathSeparator + "tus";
         this.uploadStorageService = new DiskStorageService(idFactory, storagePath);
         this.uploadLockingService = new DiskLockingService(idFactory, storagePath);
         initFeatures();
@@ -128,7 +129,7 @@ public class TusFileUploadReceivingService {
         uploadStorageService.cleanupExpiredUploads(uploadLockingService);
     }
 
-    protected void executeProcessingByFeatures(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse) throws IOException {
+    protected void executeProcessingByFeatures(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse) throws IOException, TusException {
         for (TusFeature feature : enabledFeatures.values()) {
             feature.process(method, servletRequest, servletResponse, uploadStorageService);
         }

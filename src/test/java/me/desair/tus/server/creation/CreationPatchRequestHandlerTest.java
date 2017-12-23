@@ -2,6 +2,7 @@ package me.desair.tus.server.creation;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletResponse;
@@ -12,6 +13,10 @@ import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+
+import javax.servlet.http.HttpServletResponse;
+import java.io.InputStream;
+import java.util.UUID;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -105,5 +110,28 @@ public class CreationPatchRequestHandlerTest {
         handler.process(HttpMethod.HEAD, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
 
         verify(uploadStorageService, never()).update(info);
+    }
+
+    @Test
+    public void processNotFound() throws Exception {
+        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(null);
+
+        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+    }
+
+    @Test
+    public void processAppendNotFound() throws Exception {
+        UploadInfo info = new UploadInfo();
+        info.setId(UUID.randomUUID());
+        info.setOffset(10L);
+        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(info);
+
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
+
+        doThrow(new UploadNotFoundException("test")).when(uploadStorageService).update(any(UploadInfo.class));
+
+        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+
+        assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
     }
 }

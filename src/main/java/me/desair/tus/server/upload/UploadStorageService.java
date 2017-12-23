@@ -1,5 +1,8 @@
 package me.desair.tus.server.upload;
 
+import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadNotFoundException;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -38,7 +41,7 @@ public interface UploadStorageService {
      * @param inputStream The input stream containing the bytes to append
      * @return The new {@link UploadInfo} for this upload
      */
-    UploadInfo append(final UploadInfo upload, final InputStream inputStream) throws IOException;
+    UploadInfo append(final UploadInfo upload, final InputStream inputStream) throws IOException, TusException;
 
     /**
      * Limit the maximum upload size to the given value
@@ -63,14 +66,14 @@ public interface UploadStorageService {
      * Update the upload information for the provided ID.
      * @param uploadInfo The upload info object containing the ID and information to update
      */
-    void update(final UploadInfo uploadInfo) throws IOException;
+    void update(final UploadInfo uploadInfo) throws IOException, UploadNotFoundException;
 
     /**
      * Get the uploaded bytes corresponding to the given upload URL as a stream
      * @param uploadURI The URI
      * @return an {@link OutputStream} containing the bytes of the upload
      */
-    InputStream getUploadedBytes(final String uploadURI) throws IOException;
+    InputStream getUploadedBytes(final String uploadURI) throws IOException, UploadNotFoundException;
 
     /**
      * Clean up any upload data that is expired according to the configured expiration time

@@ -16,6 +16,6 @@ public interface TusFeature {
 
     void validate(final HttpMethod method, final HttpServletRequest servletRequest, final UploadStorageService uploadStorageService) throws TusException, IOException;
 
-    void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService) throws IOException;
+    void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService) throws IOException, TusException;
 
 }

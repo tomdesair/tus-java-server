@@ -1,18 +1,21 @@
 package me.desair.tus.server.upload;
 
+import me.desair.tus.server.exception.InvalidUploadOffsetException;
+import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.Validate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Objects;
 import java.util.UUID;
 
 import static java.nio.file.StandardOpenOption.READ;
@@ -23,21 +26,24 @@ import static java.nio.file.StandardOpenOption.WRITE;
  */
 public class DiskStorageService extends AbstractDiskBasedService implements UploadStorageService {
 
+    private static final Logger log = LoggerFactory.getLogger(DiskStorageService.class);
+
     private static final String UPLOAD_SUB_DIRECTORY = "uploads";
     private static final String INFO_FILE = "info";
+    private static final String DATA_FILE = "data";
 
     private Long maxUploadSize = null;
     private UploadIdFactory idFactory;
 
     public DiskStorageService(final UploadIdFactory idFactory, final String storagePath) {
-        super(storagePath + File.pathSeparator + UPLOAD_SUB_DIRECTORY);
+        super(storagePath + File.separator + UPLOAD_SUB_DIRECTORY);
         Validate.notNull(idFactory, "The IdFactory cannot be null");
         this.idFactory = idFactory;
     }
 
     @Override
     public void setMaxUploadSize(final Long maxUploadSize) {
-        this.maxUploadSize = maxUploadSize;
+        this.maxUploadSize = (maxUploadSize != null && maxUploadSize > 0 ? maxUploadSize : 0);
     }
 
     @Override
@@ -61,57 +67,64 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
         createUploadDirectory(id);
 
-        Path bytesPath = getBytesPath(id);
+        try {
+            Path bytesPath = getBytesPath(id);
 
-        //Create an empty file to storage the bytes of this upload
-        Files.createFile(bytesPath);
+            //Create an empty file to storage the bytes of this upload
+            Files.createFile(bytesPath);
 
-        //Set starting values
-        info.setId(id);
-        info.setOffset(0l);
+            //Set starting values
+            info.setId(id);
+            info.setOffset(0L);
 
-        update(info);
+            update(info);
 
-        return info;
+            return info;
+        } catch (UploadNotFoundException e) {
+            //Normally this cannot happen
+            log.error("Unable to create UploadInfo because of an upload not found exception", e);
+            return null;
+        }
     }
 
     @Override
-    public void update(final UploadInfo uploadInfo) throws IOException {
+    public void update(final UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
         Path infoPath = getInfoPath(uploadInfo.getId());
         Utils.writeSerializable(uploadInfo, infoPath);
     }
 
     @Override
     public UploadInfo getUploadInfo(final UUID id) throws IOException {
-        Path infoPath = getInfoPath(id);
-
-        return Utils.readSerializable(infoPath, UploadInfo.class);
+        try {
+            Path infoPath = getInfoPath(id);
+            return Utils.readSerializable(infoPath, UploadInfo.class);
+        } catch (UploadNotFoundException e) {
+            return null;
+        }
     }
 
     @Override
-    public UploadInfo append(final UploadInfo info, final InputStream inputStream) throws IOException {
+    public UploadInfo append(final UploadInfo info, final InputStream inputStream) throws IOException, TusException {
         if(info != null) {
             Path bytesPath = getBytesPath(info.getId());
+
             long max = getMaxUploadSize() > 0 ? getMaxUploadSize() : Long.MAX_VALUE;
             long transferred = 0;
             Long offset = info.getOffset();
 
-            FileLock lock = null;
             try(ReadableByteChannel uploadedBytes = Channels.newChannel(inputStream);
                 FileChannel file = FileChannel.open(bytesPath, WRITE)) {
-                lock = file.lock();
+                //Lock will be released when the channel closes
+                file.lock();
 
                 //Validate that the given offset is at the end of the file
                 if(!offset.equals(file.size())) {
-                    throw new IOException("You can only append to the end of an upload");
+                    throw new InvalidUploadOffsetException("The upload offset does not correspond to the written bytes. " +
+                            "You can only append to the end of an upload");
                 }
 
                 //write all bytes in the channel up to the configured maximum
                 transferred = file.transferFrom(uploadedBytes, offset, max - offset);
-            } finally {
-                if(lock != null) {
-                    lock.release();
-                }
             }
 
             info.setOffset(offset + transferred);
@@ -122,7 +135,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public InputStream getUploadedBytes(final String uploadURI) throws IOException {
+    public InputStream getUploadedBytes(final String uploadURI) throws IOException, UploadNotFoundException {
         InputStream inputStream = null;
 
         UUID id = idFactory.readUploadId(uploadURI);
@@ -141,11 +154,11 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         //TODO
     }
 
-    private Path getBytesPath(final UUID id) throws IOException {
-        return getPathInUploadDir(id, Objects.toString(id));
+    private Path getBytesPath(final UUID id) throws IOException, UploadNotFoundException {
+        return getPathInUploadDir(id, DATA_FILE);
     }
 
-    private Path getInfoPath(final UUID id) throws IOException {
+    private Path getInfoPath(final UUID id) throws IOException, UploadNotFoundException {
         return getPathInUploadDir(id, INFO_FILE);
     }
 
@@ -153,13 +166,13 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         return Files.createDirectories(getPathInStorageDirectory(id));
     }
 
-    private Path getPathInUploadDir(final UUID id, final String fileName) throws IOException {
+    private Path getPathInUploadDir(final UUID id, final String fileName) throws IOException, UploadNotFoundException {
         //Get the upload directory
         Path uploadDir = getPathInStorageDirectory(id);
         if(uploadDir != null && Files.exists(uploadDir)) {
             return uploadDir.resolve(fileName);
         } else {
-            return null;
+            throw new UploadNotFoundException("The upload for id " + id + " was not found.");
         }
     }
 
@@ -168,7 +181,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         do {
             id = idFactory.createId();
             //For extra safety, double check that this ID is not in use yet
-        } while(getUploadInfo(id) == null);
+        } while(getUploadInfo(id) != null);
         return id;
     }
 }

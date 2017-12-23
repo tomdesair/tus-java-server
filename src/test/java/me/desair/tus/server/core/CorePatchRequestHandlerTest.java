@@ -2,6 +2,7 @@ package me.desair.tus.server.core;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletResponse;
@@ -93,4 +94,28 @@ public class CorePatchRequestHandlerTest {
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_NO_CONTENT));
     }
 
+    @Test
+    public void processNotFound() throws Exception {
+        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(null);
+
+        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+
+        verify(uploadStorageService, never()).append(any(UploadInfo.class), any(InputStream.class));
+
+        assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
+    }
+
+    @Test
+    public void processAppendNotFound() throws Exception {
+        UploadInfo info = new UploadInfo();
+        info.setId(UUID.randomUUID());
+        info.setOffset(10L);
+        info.setLength(8L);
+        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(info);
+        when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class))).thenThrow(new UploadNotFoundException("test"));
+
+        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+
+        assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
+    }
 }
