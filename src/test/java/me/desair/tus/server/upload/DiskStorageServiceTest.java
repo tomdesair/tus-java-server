@@ -45,7 +45,7 @@ public class DiskStorageServiceTest {
 
     @BeforeClass
     public static void setupDataFolder() throws IOException {
-        storagePath = Paths.get("src","test","resources", "data").toAbsolutePath();
+        storagePath = Paths.get("target", "tus", "data").toAbsolutePath();
         Files.createDirectories(storagePath);
     }
 
