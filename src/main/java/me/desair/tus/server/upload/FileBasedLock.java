@@ -1,5 +1,6 @@
 package me.desair.tus.server.upload;
 
+import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -7,8 +8,12 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 /**
  * Upload locking implementation using the file system file locking mechanism.
@@ -23,19 +28,44 @@ public class FileBasedLock implements UploadLock {
     private static final Logger log = LoggerFactory.getLogger(FileBasedLock.class);
 
     private final String uploadUri;
-    private final FileChannel fileChannel;
-    private final FileLock fileLock;
+    private FileChannel fileChannel = null;
     private final Path lockPath;
 
-    public FileBasedLock(final String uploadUri, final FileChannel fileChannel, final FileLock fileLock, final Path lockPath) throws IOException {
+    public FileBasedLock(final String uploadUri, final Path lockPath) throws UploadAlreadyLockedException {
         Validate.notBlank(uploadUri, "The upload URI cannot be blank");
-        Validate.notNull(fileChannel, "The FileChannel cannot be null");
-        Validate.notNull(fileLock, "The FileLock cannot be null");
         Validate.notNull(lockPath, "The path to the lock cannot be null");
         this.uploadUri = uploadUri;
-        this.fileChannel = fileChannel;
-        this.fileLock = fileLock;
         this.lockPath = lockPath;
+
+        tryToObtainFileLock();
+    }
+
+    private void tryToObtainFileLock() throws UploadAlreadyLockedException {
+        String message = "The upload " + uploadUri + " is already locked";
+
+        try {
+            //Try to acquire a lock
+            fileChannel = FileChannel.open(lockPath, CREATE, WRITE);
+            FileLock fileLock = fileChannel.tryLock();
+
+            //If the upload is already locked, our lock will be null
+            if (fileLock == null) {
+                fileChannel.close();
+                throw new UploadAlreadyLockedException(message);
+            }
+
+        } catch (OverlappingFileLockException e) {
+            if (fileChannel != null) {
+                try {
+                    fileChannel.close();
+                } catch (IOException e1) {
+                    //Should not happen
+                }
+            }
+            throw new UploadAlreadyLockedException(message);
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to create or open file required to implement file-based locking", e);
+        }
     }
 
     @Override
@@ -46,7 +76,7 @@ public class FileBasedLock implements UploadLock {
     @Override
     public void release() {
         try {
-            fileLock.release();
+            //Closing the channel will also release the lock
             fileChannel.close();
             Files.deleteIfExists(lockPath);
         } catch (IOException e) {

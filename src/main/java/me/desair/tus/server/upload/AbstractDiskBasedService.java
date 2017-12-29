@@ -19,7 +19,7 @@ public class AbstractDiskBasedService {
         this.storagePath = Paths.get(storagePath);
     }
 
-    protected Path getPathInStorageDirectory(final UUID id) throws IOException {
+    protected Path getPathInStorageDirectory(final UUID id) {
         if(id == null) {
             return null;
         } else {
