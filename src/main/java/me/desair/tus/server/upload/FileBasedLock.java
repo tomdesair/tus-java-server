@@ -29,9 +29,9 @@ public class FileBasedLock implements UploadLock {
 
     private final String uploadUri;
     private FileChannel fileChannel = null;
-    private final Path lockPath;
+    protected final Path lockPath;
 
-    public FileBasedLock(final String uploadUri, final Path lockPath) throws UploadAlreadyLockedException {
+    public FileBasedLock(final String uploadUri, final Path lockPath) throws UploadAlreadyLockedException, IOException {
         Validate.notBlank(uploadUri, "The upload URI cannot be blank");
         Validate.notNull(lockPath, "The path to the lock cannot be null");
         this.uploadUri = uploadUri;
@@ -40,12 +40,12 @@ public class FileBasedLock implements UploadLock {
         tryToObtainFileLock();
     }
 
-    private void tryToObtainFileLock() throws UploadAlreadyLockedException {
-        String message = "The upload " + uploadUri + " is already locked";
+    private void tryToObtainFileLock() throws UploadAlreadyLockedException, IOException {
+        String message = "The upload " + getUploadUri() + " is already locked";
 
         try {
             //Try to acquire a lock
-            fileChannel = FileChannel.open(lockPath, CREATE, WRITE);
+            fileChannel = createFileChannel();
             FileLock fileLock = fileChannel.tryLock();
 
             //If the upload is already locked, our lock will be null
@@ -64,7 +64,7 @@ public class FileBasedLock implements UploadLock {
             }
             throw new UploadAlreadyLockedException(message);
         } catch (IOException e) {
-            throw new RuntimeException("Unable to create or open file required to implement file-based locking", e);
+            throw new IOException("Unable to create or open file required to implement file-based locking", e);
         }
     }
 
@@ -88,4 +88,9 @@ public class FileBasedLock implements UploadLock {
     public void close() throws Exception {
         release();
     }
+
+    protected FileChannel createFileChannel() throws IOException {
+        return FileChannel.open(lockPath, CREATE, WRITE);
+    }
+
 }

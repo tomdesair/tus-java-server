@@ -31,7 +31,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public UploadLock lockUploadByUri(final String requestURI) throws TusException {
+    public UploadLock lockUploadByUri(final String requestURI) throws TusException, IOException {
 
         UUID id = idFactory.readUploadId(requestURI);
 

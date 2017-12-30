@@ -1,10 +1,14 @@
 package me.desair.tus.server.upload;
 
+import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
+import org.apache.commons.lang3.tuple.Pair;
 
 import java.io.Serializable;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.UUID;
 
 public class UploadInfo implements Serializable {
@@ -34,6 +38,19 @@ public class UploadInfo implements Serializable {
 
     public void setEncodedMetadata(final String encodedMetadata) {
         this.encodedMetadata = encodedMetadata;
+    }
+
+    public List<Pair<String, String>> getMetadata() {
+        List<Pair<String, String>> metadata = new LinkedList<>();
+        for (String valuePair : splitToArray(encodedMetadata, ',')) {
+            String[] keyValue = splitToArray(valuePair, ' ');
+            if(keyValue.length == 2) {
+                metadata.add(Pair.of(
+                        StringUtils.trimToEmpty(keyValue[0]),
+                        decode(keyValue[1])));
+            }
+        }
+        return metadata;
     }
 
     public boolean hasMetadata() {
@@ -95,4 +112,13 @@ public class UploadInfo implements Serializable {
                 .append(getId())
                 .toHashCode();
     }
+
+    private String[] splitToArray(final String value, final char separatorChar) {
+        return StringUtils.split(StringUtils.trimToEmpty(value), separatorChar);
+    }
+
+    private String decode(final String encodedValue) {
+        return org.apache.commons.codec.binary.StringUtils.newStringUtf8(Base64.decodeBase64(encodedValue));
+    }
+
 }

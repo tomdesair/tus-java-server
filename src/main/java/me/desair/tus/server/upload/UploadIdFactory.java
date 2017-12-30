@@ -12,11 +12,7 @@ public class UploadIdFactory {
 
     public void setUploadURI(final String uploadURI) {
         Validate.notNull(uploadURI, "The upload URI cannot be null");
-        this.uploadURI = uploadURI;
-    }
-
-    public UUID readUploadId(final HttpServletRequest request) {
-        return readUploadId(request.getRequestURI());
+        this.uploadURI = uploadURI + (StringUtils.endsWith(uploadURI, "/") ? "" : "/");
     }
 
     public UUID readUploadId(final String url) {
