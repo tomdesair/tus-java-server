@@ -32,13 +32,15 @@ public class UploadInfoTest {
                 "filename d29ybGRfZG9taW5hdGlvbiBwbGFuLnBkZg==," +
                 "filesize MTEya2I=, " +
                 "mimetype YXBwbGljYXRpb24vcGRm , " +
-                "user 546L5LqU");
+                "user 546L5LqU     ,    " +
+                "user VG9tIERlc2Fpcg==");
 
         assertThat(info.getMetadata(), containsInAnyOrder(
                 Pair.of("filename", "world_domination plan.pdf"),
                 Pair.of("filesize", "112kb"),
                 Pair.of("mimetype", "application/pdf"),
-                Pair.of("user", "王五"))
+                Pair.of("user", "王五"),
+                Pair.of("user", "Tom Desair"))
         );
     }
 
