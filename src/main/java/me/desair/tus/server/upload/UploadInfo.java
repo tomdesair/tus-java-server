@@ -42,12 +42,17 @@ public class UploadInfo implements Serializable {
 
     public List<Pair<String, String>> getMetadata() {
         List<Pair<String, String>> metadata = new LinkedList<>();
-        for (String valuePair : splitToArray(encodedMetadata, ',')) {
-            String[] keyValue = splitToArray(valuePair, ' ');
-            if(keyValue.length == 2) {
-                metadata.add(Pair.of(
-                        StringUtils.trimToEmpty(keyValue[0]),
-                        decode(keyValue[1])));
+        for (String valuePair : splitToArray(encodedMetadata, ",")) {
+            String[] keyValue = splitToArray(valuePair, "\\s");
+            String key = null;
+            String value = null;
+            if(keyValue.length > 0) {
+                key = StringUtils.trimToEmpty(keyValue[0]);
+                if(keyValue.length > 1) {
+                    value = decode(keyValue[1]);
+                }
+
+                metadata.add(Pair.of(key, value));
             }
         }
         return metadata;
@@ -113,8 +118,12 @@ public class UploadInfo implements Serializable {
                 .toHashCode();
     }
 
-    private String[] splitToArray(final String value, final char separatorChar) {
-        return StringUtils.split(StringUtils.trimToEmpty(value), separatorChar);
+    private String[] splitToArray(final String value, final String separatorRegex) {
+        if(StringUtils.isBlank(value)) {
+            return new String[0];
+        } else {
+            return StringUtils.trimToEmpty(value).split(separatorRegex);
+        }
     }
 
     private String decode(final String encodedValue) {

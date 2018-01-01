@@ -23,7 +23,7 @@ public class UploadIdFactoryTest {
     @Test
     public void setUploadURINoTrailingSlash() throws Exception {
         idFactory.setUploadURI("/test/upload");
-        assertThat(idFactory.getUploadURI(), is("/test/upload/"));
+        assertThat(idFactory.getUploadURI(), is("/test/upload"));
     }
 
     @Test
@@ -35,6 +35,14 @@ public class UploadIdFactoryTest {
     @Test
     public void readUploadId() throws Exception {
         idFactory.setUploadURI("/test/upload");
+
+        assertThat(idFactory.readUploadId("/test/upload/1911e8a4-6939-490c-b58b-a5d70f8d91fb"),
+                hasToString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
+    }
+
+    @Test
+    public void readUploadIdTrailingSlash() throws Exception {
+        idFactory.setUploadURI("/test/upload/");
 
         assertThat(idFactory.readUploadId("/test/upload/1911e8a4-6939-490c-b58b-a5d70f8d91fb"),
                 hasToString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));

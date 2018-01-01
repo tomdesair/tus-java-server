@@ -12,11 +12,11 @@ public class UploadIdFactory {
 
     public void setUploadURI(final String uploadURI) {
         Validate.notNull(uploadURI, "The upload URI cannot be null");
-        this.uploadURI = uploadURI + (StringUtils.endsWith(uploadURI, "/") ? "" : "/");
+        this.uploadURI = uploadURI;
     }
 
     public UUID readUploadId(final String url) {
-        String pathId = StringUtils.substringAfter(url, uploadURI);
+        String pathId = StringUtils.substringAfter(url, uploadURI + (StringUtils.endsWith(uploadURI, "/") ? "" : "/"));
         UUID id = null;
 
         if(StringUtils.isNotBlank(pathId)) {
