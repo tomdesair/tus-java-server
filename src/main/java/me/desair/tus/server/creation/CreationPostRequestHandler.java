@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.nio.file.Paths;
 
 /**
  * The Server MUST acknowledge a successful upload creation with the 201 Created status.
@@ -36,7 +37,7 @@ public class CreationPostRequestHandler implements RequestHandler {
         info = uploadStorageService.create(info);
 
         //We've already validated that the current request URL matches our upload URL so we can safely use it.
-        String url = servletRequest.getRequestURI() + "/" + info.getId();
+        String url = servletRequest.getRequestURL().append("/").append(info.getId()).toString();
         servletResponse.setHeader(HttpHeader.LOCATION, url);
         servletResponse.setStatus(HttpServletResponse.SC_CREATED);
 

@@ -27,6 +27,9 @@ import org.springframework.mock.web.MockHttpServletResponse;
 
 public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
 
+    private static final String UPLOAD_URI = "/test/upload";
+    private static final String UPLOAD_URL = "http://localhost:80/test/upload/";
+    
     private UUID id;
 
     @Before
@@ -37,15 +40,15 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         uploadInfo = null;
 
         id =  UUID.randomUUID();
-        servletRequest.setRequestURI("/test/upload");
-        when(uploadStorageService.getUploadURI()).thenReturn("/test/upload");
+        servletRequest.setRequestURI(UPLOAD_URI);
+        when(uploadStorageService.getUploadURI()).thenReturn(UPLOAD_URI);
         when(uploadStorageService.create(Matchers.any(UploadInfo.class))).then(new Answer<UploadInfo>() {
             @Override
             public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
                 upload.setId(id);
 
-                when(uploadStorageService.getUploadInfo("/test/upload/" + id.toString())).thenReturn(upload);
+                when(uploadStorageService.getUploadInfo(UPLOAD_URL + id.toString())).thenReturn(upload);
                 return upload;
             }
         });
@@ -70,11 +73,11 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         executeCall(HttpMethod.POST);
 
         verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class));
-        assertResponseHeader(HttpHeader.LOCATION, "/test/upload/" + id.toString());
+        assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
         //Check data with head request
-        servletRequest.setRequestURI("/test/upload/" + id.toString());
+        servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
         executeCall(HttpMethod.HEAD);
 
@@ -84,7 +87,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         //Test Patch request
         servletRequest = new MockHttpServletRequest();
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 9);
-        servletRequest.setRequestURI("/test/upload/" + id.toString());
+        servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
         executeCall(HttpMethod.PATCH);
     }
@@ -97,11 +100,11 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         executeCall(HttpMethod.POST);
 
         verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class));
-        assertResponseHeader(HttpHeader.LOCATION, "/test/upload/" + id.toString());
+        assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
         //Check data with head request
-        servletRequest.setRequestURI("/test/upload/" + id.toString());
+        servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
         executeCall(HttpMethod.HEAD);
 
@@ -111,13 +114,13 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         //Test Patch request
         servletRequest = new MockHttpServletRequest();
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 9);
-        servletRequest.setRequestURI("/test/upload/" + id.toString());
+        servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
         executeCall(HttpMethod.PATCH);
 
         //Re-check head request
         servletRequest = new MockHttpServletRequest();
-        servletRequest.setRequestURI("/test/upload/" + id.toString());
+        servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
         executeCall(HttpMethod.HEAD);
 
@@ -140,11 +143,11 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         executeCall(HttpMethod.POST);
 
         verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class));
-        assertResponseHeader(HttpHeader.LOCATION, "/test/upload/" + id.toString());
+        assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
         //Check data with head request
-        servletRequest.setRequestURI("/test/upload/" + id.toString());
+        servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
         executeCall(HttpMethod.HEAD);
 
@@ -161,11 +164,11 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         executeCall(HttpMethod.POST);
 
         verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class));
-        assertResponseHeader(HttpHeader.LOCATION, "/test/upload/" + id.toString());
+        assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
         //Check data with head request
-        servletRequest.setRequestURI("/test/upload/" + id.toString());
+        servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
         executeCall(HttpMethod.HEAD);
 
@@ -186,7 +189,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
     public void testPostOnInvalidUrl() throws Exception {
         //Create upload
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 9);
-        servletRequest.setRequestURI("/test/upload/" + id.toString());
+        servletRequest.setRequestURI(UPLOAD_URL + id.toString());
 
         executeCall(HttpMethod.POST);
     }

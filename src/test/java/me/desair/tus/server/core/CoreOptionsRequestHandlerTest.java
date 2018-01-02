@@ -2,7 +2,7 @@ package me.desair.tus.server.core;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.TusFileUploadReceivingService;
+import me.desair.tus.server.TusFileUploadService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
@@ -45,7 +45,7 @@ public class CoreOptionsRequestHandlerTest {
 
         handler.process(HttpMethod.OPTIONS, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
 
-        assertThat(servletResponse.getHeader(HttpHeader.TUS_VERSION), is(TusFileUploadReceivingService.TUS_API_VERSION));
+        assertThat(servletResponse.getHeader(HttpHeader.TUS_VERSION), is(TusFileUploadService.TUS_API_VERSION));
         assertThat(servletResponse.getHeader(HttpHeader.TUS_MAX_SIZE), is("5368709120"));
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_NO_CONTENT));
     }

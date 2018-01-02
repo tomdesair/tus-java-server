@@ -3,7 +3,7 @@ package me.desair.tus.server.core;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
-import me.desair.tus.server.TusFileUploadReceivingService;
+import me.desair.tus.server.TusFileUploadService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletResponse;
 
@@ -29,7 +29,7 @@ public class CoreOptionsRequestHandler implements RequestHandler {
             servletResponse.setHeader(HttpHeader.TUS_MAX_SIZE, Objects.toString(uploadStorageService.getMaxUploadSize()));
         }
 
-        servletResponse.setHeader(HttpHeader.TUS_VERSION, TusFileUploadReceivingService.TUS_API_VERSION);
+        servletResponse.setHeader(HttpHeader.TUS_VERSION, TusFileUploadService.TUS_API_VERSION);
 
         servletResponse.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }

@@ -3,7 +3,7 @@ package me.desair.tus.server.core;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
-import me.desair.tus.server.TusFileUploadReceivingService;
+import me.desair.tus.server.TusFileUploadService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletResponse;
 
@@ -23,6 +23,6 @@ public class CoreTusResumableHandler implements RequestHandler {
     @Override
     public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService) {
         //Always set Tus-Resumable header
-        servletResponse.addHeader(HttpHeader.TUS_RESUMABLE, TusFileUploadReceivingService.TUS_API_VERSION);
+        servletResponse.addHeader(HttpHeader.TUS_RESUMABLE, TusFileUploadService.TUS_API_VERSION);
     }
 }

@@ -2,7 +2,7 @@ package me.desair.tus.server.core;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.TusFileUploadReceivingService;
+import me.desair.tus.server.TusFileUploadService;
 import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
 import org.junit.Test;
@@ -43,6 +43,6 @@ public class CoreTusResumableHandlerTest {
     public void process() throws Exception {
         handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), null);
 
-        assertThat(servletResponse.getHeader(HttpHeader.TUS_RESUMABLE), is(TusFileUploadReceivingService.TUS_API_VERSION));
+        assertThat(servletResponse.getHeader(HttpHeader.TUS_RESUMABLE), is(TusFileUploadService.TUS_API_VERSION));
     }
 }
