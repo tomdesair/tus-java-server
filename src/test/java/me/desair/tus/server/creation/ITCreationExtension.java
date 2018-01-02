@@ -1,5 +1,15 @@
 package me.desair.tus.server.creation;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.mockito.Matchers.notNull;
+import static org.mockito.Mockito.*;
+
+import java.util.UUID;
+
+import javax.servlet.http.HttpServletResponse;
+
 import me.desair.tus.server.AbstractTusFeatureIntegrationTest;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -15,16 +25,7 @@ import org.mockito.stubbing.Answer;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-import javax.servlet.http.HttpServletResponse;
-import java.util.UUID;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.CoreMatchers.nullValue;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Matchers.notNull;
-import static org.mockito.Mockito.*;
-
-public class ITCreationExtensionTest extends AbstractTusFeatureIntegrationTest {
+public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
 
     private UUID id;
 
