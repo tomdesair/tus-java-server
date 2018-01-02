@@ -1,0 +1,6 @@
+language: java
+addons:
+  sonarcloud:
+    organization: "tomdesair-github"
+script:
+  - mvn clean install sonar:sonar
