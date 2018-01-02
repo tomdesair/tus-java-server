@@ -1,13 +1,12 @@
 package me.desair.tus.server.upload;
 
-import me.desair.tus.server.exception.TusException;
-import org.apache.commons.lang3.Validate;
-
 import java.io.File;
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.util.UUID;
+
+import me.desair.tus.server.exception.TusException;
+import org.apache.commons.lang3.Validate;
 
 /**
  * {@link UploadLockingService} implementation that uses the file system for implementing locking
@@ -25,7 +24,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     private UploadIdFactory idFactory;
 
     public DiskLockingService(final UploadIdFactory idFactory, final String storagePath) {
-        super(storagePath + File.pathSeparator + LOCK_SUB_DIRECTORY);
+        super(storagePath + File.separator + LOCK_SUB_DIRECTORY);
         Validate.notNull(idFactory, "The IdFactory cannot be null");
         this.idFactory = idFactory;
     }
@@ -36,7 +35,6 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
         UUID id = idFactory.readUploadId(requestURI);
 
         UploadLock lock = null;
-        FileChannel fileChannel = null;
 
         Path lockPath = getLockPath(id);
         //If lockPath is not null, we know this is a valid Upload URI
