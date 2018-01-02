@@ -32,7 +32,7 @@ public class TusFileUploadService {
     private LinkedHashMap<String, TusFeature> enabledFeatures = new LinkedHashMap<>();
 
     public TusFileUploadService() {
-        String storagePath = FileUtils.getTempDirectoryPath() + File.pathSeparator + "tus";
+        String storagePath = FileUtils.getTempDirectoryPath() + File.separator + "tus";
         this.uploadStorageService = new DiskStorageService(idFactory, storagePath);
         this.uploadLockingService = new DiskLockingService(idFactory, storagePath);
         initFeatures();
