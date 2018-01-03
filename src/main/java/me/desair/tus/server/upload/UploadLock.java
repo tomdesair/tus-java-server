@@ -1,5 +1,7 @@
 package me.desair.tus.server.upload;
 
+import java.io.IOException;
+
 /**
  * Interface that represents a lock on an upload
  */
@@ -17,4 +19,6 @@ public interface UploadLock extends AutoCloseable {
      */
     void release();
 
+    @Override
+    void close() throws IOException;
 }

@@ -1,4 +1,4 @@
-package me.desair.tus.server.upload;
+package me.desair.tus.server.upload.disk;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.not;
@@ -13,6 +13,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.UUID;
 
+import me.desair.tus.server.upload.UploadIdFactory;
+import me.desair.tus.server.upload.UploadLock;
+import me.desair.tus.server.upload.disk.DiskLockingService;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
@@ -24,7 +27,6 @@ import org.mockito.Mock;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.mockito.stubbing.Answer;
-
 
 @RunWith(MockitoJUnitRunner.class)
 public class DiskLockingServiceTest {

@@ -19,21 +19,17 @@ public class IdExistsValidator implements RequestValidator {
     @Override
     public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException, IOException {
 
-        if(uploadStorageService.getUploadInfo(request.getRequestURI(), ownerKey) == null) {
+        if (uploadStorageService.getUploadInfo(request.getRequestURI(), ownerKey) == null) {
             throw new UploadNotFoundException("The upload for path " + request.getRequestURI() + " was not found.");
         }
     }
 
     @Override
     public boolean supports(final HttpMethod method) {
-        if(method != null && (
+        return method != null && (
                 HttpMethod.HEAD.equals(method) ||
-                HttpMethod.PATCH.equals(method)
-                )) {
-            return true;
-        } else {
-            return false;
-        }
+                        HttpMethod.PATCH.equals(method)
+        );
     }
 
 }

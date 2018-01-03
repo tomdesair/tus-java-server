@@ -20,7 +20,14 @@ import javax.servlet.http.HttpServletRequest;
 
 import org.apache.commons.lang3.StringUtils;
 
+/**
+ * Utility class that contains various static helper methods
+ */
 public class Utils {
+
+    private Utils() {
+        //This is a utility class that only holds static utility methods
+    }
 
     public static String getHeader(final HttpServletRequest request, final String header) {
         return StringUtils.trimToEmpty(request.getHeader(header));

@@ -1,4 +1,4 @@
-package me.desair.tus.server.upload;
+package me.desair.tus.server.upload.disk;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -47,7 +47,7 @@ public class AbstractDiskBasedService {
             } catch (IOException e) {
                 String message = "Unable to create the directory specified by the storage path " + storagePath;
                 log.error(message, e);
-                throw new RuntimeException(message, e);
+                throw new StoragePathNotAvailableException(message, e);
             }
         }
     }

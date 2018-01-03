@@ -64,6 +64,17 @@ public class TusServletResponse extends HttpServletResponseWrapper {
         recordHeader(name, Objects.toString(value));
     }
 
+    @Override
+    public String getHeader(final String name) {
+        String value = null;
+        List<String> values = headers.get(name);
+        if(values != null && !values.isEmpty()) {
+            value = values.get(0);
+        }
+
+        return StringUtils.trimToEmpty(value);
+    }
+
     private void recordHeader(final String name, final String value) {
         List<String> values = headers.get(name);
         if(values == null) {
@@ -80,13 +91,4 @@ public class TusServletResponse extends HttpServletResponseWrapper {
         headers.put(name, values);
     }
 
-    public String getHeader(final String name) {
-        String value = null;
-        List<String> values = headers.get(name);
-        if(values != null && values.size() > 0) {
-            value = values.get(0);
-        }
-
-        return StringUtils.trimToEmpty(value);
-    }
 }

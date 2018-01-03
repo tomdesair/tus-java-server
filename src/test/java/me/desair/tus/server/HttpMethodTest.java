@@ -9,14 +9,14 @@ public class HttpMethodTest {
 
     @Test
     public void forName() throws Exception {
-        assertEquals(HttpMethod.forName("delete"), HttpMethod.DELETE);
-        assertEquals(HttpMethod.forName("get"), HttpMethod.GET);
-        assertEquals(HttpMethod.forName("head"), HttpMethod.HEAD);
-        assertEquals(HttpMethod.forName("patch"), HttpMethod.PATCH);
-        assertEquals(HttpMethod.forName("post"), HttpMethod.POST);
-        assertEquals(HttpMethod.forName("put"), HttpMethod.PUT);
-        assertEquals(HttpMethod.forName("options"), HttpMethod.OPTIONS);
-        assertEquals(HttpMethod.forName("test"), null);
+        assertEquals(HttpMethod.DELETE, HttpMethod.forName("delete"));
+        assertEquals(HttpMethod.GET, HttpMethod.forName("get"));
+        assertEquals(HttpMethod.HEAD, HttpMethod.forName("head"));
+        assertEquals(HttpMethod.PATCH, HttpMethod.forName("patch"));
+        assertEquals(HttpMethod.POST, HttpMethod.forName("post"));
+        assertEquals(HttpMethod.PUT, HttpMethod.forName("put"));
+        assertEquals(HttpMethod.OPTIONS, HttpMethod.forName("options"));
+        assertEquals(null, HttpMethod.forName("test"));
     }
 
     @Test
@@ -24,7 +24,7 @@ public class HttpMethodTest {
         MockHttpServletRequest servletRequest = new MockHttpServletRequest();
         servletRequest.setMethod("patch");
 
-        assertEquals(HttpMethod.getMethod(servletRequest), HttpMethod.PATCH);
+        assertEquals(HttpMethod.PATCH, HttpMethod.getMethod(servletRequest));
     }
 
     @Test
@@ -33,7 +33,7 @@ public class HttpMethodTest {
         servletRequest.setMethod("post");
         servletRequest.addHeader(HttpHeader.METHOD_OVERRIDE, "patch");
 
-        assertEquals(HttpMethod.getMethod(servletRequest), HttpMethod.PATCH);
+        assertEquals(HttpMethod.PATCH, HttpMethod.getMethod(servletRequest));
     }
 
     @Test
@@ -42,7 +42,7 @@ public class HttpMethodTest {
         servletRequest.setMethod("post");
         servletRequest.addHeader(HttpHeader.METHOD_OVERRIDE, "test");
 
-        assertEquals(HttpMethod.getMethod(servletRequest), HttpMethod.POST);
+        assertEquals(HttpMethod.POST, HttpMethod.getMethod(servletRequest));
     }
 
     @Test(expected = NullPointerException.class)

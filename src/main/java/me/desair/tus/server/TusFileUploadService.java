@@ -11,8 +11,8 @@ import javax.servlet.http.HttpServletResponse;
 import me.desair.tus.server.core.CoreProtocol;
 import me.desair.tus.server.creation.CreationExtension;
 import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.upload.DiskLockingService;
-import me.desair.tus.server.upload.DiskStorageService;
+import me.desair.tus.server.upload.disk.DiskLockingService;
+import me.desair.tus.server.upload.disk.DiskStorageService;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
@@ -91,11 +91,11 @@ public class TusFileUploadService {
         return this;
     }
 
-    public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse) throws Exception {
+    public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse) throws IOException {
         process(servletRequest, servletResponse, null);
     }
 
-    public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse, final String ownerKey) throws Exception {
+    public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse, final String ownerKey) throws IOException {
         Validate.notNull(servletRequest, "The HTTP Servlet request cannot be null");
         Validate.notNull(servletResponse, "The HTTP Servlet response cannot be null");
 
@@ -116,14 +116,14 @@ public class TusFileUploadService {
         }
     }
 
-    public InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws Exception {
+    public InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws IOException, TusException {
         try(UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
 
             return uploadStorageService.getUploadedBytes(uploadURI, ownerKey);
         }
     }
 
-    public UploadInfo getUploadInfo(final String uploadURI, final String ownerKey) throws Exception {
+    public UploadInfo getUploadInfo(final String uploadURI, final String ownerKey) throws IOException, TusException {
         try(UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
 
             return uploadStorageService.getUploadInfo(uploadURI, ownerKey);

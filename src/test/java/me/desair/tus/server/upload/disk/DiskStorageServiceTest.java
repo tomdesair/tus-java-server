@@ -1,4 +1,4 @@
-package me.desair.tus.server.upload;
+package me.desair.tus.server.upload.disk;
 
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
@@ -24,6 +24,9 @@ import java.util.UUID;
 
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.UploadIdFactory;
+import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.disk.DiskStorageService;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;

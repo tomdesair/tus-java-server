@@ -1,4 +1,4 @@
-package me.desair.tus.server.upload;
+package me.desair.tus.server.upload.disk;
 
 import java.io.File;
 import java.io.IOException;
@@ -6,6 +6,9 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.upload.UploadIdFactory;
+import me.desair.tus.server.upload.UploadLock;
+import me.desair.tus.server.upload.UploadLockingService;
 import org.apache.commons.lang3.Validate;
 
 /**

@@ -1,4 +1,4 @@
-package me.desair.tus.server.upload;
+package me.desair.tus.server.upload.disk;
 
 import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.WRITE;
@@ -17,6 +17,10 @@ import java.util.UUID;
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.UploadIdFactory;
+import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLockingService;
+import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
@@ -183,7 +187,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         return Files.createDirectories(getPathInStorageDirectory(id));
     }
 
-    private Path getPathInUploadDir(final UUID id, final String fileName) throws IOException, UploadNotFoundException {
+    private Path getPathInUploadDir(final UUID id, final String fileName) throws UploadNotFoundException {
         //Get the upload directory
         Path uploadDir = getPathInStorageDirectory(id);
         if(uploadDir != null && Files.exists(uploadDir)) {

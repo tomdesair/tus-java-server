@@ -60,4 +60,7 @@ public class HttpHeader {
      */
     public static final String TUS_MAX_SIZE = "Tus-Max-Size";
 
+    private HttpHeader() {
+        //This is an utility class to hold constants
+    }
 }
