@@ -131,7 +131,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
                     transferred = file.transferFrom(uploadedBytes, offset, max - offset);
                     newOffset = offset + transferred;
 
-                } catch(Throwable ex) {
+                } catch(Exception ex) {
                     //An error occurred, try to write as much data as possible
                     newOffset = writeAsMuchAsPossible(file);
                     throw ex;
@@ -175,11 +175,11 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         }
     }
 
-    private Path getBytesPath(final UUID id) throws IOException, UploadNotFoundException {
+    private Path getBytesPath(final UUID id) throws UploadNotFoundException {
         return getPathInUploadDir(id, DATA_FILE);
     }
 
-    private Path getInfoPath(final UUID id) throws IOException, UploadNotFoundException {
+    private Path getInfoPath(final UUID id) throws UploadNotFoundException {
         return getPathInUploadDir(id, INFO_FILE);
     }
 
