@@ -1,5 +1,11 @@
 package me.desair.tus.server.creation;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+
+import java.util.Arrays;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.util.TusServletResponse;
@@ -7,12 +13,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-
-import java.util.Arrays;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.containsInAnyOrder;
 
 public class CreationOptionsRequestHandlerTest {
 
@@ -32,7 +32,7 @@ public class CreationOptionsRequestHandlerTest {
     @Test
     public void processListExtensions() throws Exception {
 
-        handler.process(HttpMethod.OPTIONS, servletRequest, new TusServletResponse(servletResponse), null);
+        handler.process(HttpMethod.OPTIONS, servletRequest, new TusServletResponse(servletResponse), null, null);
 
         assertThat(Arrays.asList(servletResponse.getHeader(HttpHeader.TUS_EXTENSION).split(",")),
                 containsInAnyOrder("creation", "creation-defer-length"));

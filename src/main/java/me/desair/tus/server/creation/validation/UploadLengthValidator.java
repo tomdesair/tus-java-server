@@ -1,5 +1,7 @@
 package me.desair.tus.server.creation.validation;
 
+import javax.servlet.http.HttpServletRequest;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
@@ -8,8 +10,6 @@ import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
 
-import javax.servlet.http.HttpServletRequest;
-
 /**
  * If the length of the upload exceeds the maximum, which MAY be specified using the Tus-Max-Size header,
  * the Server MUST respond with the 413 Request Entity Too Large status.
@@ -17,7 +17,7 @@ import javax.servlet.http.HttpServletRequest;
 public class UploadLengthValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException {
 
         Long uploadLength = Utils.getLongHeader(request, HttpHeader.UPLOAD_LENGTH);
         if(uploadLength != null

@@ -1,10 +1,15 @@
 package me.desair.tus.server.util;
 
-import org.apache.commons.lang3.StringUtils;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpServletResponseWrapper;
-import java.util.*;
+
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * {@link HttpServletResponseWrapper} to capture header values set on the current {@link HttpServletResponse}

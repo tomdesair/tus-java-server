@@ -1,5 +1,9 @@
 package me.desair.tus.server.creation.validation;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.mockito.Mockito.when;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.MaxUploadLengthExceededException;
@@ -10,10 +14,6 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Mockito.when;
 
 @RunWith(MockitoJUnitRunner.class)
 public class UploadLengthValidatorTest {
@@ -48,7 +48,7 @@ public class UploadLengthValidatorTest {
         when(uploadStorageService.getMaxUploadSize()).thenReturn(0L);
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService);
+        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
 
         //No Exception is thrown
     }
@@ -58,7 +58,7 @@ public class UploadLengthValidatorTest {
         when(uploadStorageService.getMaxUploadSize()).thenReturn(400L);
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService);
+        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
 
         //No Exception is thrown
     }
@@ -68,7 +68,7 @@ public class UploadLengthValidatorTest {
         when(uploadStorageService.getMaxUploadSize()).thenReturn(300L);
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService);
+        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
 
         //No Exception is thrown
     }
@@ -78,7 +78,7 @@ public class UploadLengthValidatorTest {
         when(uploadStorageService.getMaxUploadSize()).thenReturn(300L);
         //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService);
+        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
 
         //No Exception is thrown
     }
@@ -88,7 +88,7 @@ public class UploadLengthValidatorTest {
         when(uploadStorageService.getMaxUploadSize()).thenReturn(200L);
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService);
+        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
 
         //Expect a MaxUploadLengthExceededException
     }

@@ -1,5 +1,9 @@
 package me.desair.tus.server.creation.validation;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.mockito.Mockito.when;
+
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.PostOnInvalidRequestURIException;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -9,10 +13,6 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Mockito.when;
 
 @RunWith(MockitoJUnitRunner.class)
 public class PostURIValidatorTest {
@@ -47,7 +47,7 @@ public class PostURIValidatorTest {
         servletRequest.setRequestURI("/test/upload");
         when(uploadStorageService.getUploadURI()).thenReturn("/test/upload");
 
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService);
+        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
 
         //No Exception is thrown
     }
@@ -57,7 +57,7 @@ public class PostURIValidatorTest {
         servletRequest.setRequestURI("/test/upload/12");
         when(uploadStorageService.getUploadURI()).thenReturn("/test/upload");
 
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService);
+        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
 
         //Expect PostOnInvalidRequestURIException
     }

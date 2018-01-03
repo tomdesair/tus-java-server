@@ -1,5 +1,9 @@
 package me.desair.tus.server.core.validation;
 
+import java.io.IOException;
+
+import javax.servlet.http.HttpServletRequest;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
@@ -9,9 +13,6 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
 
-import javax.servlet.http.HttpServletRequest;
-import java.io.IOException;
-
 /**
  * Validate that the given upload length in combination with the bytes we already received,
  * does not exceed the declared initial length on upload creation.
@@ -19,10 +20,10 @@ import java.io.IOException;
 public class ContentLengthValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException, IOException {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException, IOException {
         Long contentLength = Utils.getLongHeader(request, HttpHeader.CONTENT_LENGTH);
 
-        UploadInfo uploadInfo = uploadStorageService.getUploadInfo(request.getRequestURI());
+        UploadInfo uploadInfo = uploadStorageService.getUploadInfo(request.getRequestURI(), ownerKey);
 
         if(contentLength != null
                 && uploadInfo != null

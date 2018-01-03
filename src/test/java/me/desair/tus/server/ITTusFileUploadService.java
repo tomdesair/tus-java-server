@@ -1,15 +1,13 @@
 package me.desair.tus.server;
 
-import me.desair.tus.server.upload.UploadInfo;
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.IOUtils;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.tuple.Pair;
-import org.junit.*;
-import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.mock.web.MockHttpServletResponse;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.collection.IsIterableContainingInOrder.contains;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
-import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -19,16 +17,24 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.UUID;
 
-import static org.hamcrest.CoreMatchers.*;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.containsInAnyOrder;
-import static org.hamcrest.collection.IsIterableContainingInOrder.contains;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import javax.servlet.http.HttpServletResponse;
+
+import me.desair.tus.server.upload.UploadInfo;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
+import org.junit.AfterClass;
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 public class ITTusFileUploadService {
 
     private static final String UPLOAD_URI = "/test/upload";
+    private static final String OWNER_KEY = "JOHN_DOE";
 
     private MockHttpServletRequest servletRequest;
     private MockHttpServletResponse servletResponse;
@@ -74,7 +80,7 @@ public class ITTusFileUploadService {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
 
-        tusFileUploadService.process(servletRequest, servletResponse);
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeaderNotBlank(HttpHeader.LOCATION);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseStatus(HttpServletResponse.SC_CREATED);
@@ -91,7 +97,7 @@ public class ITTusFileUploadService {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         servletRequest.setContent(uploadContent.getBytes());
 
-        tusFileUploadService.process(servletRequest, servletResponse);
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + uploadContent.getBytes().length);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
@@ -102,7 +108,7 @@ public class ITTusFileUploadService {
         servletRequest.setRequestURI(location);
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
-        tusFileUploadService.process(servletRequest, servletResponse);
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + uploadContent.getBytes().length);
         assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "" + uploadContent.getBytes().length);
@@ -111,7 +117,7 @@ public class ITTusFileUploadService {
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
 
         //Get upload info from service
-        UploadInfo info = tusFileUploadService.getUploadInfo(location);
+        UploadInfo info = tusFileUploadService.getUploadInfo(location, OWNER_KEY);
         assertFalse(info.isUploadInProgress());
         assertThat(info.getLength(), is((long) uploadContent.getBytes().length));
         assertThat(info.getOffset(), is((long) uploadContent.getBytes().length));
@@ -120,7 +126,7 @@ public class ITTusFileUploadService {
         );
 
         //Get uploaded bytes from service
-        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location)) {
+        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, null)) {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is my test upload content"));
         }
@@ -139,7 +145,7 @@ public class ITTusFileUploadService {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
 
-        tusFileUploadService.process(servletRequest, servletResponse);
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeaderNotBlank(HttpHeader.LOCATION);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseStatus(HttpServletResponse.SC_CREATED);
@@ -156,13 +162,13 @@ public class ITTusFileUploadService {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         servletRequest.setContent(part1.getBytes());
 
-        tusFileUploadService.process(servletRequest, servletResponse);
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + part1.getBytes().length);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
 
         //Check with service that upload is still in progress
-        UploadInfo info = tusFileUploadService.getUploadInfo(location);
+        UploadInfo info = tusFileUploadService.getUploadInfo(location, OWNER_KEY);
         assertTrue(info.isUploadInProgress());
         assertThat(info.getLength(), is((long) (part1+part2).getBytes().length));
         assertThat(info.getOffset(), is((long) part1.getBytes().length));
@@ -180,7 +186,7 @@ public class ITTusFileUploadService {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         servletRequest.setContent(part2.getBytes());
 
-        tusFileUploadService.process(servletRequest, servletResponse);
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + (part1+part2).getBytes().length);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
@@ -191,7 +197,7 @@ public class ITTusFileUploadService {
         servletRequest.setRequestURI(location);
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
-        tusFileUploadService.process(servletRequest, servletResponse);
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + (part1+part2).getBytes().length);
         assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "" + (part1+part2).getBytes().length);
@@ -200,7 +206,7 @@ public class ITTusFileUploadService {
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
 
         //Get upload info from service
-        info = tusFileUploadService.getUploadInfo(location);
+        info = tusFileUploadService.getUploadInfo(location, OWNER_KEY);
         assertFalse(info.isUploadInProgress());
         assertThat(info.getLength(), is((long) (part1+part2).getBytes().length));
         assertThat(info.getOffset(), is((long) (part1+part2).getBytes().length));
@@ -209,7 +215,7 @@ public class ITTusFileUploadService {
         );
 
         //Get uploaded bytes from service
-        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location)) {
+        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, null)) {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is the first part of my test upload and this is the second part."));
         }
@@ -252,7 +258,7 @@ public class ITTusFileUploadService {
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
 
         //Check with service that upload is still in progress
-        UploadInfo info = tusFileUploadService.getUploadInfo(location);
+        UploadInfo info = tusFileUploadService.getUploadInfo(location, null);
         assertTrue(info.isUploadInProgress());
         assertThat(info.getLength(), is(nullValue()));
         assertThat(info.getOffset(), is((long) part1.getBytes().length));
@@ -303,7 +309,7 @@ public class ITTusFileUploadService {
         assertResponseHeaderNull(HttpHeader.UPLOAD_DEFER_LENGTH);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
 
-        info = tusFileUploadService.getUploadInfo(location);
+        info = tusFileUploadService.getUploadInfo(location, null);
         assertTrue(info.isUploadInProgress());
         assertThat(info.getLength(), is((long) (part1+part2+part3).getBytes().length));
 
@@ -323,7 +329,7 @@ public class ITTusFileUploadService {
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
 
         //Get upload info from service
-        info = tusFileUploadService.getUploadInfo(location);
+        info = tusFileUploadService.getUploadInfo(location, null);
         assertFalse(info.isUploadInProgress());
         assertThat(info.getLength(), is((long) (part1+part2+part3).getBytes().length));
         assertThat(info.getOffset(), is((long) (part1+part2+part3).getBytes().length));
@@ -332,7 +338,7 @@ public class ITTusFileUploadService {
         );
 
         //Get uploaded bytes from service
-        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location)) {
+        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, null)) {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("When sending this part, we don't know the length and " +
                             "when sending this part, we know the length but the upload is not complete. " +
@@ -345,7 +351,7 @@ public class ITTusFileUploadService {
         //Do options request and check response headers
         servletRequest.setMethod("OPTIONS");
 
-        tusFileUploadService.process(servletRequest, servletResponse);
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
 
         //If the Server supports this extension, it MUST add creation to the Tus-Extension header.
         //If the Server supports deferring length, it MUST add creation-defer-length to the Tus-Extension header.
@@ -358,7 +364,7 @@ public class ITTusFileUploadService {
         servletRequest.setRequestURI(UPLOAD_URI + "/" + UUID.randomUUID());
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
-        tusFileUploadService.process(servletRequest, servletResponse);
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
     }
 
@@ -370,7 +376,7 @@ public class ITTusFileUploadService {
         servletRequest.addHeader(HttpHeader.UPLOAD_DEFER_LENGTH, 1);
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "2.0.0");
 
-        tusFileUploadService.process(servletRequest, servletResponse);
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseStatus(HttpServletResponse.SC_PRECONDITION_FAILED);
     }
 
@@ -387,7 +393,7 @@ public class ITTusFileUploadService {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, uploadContent.getBytes().length);
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
-        tusFileUploadService.process(servletRequest, servletResponse);
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
     }
 

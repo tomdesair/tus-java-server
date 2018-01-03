@@ -1,12 +1,7 @@
 package me.desair.tus.server.upload;
 
-import me.desair.tus.server.exception.InvalidUploadOffsetException;
-import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.exception.UploadNotFoundException;
-import me.desair.tus.server.util.Utils;
-import org.apache.commons.lang3.Validate;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 import java.io.File;
 import java.io.IOException;
@@ -16,10 +11,16 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.UUID;
 
-import static java.nio.file.StandardOpenOption.READ;
-import static java.nio.file.StandardOpenOption.WRITE;
+import me.desair.tus.server.exception.InvalidUploadOffsetException;
+import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.util.Utils;
+import org.apache.commons.lang3.Validate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Implementation of {@link UploadStorageService} that implements storage on disk
@@ -52,8 +53,13 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public UploadInfo getUploadInfo(final String uploadUrl) throws IOException {
-        return getUploadInfo(idFactory.readUploadId(uploadUrl));
+    public UploadInfo getUploadInfo(final String uploadUrl, final String ownerKey) throws IOException {
+        UploadInfo uploadInfo = getUploadInfo(idFactory.readUploadId(uploadUrl));
+        if(uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
+            return null;
+        } else {
+            return uploadInfo;
+        }
     }
 
     @Override
@@ -62,7 +68,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public UploadInfo create(final UploadInfo info) throws IOException {
+    public UploadInfo create(final UploadInfo info, final String ownerKey) throws IOException {
         UUID id = createNewId();
 
         createUploadDirectory(id);
@@ -76,6 +82,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
             //Set starting values
             info.setId(id);
             info.setOffset(0L);
+            info.setOwnerKey(ownerKey);
 
             update(info);
 
@@ -91,16 +98,6 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     public void update(final UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
         Path infoPath = getInfoPath(uploadInfo.getId());
         Utils.writeSerializable(uploadInfo, infoPath);
-    }
-
-    @Override
-    public UploadInfo getUploadInfo(final UUID id) throws IOException {
-        try {
-            Path infoPath = getInfoPath(id);
-            return Utils.readSerializable(infoPath, UploadInfo.class);
-        } catch (UploadNotFoundException e) {
-            return null;
-        }
     }
 
     @Override
@@ -146,7 +143,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public InputStream getUploadedBytes(final String uploadURI) throws IOException, UploadNotFoundException {
+    public InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws IOException, UploadNotFoundException {
         InputStream inputStream = null;
 
         UUID id = idFactory.readUploadId(uploadURI);
@@ -163,6 +160,15 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     @Override
     public void cleanupExpiredUploads(final UploadLockingService uploadLockingService) {
         //TODO
+    }
+
+    UploadInfo getUploadInfo(final UUID id) throws IOException {
+        try {
+            Path infoPath = getInfoPath(id);
+            return Utils.readSerializable(infoPath, UploadInfo.class);
+        } catch (UploadNotFoundException e) {
+            return null;
+        }
     }
 
     private Path getBytesPath(final UUID id) throws IOException, UploadNotFoundException {

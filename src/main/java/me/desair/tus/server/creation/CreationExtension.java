@@ -1,5 +1,7 @@
 package me.desair.tus.server.creation;
 
+import java.util.List;
+
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.creation.validation.PostEmptyRequestValidator;
@@ -7,8 +9,6 @@ import me.desair.tus.server.creation.validation.PostURIValidator;
 import me.desair.tus.server.creation.validation.UploadDeferLengthValidator;
 import me.desair.tus.server.creation.validation.UploadLengthValidator;
 import me.desair.tus.server.util.AbstractTusFeature;
-
-import java.util.List;
 
 /**
  * The Client and the Server SHOULD implement the upload creation extension. If the Server supports this extension.

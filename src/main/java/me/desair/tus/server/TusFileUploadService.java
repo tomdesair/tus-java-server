@@ -1,21 +1,28 @@
 package me.desair.tus.server;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.LinkedHashMap;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
 import me.desair.tus.server.core.CoreProtocol;
 import me.desair.tus.server.creation.CreationExtension;
 import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.upload.*;
+import me.desair.tus.server.upload.DiskLockingService;
+import me.desair.tus.server.upload.DiskStorageService;
+import me.desair.tus.server.upload.UploadIdFactory;
+import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLock;
+import me.desair.tus.server.upload.UploadLockingService;
+import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletResponse;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.LinkedHashMap;
 
 /**
  * Helper class that implements the server side tus v1.0.0 upload protocol
@@ -85,6 +92,10 @@ public class TusFileUploadService {
     }
 
     public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse) throws Exception {
+        process(servletRequest, servletResponse, null);
+    }
+
+    public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse, final String ownerKey) throws Exception {
         Validate.notNull(servletRequest, "The HTTP Servlet request cannot be null");
         Validate.notNull(servletResponse, "The HTTP Servlet response cannot be null");
 
@@ -93,11 +104,11 @@ public class TusFileUploadService {
         log.debug("Processing request with method {} and URL {}", method, servletRequest.getRequestURL());
 
         try {
-            validateRequest(method, servletRequest);
+            validateRequest(method, servletRequest, ownerKey);
 
             try(UploadLock lock = uploadLockingService.lockUploadByUri(servletRequest.getRequestURI())) {
 
-                executeProcessingByFeatures(method, servletRequest, new TusServletResponse(servletResponse));
+                executeProcessingByFeatures(method, servletRequest, new TusServletResponse(servletResponse), ownerKey);
             }
 
         } catch (TusException e) {
@@ -105,17 +116,17 @@ public class TusFileUploadService {
         }
     }
 
-    public InputStream getUploadedBytes(final String uploadURI) throws Exception {
+    public InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws Exception {
         try(UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
 
-            return uploadStorageService.getUploadedBytes(uploadURI);
+            return uploadStorageService.getUploadedBytes(uploadURI, ownerKey);
         }
     }
 
-    public UploadInfo getUploadInfo(final String uploadURI) throws Exception {
+    public UploadInfo getUploadInfo(final String uploadURI, final String ownerKey) throws Exception {
         try(UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
 
-            return uploadStorageService.getUploadInfo(uploadURI);
+            return uploadStorageService.getUploadInfo(uploadURI, ownerKey);
         }
     }
 
@@ -129,15 +140,15 @@ public class TusFileUploadService {
         uploadStorageService.cleanupExpiredUploads(uploadLockingService);
     }
 
-    protected void executeProcessingByFeatures(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse) throws IOException, TusException {
+    protected void executeProcessingByFeatures(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final String ownerKey) throws IOException, TusException {
         for (TusFeature feature : enabledFeatures.values()) {
-            feature.process(method, servletRequest, servletResponse, uploadStorageService);
+            feature.process(method, servletRequest, servletResponse, uploadStorageService, ownerKey);
         }
     }
 
-    protected void validateRequest(final HttpMethod method, final HttpServletRequest servletRequest) throws TusException, IOException {
+    protected void validateRequest(final HttpMethod method, final HttpServletRequest servletRequest, final String ownerKey) throws TusException, IOException {
         for (TusFeature feature : enabledFeatures.values()) {
-            feature.validate(method, servletRequest, uploadStorageService);
+            feature.validate(method, servletRequest, uploadStorageService, ownerKey);
         }
     }
 

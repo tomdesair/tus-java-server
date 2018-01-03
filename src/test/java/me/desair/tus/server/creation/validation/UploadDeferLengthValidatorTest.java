@@ -1,14 +1,14 @@
 package me.desair.tus.server.creation.validation;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.InvalidUploadLengthException;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
 
 /**
  * The request MUST include one of the following headers:
@@ -44,7 +44,7 @@ public class UploadDeferLengthValidatorTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null);
+        validator.validate(HttpMethod.POST, servletRequest, null, null);
 
         //No Exception is thrown
     }
@@ -54,7 +54,7 @@ public class UploadDeferLengthValidatorTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_DEFER_LENGTH, 1);
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null);
+        validator.validate(HttpMethod.POST, servletRequest, null, null);
 
         //No Exception is thrown
     }
@@ -65,7 +65,7 @@ public class UploadDeferLengthValidatorTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null);
+        validator.validate(HttpMethod.POST, servletRequest, null, null);
 
         //Expect an InvalidUploadLengthException
     }
@@ -75,7 +75,7 @@ public class UploadDeferLengthValidatorTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_DEFER_LENGTH, 2);
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null);
+        validator.validate(HttpMethod.POST, servletRequest, null, null);
 
         //Expect an InvalidUploadLengthException
     }
@@ -85,7 +85,7 @@ public class UploadDeferLengthValidatorTest {
         //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null);
+        validator.validate(HttpMethod.POST, servletRequest, null, null);
 
         //Expect an InvalidUploadLengthException
     }
@@ -95,7 +95,7 @@ public class UploadDeferLengthValidatorTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "TEST");
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null);
+        validator.validate(HttpMethod.POST, servletRequest, null, null);
 
         //Expect an InvalidUploadLengthException
     }

@@ -1,5 +1,11 @@
 package me.desair.tus.server.core;
 
+import java.io.IOException;
+import java.util.Objects;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
@@ -10,11 +16,6 @@ import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import java.util.Objects;
 
 /**
  * The Server SHOULD accept PATCH requests against any upload URL and apply the bytes contained in the message at
@@ -35,9 +36,9 @@ public class CorePatchRequestHandler implements RequestHandler {
 
     @Override
     public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse,
-                        final UploadStorageService uploadStorageService) throws IOException, TusException {
+                        final UploadStorageService uploadStorageService, final String ownerKey) throws IOException, TusException {
         boolean found = true;
-        UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI());
+        UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
 
         if(uploadInfo == null) {
             found = false;

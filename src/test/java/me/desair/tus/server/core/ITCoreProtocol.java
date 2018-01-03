@@ -1,22 +1,30 @@
 package me.desair.tus.server.core;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.io.InputStream;
+
+import javax.servlet.http.HttpServletResponse;
+
 import me.desair.tus.server.AbstractTusFeatureIntegrationTest;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.exception.*;
+import me.desair.tus.server.exception.InvalidContentLengthException;
+import me.desair.tus.server.exception.InvalidContentTypeException;
+import me.desair.tus.server.exception.InvalidTusResumableException;
+import me.desair.tus.server.exception.UnsupportedMethodException;
+import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.exception.UploadOffsetMismatchException;
 import me.desair.tus.server.upload.UploadInfo;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-
-import javax.servlet.http.HttpServletResponse;
-import java.io.InputStream;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.*;
 
 public class ITCoreProtocol extends AbstractTusFeatureIntegrationTest {
 

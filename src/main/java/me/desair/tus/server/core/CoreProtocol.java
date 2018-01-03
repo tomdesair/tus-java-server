@@ -1,11 +1,16 @@
 package me.desair.tus.server.core;
 
+import java.util.List;
+
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
-import me.desair.tus.server.core.validation.*;
+import me.desair.tus.server.core.validation.ContentLengthValidator;
+import me.desair.tus.server.core.validation.ContentTypeValidator;
+import me.desair.tus.server.core.validation.HttpMethodValidator;
+import me.desair.tus.server.core.validation.IdExistsValidator;
+import me.desair.tus.server.core.validation.TusResumableValidator;
+import me.desair.tus.server.core.validation.UploadOffsetValidator;
 import me.desair.tus.server.util.AbstractTusFeature;
-
-import java.util.List;
 
 /**
  * The core protocol describes how to resume an interrupted upload.

@@ -1,5 +1,13 @@
 package me.desair.tus.server.core;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.when;
+
+import javax.servlet.http.HttpServletResponse;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadInfo;
@@ -12,14 +20,6 @@ import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-
-import javax.servlet.http.HttpServletResponse;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.CoreMatchers.nullValue;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Mockito.when;
 
 @RunWith(MockitoJUnitRunner.class)
 public class CoreHeadRequestHandlerTest {
@@ -45,9 +45,9 @@ public class CoreHeadRequestHandlerTest {
         UploadInfo info = new UploadInfo();
         info.setOffset(2L);
         info.setLength(10L);
-        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
 
-        handler.process(HttpMethod.HEAD, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+        handler.process(HttpMethod.HEAD, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is("10"));
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("2"));
@@ -59,9 +59,9 @@ public class CoreHeadRequestHandlerTest {
     public void processWithoutLength() throws Exception {
         UploadInfo info = new UploadInfo();
         info.setOffset(0L);
-        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
 
-        handler.process(HttpMethod.HEAD, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+        handler.process(HttpMethod.HEAD, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is(nullValue()));
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("0"));

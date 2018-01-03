@@ -1,14 +1,14 @@
 package me.desair.tus.server.core.validation;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.InvalidContentTypeException;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
 
 
 public class ContentTypeValidatorTest {
@@ -27,7 +27,7 @@ public class ContentTypeValidatorTest {
     public void validateValid() throws Exception {
         servletRequest.addHeader(HttpHeader.CONTENT_TYPE, ContentTypeValidator.APPLICATION_OFFSET_OCTET_STREAM);
 
-        validator.validate(HttpMethod.PATCH, servletRequest, null);
+        validator.validate(HttpMethod.PATCH, servletRequest, null, null);
 
         //No exception is thrown
     }
@@ -36,7 +36,7 @@ public class ContentTypeValidatorTest {
     public void validateInvalidHeader() throws Exception {
         servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/octet-stream");
 
-        validator.validate(HttpMethod.PATCH, servletRequest, null);
+        validator.validate(HttpMethod.PATCH, servletRequest, null, null);
 
         //Expect a InvalidContentTypeException exception
     }
@@ -46,7 +46,7 @@ public class ContentTypeValidatorTest {
         //We don't set the header
         //servletRequest.addHeader(HttpHeader.CONTENT_TYPE, ContentTypeValidator.APPLICATION_OFFSET_OCTET_STREAM);
 
-        validator.validate(HttpMethod.PATCH, servletRequest, null);
+        validator.validate(HttpMethod.PATCH, servletRequest, null, null);
 
         //Expect a InvalidContentTypeException exception
     }

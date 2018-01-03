@@ -1,5 +1,8 @@
 package me.desair.tus.server.core.validation;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.UnsupportedMethodException;
 import me.desair.tus.server.upload.UploadIdFactory;
@@ -7,9 +10,6 @@ import me.desair.tus.server.upload.UploadStorageService;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
 
 public class HttpMethodValidatorTest {
 
@@ -26,12 +26,12 @@ public class HttpMethodValidatorTest {
 
     @Test
     public void validateValid() throws Exception {
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService);
+        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
     }
 
     @Test(expected = UnsupportedMethodException.class)
     public void validateInvalid() throws Exception {
-        validator.validate(null, servletRequest, uploadStorageService);
+        validator.validate(null, servletRequest, uploadStorageService, null);
     }
 
     @Test

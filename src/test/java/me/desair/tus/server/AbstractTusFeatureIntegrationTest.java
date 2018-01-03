@@ -1,7 +1,17 @@
 package me.desair.tus.server;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.when;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Arrays;
+
 import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractTusFeature;
@@ -11,17 +21,6 @@ import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Arrays;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.containsInAnyOrder;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Mockito.when;
 
 @RunWith(MockitoJUnitRunner.class)
 public abstract class AbstractTusFeatureIntegrationTest {
@@ -41,7 +40,7 @@ public abstract class AbstractTusFeatureIntegrationTest {
         uploadInfo = new UploadInfo();
         uploadInfo.setOffset(offset);
         uploadInfo.setLength(length);
-        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(uploadInfo);
+        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(uploadInfo);
         when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class))).thenReturn(uploadInfo);
     }
 
@@ -67,8 +66,8 @@ public abstract class AbstractTusFeatureIntegrationTest {
     }
 
     protected void executeCall(final HttpMethod method) throws TusException, IOException {
-        tusFeature.validate(method, servletRequest, uploadStorageService);
-        tusFeature.process(method, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+        tusFeature.validate(method, servletRequest, uploadStorageService, null);
+        tusFeature.process(method, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
     }
 
     protected void assertResponseHeader(final String header, final String value) {

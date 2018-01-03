@@ -1,12 +1,11 @@
 package me.desair.tus.server.upload;
 
-import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.exception.UploadNotFoundException;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.UUID;
+
+import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadNotFoundException;
 
 /**
  * Interface to a service that is able to store the (partially) uploaded files.
@@ -14,18 +13,12 @@ import java.util.UUID;
 public interface UploadStorageService {
 
     /**
-     * Method to retrieve the upload info by ID
-     * @param id The id for which to lookup the upload info. This parameter can be null.
-     * @return The upload info matching the given ID, or null when not found.
-     */
-    UploadInfo getUploadInfo(final UUID id) throws IOException;
-
-    /**
      * Method to retrieve the upload info by its upload URL
      * @param uploadUrl The URL corresponding to this upload. This parameter can be null.
+     * @param ownerKey
      * @return The upload info matching the given URL, or null when not found.
      */
-    UploadInfo getUploadInfo(final String uploadUrl) throws IOException;
+    UploadInfo getUploadInfo(final String uploadUrl, final String ownerKey) throws IOException;
 
     /**
      * The URI which is configured as the upload endpoint
@@ -58,9 +51,10 @@ public interface UploadStorageService {
     /**
      * Create an upload location with the given upload information
      * @param info The Upload information to use to create the new upload
+     * @param ownerKey
      * @return An {@link UploadInfo} object containing the information used to create the upload and the unique ID of this upload
      */
-    UploadInfo create(final UploadInfo info) throws IOException;
+    UploadInfo create(final UploadInfo info, final String ownerKey) throws IOException;
 
     /**
      * Update the upload information for the provided ID.
@@ -71,9 +65,10 @@ public interface UploadStorageService {
     /**
      * Get the uploaded bytes corresponding to the given upload URL as a stream
      * @param uploadURI The URI
+     * @param ownerKey
      * @return an {@link OutputStream} containing the bytes of the upload
      */
-    InputStream getUploadedBytes(final String uploadURI) throws IOException, UploadNotFoundException;
+    InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws IOException, UploadNotFoundException;
 
     /**
      * Clean up any upload data that is expired according to the configured expiration time

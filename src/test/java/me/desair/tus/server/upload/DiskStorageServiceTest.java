@@ -1,15 +1,17 @@
 package me.desair.tus.server.upload;
 
-import static org.hamcrest.Matchers.*;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.doThrow;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -99,7 +101,7 @@ public class DiskStorageServiceTest {
         info.setLength(10L);
         info.setEncodedMetadata("Encoded Metadata");
 
-        info = storageService.create(info);
+        info = storageService.create(info, null);
 
         assertThat(info.getId(), is(notNullValue()));
         assertThat(info.getOffset(), is(0L));
@@ -115,7 +117,7 @@ public class DiskStorageServiceTest {
         info.setLength(10L);
         info.setEncodedMetadata("Encoded Metadata");
 
-        info = storageService.create(info);
+        info = storageService.create(info, null);
 
         assertTrue(Files.exists(getUploadInfoPath(info.getId())));
 
@@ -140,11 +142,11 @@ public class DiskStorageServiceTest {
         info.setLength(10L);
         info.setEncodedMetadata("Encoded Metadata");
 
-        info = storageService.create(info);
+        info = storageService.create(info, null);
 
         assertTrue(Files.exists(getUploadInfoPath(info.getId())));
 
-        UploadInfo readInfo = storageService.getUploadInfo(UPLOAD_URL + "/" + info.getId());
+        UploadInfo readInfo = storageService.getUploadInfo(UPLOAD_URL + "/" + info.getId(), null);
 
         assertTrue(readInfo != info);
         assertThat(readInfo.getId(), is(info.getId()));
@@ -154,12 +156,33 @@ public class DiskStorageServiceTest {
     }
 
     @Test
+    public void getUploadInfoOtherOwner() throws Exception {
+        UploadInfo info = new UploadInfo();
+        info.setLength(10L);
+        info.setEncodedMetadata("Encoded Metadata");
+
+        info = storageService.create(info, "foo");
+
+        assertTrue(Files.exists(getUploadInfoPath(info.getId())));
+
+        UploadInfo readInfo = storageService.getUploadInfo(UPLOAD_URL + "/" + info.getId(), "foo");
+
+        assertTrue(readInfo != info);
+        assertThat(readInfo.getId(), is(info.getId()));
+        assertThat(readInfo.getOffset(), is(0L));
+        assertThat(readInfo.getLength(), is(10L));
+        assertThat(readInfo.getEncodedMetadata(), is("Encoded Metadata"));
+
+        assertThat(storageService.getUploadInfo(UPLOAD_URL + "/" + info.getId(), "bar"), is(nullValue()));
+    }
+
+    @Test
     public void update() throws Exception {
         UploadInfo info1 = new UploadInfo();
         info1.setLength(10L);
         info1.setEncodedMetadata("Encoded Metadata");
 
-        info1 = storageService.create(info1);
+        info1 = storageService.create(info1, null);
 
         assertTrue(Files.exists(getUploadInfoPath(info1.getId())));
 
@@ -192,7 +215,7 @@ public class DiskStorageServiceTest {
         info.setLength((long) (part1.getBytes().length + part2.getBytes().length));
         info.setEncodedMetadata("Encoded Metadata");
 
-        info = storageService.create(info);
+        info = storageService.create(info, null);
         assertTrue(Files.exists(getUploadInfoPath(info.getId())));
 
         //Write the first part of the upload
@@ -228,7 +251,7 @@ public class DiskStorageServiceTest {
         UploadInfo info = new UploadInfo();
         info.setLength(17L);
 
-        info = storageService.create(info);
+        info = storageService.create(info, null);
         assertTrue(Files.exists(getUploadInfoPath(info.getId())));
 
         //Write the content of the upload
@@ -249,7 +272,7 @@ public class DiskStorageServiceTest {
         UploadInfo info = new UploadInfo();
         info.setLength(17L);
 
-        info = storageService.create(info);
+        info = storageService.create(info, null);
         assertTrue(Files.exists(getUploadInfoPath(info.getId())));
 
         //Write the content of the upload in two parts
@@ -284,7 +307,7 @@ public class DiskStorageServiceTest {
         UploadInfo info = new UploadInfo();
         info.setLength(17L);
 
-        info = storageService.create(info);
+        info = storageService.create(info, null);
         assertTrue(Files.exists(getUploadInfoPath(info.getId())));
 
         info.setOffset(3L);
@@ -302,7 +325,7 @@ public class DiskStorageServiceTest {
         UploadInfo info = new UploadInfo();
         info.setLength((long) content.getBytes().length);
 
-        info = storageService.create(info);
+        info = storageService.create(info, null);
         assertTrue(Files.exists(getUploadInfoPath(info.getId())));
 
         InputStream exceptionStream = mock(InputStream.class);
@@ -333,14 +356,14 @@ public class DiskStorageServiceTest {
         UploadInfo info = new UploadInfo();
         info.setLength((long) content.getBytes().length);
 
-        info = storageService.create(info);
+        info = storageService.create(info, null);
         assertTrue(Files.exists(getUploadInfoPath(info.getId())));
 
         //Write the content of the upload
         storageService.append(info, IOUtils.toInputStream(content, StandardCharsets.UTF_8));
         assertTrue(Files.exists(getUploadDataPath(info.getId())));
 
-        try(InputStream uploadedBytes = storageService.getUploadedBytes(UPLOAD_URL + "/" + info.getId())) {
+        try(InputStream uploadedBytes = storageService.getUploadedBytes(UPLOAD_URL + "/" + info.getId(), null)) {
 
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is the content of my upload"));

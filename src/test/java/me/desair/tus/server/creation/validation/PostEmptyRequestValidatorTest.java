@@ -1,14 +1,14 @@
 package me.desair.tus.server.creation.validation;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.InvalidContentLengthException;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
 
 public class PostEmptyRequestValidatorTest {
 
@@ -40,7 +40,7 @@ public class PostEmptyRequestValidatorTest {
         //servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 3L);
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null);
+        validator.validate(HttpMethod.POST, servletRequest, null, null);
 
         //No Exception is thrown
     }
@@ -50,7 +50,7 @@ public class PostEmptyRequestValidatorTest {
         servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0L);
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null);
+        validator.validate(HttpMethod.POST, servletRequest, null, null);
 
         //No Exception is thrown
     }
@@ -60,7 +60,7 @@ public class PostEmptyRequestValidatorTest {
         servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 10L);
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null);
+        validator.validate(HttpMethod.POST, servletRequest, null, null);
 
         //Expect a InvalidContentLengthException
     }

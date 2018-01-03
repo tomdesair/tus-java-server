@@ -1,9 +1,7 @@
 package me.desair.tus.server.upload;
 
-import me.desair.tus.server.exception.UploadAlreadyLockedException;
-import org.apache.commons.lang3.Validate;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
@@ -12,8 +10,10 @@ import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.WRITE;
+import me.desair.tus.server.exception.UploadAlreadyLockedException;
+import org.apache.commons.lang3.Validate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Upload locking implementation using the file system file locking mechanism.

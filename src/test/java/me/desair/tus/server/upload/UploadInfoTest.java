@@ -1,13 +1,15 @@
 package me.desair.tus.server.upload;
 
-import org.apache.commons.lang3.tuple.Pair;
-import org.junit.Test;
+import static org.hamcrest.collection.IsIterableContainingInAnyOrder.containsInAnyOrder;
+import static org.hamcrest.collection.IsIterableContainingInOrder.contains;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import java.util.UUID;
 
-import static org.hamcrest.collection.IsIterableContainingInAnyOrder.containsInAnyOrder;
-import static org.hamcrest.collection.IsIterableContainingInOrder.contains;
-import static org.junit.Assert.*;
+import org.apache.commons.lang3.tuple.Pair;
+import org.junit.Test;
 
 public class UploadInfoTest {
 

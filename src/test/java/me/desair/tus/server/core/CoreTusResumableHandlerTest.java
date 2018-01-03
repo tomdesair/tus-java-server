@@ -1,5 +1,8 @@
 package me.desair.tus.server.core;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.TusFileUploadService;
@@ -8,9 +11,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
 
 public class CoreTusResumableHandlerTest {
 
@@ -41,7 +41,7 @@ public class CoreTusResumableHandlerTest {
 
     @Test
     public void process() throws Exception {
-        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), null);
+        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), null, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.TUS_RESUMABLE), is(TusFileUploadService.TUS_API_VERSION));
     }

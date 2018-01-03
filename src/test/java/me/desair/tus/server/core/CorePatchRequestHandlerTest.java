@@ -1,5 +1,20 @@
 package me.desair.tus.server.core;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.io.InputStream;
+import java.util.UUID;
+
+import javax.servlet.http.HttpServletResponse;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.UploadNotFoundException;
@@ -13,16 +28,6 @@ import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-
-import javax.servlet.http.HttpServletResponse;
-import java.io.InputStream;
-import java.util.UUID;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Mockito.*;
 
 @RunWith(MockitoJUnitRunner.class)
 public class CorePatchRequestHandlerTest {
@@ -61,7 +66,7 @@ public class CorePatchRequestHandlerTest {
         info.setId(UUID.randomUUID());
         info.setOffset(2L);
         info.setLength(10L);
-        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
 
         UploadInfo updatedInfo = new UploadInfo();
         updatedInfo.setId(info.getId());
@@ -69,7 +74,7 @@ public class CorePatchRequestHandlerTest {
         updatedInfo.setLength(10L);
         when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class))).thenReturn(updatedInfo);
 
-        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
 
 
         verify(uploadStorageService, times(1)).append(eq(info), any(InputStream.class));
@@ -84,9 +89,9 @@ public class CorePatchRequestHandlerTest {
         info.setId(UUID.randomUUID());
         info.setOffset(10L);
         info.setLength(10L);
-        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
 
-        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, never()).append(any(UploadInfo.class), any(InputStream.class));
 
@@ -96,9 +101,9 @@ public class CorePatchRequestHandlerTest {
 
     @Test
     public void processNotFound() throws Exception {
-        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(null);
+        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(null);
 
-        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, never()).append(any(UploadInfo.class), any(InputStream.class));
 
@@ -111,10 +116,10 @@ public class CorePatchRequestHandlerTest {
         info.setId(UUID.randomUUID());
         info.setOffset(10L);
         info.setLength(8L);
-        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
         when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class))).thenThrow(new UploadNotFoundException("test"));
 
-        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
     }

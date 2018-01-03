@@ -1,15 +1,15 @@
 package me.desair.tus.server.upload;
 
+import java.io.Serializable;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.UUID;
+
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.commons.lang3.tuple.Pair;
-
-import java.io.Serializable;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.UUID;
 
 public class UploadInfo implements Serializable {
 
@@ -17,6 +17,7 @@ public class UploadInfo implements Serializable {
     private String encodedMetadata;
     private Long length;
     private UUID id;
+    private String ownerKey;
 
     public UploadInfo() {
         offset = 0l;
@@ -92,6 +93,14 @@ public class UploadInfo implements Serializable {
         return id;
     }
 
+    public void setOwnerKey(final String ownerKey) {
+        this.ownerKey = ownerKey;
+    }
+
+    public String getOwnerKey() {
+        return ownerKey;
+    }
+
     @Override
     public boolean equals(final Object o) {
         if (this == o) return true;
@@ -105,6 +114,7 @@ public class UploadInfo implements Serializable {
                 .append(getEncodedMetadata(), info.getEncodedMetadata())
                 .append(getLength(), info.getLength())
                 .append(getId(), info.getId())
+                .append(getOwnerKey(), info.getOwnerKey())
                 .isEquals();
     }
 
@@ -115,6 +125,7 @@ public class UploadInfo implements Serializable {
                 .append(getEncodedMetadata())
                 .append(getLength())
                 .append(getId())
+                .append(getOwnerKey())
                 .toHashCode();
     }
 
@@ -129,5 +140,4 @@ public class UploadInfo implements Serializable {
     private String decode(final String encodedValue) {
         return org.apache.commons.codec.binary.StringUtils.newStringUtf8(Base64.decodeBase64(encodedValue));
     }
-
 }

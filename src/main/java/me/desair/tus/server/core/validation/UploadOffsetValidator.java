@@ -1,5 +1,10 @@
 package me.desair.tus.server.core.validation;
 
+import java.io.IOException;
+import java.util.Objects;
+
+import javax.servlet.http.HttpServletRequest;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
@@ -10,10 +15,6 @@ import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
 
-import javax.servlet.http.HttpServletRequest;
-import java.io.IOException;
-import java.util.Objects;
-
 /**
  * The Upload-Offset header’s value MUST be equal to the current offset of the resource.
  * If the offsets do not match, the Server MUST respond with the 409 Conflict status without modifying the upload resource.
@@ -21,10 +22,10 @@ import java.util.Objects;
 public class UploadOffsetValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException, IOException {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException, IOException {
         String uploadOffset = Utils.getHeader(request, HttpHeader.UPLOAD_OFFSET);
 
-        UploadInfo uploadInfo = uploadStorageService.getUploadInfo(request.getRequestURI());
+        UploadInfo uploadInfo = uploadStorageService.getUploadInfo(request.getRequestURI(), ownerKey);
 
         if(uploadInfo != null) {
             String expectedOffset = Objects.toString(uploadInfo.getOffset());

@@ -1,5 +1,12 @@
 package me.desair.tus.server.core;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.mockito.Mockito.when;
+
+import javax.servlet.http.HttpServletResponse;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.TusFileUploadService;
@@ -12,13 +19,6 @@ import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-
-import javax.servlet.http.HttpServletResponse;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.CoreMatchers.nullValue;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Mockito.when;
 
 @RunWith(MockitoJUnitRunner.class)
 public class CoreOptionsRequestHandlerTest {
@@ -43,7 +43,7 @@ public class CoreOptionsRequestHandlerTest {
     public void processWithMaxSize() throws Exception {
         when(uploadStorageService.getMaxUploadSize()).thenReturn(5368709120L);
 
-        handler.process(HttpMethod.OPTIONS, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+        handler.process(HttpMethod.OPTIONS, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.TUS_VERSION), is(TusFileUploadService.TUS_API_VERSION));
         assertThat(servletResponse.getHeader(HttpHeader.TUS_MAX_SIZE), is("5368709120"));
@@ -54,7 +54,7 @@ public class CoreOptionsRequestHandlerTest {
     public void processWithoutMaxSize() throws Exception {
         when(uploadStorageService.getMaxUploadSize()).thenReturn(0L);
 
-        handler.process(HttpMethod.OPTIONS, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+        handler.process(HttpMethod.OPTIONS, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.TUS_VERSION), is("1.0.0"));
         assertThat(servletResponse.getHeader(HttpHeader.TUS_MAX_SIZE), is(nullValue()));

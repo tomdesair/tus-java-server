@@ -1,10 +1,9 @@
 package me.desair.tus.server.upload;
 
+import java.util.UUID;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Validate;
-
-import javax.servlet.http.HttpServletRequest;
-import java.util.UUID;
 
 public class UploadIdFactory {
 

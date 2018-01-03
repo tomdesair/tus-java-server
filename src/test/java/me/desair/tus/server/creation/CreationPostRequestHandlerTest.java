@@ -1,5 +1,18 @@
 package me.desair.tus.server.creation;
 
+import static org.hamcrest.CoreMatchers.endsWith;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.util.UUID;
+
+import javax.servlet.http.HttpServletResponse;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadInfo;
@@ -15,17 +28,6 @@ import org.mockito.runners.MockitoJUnitRunner;
 import org.mockito.stubbing.Answer;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-
-import javax.servlet.http.HttpServletResponse;
-import java.util.UUID;
-
-import static org.hamcrest.CoreMatchers.endsWith;
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.CoreMatchers.nullValue;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
  * The Server MUST acknowledge a successful upload creation with the 201 Created status.
@@ -69,7 +71,7 @@ public class CreationPostRequestHandlerTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "encoded-metadata");
 
         final UUID id = UUID.randomUUID();
-        when(uploadStorageService.create(Matchers.any(UploadInfo.class))).then(new Answer<UploadInfo>() {
+        when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
             public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
@@ -82,9 +84,9 @@ public class CreationPostRequestHandlerTest {
             }
         });
 
-        handler.process(HttpMethod.POST, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+        handler.process(HttpMethod.POST, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
 
-        verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class));
+        verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class), anyString());
         assertThat(servletResponse.getHeader(HttpHeader.LOCATION), endsWith("/test/upload/" + id.toString()));
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_CREATED));
     }
@@ -96,7 +98,7 @@ public class CreationPostRequestHandlerTest {
         //servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, null);
 
         final UUID id = UUID.randomUUID();
-        when(uploadStorageService.create(Matchers.any(UploadInfo.class))).then(new Answer<UploadInfo>() {
+        when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
             public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
@@ -109,9 +111,9 @@ public class CreationPostRequestHandlerTest {
             }
         });
 
-        handler.process(HttpMethod.POST, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+        handler.process(HttpMethod.POST, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
 
-        verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class));
+        verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class), anyString());
         assertThat(servletResponse.getHeader(HttpHeader.LOCATION), endsWith("/test/upload/" + id.toString()));
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_CREATED));
     }
@@ -123,7 +125,7 @@ public class CreationPostRequestHandlerTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "encoded-metadata");
 
         final UUID id = UUID.randomUUID();
-        when(uploadStorageService.create(Matchers.any(UploadInfo.class))).then(new Answer<UploadInfo>() {
+        when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
             public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
@@ -136,9 +138,9 @@ public class CreationPostRequestHandlerTest {
             }
         });
 
-        handler.process(HttpMethod.POST, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+        handler.process(HttpMethod.POST, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
 
-        verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class));
+        verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class), anyString());
         assertThat(servletResponse.getHeader(HttpHeader.LOCATION), endsWith("/test/upload/" + id.toString()));
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_CREATED));
     }
@@ -150,7 +152,7 @@ public class CreationPostRequestHandlerTest {
         //servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, null);
 
         final UUID id = UUID.randomUUID();
-        when(uploadStorageService.create(Matchers.any(UploadInfo.class))).then(new Answer<UploadInfo>() {
+        when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
             public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
@@ -163,9 +165,9 @@ public class CreationPostRequestHandlerTest {
             }
         });
 
-        handler.process(HttpMethod.POST, servletRequest, new TusServletResponse(servletResponse), uploadStorageService);
+        handler.process(HttpMethod.POST, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
 
-        verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class));
+        verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class), anyString());
         assertThat(servletResponse.getHeader(HttpHeader.LOCATION), endsWith("/test/upload/" + id.toString()));
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_CREATED));
     }

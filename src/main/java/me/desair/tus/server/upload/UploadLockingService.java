@@ -1,8 +1,8 @@
 package me.desair.tus.server.upload;
 
-import me.desair.tus.server.exception.TusException;
-
 import java.io.IOException;
+
+import me.desair.tus.server.exception.TusException;
 
 /**
  * Service interface that can lock a specific upload so that it cannot be modified by other requests/threads.

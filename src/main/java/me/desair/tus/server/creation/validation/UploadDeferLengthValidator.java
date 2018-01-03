@@ -1,5 +1,7 @@
 package me.desair.tus.server.creation.validation;
 
+import javax.servlet.http.HttpServletRequest;
+
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
@@ -9,8 +11,6 @@ import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.math.NumberUtils;
 
-import javax.servlet.http.HttpServletRequest;
-
 /**
  * The request MUST include one of the following headers:
  * a) Upload-Length to indicate the size of an entire upload in bytes.
@@ -19,7 +19,7 @@ import javax.servlet.http.HttpServletRequest;
 public class UploadDeferLengthValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException {
         boolean uploadLength = false;
         boolean deferredLength = false;
 

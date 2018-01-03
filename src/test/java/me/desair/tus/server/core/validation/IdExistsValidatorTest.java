@@ -1,5 +1,10 @@
 package me.desair.tus.server.core.validation;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.when;
+
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
@@ -10,11 +15,6 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
-
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Mockito.when;
 
 @RunWith(MockitoJUnitRunner.class)
 public class IdExistsValidatorTest {
@@ -37,20 +37,20 @@ public class IdExistsValidatorTest {
         UploadInfo info = new UploadInfo();
         info.setOffset(0L);
         info.setLength(10L);
-        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
 
         //When we validate the request
-        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService);
+        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
 
         //No Exception is thrown
     }
 
     @Test(expected = UploadNotFoundException.class)
     public void validateInvalid() throws Exception {
-        when(uploadStorageService.getUploadInfo(anyString())).thenReturn(null);
+        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(null);
 
         //When we validate the request
-        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService);
+        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
 
         //Expect a UploadNotFoundException
     }
