@@ -66,13 +66,7 @@ public class TusServletResponse extends HttpServletResponseWrapper {
 
     @Override
     public String getHeader(final String name) {
-        String value = null;
-        List<String> values = headers.get(name);
-        if(values != null && !values.isEmpty()) {
-            value = values.get(0);
-        }
-
-        return StringUtils.trimToEmpty(value);
+        return StringUtils.trimToEmpty(super.getHeader(name));
     }
 
     private void recordHeader(final String name, final String value) {
