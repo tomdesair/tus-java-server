@@ -111,24 +111,35 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
             long max = getMaxUploadSize() > 0 ? getMaxUploadSize() : Long.MAX_VALUE;
             long transferred = 0;
             Long offset = info.getOffset();
+            long newOffset = offset;
 
             try(ReadableByteChannel uploadedBytes = Channels.newChannel(inputStream);
                 FileChannel file = FileChannel.open(bytesPath, WRITE)) {
-                //Lock will be released when the channel closes
-                file.lock();
 
-                //Validate that the given offset is at the end of the file
-                if(!offset.equals(file.size())) {
-                    throw new InvalidUploadOffsetException("The upload offset does not correspond to the written bytes. " +
-                            "You can only append to the end of an upload");
+                try {
+                    //Lock will be released when the channel closes
+                    file.lock();
+
+                    //Validate that the given offset is at the end of the file
+                    if (!offset.equals(file.size())) {
+                        throw new InvalidUploadOffsetException("The upload offset does not correspond to the written bytes. " +
+                                "You can only append to the end of an upload");
+                    }
+
+                    //write all bytes in the channel up to the configured maximum
+                    transferred = file.transferFrom(uploadedBytes, offset, max - offset);
+                    newOffset = offset + transferred;
+
+                } catch(Throwable ex) {
+                    //An error occurred, try to write as much data as possible
+                    newOffset = writeAsMuchAsPossible(file);
+                    throw ex;
                 }
 
-                //write all bytes in the channel up to the configured maximum
-                transferred = file.transferFrom(uploadedBytes, offset, max - offset);
+            } finally {
+                info.setOffset(newOffset);
+                update(info);
             }
-
-            info.setOffset(offset + transferred);
-            update(info);
         }
 
         return info;
@@ -183,5 +194,14 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
             //For extra safety, double check that this ID is not in use yet
         } while(getUploadInfo(id) != null);
         return id;
+    }
+
+    private long writeAsMuchAsPossible(final FileChannel file) throws IOException {
+        long offset = 0;
+        if (file != null) {
+            file.force(true);
+            offset = file.size();
+        }
+        return offset;
     }
 }

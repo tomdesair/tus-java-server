@@ -3,12 +3,17 @@ package me.desair.tus.server.upload;
 import static org.hamcrest.Matchers.*;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.SequenceInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -287,6 +292,37 @@ public class DiskStorageServiceTest {
 
         //Write the content of the upload
         storageService.append(info, IOUtils.toInputStream(content, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void appendInterrupted() throws Exception {
+        String content = "This is an upload that will be interrupted";
+
+        //Create our upload with the correct length
+        UploadInfo info = new UploadInfo();
+        info.setLength((long) content.getBytes().length);
+
+        info = storageService.create(info);
+        assertTrue(Files.exists(getUploadInfoPath(info.getId())));
+
+        InputStream exceptionStream = mock(InputStream.class);
+        doThrow(new RuntimeException()).when(exceptionStream).read(org.mockito.Mockito.any(byte[].class), anyInt(), anyInt());
+
+        InputStream sequenceStream = new SequenceInputStream(IOUtils.toInputStream(content, StandardCharsets.UTF_8),
+                exceptionStream);
+
+        try {
+            //Write the content of the upload
+            storageService.append(info, sequenceStream);
+            fail();
+        } catch(Exception ex) {
+            //ignore
+        }
+
+        info = storageService.getUploadInfo(info.getId());
+        assertThat(new String(Files.readAllBytes(getUploadDataPath(info.getId()))),
+                is(content));
+        assertThat(info.getOffset(), is((long) content.getBytes().length));
     }
 
     @Test
