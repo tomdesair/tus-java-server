@@ -15,8 +15,6 @@ import java.nio.file.Paths;
 import java.util.UUID;
 
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
-import me.desair.tus.server.upload.disk.DiskStorageService;
-import me.desair.tus.server.upload.disk.FileBasedLock;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.mockito.internal.util.reflection.Whitebox;

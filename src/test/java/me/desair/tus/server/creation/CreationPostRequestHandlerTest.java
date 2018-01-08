@@ -17,6 +17,7 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
 import org.junit.Test;
@@ -84,7 +85,7 @@ public class CreationPostRequestHandlerTest {
             }
         });
 
-        handler.process(HttpMethod.POST, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class), anyString());
         assertThat(servletResponse.getHeader(HttpHeader.LOCATION), endsWith("/test/upload/" + id.toString()));
@@ -111,7 +112,7 @@ public class CreationPostRequestHandlerTest {
             }
         });
 
-        handler.process(HttpMethod.POST, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class), anyString());
         assertThat(servletResponse.getHeader(HttpHeader.LOCATION), endsWith("/test/upload/" + id.toString()));
@@ -138,7 +139,7 @@ public class CreationPostRequestHandlerTest {
             }
         });
 
-        handler.process(HttpMethod.POST, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class), anyString());
         assertThat(servletResponse.getHeader(HttpHeader.LOCATION), endsWith("/test/upload/" + id.toString()));
@@ -165,7 +166,7 @@ public class CreationPostRequestHandlerTest {
             }
         });
 
-        handler.process(HttpMethod.POST, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class), anyString());
         assertThat(servletResponse.getHeader(HttpHeader.LOCATION), endsWith("/test/upload/" + id.toString()));

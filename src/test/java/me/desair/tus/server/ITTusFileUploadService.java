@@ -355,7 +355,8 @@ public class ITTusFileUploadService {
 
         //If the Server supports this extension, it MUST add creation to the Tus-Extension header.
         //If the Server supports deferring length, it MUST add creation-defer-length to the Tus-Extension header.
-        assertResponseHeader(HttpHeader.TUS_EXTENSION, "creation", "creation-defer-length");
+        assertResponseHeader(HttpHeader.TUS_EXTENSION, "creation", "creation-defer-length",
+                "checksum", "checksum-trailer");
     }
 
     @Test

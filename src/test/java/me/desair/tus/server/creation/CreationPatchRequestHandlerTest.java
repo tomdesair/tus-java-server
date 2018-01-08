@@ -19,6 +19,7 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
 import org.junit.Test;
@@ -69,7 +70,7 @@ public class CreationPatchRequestHandlerTest {
 
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
 
-        handler.process(HttpMethod.HEAD, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, never()).update(info);
     }
@@ -83,7 +84,7 @@ public class CreationPatchRequestHandlerTest {
 
         //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
 
-        handler.process(HttpMethod.HEAD, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, never()).update(info);
     }
@@ -97,7 +98,7 @@ public class CreationPatchRequestHandlerTest {
 
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
 
-        handler.process(HttpMethod.HEAD, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, times(1)).update(info);
         assertThat(info.getLength(), is(10L));
@@ -112,7 +113,7 @@ public class CreationPatchRequestHandlerTest {
 
         //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
 
-        handler.process(HttpMethod.HEAD, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, never()).update(info);
     }
@@ -121,7 +122,7 @@ public class CreationPatchRequestHandlerTest {
     public void processNotFound() throws Exception {
         when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(null);
 
-        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
     }
 
     @Test
@@ -135,7 +136,7 @@ public class CreationPatchRequestHandlerTest {
 
         doThrow(new UploadNotFoundException("test")).when(uploadStorageService).update(any(UploadInfo.class));
 
-        handler.process(HttpMethod.PATCH, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
     }

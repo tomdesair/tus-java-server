@@ -1,7 +1,5 @@
 package me.desair.tus.server.util;
 
-import javax.servlet.http.HttpServletRequest;
-
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
@@ -18,7 +16,7 @@ public abstract class AbstractExtensionRequestHandler implements RequestHandler 
     }
 
     @Override
-    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) {
+    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) {
         StringBuilder extensionBuilder = new StringBuilder(servletResponse.getHeader(HttpHeader.TUS_EXTENSION));
 
         appendExtensions(extensionBuilder);

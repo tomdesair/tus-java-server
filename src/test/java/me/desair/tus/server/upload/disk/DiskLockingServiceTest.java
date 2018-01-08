@@ -15,7 +15,6 @@ import java.util.UUID;
 
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
-import me.desair.tus.server.upload.disk.DiskLockingService;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;

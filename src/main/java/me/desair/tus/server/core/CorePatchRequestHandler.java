@@ -3,7 +3,6 @@ package me.desair.tus.server.core;
 import java.io.IOException;
 import java.util.Objects;
 
-import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpHeader;
@@ -13,6 +12,7 @@ import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +35,7 @@ public class CorePatchRequestHandler implements RequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse,
+    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse,
                         final UploadStorageService uploadStorageService, final String ownerKey) throws IOException, TusException {
         boolean found = true;
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);

@@ -11,6 +11,7 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.TusFileUploadService;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
 import org.junit.Test;
@@ -43,7 +44,7 @@ public class CoreOptionsRequestHandlerTest {
     public void processWithMaxSize() throws Exception {
         when(uploadStorageService.getMaxUploadSize()).thenReturn(5368709120L);
 
-        handler.process(HttpMethod.OPTIONS, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.OPTIONS, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.TUS_VERSION), is(TusFileUploadService.TUS_API_VERSION));
         assertThat(servletResponse.getHeader(HttpHeader.TUS_MAX_SIZE), is("5368709120"));
@@ -54,7 +55,7 @@ public class CoreOptionsRequestHandlerTest {
     public void processWithoutMaxSize() throws Exception {
         when(uploadStorageService.getMaxUploadSize()).thenReturn(0L);
 
-        handler.process(HttpMethod.OPTIONS, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.OPTIONS, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.TUS_VERSION), is("1.0.0"));
         assertThat(servletResponse.getHeader(HttpHeader.TUS_MAX_SIZE), is(nullValue()));

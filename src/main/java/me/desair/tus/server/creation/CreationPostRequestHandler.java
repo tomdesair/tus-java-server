@@ -10,6 +10,7 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
@@ -30,7 +31,7 @@ public class CreationPostRequestHandler implements RequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse,
+    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse,
                         final UploadStorageService uploadStorageService, final String ownerKey) throws IOException {
 
         UploadInfo info = buildUploadInfo(servletRequest);

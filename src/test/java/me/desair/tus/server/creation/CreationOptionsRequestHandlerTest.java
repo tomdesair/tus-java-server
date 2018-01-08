@@ -8,6 +8,7 @@ import java.util.Arrays;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,7 +33,7 @@ public class CreationOptionsRequestHandlerTest {
     @Test
     public void processListExtensions() throws Exception {
 
-        handler.process(HttpMethod.OPTIONS, servletRequest, new TusServletResponse(servletResponse), null, null);
+        handler.process(HttpMethod.OPTIONS, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), null, null);
 
         assertThat(Arrays.asList(servletResponse.getHeader(HttpHeader.TUS_EXTENSION).split(",")),
                 containsInAnyOrder("creation", "creation-defer-length"));

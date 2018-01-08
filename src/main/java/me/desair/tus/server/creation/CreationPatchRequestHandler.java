@@ -2,7 +2,6 @@ package me.desair.tus.server.creation;
 
 import java.io.IOException;
 
-import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpHeader;
@@ -11,6 +10,7 @@ import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
@@ -30,7 +30,7 @@ public class CreationPatchRequestHandler implements RequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) throws IOException {
+    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) throws IOException {
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
 
         if(uploadInfo != null && !uploadInfo.hasLength()) {

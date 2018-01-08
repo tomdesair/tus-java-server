@@ -75,4 +75,11 @@ public interface UploadStorageService {
      * @param uploadLockingService
      */
     void cleanupExpiredUploads(final UploadLockingService uploadLockingService);
+
+    /**
+     * Remove the given last amount of bytes from the uploaded data
+     * @param uploadInfo Upload of which to remove the bytes
+     * @param byteCount The number of bytes to remove at the end
+     */
+    void removeLastNumberOfBytes(UploadInfo uploadInfo, long byteCount) throws UploadNotFoundException, IOException;
 }

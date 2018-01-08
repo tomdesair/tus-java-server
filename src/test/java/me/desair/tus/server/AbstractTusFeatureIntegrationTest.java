@@ -15,6 +15,7 @@ import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractTusFeature;
+import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
@@ -67,7 +68,7 @@ public abstract class AbstractTusFeatureIntegrationTest {
 
     protected void executeCall(final HttpMethod method) throws TusException, IOException {
         tusFeature.validate(method, servletRequest, uploadStorageService, null);
-        tusFeature.process(method, servletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        tusFeature.process(method, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
     }
 
     protected void assertResponseHeader(final String header, final String value) {

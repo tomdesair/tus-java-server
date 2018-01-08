@@ -17,11 +17,22 @@ public class HttpHeader {
     public static final String LOCATION = "Location";
 
     /**
+     * The Transfer-Encoding header specifies the form of encoding used to safely transfer the entity to the user.
+     */
+    public static final String TRANSFER_ENCODING = "Transfer-Encoding";
+
+    /**
      * The Upload-Offset request and response header indicates a byte offset within a resource.
      * The value MUST be a non-negative integer.
      */
     public static final String UPLOAD_OFFSET = "Upload-Offset";
     public static final String UPLOAD_METADATA = "Upload-Metadata";
+
+    /**
+     * The Upload-Checksum request header contains information about the checksum of the current body payload.
+     * The header MUST consist of the name of the used checksum algorithm and the Base64 encoded checksum separated by a space.
+     */
+    public static final String UPLOAD_CHECKSUM = "Upload-Checksum";
 
     /**
      * The Upload-Length request and response header indicates the size of the entire upload in bytes.
@@ -59,6 +70,12 @@ public class HttpHeader {
      * entire upload in bytes. The Server SHOULD set this header if there is a known hard limit.
      */
     public static final String TUS_MAX_SIZE = "Tus-Max-Size";
+
+    /**
+     * The Tus-Checksum-Algorithm response header MUST be a comma-separated list of the checksum algorithms supported
+     * by the server.
+     */
+    public static final String TUS_CHECKSUM_ALGORITHM = "Tus-Checksum-Algorithm";
 
     private HttpHeader() {
         //This is an utility class to hold constants

@@ -8,16 +8,18 @@ import java.util.LinkedHashMap;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import me.desair.tus.server.checksum.ChecksumExtension;
 import me.desair.tus.server.core.CoreProtocol;
 import me.desair.tus.server.creation.CreationExtension;
 import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.upload.disk.DiskLockingService;
-import me.desair.tus.server.upload.disk.DiskStorageService;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.upload.disk.DiskLockingService;
+import me.desair.tus.server.upload.disk.DiskStorageService;
+import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.Validate;
@@ -46,8 +48,10 @@ public class TusFileUploadService {
     }
 
     protected void initFeatures() {
+        //The order of the features is important
         addTusFeature(new CoreProtocol());
         addTusFeature(new CreationExtension());
+        addTusFeature(new ChecksumExtension());
     }
 
     public TusFileUploadService withUploadURI(final String uploadURI) {
@@ -108,7 +112,8 @@ public class TusFileUploadService {
 
             try(UploadLock lock = uploadLockingService.lockUploadByUri(servletRequest.getRequestURI())) {
 
-                executeProcessingByFeatures(method, servletRequest, new TusServletResponse(servletResponse), ownerKey);
+                executeProcessingByFeatures(method, new TusServletRequest(servletRequest),
+                        new TusServletResponse(servletResponse), ownerKey);
             }
 
         } catch (TusException e) {
@@ -140,7 +145,7 @@ public class TusFileUploadService {
         uploadStorageService.cleanupExpiredUploads(uploadLockingService);
     }
 
-    protected void executeProcessingByFeatures(final HttpMethod method, final HttpServletRequest servletRequest, final TusServletResponse servletResponse, final String ownerKey) throws IOException, TusException {
+    protected void executeProcessingByFeatures(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final String ownerKey) throws IOException, TusException {
         for (TusFeature feature : enabledFeatures.values()) {
             feature.process(method, servletRequest, servletResponse, uploadStorageService, ownerKey);
         }
