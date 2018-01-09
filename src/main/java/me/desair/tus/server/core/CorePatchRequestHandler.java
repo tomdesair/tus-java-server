@@ -44,7 +44,7 @@ public class CorePatchRequestHandler implements RequestHandler {
             found = false;
         } else if(uploadInfo.isUploadInProgress()) {
             try {
-                uploadInfo = uploadStorageService.append(uploadInfo, servletRequest.getInputStream());
+                uploadInfo = uploadStorageService.append(uploadInfo, servletRequest.getContentInputStream());
             } catch (UploadNotFoundException e) {
                 found = false;
             }
