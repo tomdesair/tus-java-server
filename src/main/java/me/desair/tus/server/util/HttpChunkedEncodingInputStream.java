@@ -288,17 +288,13 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         List<Pair<String, String>> headers = new LinkedList<>();
         String name = null;
         StringBuilder value = null;
-        for (; ;) {
-            String line = readLine(is, charset);
-            if ((line == null) || (line.trim().length() < 1)) {
-                break;
-            }
-
+        String line = readLine(is, charset);
+        while(org.apache.commons.lang3.StringUtils.isNotBlank(line)) {
             // Parse the header name and value
             // Check for folded headers first
             // Detect LWS-char see HTTP/1.0 or HTTP/1.1 Section 2.2
             // discussion on folded headers
-            if ((line.charAt(0) == ' ') || (line.charAt(0) == '\t')) {
+            if (isLwsChar(line.charAt(0))) {
                 // we have continuation folded header
                 // so append value
                 if (value != null) {
@@ -306,10 +302,8 @@ public class HttpChunkedEncodingInputStream extends InputStream {
                     value.append(line.trim());
                 }
             } else {
-                // make sure we save the previous name,value pair if present
-                if (name != null) {
-                    headers.add(Pair.of(name, value.toString()));
-                }
+                // make sure we save the previous name, value pair if present
+                addHeaderValue(headers, name, value);
 
                 // Otherwise we should have normal HTTP header line
                 // Parse the header name and value
@@ -320,14 +314,23 @@ public class HttpChunkedEncodingInputStream extends InputStream {
                 }
             }
 
+            line = readLine(is, charset);
         }
 
         // make sure we save the last name,value pair if present
+        addHeaderValue(headers, name, value);
+
+        return headers;
+    }
+
+    private void addHeaderValue(final List<Pair<String, String>> headers, final String name, final StringBuilder value) {
         if (name != null) {
             headers.add(Pair.of(name, value.toString()));
         }
+    }
 
-        return headers;
+    private boolean isLwsChar(final char c) {
+        return c == ' ' || c == '\t';
     }
 
     private String readLine(InputStream inputStream, Charset charset) throws IOException {
@@ -338,12 +341,10 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         // strip CR and LF from the end
         int len = rawdata.length;
         int offset = 0;
-        if (len > 0 && rawdata[len - 1] == '\n') {
+        if (rawdata[len - 1] == '\n') {
             offset++;
-            if (len > 1) {
-                if (rawdata[len - 2] == '\r') {
-                    offset++;
-                }
+            if (len > 1 && rawdata[len - 2] == '\r') {
+                offset++;
             }
         }
 

@@ -23,12 +23,12 @@ public class ChecksumAlgorithmValidator implements RequestValidator {
         String uploadChecksum = request.getHeader(HttpHeader.UPLOAD_CHECKSUM);
 
         //If the client provided a checksum header, check that we support the algorithm
-        if(StringUtils.isNotBlank(uploadChecksum)) {
+        if (StringUtils.isNotBlank(uploadChecksum)
+                && ChecksumAlgorithm.forUploadChecksumHeader(uploadChecksum) == null) {
 
-            if(ChecksumAlgorithm.forUploadChecksumHeader(uploadChecksum) == null) {
-                throw new ChecksumAlgorithmNotSupportedException("The " + HttpHeader.UPLOAD_CHECKSUM + " header value "
-                        + uploadChecksum + " is not supported");
-            }
+            throw new ChecksumAlgorithmNotSupportedException("The " + HttpHeader.UPLOAD_CHECKSUM + " header value "
+                    + uploadChecksum + " is not supported");
+
         }
     }
 

@@ -19,8 +19,6 @@ import org.slf4j.LoggerFactory;
 
 public class ChecksumPatchRequestHandler implements RequestHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(ChecksumPatchRequestHandler.class);
-
     @Override
     public boolean supports(final HttpMethod method) {
         return HttpMethod.PATCH.equals(method);
