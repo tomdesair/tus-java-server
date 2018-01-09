@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
  * Transparently coalesces chunks of a HTTP stream that uses Transfer-Encoding chunked.
  * Based on org.apache.commons.httpclient.ChunkedInputStream
  */
-public class ChunkedInputStream extends InputStream {
+public class HttpChunkedEncodingInputStream extends InputStream {
     /** The inputstream that we're wrapping */
     private InputStream in;
 
@@ -49,7 +49,7 @@ public class ChunkedInputStream extends InputStream {
      *
      * @throws IOException If an IO error occurs
      */
-    public ChunkedInputStream(
+    public HttpChunkedEncodingInputStream(
             final InputStream in, final Map<String, List<String>> trailerHeaders) throws IOException {
 
         if (in == null) {
@@ -61,13 +61,13 @@ public class ChunkedInputStream extends InputStream {
     }
 
     /**
-     * ChunkedInputStream constructor
+     * HttpChunkedEncodingInputStream constructor
      *
      * @param in the raw input stream
      *
      * @throws IOException If an IO error occurs
      */
-    public ChunkedInputStream(final InputStream in) throws IOException {
+    public HttpChunkedEncodingInputStream(final InputStream in) throws IOException {
         this(in, null);
     }
 

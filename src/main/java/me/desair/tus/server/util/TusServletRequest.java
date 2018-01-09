@@ -35,19 +35,20 @@ public class TusServletRequest extends HttpServletRequestWrapper {
 
     public InputStream getContentInputStream() throws IOException {
         if(contentInputStream == null) {
-            InputStream originalInputStream = super.getInputStream();
+            contentInputStream = super.getInputStream();
 
-            countingInputStream = new CountingInputStream(originalInputStream);
+            //If we're dealing with chunked tranfer encoding, abstract it so that the rest of our code doesn't need to care
+            if(StringUtils.equalsIgnoreCase("chunked", getHeader(HttpHeader.TRANSFER_ENCODING))) {
+                contentInputStream = new HttpChunkedEncodingInputStream(contentInputStream, trailerHeaders);
+            }
+
+            countingInputStream = new CountingInputStream(contentInputStream);
             contentInputStream = countingInputStream;
 
             ChecksumAlgorithm checksumAlgorithm = ChecksumAlgorithm.forUploadChecksumHeader(getHeader(HttpHeader.UPLOAD_CHECKSUM));
             if (checksumAlgorithm != null) {
                 digestInputStream = new DigestInputStream(contentInputStream, checksumAlgorithm.getMessageDigest());
                 contentInputStream = digestInputStream;
-            }
-
-            if(StringUtils.equalsIgnoreCase("chunked", getHeader(HttpHeader.TRANSFER_ENCODING))) {
-                contentInputStream = new ChunkedInputStream(contentInputStream, trailerHeaders);
             }
         }
 
@@ -72,7 +73,10 @@ public class TusServletRequest extends HttpServletRequestWrapper {
         String value = super.getHeader(name);
 
         if(StringUtils.isBlank(value) && trailerHeaders.containsKey(name)) {
-            value = trailerHeaders.get(name).get(0);
+            List<String> values = trailerHeaders.get(name);
+            if(values != null && !values.isEmpty()) {
+                value = values.get(0);
+            }
         }
 
         return value;
