@@ -3,6 +3,8 @@ package me.desair.tus.server.util;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -18,10 +20,13 @@ import org.slf4j.LoggerFactory;
  * Based on org.apache.commons.httpclient.ChunkedInputStream
  */
 public class HttpChunkedEncodingInputStream extends InputStream {
-    /** The inputstream that we're wrapping */
+
+    private static final Logger log = LoggerFactory.getLogger(TusFileUploadService.class);
+
+    /** The input stream that we're wrapping */
     private InputStream in;
 
-    /** The chunk size */
+    /** The current chunk size */
     private int chunkSize;
 
     /** The current position within the current chunk */
@@ -39,18 +44,13 @@ public class HttpChunkedEncodingInputStream extends InputStream {
     /** Map to store any trailer headers */
     private Map<String, List<String>> trailerHeaders = null;
 
-    /** Log object for this class. */
-    private static final Logger log = LoggerFactory.getLogger(TusFileUploadService.class);
-
     /**
-     *
+     * Wrap the given input stream and store any trailing headers in the provided map.
      * @param in the raw input stream
-     * @param trailerHeaders the HTTP trailerHeaders to associate this input stream with. Can be <tt>null</tt>.
-     *
-     * @throws IOException If an IO error occurs
+     * @param trailerHeaders Map to store any trailer header values. Can be <tt>null</tt>.
      */
     public HttpChunkedEncodingInputStream(
-            final InputStream in, final Map<String, List<String>> trailerHeaders) throws IOException {
+            final InputStream in, final Map<String, List<String>> trailerHeaders) {
 
         if (in == null) {
             throw new IllegalArgumentException("InputStream parameter may not be null");
@@ -61,28 +61,24 @@ public class HttpChunkedEncodingInputStream extends InputStream {
     }
 
     /**
-     * HttpChunkedEncodingInputStream constructor
+     * Wrap the given input stream. Do not store any trailing headers.
      *
      * @param in the raw input stream
-     *
-     * @throws IOException If an IO error occurs
      */
-    public HttpChunkedEncodingInputStream(final InputStream in) throws IOException {
+    public HttpChunkedEncodingInputStream(final InputStream in) {
         this(in, null);
     }
 
     /**
-     * <p> Returns all the data in a chunked stream in coalesced form. A chunk
-     * is followed by a CRLF. The trailerHeaders returns -1 as soon as a chunksize of 0
-     * is detected.</p>
-     *
-     * <p> Trailer headers are read automcatically at the end of the stream and
-     * can be obtained with the getResponseFooters() trailerHeaders.</p>
+     * Reads the next byte of data from the input stream. The value byte is
+     * returned as an <code>int</code> in the range <code>0</code> to
+     * <code>255</code>.
      *
      * @return -1 of the end of the stream has been reached or the next data
      * byte
      * @throws IOException If an IO problem occurs
      */
+    @Override
     public int read() throws IOException {
 
         if (closed) {
@@ -112,7 +108,8 @@ public class HttpChunkedEncodingInputStream extends InputStream {
      * @see java.io.InputStream#read(byte[], int, int)
      * @throws IOException if an IO problem occurs.
      */
-    public int read (byte[] b, int off, int len) throws IOException {
+    @Override
+    public int read(byte[] b, int off, int len) throws IOException {
 
         if (closed) {
             throw new IOException("Attempted read from closed stream.");
@@ -141,6 +138,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
      * @see java.io.InputStream#read(byte[])
      * @throws IOException if an IO problem occurs.
      */
+    @Override
     public int read (byte[] b) throws IOException {
         return read(b, 0, b.length);
     }
@@ -158,7 +156,6 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         }
     }
 
-
     /**
      * Read the next chunk.
      * @throws IOException If an IO error occurs.
@@ -167,7 +164,11 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         if (!bof) {
             readCRLF();
         }
-        chunkSize = getChunkSizeFromInputStream(in);
+        chunkSize = getChunkSize();
+        if (chunkSize < 0) {
+            throw new IOException("Negative chunk size");
+        }
+
         bof = false;
         pos = 0;
         if (chunkSize == 0) {
@@ -177,70 +178,19 @@ public class HttpChunkedEncodingInputStream extends InputStream {
     }
 
     /**
-     * Expects the stream to start with a chunksize in hex with optional
+     * Expects the stream to start with a chunk size in hex with optional
      * comments after a semicolon. The line must end with a CRLF: "a3; some
      * comment\r\n" Positions the stream at the start of the next line.
-     *
-     * @param in The new input stream.
      *
      * @return the chunk size as integer
      *
      * @throws IOException when the chunk size could not be parsed
      */
-    private static int getChunkSizeFromInputStream(final InputStream in)
-            throws IOException {
 
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        // States: 0=normal, 1=\r was scanned, 2=inside quoted string, -1=end
-        int state = 0;
-        while (state != -1) {
-            int b = in.read();
-            if (b == -1) {
-                throw new IOException("chunked stream ended unexpectedly");
-            }
-            switch (state) {
-                case 0:
-                    switch (b) {
-                        case '\r':
-                            state = 1;
-                            break;
-                        case '\"':
-                            state = 2;
-                            /* fall through */
-                        default:
-                            baos.write(b);
-                    }
-                    break;
+    private int getChunkSize() throws IOException {
 
-                case 1:
-                    if (b == '\n') {
-                        state = -1;
-                    } else {
-                        // this was not CRLF
-                        throw new IOException("Protocol violation: Unexpected"
-                                + " single newline character in chunk size");
-                    }
-                    break;
+        String dataString = readChunkSizeInformation();
 
-                case 2:
-                    switch (b) {
-                        case '\\':
-                            b = in.read();
-                            baos.write(b);
-                            break;
-                        case '\"':
-                            state = 0;
-                            /* fall through */
-                        default:
-                            baos.write(b);
-                    }
-                    break;
-                default: throw new RuntimeException("assertion failed");
-            }
-        }
-
-        //parse data
-        String dataString = StringUtils.newStringUsAscii(baos.toByteArray());
         int separator = dataString.indexOf(';');
         dataString = (separator > 0)
                 ? dataString.substring(0, separator).trim()
@@ -255,13 +205,29 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         return result;
     }
 
+    private String readChunkSizeInformation() throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+
+        ChunkSizeState state = ChunkSizeState.NORMAL;
+        while (state != ChunkSizeState.END) {
+            int b = in.read();
+            if (b == -1) {
+                throw new IOException("Chunked stream ended unexpectedly");
+            }
+            state = state.process(in, baos, b);
+        }
+
+        //parse data
+        return StringUtils.newStringUsAscii(baos.toByteArray());
+    }
+
     /**
      * Reads and stores the Trailer headers.
      * @throws IOException If an IO problem occurs
      */
     private void parseTrailerHeaders() throws IOException {
         if (trailerHeaders != null) {
-            List<Pair<String, String>> footers = parseHeaders(in, "US-ASCII");
+            List<Pair<String, String>> footers = parseHeaders(in, StandardCharsets.US_ASCII);
             for (Pair<String, String> footer : footers) {
                 List<String> values = trailerHeaders.get(footer.getKey());
                 if(values == null) {
@@ -280,11 +246,12 @@ public class HttpChunkedEncodingInputStream extends InputStream {
      * next response without scanning.
      * @throws IOException If an IO problem occurs.
      */
+    @Override
     public void close() throws IOException {
         if (!closed) {
             try {
                 if (!eof) {
-                    exhaustInputStream(this);
+                    exhaustInputStream();
                 }
             } finally {
                 eof = true;
@@ -294,26 +261,31 @@ public class HttpChunkedEncodingInputStream extends InputStream {
     }
 
     /**
-     * Exhaust an input stream, reading until EOF has been encountered.
+     * Exhaust our input stream, reading until EOF has been encountered.
      *
      * <p>Note that this function is intended as a non-public utility.
      * This is a little weird, but it seemed silly to make a utility
      * class for this one function, so instead it is just static and
      * shared that way.</p>
      *
-     * @param inStream The {@link InputStream} to exhaust.
      * @throws IOException If an IO problem occurs
      */
-    private static void exhaustInputStream(InputStream inStream) throws IOException {
+    private void exhaustInputStream() throws IOException {
         // read and discard the remainder of the message
-        byte buffer[] = new byte[1024];
-        while (inStream.read(buffer) >= 0);
+        byte[] buffer = new byte[1024];
+
+        log.trace("Clearing underlying input stream, this is what was left:");
+        while (in.read(buffer) >= 0) {
+            if(log.isTraceEnabled()) {
+                log.trace(new String(buffer, StandardCharsets.UTF_8));
+            }
+        }
     }
 
-    private static List<Pair<String, String>> parseHeaders(InputStream is, String charset) throws IOException {
+    private List<Pair<String, String>> parseHeaders(InputStream is, Charset charset) throws IOException {
         List<Pair<String, String>> headers = new LinkedList<>();
         String name = null;
-        StringBuffer value = null;
+        StringBuilder value = null;
         for (; ;) {
             String line = readLine(is, charset);
             if ((line == null) || (line.trim().length() < 1)) {
@@ -339,10 +311,10 @@ public class HttpChunkedEncodingInputStream extends InputStream {
 
                 // Otherwise we should have normal HTTP header line
                 // Parse the header name and value
-                int colon = line.indexOf(":");
+                int colon = line.indexOf(':');
                 if (colon >= 0) {
                     name = line.substring(0, colon).trim();
-                    value = new StringBuffer(line.substring(colon + 1).trim());
+                    value = new StringBuilder(line.substring(colon + 1).trim());
                 }
             }
 
@@ -356,21 +328,19 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         return headers;
     }
 
-    private static String readLine(InputStream inputStream, String charset) throws IOException {
+    private String readLine(InputStream inputStream, Charset charset) throws IOException {
         byte[] rawdata = readRawLine(inputStream);
-        if (rawdata == null) {
+        if (rawdata == null || rawdata.length == 0) {
             return null;
         }
         // strip CR and LF from the end
         int len = rawdata.length;
         int offset = 0;
-        if (len > 0) {
-            if (rawdata[len - 1] == '\n') {
-                offset++;
-                if (len > 1) {
-                    if (rawdata[len - 2] == '\r') {
-                        offset++;
-                    }
+        if (len > 0 && rawdata[len - 1] == '\n') {
+            offset++;
+            if (len > 1) {
+                if (rawdata[len - 2] == '\r') {
+                    offset++;
                 }
             }
         }
@@ -378,7 +348,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         return new String(rawdata, 0, len - offset, charset);
     }
 
-    private static byte[] readRawLine(InputStream inputStream) throws IOException {
+    private byte[] readRawLine(InputStream inputStream) throws IOException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         int ch;
         while ((ch = inputStream.read()) >= 0) {
@@ -387,9 +357,74 @@ public class HttpChunkedEncodingInputStream extends InputStream {
                 break;
             }
         }
-        if (buf.size() == 0) {
-            return null;
-        }
         return buf.toByteArray();
+    }
+
+    private enum ChunkSizeState {
+        NORMAL {
+            @Override
+            public ChunkSizeState process(final InputStream in, final ByteArrayOutputStream baos, final int b)
+                    throws IOException {
+
+                ChunkSizeState newState;
+                if(b == '\r') {
+                    newState = READ_CARRIAGE_RETURN;
+                } else {
+                    if(b == '\"') {
+                        newState = INSIDE_QUOTED_STRING;
+                    } else {
+                        newState = NORMAL;
+                    }
+                    baos.write(b);
+                }
+                return newState;
+            }
+        },
+        READ_CARRIAGE_RETURN {
+            @Override
+            public ChunkSizeState process(final InputStream in, final ByteArrayOutputStream baos, final int b)
+                    throws IOException {
+
+                if (b != '\n') {
+                    // this was not CRLF
+                    throw new IOException("Protocol violation: Unexpected"
+                            + " single newline character in chunk size");
+                }
+                return END;
+            }
+        },
+        INSIDE_QUOTED_STRING {
+            @Override
+            public ChunkSizeState process(final InputStream in, final ByteArrayOutputStream baos, final int b)
+                    throws IOException {
+
+                ChunkSizeState newState;
+                if(b == '\\') {
+                    int nextByte = in.read();
+                    if(nextByte >= 0) {
+                        baos.write(nextByte);
+                    }
+                    newState = INSIDE_QUOTED_STRING;
+                } else {
+                    if(b == '\"') {
+                        newState = NORMAL;
+                    } else {
+                        newState = INSIDE_QUOTED_STRING;
+                    }
+                    baos.write(b);
+                }
+                return newState;
+            }
+        },
+        END {
+            @Override
+            public ChunkSizeState process(final InputStream in, final ByteArrayOutputStream baos, final int b)
+                    throws IOException {
+                throw new UnsupportedOperationException("The END state cannot do any processing");
+            }
+        };
+
+        public abstract ChunkSizeState process(final InputStream in, final ByteArrayOutputStream baos, final int b)
+                throws IOException;
     }
 }

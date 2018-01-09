@@ -3,9 +3,9 @@ package me.desair.tus.server.util;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.DigestInputStream;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletRequestWrapper;
@@ -20,7 +20,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
 
     private CountingInputStream countingInputStream;
     private DigestInputStream digestInputStream;
-    private Map<String, List<String>> trailerHeaders = new HashMap<>();
+    private Map<String, List<String>> trailerHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     private InputStream contentInputStream = null;
 
     /**
