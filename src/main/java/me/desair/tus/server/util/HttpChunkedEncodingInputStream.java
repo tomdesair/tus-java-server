@@ -9,7 +9,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-import me.desair.tus.server.TusFileUploadService;
 import org.apache.commons.codec.binary.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
@@ -17,11 +16,14 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Transparently coalesces chunks of a HTTP stream that uses Transfer-Encoding chunked.
+ * This {@link InputStream} wrapper also supports collecting Trailer header values that are
+ * sent at the end of the stream.
+ *
  * Based on org.apache.commons.httpclient.ChunkedInputStream
  */
 public class HttpChunkedEncodingInputStream extends InputStream {
 
-    private static final Logger log = LoggerFactory.getLogger(TusFileUploadService.class);
+    private static final Logger log = LoggerFactory.getLogger(HttpChunkedEncodingInputStream.class);
 
     /** The input stream that we're wrapping */
     private InputStream in;
