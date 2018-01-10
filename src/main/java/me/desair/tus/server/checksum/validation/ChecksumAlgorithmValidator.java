@@ -19,7 +19,8 @@ import org.apache.commons.lang3.StringUtils;
 public class ChecksumAlgorithmValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException, IOException {
+    public void validate(final HttpMethod method, final HttpServletRequest request,
+                         final UploadStorageService uploadStorageService, final String ownerKey) throws TusException, IOException {
         String uploadChecksum = request.getHeader(HttpHeader.UPLOAD_CHECKSUM);
 
         //If the client provided a checksum header, check that we support the algorithm

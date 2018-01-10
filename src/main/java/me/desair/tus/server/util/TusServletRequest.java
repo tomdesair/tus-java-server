@@ -3,6 +3,8 @@ package me.desair.tus.server.util;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -19,7 +21,8 @@ import org.apache.commons.lang3.StringUtils;
 public class TusServletRequest extends HttpServletRequestWrapper {
 
     private CountingInputStream countingInputStream;
-    private DigestInputStream digestInputStream;
+    private Map<ChecksumAlgorithm, DigestInputStream> digestInputStreamMap = new HashMap<>();
+    private DigestInputStream singleDigestInputStream = null;
     private Map<String, List<String>> trailerHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     private InputStream contentInputStream = null;
 
@@ -38,7 +41,9 @@ public class TusServletRequest extends HttpServletRequestWrapper {
             contentInputStream = super.getInputStream();
 
             //If we're dealing with chunked tranfer encoding, abstract it so that the rest of our code doesn't need to care
-            if(StringUtils.equalsIgnoreCase("chunked", getHeader(HttpHeader.TRANSFER_ENCODING))) {
+            boolean isChunked = hasChunkedTransferEncoding();
+
+            if(isChunked) {
                 contentInputStream = new HttpChunkedEncodingInputStream(contentInputStream, trailerHeaders);
             }
 
@@ -46,13 +51,26 @@ public class TusServletRequest extends HttpServletRequestWrapper {
             contentInputStream = countingInputStream;
 
             ChecksumAlgorithm checksumAlgorithm = ChecksumAlgorithm.forUploadChecksumHeader(getHeader(HttpHeader.UPLOAD_CHECKSUM));
-            if (checksumAlgorithm != null) {
-                digestInputStream = new DigestInputStream(contentInputStream, checksumAlgorithm.getMessageDigest());
-                contentInputStream = digestInputStream;
+            if(isChunked) {
+                //Since the Checksum header can still come at the end, keep track of all checksums
+                for (ChecksumAlgorithm algorithm : ChecksumAlgorithm.values()) {
+                    DigestInputStream is = new DigestInputStream(contentInputStream, algorithm.getMessageDigest());
+                    digestInputStreamMap.put(algorithm, is);
+
+                    contentInputStream = is;
+                }
+            } else if (checksumAlgorithm != null) {
+                singleDigestInputStream = new DigestInputStream(contentInputStream, checksumAlgorithm.getMessageDigest());
+                contentInputStream = singleDigestInputStream;
             }
+
         }
 
         return contentInputStream;
+    }
+
+    private boolean hasChunkedTransferEncoding() {
+        return StringUtils.equalsIgnoreCase("chunked", getHeader(HttpHeader.TRANSFER_ENCODING));
     }
 
     public long getBytesRead() {
@@ -60,12 +78,23 @@ public class TusServletRequest extends HttpServletRequestWrapper {
     }
 
     public boolean hasChecksum() {
-        return digestInputStream != null;
+        return singleDigestInputStream != null || !digestInputStreamMap.isEmpty();
     }
 
-    public String getChecksum() {
-        return digestInputStream == null ? null :
-                Base64.encodeBase64String(digestInputStream.getMessageDigest().digest());
+    public String getCalculatedChecksum(ChecksumAlgorithm algorithm) {
+        MessageDigest messageDigest = getMessageDigest(algorithm);
+        return messageDigest == null ? null :
+                Base64.encodeBase64String(messageDigest.digest());
+    }
+
+    private MessageDigest getMessageDigest(final ChecksumAlgorithm algorithm) {
+        if(digestInputStreamMap.containsKey(algorithm)) {
+            return digestInputStreamMap.get(algorithm).getMessageDigest();
+        } else if(singleDigestInputStream != null) {
+            return singleDigestInputStream.getMessageDigest();
+        } else {
+            return null;
+        }
     }
 
     @Override

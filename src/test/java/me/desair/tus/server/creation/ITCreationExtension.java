@@ -62,7 +62,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
     public void testOptions() throws Exception {
         setRequestHeaders();
 
-        executeCall(HttpMethod.OPTIONS);
+        executeCall(HttpMethod.OPTIONS, false);
 
         //If the Server supports this extension, it MUST add creation to the Tus-Extension header.
         //If the Server supports deferring length, it MUST add creation-defer-length to the Tus-Extension header.
@@ -74,7 +74,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         //Create upload
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 9);
 
-        executeCall(HttpMethod.POST);
+        executeCall(HttpMethod.POST, false);
 
         verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), anyString());
         assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
@@ -83,7 +83,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         //Check data with head request
         servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
-        executeCall(HttpMethod.HEAD);
+        executeCall(HttpMethod.HEAD, false);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_METADATA), is(nullValue()));
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_DEFER_LENGTH), is(nullValue()));
@@ -93,7 +93,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 9);
         servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
-        executeCall(HttpMethod.PATCH);
+        executeCall(HttpMethod.PATCH, false);
     }
 
     @Test
@@ -101,7 +101,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         //Create upload
         servletRequest.addHeader(HttpHeader.UPLOAD_DEFER_LENGTH, 1);
 
-        executeCall(HttpMethod.POST);
+        executeCall(HttpMethod.POST, false);
 
         verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), anyString());
         assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
@@ -110,7 +110,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         //Check data with head request
         servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
-        executeCall(HttpMethod.HEAD);
+        executeCall(HttpMethod.HEAD, false);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_METADATA), is(nullValue()));
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_DEFER_LENGTH), is("1"));
@@ -120,13 +120,13 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 9);
         servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
-        executeCall(HttpMethod.PATCH);
+        executeCall(HttpMethod.PATCH, false);
 
         //Re-check head request
         servletRequest = new MockHttpServletRequest();
         servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
-        executeCall(HttpMethod.HEAD);
+        executeCall(HttpMethod.HEAD, false);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_METADATA), is(nullValue()));
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_DEFER_LENGTH), is(nullValue()));
@@ -135,7 +135,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
     @Test(expected = InvalidUploadLengthException.class)
     public void testPostWithoutLength() throws Exception {
         //Create upload without any length header
-        executeCall(HttpMethod.POST);
+        executeCall(HttpMethod.POST, false);
     }
 
     @Test
@@ -144,7 +144,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 9);
         servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "encoded metadata");
 
-        executeCall(HttpMethod.POST);
+        executeCall(HttpMethod.POST, false);
 
         verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), anyString());
         assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
@@ -153,7 +153,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         //Check data with head request
         servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
-        executeCall(HttpMethod.HEAD);
+        executeCall(HttpMethod.HEAD, false);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_METADATA), is("encoded metadata"));
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_DEFER_LENGTH), is(nullValue()));
@@ -165,7 +165,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
 
         //Create upload
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 90);
-        executeCall(HttpMethod.POST);
+        executeCall(HttpMethod.POST, false);
 
         verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), anyString());
         assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
@@ -174,7 +174,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         //Check data with head request
         servletRequest.setRequestURI(UPLOAD_URL + id.toString());
         servletResponse = new MockHttpServletResponse();
-        executeCall(HttpMethod.HEAD);
+        executeCall(HttpMethod.HEAD, false);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_METADATA), is(nullValue()));
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_DEFER_LENGTH), is(nullValue()));
@@ -186,7 +186,7 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
 
         //Create upload
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 110);
-        executeCall(HttpMethod.POST);
+        executeCall(HttpMethod.POST, false);
     }
 
     @Test(expected = PostOnInvalidRequestURIException.class)
@@ -195,6 +195,6 @@ public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 9);
         servletRequest.setRequestURI(UPLOAD_URL + id.toString());
 
-        executeCall(HttpMethod.POST);
+        executeCall(HttpMethod.POST, false);
     }
 }

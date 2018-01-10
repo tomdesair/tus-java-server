@@ -94,6 +94,7 @@ public class ITTusFileUploadService {
         servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
         servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, uploadContent.getBytes().length);
         servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+        servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 Mfhm5HaSPUf+pUakdMxARo4rvfQ=");
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         servletRequest.setContent(uploadContent.getBytes());
 
@@ -134,14 +135,14 @@ public class ITTusFileUploadService {
 
     @Test
     public void testProcessUploadTwoParts() throws Exception {
-        String part1 = "This is the first part of my test upload ";
-        String part2 = "and this is the second part.";
+        String part1 = "29\r\nThis is the first part of my test upload \r\n0\r\nUpload-Checksum: sha1 n5RQbRwM6UVAD+9iuHEmnN6HCGQ=";
+        String part2 = "1C\r\nand this is the second part.\r\n0\r\nUpload-Checksum: sha1 oNge323kGFKICxp+Me5xJgPvGEM=";
 
         //Create upload
         servletRequest.setMethod("POST");
         servletRequest.setRequestURI(UPLOAD_URI);
         servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
-        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, (part1+part2).getBytes().length);
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "69");
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
 
@@ -157,21 +158,22 @@ public class ITTusFileUploadService {
         servletRequest.setMethod("PATCH");
         servletRequest.setRequestURI(location);
         servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
-        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, part1.getBytes().length);
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, "41");
         servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
         servletRequest.setContent(part1.getBytes());
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
-        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + part1.getBytes().length);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "41");
 
         //Check with service that upload is still in progress
         UploadInfo info = tusFileUploadService.getUploadInfo(location, OWNER_KEY);
         assertTrue(info.isUploadInProgress());
-        assertThat(info.getLength(), is((long) (part1+part2).getBytes().length));
-        assertThat(info.getOffset(), is((long) part1.getBytes().length));
+        assertThat(info.getLength(), is(69L));
+        assertThat(info.getOffset(), is( 41L));
         assertThat(info.getMetadata(), contains(
                 Pair.of("filename", "world_domination_plan.pdf"))
         );
@@ -181,14 +183,15 @@ public class ITTusFileUploadService {
         servletRequest.setMethod("PATCH");
         servletRequest.setRequestURI(location);
         servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
-        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, part2.getBytes().length);
-        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, part1.getBytes().length);
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, "28");
+        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "41");
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
         servletRequest.setContent(part2.getBytes());
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + (part1+part2).getBytes().length);
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "69");
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
 
         //Check with HEAD request upload is complete
@@ -199,8 +202,8 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + (part1+part2).getBytes().length);
-        assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "" + (part1+part2).getBytes().length);
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "69");
+        assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "69");
         assertResponseHeaderNull(HttpHeader.UPLOAD_DEFER_LENGTH);
         assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
@@ -208,8 +211,8 @@ public class ITTusFileUploadService {
         //Get upload info from service
         info = tusFileUploadService.getUploadInfo(location, OWNER_KEY);
         assertFalse(info.isUploadInProgress());
-        assertThat(info.getLength(), is((long) (part1+part2).getBytes().length));
-        assertThat(info.getOffset(), is((long) (part1+part2).getBytes().length));
+        assertThat(info.getLength(), is(69L));
+        assertThat(info.getOffset(), is(69L));
         assertThat(info.getMetadata(), contains(
                 Pair.of("filename", "world_domination_plan.pdf"))
         );
@@ -343,6 +346,74 @@ public class ITTusFileUploadService {
                     is("When sending this part, we don't know the length and " +
                             "when sending this part, we know the length but the upload is not complete. " +
                             "Finally when sending the third part, the upload is complete."));
+        }
+    }
+
+    @Test
+    public void testProcessUploadInvalidChecksumSecondPart() throws Exception {
+        String part1 = "29\r\nThis is the first part of my test upload \r\n0\r\nUPLOAD-CHECKSUM: sha1 n5RQbRwM6UVAD+9iuHEmnN6HCGQ=";
+        String part2 = "1C\r\nand this is the second part.\r\n0\r\nupload-checksum: sha1 invalid";
+
+        //Create upload
+        servletRequest.setMethod("POST");
+        servletRequest.setRequestURI(UPLOAD_URI);
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "69");
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseStatus(HttpServletResponse.SC_CREATED);
+
+        String location = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+        //Upload part 1 bytes
+        reset();
+        servletRequest.setMethod("PATCH");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, "41");
+        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
+        servletRequest.setContent(part1.getBytes());
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "41");
+
+        //Upload part 2 bytes
+        reset();
+        servletRequest.setMethod("PATCH");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, "28");
+        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "41");
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
+        servletRequest.setContent(part2.getBytes());
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+
+        //We expect the server to return a checksum mismatch error
+        assertResponseStatus(460);
+
+        //Check that upload info is still from the first patch
+        UploadInfo info = tusFileUploadService.getUploadInfo(location, OWNER_KEY);
+        assertTrue(info.isUploadInProgress());
+        assertThat(info.getLength(), is(69L));
+        assertThat(info.getOffset(), is(41L));
+        assertThat(info.getMetadata(), contains(
+                Pair.of("filename", "world_domination_plan.pdf"))
+        );
+
+        //We only stored the first valid part
+        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, null)) {
+            assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
+                    is("This is the first part of my test upload "));
         }
     }
 

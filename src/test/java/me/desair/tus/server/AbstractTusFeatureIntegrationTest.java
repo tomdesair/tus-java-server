@@ -9,6 +9,8 @@ import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 import me.desair.tus.server.exception.TusException;
@@ -17,6 +19,7 @@ import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractTusFeature;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
+import org.apache.commons.io.IOUtils;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
@@ -66,9 +69,16 @@ public abstract class AbstractTusFeatureIntegrationTest {
         }
     }
 
-    protected void executeCall(final HttpMethod method) throws TusException, IOException {
+    protected void executeCall(final HttpMethod method, final boolean readContent) throws TusException, IOException {
         tusFeature.validate(method, servletRequest, uploadStorageService, null);
-        tusFeature.process(method, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        TusServletRequest tusServletRequest = new TusServletRequest(this.servletRequest);
+
+        if(readContent) {
+            StringWriter writer = new StringWriter();
+            IOUtils.copy(tusServletRequest.getContentInputStream(), writer, StandardCharsets.UTF_8);
+        }
+
+        tusFeature.process(method, tusServletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
     }
 
     protected void assertResponseHeader(final String header, final String value) {

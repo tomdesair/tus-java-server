@@ -146,7 +146,6 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         return info;
     }
 
-    //TODO UNIT TEST
     @Override
     public void removeLastNumberOfBytes(final UploadInfo info, final long byteCount) throws UploadNotFoundException, IOException {
         if (info != null) {

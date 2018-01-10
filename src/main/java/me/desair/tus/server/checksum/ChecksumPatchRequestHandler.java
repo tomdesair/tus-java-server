@@ -28,9 +28,10 @@ public class ChecksumPatchRequestHandler implements RequestHandler {
         String uploadChecksumHeader = servletRequest.getHeader(HttpHeader.UPLOAD_CHECKSUM);
 
         if(servletRequest.hasChecksum() && StringUtils.isNotBlank(uploadChecksumHeader)) {
-            String value = StringUtils.substringBefore(uploadChecksumHeader, CHECKSUM_VALUE_SEPARATOR);
+            String value = StringUtils.substringAfter(uploadChecksumHeader, CHECKSUM_VALUE_SEPARATOR);
+            ChecksumAlgorithm checksumAlgorithm = ChecksumAlgorithm.forUploadChecksumHeader(uploadChecksumHeader);
 
-            String checksum = servletRequest.getChecksum();
+            String checksum = servletRequest.getCalculatedChecksum(checksumAlgorithm);
             if(!StringUtils.equals(value, checksum)) {
                 //Remove the bytes we've read and written
                 UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
@@ -39,7 +40,7 @@ public class ChecksumPatchRequestHandler implements RequestHandler {
 
                 throw new UploadChecksumMismatchException("Expected checksum " + value
                         + " but was " + checksum
-                        + " with algorithm " + ChecksumAlgorithm.forUploadChecksumHeader(uploadChecksumHeader));
+                        + " with algorithm " + checksumAlgorithm);
             }
         }
     }

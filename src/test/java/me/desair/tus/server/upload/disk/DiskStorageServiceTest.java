@@ -351,6 +351,26 @@ public class DiskStorageServiceTest {
     }
 
     @Test
+    public void testRemoveLastNumberOfBytes() throws Exception {
+        String content = "This is an upload that will be truncated";
+
+        //Create our upload with the correct length
+        UploadInfo info = new UploadInfo();
+        info.setLength(50L);
+
+        info = storageService.create(info, null);
+        assertTrue(Files.exists(getUploadInfoPath(info.getId())));
+
+        //Write the content of the upload
+        storageService.append(info, IOUtils.toInputStream(content, StandardCharsets.UTF_8));
+
+        //Now truncate
+        storageService.removeLastNumberOfBytes(info, 23);
+
+        assertThat(new String(Files.readAllBytes(getUploadDataPath(info.getId()))), is("This is an upload"));
+    }
+
+    @Test
     public void getUploadedBytes() throws Exception {
         String content = "This is the content of my upload";
 
