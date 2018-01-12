@@ -6,6 +6,7 @@ import static java.nio.file.StandardOpenOption.WRITE;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
@@ -13,6 +14,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.UUID;
+
+import javax.servlet.ServletOutputStream;
 
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.TusException;
@@ -187,6 +190,19 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         }
 
         return inputStream;
+    }
+
+    @Override
+    public void copyUploadTo(final UploadInfo info, final OutputStream outputStream) throws UploadNotFoundException, IOException {
+        if (info != null && !info.isUploadInProgress()) {
+            Path bytesPath = getBytesPath(info.getId());
+
+            try (FileChannel file = FileChannel.open(bytesPath, READ)) {
+
+                //Efficiently copy the bytes to the output stream
+                file.transferTo(0, info.getLength(), Channels.newChannel(outputStream));
+            }
+        }
     }
 
     @Override

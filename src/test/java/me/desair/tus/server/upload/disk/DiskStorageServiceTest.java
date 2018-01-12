@@ -14,6 +14,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.SequenceInputStream;
@@ -389,6 +390,28 @@ public class DiskStorageServiceTest {
         try(InputStream uploadedBytes = storageService.getUploadedBytes(UPLOAD_URL + "/" + info.getId(), null)) {
 
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
+                    is("This is the content of my upload"));
+        }
+    }
+
+    @Test
+    public void copyUploadedBytes() throws Exception {
+        String content = "This is the content of my upload";
+
+        //Create our upload with the correct length
+        UploadInfo info = new UploadInfo();
+        info.setLength((long) content.getBytes().length);
+
+        info = storageService.create(info, null);
+        assertTrue(Files.exists(getUploadInfoPath(info.getId())));
+
+        //Write the content of the upload
+        storageService.append(info, IOUtils.toInputStream(content, StandardCharsets.UTF_8));
+        assertTrue(Files.exists(getUploadDataPath(info.getId())));
+
+        try(ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            storageService.copyUploadTo(info, output);
+            assertThat(new String(output.toByteArray(), StandardCharsets.UTF_8),
                     is("This is the content of my upload"));
         }
     }

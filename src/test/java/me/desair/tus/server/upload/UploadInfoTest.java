@@ -1,7 +1,9 @@
 package me.desair.tus.server.upload;
 
+import static me.desair.tus.server.util.MapMatcher.hasSize;
+import static org.hamcrest.CoreMatchers.allOf;
 import static org.hamcrest.collection.IsIterableContainingInAnyOrder.containsInAnyOrder;
-import static org.hamcrest.collection.IsIterableContainingInOrder.contains;
+import static org.hamcrest.collection.IsMapContaining.hasEntry;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
@@ -33,18 +35,16 @@ public class UploadInfoTest {
         info.setEncodedMetadata(
                 "filename d29ybGRfZG9taW5hdGlvbiBwbGFuLnBkZg==," +
                 "filesize MTEya2I=, " +
-                "mimetype YXBwbGljYXRpb24vcGRm , " +
+                "mimetype \tYXBwbGljYXRpb24vcGRm , " +
                 "scanned , ,, " +
-                "user 546L5LqU \t,    " +
-                "user\tVG9tIERlc2Fpcg==");
+                "user\t546L5LqU \t    ");
 
-        assertThat(info.getMetadata(), containsInAnyOrder(
-                Pair.of("filename", "world_domination plan.pdf"),
-                Pair.of("filesize", "112kb"),
-                Pair.of("mimetype", "application/pdf"),
-                Pair.of("scanned", null),
-                Pair.of("user", "王五"),
-                Pair.of("user", "Tom Desair"))
+        assertThat(info.getMetadata(), allOf(hasSize(5),
+                hasEntry("filename", "world_domination plan.pdf"),
+                hasEntry("filesize", "112kb"),
+                hasEntry("mimetype", "application/pdf"),
+                hasEntry("scanned", null),
+                hasEntry("user", "王五"))
         );
     }
 
@@ -53,8 +53,8 @@ public class UploadInfoTest {
         UploadInfo info = new UploadInfo();
         info.setEncodedMetadata("filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
 
-        assertThat(info.getMetadata(), contains(
-                Pair.of("filename", "world_domination_plan.pdf"))
+        assertThat(info.getMetadata(), allOf(hasSize(1),
+                hasEntry("filename", "world_domination_plan.pdf"))
         );
     }
 

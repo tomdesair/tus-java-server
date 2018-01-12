@@ -1,10 +1,14 @@
 package me.desair.tus.server;
 
+import static me.desair.tus.server.util.MapMatcher.hasSize;
+import static org.hamcrest.CoreMatchers.allOf;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.collection.IsIterableContainingInOrder.contains;
+
+import static org.hamcrest.collection.IsMapContaining.hasEntry;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -122,8 +126,10 @@ public class ITTusFileUploadService {
         assertFalse(info.isUploadInProgress());
         assertThat(info.getLength(), is((long) uploadContent.getBytes().length));
         assertThat(info.getOffset(), is((long) uploadContent.getBytes().length));
-        assertThat(info.getMetadata(), contains(
-                Pair.of("filename", "world_domination_plan.pdf"))
+        assertThat(info.getMetadata(), allOf(
+                    hasSize(1),
+                    hasEntry("filename", "world_domination_plan.pdf")
+                )
         );
 
         //Get uploaded bytes from service
@@ -174,8 +180,10 @@ public class ITTusFileUploadService {
         assertTrue(info.isUploadInProgress());
         assertThat(info.getLength(), is(69L));
         assertThat(info.getOffset(), is( 41L));
-        assertThat(info.getMetadata(), contains(
-                Pair.of("filename", "world_domination_plan.pdf"))
+        assertThat(info.getMetadata(), allOf(
+                hasSize(1),
+                hasEntry("filename", "world_domination_plan.pdf")
+                )
         );
 
         //Upload part 2 bytes
@@ -213,8 +221,10 @@ public class ITTusFileUploadService {
         assertFalse(info.isUploadInProgress());
         assertThat(info.getLength(), is(69L));
         assertThat(info.getOffset(), is(69L));
-        assertThat(info.getMetadata(), contains(
-                Pair.of("filename", "world_domination_plan.pdf"))
+        assertThat(info.getMetadata(), allOf(
+                hasSize(1),
+                hasEntry("filename", "world_domination_plan.pdf")
+                )
         );
 
         //Get uploaded bytes from service
@@ -265,8 +275,10 @@ public class ITTusFileUploadService {
         assertTrue(info.isUploadInProgress());
         assertThat(info.getLength(), is(nullValue()));
         assertThat(info.getOffset(), is((long) part1.getBytes().length));
-        assertThat(info.getMetadata(), contains(
-                Pair.of("filename", "world_domination_plan.pdf"))
+        assertThat(info.getMetadata(), allOf(
+                hasSize(1),
+                hasEntry("filename", "world_domination_plan.pdf")
+                )
         );
 
         //Check with HEAD request length is still not known
@@ -336,8 +348,10 @@ public class ITTusFileUploadService {
         assertFalse(info.isUploadInProgress());
         assertThat(info.getLength(), is((long) (part1+part2+part3).getBytes().length));
         assertThat(info.getOffset(), is((long) (part1+part2+part3).getBytes().length));
-        assertThat(info.getMetadata(), contains(
-                Pair.of("filename", "world_domination_plan.pdf"))
+        assertThat(info.getMetadata(), allOf(
+                hasSize(1),
+                hasEntry("filename", "world_domination_plan.pdf")
+                )
         );
 
         //Get uploaded bytes from service
@@ -406,8 +420,10 @@ public class ITTusFileUploadService {
         assertTrue(info.isUploadInProgress());
         assertThat(info.getLength(), is(69L));
         assertThat(info.getOffset(), is(41L));
-        assertThat(info.getMetadata(), contains(
-                Pair.of("filename", "world_domination_plan.pdf"))
+        assertThat(info.getMetadata(), allOf(
+                hasSize(1),
+                hasEntry("filename", "world_domination_plan.pdf")
+                )
         );
 
         //We only stored the first valid part
@@ -447,7 +463,7 @@ public class ITTusFileUploadService {
         //If the Server supports this extension, it MUST add creation to the Tus-Extension header.
         //If the Server supports deferring length, it MUST add creation-defer-length to the Tus-Extension header.
         assertResponseHeader(HttpHeader.TUS_EXTENSION, "creation", "creation-defer-length",
-                "checksum", "checksum-trailer");
+                "checksum", "checksum-trailer", "termination", "download");
     }
 
     @Test

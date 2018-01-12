@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
+import javax.servlet.ServletOutputStream;
+
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 
@@ -71,6 +73,13 @@ public interface UploadStorageService {
     InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws IOException, UploadNotFoundException;
 
     /**
+     * Copy the uploaded bytes to the given output stream
+     * @param info The upload of which we should copy the bytes
+     * @param outputStream The output stream where we have to copy the bytes to
+     */
+    void copyUploadTo(UploadInfo info, OutputStream outputStream) throws UploadNotFoundException, IOException;
+
+    /**
      * Clean up any upload data that is expired according to the configured expiration time
      * @param uploadLockingService
      */
@@ -88,4 +97,5 @@ public interface UploadStorageService {
      * @param uploadInfo The upload to terminate
      */
     void terminateUpload(UploadInfo uploadInfo) throws UploadNotFoundException, IOException;
+
 }

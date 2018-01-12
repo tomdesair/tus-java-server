@@ -1,8 +1,11 @@
 package me.desair.tus.server.upload;
 
 import java.io.Serializable;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 
 import org.apache.commons.codec.binary.Base64;
@@ -12,6 +15,10 @@ import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.commons.lang3.tuple.Pair;
 
 public class UploadInfo implements Serializable {
+
+    private static final String APPLICATION_OCTET_STREAM = "application/octet-stream";
+    private static List<String> fileNameKeys = Arrays.asList("filename", "name");
+    private static List<String> mimeTypeKeys = Arrays.asList("mimetype", "filetype", "type");
 
     private Long offset;
     private String encodedMetadata;
@@ -41,19 +48,26 @@ public class UploadInfo implements Serializable {
         this.encodedMetadata = encodedMetadata;
     }
 
-    public List<Pair<String, String>> getMetadata() {
-        List<Pair<String, String>> metadata = new LinkedList<>();
+    public Map<String, String> getMetadata() {
+        Map<String, String> metadata = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (String valuePair : splitToArray(encodedMetadata, ",")) {
             String[] keyValue = splitToArray(valuePair, "\\s");
             String key = null;
             String value = null;
             if(keyValue.length > 0) {
                 key = StringUtils.trimToEmpty(keyValue[0]);
-                if(keyValue.length > 1) {
-                    value = decode(keyValue[1]);
+
+                //Skip any blank values
+                int i = 1;
+                while(keyValue.length > i && StringUtils.isBlank(keyValue[i])) {
+                    i++;
                 }
 
-                metadata.add(Pair.of(key, value));
+                if(keyValue.length > i) {
+                    value = decode(keyValue[i]);
+                }
+
+                metadata.put(key, value);
             }
         }
         return metadata;
@@ -139,5 +153,44 @@ public class UploadInfo implements Serializable {
 
     private String decode(final String encodedValue) {
         return org.apache.commons.codec.binary.StringUtils.newStringUtf8(Base64.decodeBase64(encodedValue));
+    }
+
+    /**
+     * Try to guess the filename of the uploaded data. If we cannot guess the name
+     * we fall back to the ID.
+     *
+     * NOTE: This is only a guess, there are no guarantees that the return value is correct
+     *
+     * @return A potential file name
+     */
+    //TODO UNIT TEST
+    public String getFileName() {
+        Map<String, String> metadata = getMetadata();
+        for (String fileNameKey : fileNameKeys) {
+            if(metadata.containsKey(fileNameKey)) {
+                return metadata.get(fileNameKey);
+            }
+        }
+
+        return getId().toString();
+    }
+
+    /**
+     * Try to guess the mime-type of the uploaded data.
+     *
+     * NOTE: This is only a guess, there are no guarantees that the return value is correct
+     *
+     * @return A potential file name
+     */
+    //TODO UNIT TEST
+    public String getFileMimeType() {
+        Map<String, String> metadata = getMetadata();
+        for (String fileNameKey : mimeTypeKeys) {
+            if(metadata.containsKey(fileNameKey)) {
+                return metadata.get(fileNameKey);
+            }
+        }
+
+        return APPLICATION_OCTET_STREAM;
     }
 }

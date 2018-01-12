@@ -28,5 +28,6 @@ public class TerminationExtension extends AbstractTusFeature {
     @Override
     protected void initRequestHandlers(final List<RequestHandler> requestHandlers) {
         requestHandlers.add(new TerminationDeleteRequestHandler());
+        requestHandlers.add(new TerminationOptionsRequestHandler());
     }
 }
