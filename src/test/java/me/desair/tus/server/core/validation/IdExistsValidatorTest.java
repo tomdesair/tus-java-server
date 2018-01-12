@@ -57,10 +57,10 @@ public class IdExistsValidatorTest {
 
     @Test
     public void supports() throws Exception {
-        assertThat(validator.supports(HttpMethod.GET), is(false));
+        assertThat(validator.supports(HttpMethod.GET), is(true));
         assertThat(validator.supports(HttpMethod.POST), is(false));
         assertThat(validator.supports(HttpMethod.PUT), is(false));
-        assertThat(validator.supports(HttpMethod.DELETE), is(false));
+        assertThat(validator.supports(HttpMethod.DELETE), is(true));
         assertThat(validator.supports(HttpMethod.HEAD), is(true));
         assertThat(validator.supports(HttpMethod.OPTIONS), is(false));
         assertThat(validator.supports(HttpMethod.PATCH), is(true));

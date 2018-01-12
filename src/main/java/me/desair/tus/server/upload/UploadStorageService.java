@@ -82,4 +82,10 @@ public interface UploadStorageService {
      * @param byteCount The number of bytes to remove at the end
      */
     void removeLastNumberOfBytes(UploadInfo uploadInfo, long byteCount) throws UploadNotFoundException, IOException;
+
+    /**
+     * Terminate completed and unfinished uploads allowing the Server to free up used resources.
+     * @param uploadInfo The upload to terminate
+     */
+    void terminateUpload(UploadInfo uploadInfo) throws UploadNotFoundException, IOException;
 }

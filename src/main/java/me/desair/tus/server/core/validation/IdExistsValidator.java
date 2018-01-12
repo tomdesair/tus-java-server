@@ -28,7 +28,9 @@ public class IdExistsValidator implements RequestValidator {
     public boolean supports(final HttpMethod method) {
         return method != null && (
                 HttpMethod.HEAD.equals(method) ||
-                        HttpMethod.PATCH.equals(method)
+                        HttpMethod.PATCH.equals(method) ||
+                        HttpMethod.DELETE.equals(method) ||
+                        HttpMethod.GET.equals(method)
         );
     }
 

@@ -22,6 +22,7 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -162,6 +163,14 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
                 info.setOffset(file.size());
                 update(info);
             }
+        }
+    }
+
+    @Override
+    public void terminateUpload(final UploadInfo info) throws UploadNotFoundException, IOException {
+        if (info != null) {
+            Path uploadPath = getPathInStorageDirectory(info.getId());
+            FileUtils.deleteDirectory(uploadPath.toFile());
         }
     }
 

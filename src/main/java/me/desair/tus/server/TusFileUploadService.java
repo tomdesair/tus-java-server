@@ -12,6 +12,7 @@ import me.desair.tus.server.checksum.ChecksumExtension;
 import me.desair.tus.server.core.CoreProtocol;
 import me.desair.tus.server.creation.CreationExtension;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.termination.TerminationExtension;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
@@ -52,6 +53,7 @@ public class TusFileUploadService {
         addTusFeature(new CoreProtocol());
         addTusFeature(new CreationExtension());
         addTusFeature(new ChecksumExtension());
+        addTusFeature(new TerminationExtension());
     }
 
     public TusFileUploadService withUploadURI(final String uploadURI) {

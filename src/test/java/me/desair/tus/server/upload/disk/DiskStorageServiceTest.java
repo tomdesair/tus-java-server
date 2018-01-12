@@ -3,6 +3,7 @@ package me.desair.tus.server.upload.disk;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -393,15 +394,66 @@ public class DiskStorageServiceTest {
     }
 
     @Test
+    public void terminateCompletedUpload() throws Exception {
+        String content = "This is the content of my upload";
+
+        //Create our upload with the correct length
+        UploadInfo info = new UploadInfo();
+        info.setLength((long) content.getBytes().length);
+
+        info = storageService.create(info, null);
+        assertTrue(Files.exists(getUploadInfoPath(info.getId())));
+
+        //Write the content of the upload
+        storageService.append(info, IOUtils.toInputStream(content, StandardCharsets.UTF_8));
+        assertTrue(Files.exists(getUploadDataPath(info.getId())));
+
+        //Now delete the upload and check the files are gone
+        storageService.terminateUpload(info);
+        assertFalse(Files.exists(getUploadInfoPath(info.getId())));
+        assertFalse(Files.exists(getUploadDataPath(info.getId())));
+        assertFalse(Files.exists(getStoragePath(info.getId())));
+    }
+
+    @Test
+    public void terminateInProgressUpload() throws Exception {
+        String content = "This is the content of my upload";
+
+        //Create our upload with the correct length
+        UploadInfo info = new UploadInfo();
+        info.setLength((long) content.getBytes().length + 20);
+
+        info = storageService.create(info, null);
+        assertTrue(Files.exists(getUploadInfoPath(info.getId())));
+
+        //Write the content of the upload
+        storageService.append(info, IOUtils.toInputStream(content, StandardCharsets.UTF_8));
+        assertTrue(Files.exists(getUploadDataPath(info.getId())));
+
+        //Now delete the upload and check the files are gone
+        storageService.terminateUpload(info);
+        assertFalse(Files.exists(getUploadInfoPath(info.getId())));
+        assertFalse(Files.exists(getUploadDataPath(info.getId())));
+        assertFalse(Files.exists(getStoragePath(info.getId())));
+
+        //Call with null should not result in an error
+        storageService.terminateUpload(null);
+    }
+
+    @Test
     public void cleanupExpiredUploads() throws Exception {
         //TODO
     }
 
     private Path getUploadInfoPath(final UUID id) {
-        return storagePath.resolve("uploads").resolve(id.toString()).resolve("info");
+        return getStoragePath(id).resolve("info");
     }
 
     private Path getUploadDataPath(final UUID id) {
-        return storagePath.resolve("uploads").resolve(id.toString()).resolve("data");
+        return getStoragePath(id).resolve("data");
+    }
+
+    private Path getStoragePath(final UUID id) {
+        return storagePath.resolve("uploads").resolve(id.toString());
     }
 }

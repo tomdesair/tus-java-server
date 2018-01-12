@@ -415,6 +415,26 @@ public class ITTusFileUploadService {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is the first part of my test upload "));
         }
+
+        //Terminate our in progress upload
+        reset();
+        servletRequest.setMethod("DELETE");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+
+        //We expect the server to return a no content code to indicate successful deletion
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        //Check that the upload is really gone
+        reset();
+        servletRequest.setMethod("HEAD");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse);
+        assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
     }
 
     @Test
