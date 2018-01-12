@@ -1,14 +1,10 @@
 package me.desair.tus.server.checksum;
 
-import static org.hamcrest.CoreMatchers.any;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyString;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -61,7 +57,7 @@ public class ChecksumPatchRequestHandlerTest {
     public void testValidHeaderAndChecksum() throws Exception {
         when(servletRequest.getHeader(HttpHeader.UPLOAD_CHECKSUM)).thenReturn("sha1 1234567890");
         when(servletRequest.getCalculatedChecksum(Matchers.any(ChecksumAlgorithm.class))).thenReturn("1234567890");
-        when(servletRequest.hasChecksum()).thenReturn(true);
+        when(servletRequest.hasCalculatedChecksum()).thenReturn(true);
 
         handler.process(HttpMethod.PATCH, servletRequest, null, uploadStorageService, null);
 
@@ -72,7 +68,7 @@ public class ChecksumPatchRequestHandlerTest {
     public void testValidHeaderAndInvalidChecksum() throws Exception {
         when(servletRequest.getHeader(HttpHeader.UPLOAD_CHECKSUM)).thenReturn("sha1 1234567890");
         when(servletRequest.getCalculatedChecksum(Matchers.any(ChecksumAlgorithm.class))).thenReturn("0123456789");
-        when(servletRequest.hasChecksum()).thenReturn(true);
+        when(servletRequest.hasCalculatedChecksum()).thenReturn(true);
 
         handler.process(HttpMethod.PATCH, servletRequest, null, uploadStorageService, null);
 
@@ -88,12 +84,13 @@ public class ChecksumPatchRequestHandlerTest {
         verify(uploadStorageService, never()).removeLastNumberOfBytes(Matchers.any(UploadInfo.class), anyLong());
     }
 
-    @Test
+    @Test(expected = ChecksumAlgorithmNotSupportedException.class)
     public void testInvalidHeader() throws Exception {
         when(servletRequest.getHeader(HttpHeader.UPLOAD_CHECKSUM)).thenReturn("test 1234567890");
+        when(servletRequest.hasCalculatedChecksum()).thenReturn(true);
 
         handler.process(HttpMethod.PATCH, servletRequest, null, uploadStorageService, null);
 
-        verify(uploadStorageService, never()).removeLastNumberOfBytes(Matchers.any(UploadInfo.class), anyLong());
+        verify(uploadStorageService, times(1)).removeLastNumberOfBytes(Matchers.any(UploadInfo.class), anyLong());
     }
 }

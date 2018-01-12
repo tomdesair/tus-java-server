@@ -77,7 +77,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
         return countingInputStream.getByteCount();
     }
 
-    public boolean hasChecksum() {
+    public boolean hasCalculatedChecksum() {
         return singleDigestInputStream != null || !digestInputStreamMap.isEmpty();
     }
 
