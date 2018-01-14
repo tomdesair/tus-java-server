@@ -2,7 +2,6 @@ package me.desair.tus.server.upload;
 
 import java.io.Serializable;
 import java.util.Arrays;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -12,7 +11,6 @@ import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
-import org.apache.commons.lang3.tuple.Pair;
 
 public class UploadInfo implements Serializable {
 
@@ -163,7 +161,6 @@ public class UploadInfo implements Serializable {
      *
      * @return A potential file name
      */
-    //TODO UNIT TEST
     public String getFileName() {
         Map<String, String> metadata = getMetadata();
         for (String fileNameKey : fileNameKeys) {
@@ -182,7 +179,6 @@ public class UploadInfo implements Serializable {
      *
      * @return A potential file name
      */
-    //TODO UNIT TEST
     public String getFileMimeType() {
         Map<String, String> metadata = getMetadata();
         for (String fileNameKey : mimeTypeKeys) {

@@ -2,6 +2,7 @@ package me.desair.tus.server.upload;
 
 import static me.desair.tus.server.util.MapMatcher.hasSize;
 import static org.hamcrest.CoreMatchers.allOf;
+import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.collection.IsIterableContainingInAnyOrder.containsInAnyOrder;
 import static org.hamcrest.collection.IsMapContaining.hasEntry;
 import static org.junit.Assert.assertFalse;
@@ -171,6 +172,25 @@ public class UploadInfoTest {
         info2.setId(UUID.fromString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
 
         assertTrue(info1.hashCode() == info2.hashCode());
+    }
+
+    @Test
+    public void testGetNameAndTypeWithMetadata() throws Exception {
+        UploadInfo info = new UploadInfo();
+        info.setEncodedMetadata("name dGVzdC5qcGc=,type aW1hZ2UvanBlZw==");
+
+        assertThat(info.getFileName(), is("test.jpg"));
+        assertThat(info.getFileMimeType(), is("image/jpeg"));
+    }
+
+    @Test
+    public void testGetNameAndTypeWithoutMetadata() throws Exception {
+        UploadInfo info = new UploadInfo();
+        UUID id = UUID.randomUUID();
+        info.setId(id);
+
+        assertThat(info.getFileName(), is(id.toString()));
+        assertThat(info.getFileMimeType(), is("application/octet-stream"));
     }
 
 }

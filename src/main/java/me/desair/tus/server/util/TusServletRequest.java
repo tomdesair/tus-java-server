@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
-import java.util.HashMap;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -21,7 +21,7 @@ import org.apache.commons.lang3.StringUtils;
 public class TusServletRequest extends HttpServletRequestWrapper {
 
     private CountingInputStream countingInputStream;
-    private Map<ChecksumAlgorithm, DigestInputStream> digestInputStreamMap = new HashMap<>();
+    private Map<ChecksumAlgorithm, DigestInputStream> digestInputStreamMap = new EnumMap<>(ChecksumAlgorithm.class);
     private DigestInputStream singleDigestInputStream = null;
     private Map<String, List<String>> trailerHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     private InputStream contentInputStream = null;
@@ -29,7 +29,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
     /**
      * Constructs a request object wrapping the given request.
      *
-     * @param request
+     * @param request The upload request we need to wrap
      * @throws IllegalArgumentException if the request is null
      */
     public TusServletRequest(final HttpServletRequest request) {

@@ -1,7 +1,6 @@
 package me.desair.tus.server.download;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.Objects;
 
 import javax.servlet.http.HttpServletResponse;
@@ -41,6 +40,10 @@ public class DownloadGetRequestHandler implements RequestHandler {
             servletResponse.addHeader(HttpHeader.CONTENT_LENGTH, Objects.toString(info.getLength()));
             servletResponse.addHeader(HttpHeader.CONTENT_DISPOSITION, String.format(CONTENT_DISPOSITION_FORMAT, info.getFileName()));
             servletResponse.addHeader(HttpHeader.CONTENT_TYPE, info.getFileMimeType());
+
+            if(info.hasMetadata()) {
+                servletResponse.setHeader(HttpHeader.UPLOAD_METADATA, info.getEncodedMetadata());
+            }
 
             uploadStorageService.copyUploadTo(info, servletResponse.getOutputStream());
         }

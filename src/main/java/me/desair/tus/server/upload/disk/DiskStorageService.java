@@ -15,8 +15,6 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.UUID;
 
-import javax.servlet.ServletOutputStream;
-
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
@@ -133,6 +131,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
                     //write all bytes in the channel up to the configured maximum
                     transferred = file.transferFrom(uploadedBytes, offset, max - offset);
+                    file.force(true);
                     newOffset = offset + transferred;
 
                 } catch(Exception ex) {

@@ -4,7 +4,6 @@ import java.util.List;
 
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
-import me.desair.tus.server.termination.TerminationDeleteRequestHandler;
 import me.desair.tus.server.util.AbstractTusFeature;
 
 /**

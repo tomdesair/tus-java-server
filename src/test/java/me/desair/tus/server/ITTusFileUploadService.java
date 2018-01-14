@@ -137,6 +137,19 @@ public class ITTusFileUploadService {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is my test upload content"));
         }
+
+        //Download the upload
+        reset();
+        servletRequest.setMethod("GET");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "" + uploadContent.getBytes().length);
+        assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
+        assertResponseStatus(HttpServletResponse.SC_OK);
+        assertThat(servletResponse.getContentAsString(), is("This is my test upload content"));
     }
 
     @Test
@@ -361,6 +374,23 @@ public class ITTusFileUploadService {
                             "when sending this part, we know the length but the upload is not complete. " +
                             "Finally when sending the third part, the upload is complete."));
         }
+
+        //Download the upload
+        reset();
+        servletRequest.setMethod("GET");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse, null);
+        assertResponseStatus(HttpServletResponse.SC_OK);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "" + (part1+part2+part3).getBytes().length);
+        assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
+        assertThat(servletResponse.getContentAsString(), is(
+                "When sending this part, we don't know the length and " +
+                "when sending this part, we know the length but the upload is not complete. " +
+                "Finally when sending the third part, the upload is complete."));
+
     }
 
     @Test
