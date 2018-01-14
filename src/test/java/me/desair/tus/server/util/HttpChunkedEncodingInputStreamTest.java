@@ -77,6 +77,36 @@ public class HttpChunkedEncodingInputStreamTest {
     }
 
     @Test
+    public void chunkedWithFoldedHeaders() throws IOException {
+        String content = "8\r\n" +
+                "Mozilla \r\n" +
+                "A\r\n" +
+                "Developer \r\n" +
+                "7\r\n" +
+                "Network\r\n" +
+                "0\r\n" +
+                "Expires: Wed, 21 Oct 2015\n" +
+                " 07:28:00 GMT\r\n" +
+                "Cookie: ABC\n" +
+                "\tDEF\r\n" +
+                "\r\n";
+
+        HttpChunkedEncodingInputStream inputStream = new HttpChunkedEncodingInputStream(
+                IOUtils.toInputStream(content, StandardCharsets.UTF_8), trailerHeaders);
+
+        String expectedContent = "Mozilla Developer Network";
+
+        StringWriter writer = new StringWriter();
+        IOUtils.copy(inputStream, writer, StandardCharsets.UTF_8);
+        inputStream.close();
+
+        assertEquals(expectedContent, writer.toString());
+
+        assertEquals("Wed, 21 Oct 2015 07:28:00 GMT", trailerHeaders.get("expires").get(0));
+        assertEquals("ABC DEF", trailerHeaders.get("cookie").get(0));
+    }
+
+    @Test
     public void testChunkedInputStream() throws IOException {
         String correctInput = "10;key=\"value\r\n" +
                 "newline\"\r\n" +
@@ -166,4 +196,71 @@ public class HttpChunkedEncodingInputStreamTest {
         in.close();
     }
 
+    @Test
+    public void testReadEof() throws IOException {
+        String input = "A\r\n0123456789\r\n0\r\n";
+        InputStream in = new HttpChunkedEncodingInputStream(IOUtils.toInputStream(input, StandardCharsets.UTF_8),
+                trailerHeaders);
+
+        byte[] byteArray = new byte[10];
+        in.read(byteArray);
+
+        assertEquals(-1, in.read());
+        assertEquals(-1, in.read());
+    }
+
+    @Test
+    public void testReadEof2() throws IOException {
+        String input = "A\r\n0123456789\r\n0\r\n";
+        InputStream in = new HttpChunkedEncodingInputStream(IOUtils.toInputStream(input, StandardCharsets.UTF_8),
+                trailerHeaders);
+
+        byte[] byteArray = new byte[10];
+        in.read(byteArray);
+
+        assertEquals(-1, in.read(byteArray));
+        assertEquals(-1, in.read(byteArray));
+    }
+
+    @Test
+    public void testReadClosed() throws IOException {
+        String input = "A\r\n0123456789\r\n0\r\n";
+        InputStream in = new HttpChunkedEncodingInputStream(IOUtils.toInputStream(input, StandardCharsets.UTF_8),
+                trailerHeaders);
+
+        in.close();
+
+        try {
+            byte[] byteArray = new byte[10];
+            assertEquals(-1, in.read(byteArray));
+            fail();
+        } catch (Exception ex) {
+            assertTrue(ex instanceof IOException);
+        }
+
+        try {
+            assertEquals(-1, in.read());
+            fail();
+        } catch (Exception ex) {
+            assertTrue(ex instanceof IOException);
+        }
+
+        //double close has not effect
+        in.close();
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testNullInputstream() throws IOException {
+        InputStream in = new HttpChunkedEncodingInputStream(null);
+    }
+
+    @Test(expected = IOException.class)
+    public void testNegativeChunkSize() throws IOException {
+        String input = "-A\r\n0123456789\r\n0\r\n";
+        InputStream in = new HttpChunkedEncodingInputStream(IOUtils.toInputStream(input, StandardCharsets.UTF_8),
+                trailerHeaders);
+
+        byte[] byteArray = new byte[10];
+        in.read(byteArray);
+    }
 }
