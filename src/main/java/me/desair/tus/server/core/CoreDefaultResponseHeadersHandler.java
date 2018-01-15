@@ -12,7 +12,7 @@ import me.desair.tus.server.util.TusServletResponse;
  * The Tus-Resumable header MUST be included in every request and response except for OPTIONS requests.
  * The value MUST be the version of the protocol used by the Client or the Server.
  */
-public class CoreTusResumableHandler implements RequestHandler {
+public class CoreDefaultResponseHeadersHandler implements RequestHandler {
 
     @Override
     public boolean supports(final HttpMethod method) {
@@ -22,6 +22,8 @@ public class CoreTusResumableHandler implements RequestHandler {
     @Override
     public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) {
         //Always set Tus-Resumable header
-        servletResponse.addHeader(HttpHeader.TUS_RESUMABLE, TusFileUploadService.TUS_API_VERSION);
+        servletResponse.setHeader(HttpHeader.TUS_RESUMABLE, TusFileUploadService.TUS_API_VERSION);
+        //By default, set the Content-Length to 0
+        servletResponse.setHeader(HttpHeader.CONTENT_LENGTH, "0");
     }
 }

@@ -44,7 +44,7 @@ public class CoreProtocol extends AbstractTusFeature {
 
     @Override
     protected void initRequestHandlers(final List<RequestHandler> requestHandlers) {
-        requestHandlers.add(new CoreTusResumableHandler());
+        requestHandlers.add(new CoreDefaultResponseHeadersHandler());
         requestHandlers.add(new CoreHeadRequestHandler());
         requestHandlers.add(new CorePatchRequestHandler());
         requestHandlers.add(new CoreOptionsRequestHandler());

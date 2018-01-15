@@ -13,19 +13,19 @@ import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-public class CoreTusResumableHandlerTest {
+public class CoreDefaultResponseHeadersHandlerTest {
 
     private MockHttpServletRequest servletRequest;
 
     private MockHttpServletResponse servletResponse;
 
-    private CoreTusResumableHandler handler;
+    private CoreDefaultResponseHeadersHandler handler;
 
     @Before
     public void setUp() {
         servletRequest = new MockHttpServletRequest();
         servletResponse = new MockHttpServletResponse();
-        handler = new CoreTusResumableHandler();
+        handler = new CoreDefaultResponseHeadersHandler();
     }
 
     @Test
@@ -45,5 +45,6 @@ public class CoreTusResumableHandlerTest {
         handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), null, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.TUS_RESUMABLE), is(TusFileUploadService.TUS_API_VERSION));
+        assertThat(servletResponse.getHeader(HttpHeader.CONTENT_LENGTH), is("0"));
     }
 }

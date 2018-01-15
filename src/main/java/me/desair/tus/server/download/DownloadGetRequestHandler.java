@@ -37,9 +37,9 @@ public class DownloadGetRequestHandler implements RequestHandler {
             throw new UploadInProgressException("Upload " + servletRequest.getRequestURI() + " is still in progress " +
                     "and cannot be downloaded yet");
         } else {
-            servletResponse.addHeader(HttpHeader.CONTENT_LENGTH, Objects.toString(info.getLength()));
-            servletResponse.addHeader(HttpHeader.CONTENT_DISPOSITION, String.format(CONTENT_DISPOSITION_FORMAT, info.getFileName()));
-            servletResponse.addHeader(HttpHeader.CONTENT_TYPE, info.getFileMimeType());
+            servletResponse.setHeader(HttpHeader.CONTENT_LENGTH, Objects.toString(info.getLength()));
+            servletResponse.setHeader(HttpHeader.CONTENT_DISPOSITION, String.format(CONTENT_DISPOSITION_FORMAT, info.getFileName()));
+            servletResponse.setHeader(HttpHeader.CONTENT_TYPE, info.getFileMimeType());
 
             if(info.hasMetadata()) {
                 servletResponse.setHeader(HttpHeader.UPLOAD_METADATA, info.getEncodedMetadata());
