@@ -3,7 +3,10 @@ package me.desair.tus.server;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -24,6 +27,7 @@ import me.desair.tus.server.upload.disk.DiskStorageService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,7 +44,8 @@ public class TusFileUploadService {
     private UploadStorageService uploadStorageService;
     private UploadLockingService uploadLockingService;
     private UploadIdFactory idFactory = new UploadIdFactory();
-    private LinkedHashMap<String, TusFeature> enabledFeatures = new LinkedHashMap<>();
+    private final LinkedHashMap<String, TusFeature> enabledFeatures = new LinkedHashMap<>();
+    private final Set<HttpMethod> supportedHttpMethods = EnumSet.noneOf(HttpMethod.class);
 
     public TusFileUploadService() {
         String storagePath = FileUtils.getTempDirectoryPath() + File.separator + "tus";
@@ -55,7 +60,6 @@ public class TusFileUploadService {
         addTusFeature(new CreationExtension());
         addTusFeature(new ChecksumExtension());
         addTusFeature(new TerminationExtension());
-        addTusFeature(new DownloadExtension());
     }
 
     public TusFileUploadService withUploadURI(final String uploadURI) {
@@ -93,10 +97,36 @@ public class TusFileUploadService {
         return this;
     }
 
+    public TusFileUploadService withDownloadFeature() {
+        addTusFeature(new DownloadExtension());
+        return this;
+    }
+
     public TusFileUploadService addTusFeature(final TusFeature feature) {
         Validate.notNull(feature, "A custom feature cannot be null");
         enabledFeatures.put(feature.getName(), feature);
+        updateSupportedHttpMethods();
         return this;
+    }
+
+    public TusFileUploadService disableTusFeature(final String featureName) {
+        Validate.notNull(featureName, "The feature name cannot be null");
+
+        if(StringUtils.equals("core", featureName)) {
+            throw new IllegalArgumentException("The core protocol cannot be disabled");
+        }
+
+        enabledFeatures.remove(featureName);
+        updateSupportedHttpMethods();
+        return this;
+    }
+
+    public Set<HttpMethod> getSupportedHttpMethods() {
+        return EnumSet.copyOf(supportedHttpMethods);
+    }
+
+    public Set<String> getEnabledFeatures() {
+        return new LinkedHashSet<>(enabledFeatures.keySet());
     }
 
     public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse) throws IOException {
@@ -107,7 +137,7 @@ public class TusFileUploadService {
         Validate.notNull(servletRequest, "The HTTP Servlet request cannot be null");
         Validate.notNull(servletResponse, "The HTTP Servlet response cannot be null");
 
-        HttpMethod method = HttpMethod.getMethod(servletRequest);
+        HttpMethod method = HttpMethod.getMethodIfSupported(servletRequest, supportedHttpMethods);
 
         log.debug("Processing request with method {} and URL {}", method, servletRequest.getRequestURL());
 
@@ -167,6 +197,13 @@ public class TusFileUploadService {
         String message = ex.getMessage();
         log.warn("Unable to process request {} {}. Sent response status {} with message \"{}\"", method, servletRequest.getRequestURL(), status, message);
         servletResponse.sendError(status, message);
+    }
+
+    private void updateSupportedHttpMethods() {
+        supportedHttpMethods.clear();
+        for (TusFeature tusFeature : enabledFeatures.values()) {
+            supportedHttpMethods.addAll(tusFeature.getMinimalSupportedHttpMethods());
+        }
     }
 
 }

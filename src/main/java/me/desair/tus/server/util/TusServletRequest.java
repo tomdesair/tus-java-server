@@ -40,7 +40,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
         if(contentInputStream == null) {
             contentInputStream = super.getInputStream();
 
-            //If we're dealing with chunked tranfer encoding, abstract it so that the rest of our code doesn't need to care
+            //If we're dealing with chunked transfer encoding, abstract it so that the rest of our code doesn't need to care
             boolean isChunked = hasChunkedTransferEncoding();
 
             if(isChunked) {

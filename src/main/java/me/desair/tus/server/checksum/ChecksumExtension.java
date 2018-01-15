@@ -1,7 +1,10 @@
 package me.desair.tus.server.checksum;
 
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 
+import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.checksum.validation.ChecksumAlgorithmValidator;
@@ -16,6 +19,11 @@ public class ChecksumExtension extends AbstractTusFeature {
     @Override
     public String getName() {
         return "checksum";
+    }
+
+    @Override
+    public Collection<HttpMethod> getMinimalSupportedHttpMethods() {
+        return Arrays.asList(HttpMethod.OPTIONS, HttpMethod.PATCH);
     }
 
     @Override

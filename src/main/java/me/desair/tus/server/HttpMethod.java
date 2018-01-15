@@ -1,5 +1,7 @@
 package me.desair.tus.server;
 
+import java.util.Set;
+
 import javax.servlet.http.HttpServletRequest;
 
 import org.apache.commons.lang3.StringUtils;
@@ -15,13 +17,15 @@ import org.apache.commons.lang3.Validate;
  */
 public enum HttpMethod {
 
-    DELETE,
     GET,
     HEAD,
-    PATCH,
     POST,
     PUT,
-    OPTIONS;
+    DELETE,
+    CONNECT,
+    OPTIONS,
+    TRACE,
+    PATCH;
 
     public static HttpMethod forName(final String name) {
         for (HttpMethod method : HttpMethod.values()) {
@@ -33,7 +37,7 @@ public enum HttpMethod {
         return null;
     }
 
-    public static HttpMethod getMethod(final HttpServletRequest request) {
+    public static HttpMethod getMethodIfSupported(final HttpServletRequest request, Set<HttpMethod> supportedHttpMethods) {
         Validate.notNull(request, "The HttpServletRequest cannot be null");
 
         String requestMethod = request.getHeader(HttpHeader.METHOD_OVERRIDE);
@@ -41,7 +45,8 @@ public enum HttpMethod {
             requestMethod = request.getMethod();
         }
 
-        return forName(requestMethod);
+        HttpMethod httpMethod = forName(requestMethod);
+        return httpMethod != null && supportedHttpMethods.contains(httpMethod) ? httpMethod : null;
     }
 
 }

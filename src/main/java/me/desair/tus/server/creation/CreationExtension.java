@@ -1,7 +1,10 @@
 package me.desair.tus.server.creation;
 
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 
+import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.creation.validation.PostEmptyRequestValidator;
@@ -18,6 +21,11 @@ public class CreationExtension extends AbstractTusFeature {
     @Override
     public String getName() {
         return "creation";
+    }
+
+    @Override
+    public Collection<HttpMethod> getMinimalSupportedHttpMethods() {
+        return Arrays.asList(HttpMethod.OPTIONS, HttpMethod.HEAD, HttpMethod.PATCH, HttpMethod.POST);
     }
 
     @Override

@@ -64,7 +64,52 @@ public class ITTusFileUploadService {
         servletResponse = new MockHttpServletResponse();
         tusFileUploadService = new TusFileUploadService()
             .withUploadURI(UPLOAD_URI)
-            .withStoragePath(storagePath.toAbsolutePath().toString());
+            .withStoragePath(storagePath.toAbsolutePath().toString())
+            .withDownloadFeature();
+    }
+
+    @Test
+    public void testSupportedHttpMethods() {
+        assertThat(tusFileUploadService.getSupportedHttpMethods(), containsInAnyOrder(
+                HttpMethod.HEAD, HttpMethod.OPTIONS, HttpMethod.PATCH,
+                HttpMethod.POST, HttpMethod.DELETE, HttpMethod.GET));
+
+        assertThat(tusFileUploadService.getEnabledFeatures(), containsInAnyOrder(
+                "core", "creation", "checksum", "termination", "download"));
+    }
+
+    @Test
+    public void testDisableFeature() throws Exception {
+        tusFileUploadService.disableTusFeature("download");
+        tusFileUploadService.disableTusFeature("termination");
+
+        assertThat(tusFileUploadService.getSupportedHttpMethods(), containsInAnyOrder(
+                HttpMethod.HEAD, HttpMethod.OPTIONS, HttpMethod.PATCH,
+                HttpMethod.POST));
+
+        assertThat(tusFileUploadService.getEnabledFeatures(), containsInAnyOrder(
+                "core", "creation", "checksum"));
+
+        reset();
+        servletRequest.setMethod("GET");
+        servletRequest.setRequestURI(UPLOAD_URI + "/" + UUID.randomUUID());
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+
+        reset();
+        servletRequest.setMethod("DELETE");
+        servletRequest.setRequestURI(UPLOAD_URI + "/" + UUID.randomUUID());
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testDisableCore() {
+        tusFileUploadService.disableTusFeature("core");
     }
 
     @Test(expected = NullPointerException.class)
@@ -533,6 +578,33 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+    }
+
+    @Test
+    public void testInvalidMethods() throws Exception {
+        servletRequest.setMethod("PUT");
+        servletRequest.setRequestURI(UPLOAD_URI + "/" + UUID.randomUUID());
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+
+        reset();
+        servletRequest.setMethod("CONNECT");
+        servletRequest.setRequestURI(UPLOAD_URI + "/" + UUID.randomUUID());
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+
+        reset();
+        servletRequest.setMethod("TRACE");
+        servletRequest.setRequestURI(UPLOAD_URI + "/" + UUID.randomUUID());
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+
     }
 
     private void assertResponseHeader(final String header, final String value) {

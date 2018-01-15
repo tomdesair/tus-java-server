@@ -1,7 +1,10 @@
 package me.desair.tus.server.core;
 
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 
+import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.core.validation.ContentLengthValidator;
@@ -22,6 +25,11 @@ public class CoreProtocol extends AbstractTusFeature {
     @Override
     public String getName() {
         return "core";
+    }
+
+    @Override
+    public Collection<HttpMethod> getMinimalSupportedHttpMethods() {
+        return Arrays.asList(HttpMethod.OPTIONS, HttpMethod.HEAD, HttpMethod.PATCH);
     }
 
     @Override

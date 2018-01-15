@@ -1,6 +1,7 @@
 package me.desair.tus.server;
 
 import java.io.IOException;
+import java.util.Collection;
 
 import javax.servlet.http.HttpServletRequest;
 
@@ -19,5 +20,7 @@ public interface TusFeature {
     void validate(final HttpMethod method, final HttpServletRequest servletRequest, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException, IOException;
 
     void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) throws IOException, TusException;
+
+    Collection<HttpMethod> getMinimalSupportedHttpMethods();
 
 }
