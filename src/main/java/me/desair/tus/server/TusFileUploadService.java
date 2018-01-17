@@ -16,6 +16,7 @@ import me.desair.tus.server.core.CoreProtocol;
 import me.desair.tus.server.creation.CreationExtension;
 import me.desair.tus.server.download.DownloadExtension;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.expiration.ExpirationExtension;
 import me.desair.tus.server.termination.TerminationExtension;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
@@ -60,6 +61,7 @@ public class TusFileUploadService {
         addTusFeature(new CreationExtension());
         addTusFeature(new ChecksumExtension());
         addTusFeature(new TerminationExtension());
+        addTusFeature(new ExpirationExtension());
     }
 
     public TusFileUploadService withUploadURI(final String uploadURI) {
@@ -94,6 +96,11 @@ public class TusFileUploadService {
         Validate.notBlank(storagePath, "The storage path cannot be blank");
         withUploadStorageService(new DiskStorageService(idFactory, storagePath));
         withUploadLockingService(new DiskLockingService(idFactory, storagePath));
+        return this;
+    }
+
+    public TusFileUploadService withUploadExpirationPeriod(final long expirationPeriod) {
+        uploadStorageService.setUploadExpirationPeriod(expirationPeriod);
         return this;
     }
 

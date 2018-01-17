@@ -75,7 +75,7 @@ public class ITTusFileUploadService {
                 HttpMethod.POST, HttpMethod.DELETE, HttpMethod.GET));
 
         assertThat(tusFileUploadService.getEnabledFeatures(), containsInAnyOrder(
-                "core", "creation", "checksum", "termination", "download"));
+                "core", "creation", "checksum", "termination", "download", "expiration"));
     }
 
     @Test
@@ -88,7 +88,7 @@ public class ITTusFileUploadService {
                 HttpMethod.POST));
 
         assertThat(tusFileUploadService.getEnabledFeatures(), containsInAnyOrder(
-                "core", "creation", "checksum"));
+                "core", "creation", "checksum", "expiration"));
 
         reset();
         servletRequest.setMethod("GET");
@@ -538,7 +538,7 @@ public class ITTusFileUploadService {
         //If the Server supports this extension, it MUST add creation to the Tus-Extension header.
         //If the Server supports deferring length, it MUST add creation-defer-length to the Tus-Extension header.
         assertResponseHeader(HttpHeader.TUS_EXTENSION, "creation", "creation-defer-length",
-                "checksum", "checksum-trailer", "termination", "download");
+                "checksum", "checksum-trailer", "termination", "download", "expiration");
     }
 
     @Test

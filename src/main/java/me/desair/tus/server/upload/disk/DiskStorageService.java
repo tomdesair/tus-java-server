@@ -10,6 +10,7 @@ import java.io.OutputStream;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
@@ -40,6 +41,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     private static final String DATA_FILE = "data";
 
     private Long maxUploadSize = null;
+    private Long uploadExpirationPeriod = null;
     private UploadIdFactory idFactory;
 
     public DiskStorageService(final UploadIdFactory idFactory, final String storagePath) {
@@ -177,6 +179,16 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
+    public Long getUploadExpirationPeriod() {
+        return uploadExpirationPeriod;
+    }
+
+    @Override
+    public void setUploadExpirationPeriod(Long uploadExpirationPeriod) {
+        this.uploadExpirationPeriod = uploadExpirationPeriod;
+    }
+
+    @Override
     public InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws IOException, UploadNotFoundException {
         InputStream inputStream = null;
 
@@ -204,9 +216,16 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         }
     }
 
+    //TODO UNIT TEST
     @Override
-    public void cleanupExpiredUploads(final UploadLockingService uploadLockingService) {
-        //TODO
+    public void cleanupExpiredUploads(final UploadLockingService uploadLockingService) throws IOException {
+        try (DirectoryStream<Path> expiredUploadsStream = Files.newDirectoryStream(getStoragePath(),
+                new ExpiredInProgressUploadFilter(this, uploadLockingService))) {
+
+            for (Path path : expiredUploadsStream) {
+                FileUtils.deleteDirectory(path.toFile());
+            }
+        }
     }
 
     UploadInfo getUploadInfo(final UUID id) throws IOException {

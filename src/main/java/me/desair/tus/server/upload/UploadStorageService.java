@@ -81,7 +81,7 @@ public interface UploadStorageService {
      * Clean up any upload data that is expired according to the configured expiration time
      * @param uploadLockingService
      */
-    void cleanupExpiredUploads(final UploadLockingService uploadLockingService);
+    void cleanupExpiredUploads(final UploadLockingService uploadLockingService) throws IOException;
 
     /**
      * Remove the given last amount of bytes from the uploaded data
@@ -96,4 +96,15 @@ public interface UploadStorageService {
      */
     void terminateUpload(UploadInfo uploadInfo) throws UploadNotFoundException, IOException;
 
+    /**
+     * Get the expiration period of an upload in milliseconds
+     * @return The number of milliseconds before an upload expires, or null if it cannot expire
+     */
+    Long getUploadExpirationPeriod();
+
+    /**
+     * Set the expiration period after which an in-progress upload expires
+     * @param uploadExpirationPeriod The period in milliseconds
+     */
+    void setUploadExpirationPeriod(Long uploadExpirationPeriod);
 }

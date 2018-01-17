@@ -1,6 +1,7 @@
 package me.desair.tus.server.upload;
 
 import java.io.IOException;
+import java.util.UUID;
 
 import me.desair.tus.server.exception.TusException;
 
@@ -22,4 +23,12 @@ public interface UploadLockingService {
      * @throws TusException When cleaning a stale lock fails
      */
     void cleanupStaleLocks() throws IOException;
+
+    /**
+     * Check if the upload with the given ID is currently locked
+     * @param id The ID of the upload to check
+     * @return True if the upload is locked, false otherwise
+     */
+    boolean isLocked(UUID id);
+
 }

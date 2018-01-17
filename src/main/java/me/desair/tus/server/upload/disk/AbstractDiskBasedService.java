@@ -28,6 +28,10 @@ public class AbstractDiskBasedService {
         this.storagePath = Paths.get(path);
     }
 
+    protected Path getStoragePath() {
+        return storagePath;
+    }
+
     protected Path getPathInStorageDirectory(final UUID id) {
         if(hasInitialised.compareAndSet(false,true)) {
             init();

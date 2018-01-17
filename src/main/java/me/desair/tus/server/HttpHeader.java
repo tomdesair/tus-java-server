@@ -42,6 +42,13 @@ public class HttpHeader {
     public static final String UPLOAD_LENGTH = "Upload-Length";
 
     /**
+     * The Upload-Expires response header indicates the time after which the unfinished upload expires.
+     * The value of the Upload-Expires header MUST be in RFC 7231 (https://tools.ietf.org/html/rfc7231#section-7.1.1.1)
+     * datetime format.
+     */
+    public static final String UPLOAD_EXPIRES = "Upload-Expires";
+
+    /**
      * The Upload-Defer-Length request and response header indicates that the size of the upload is not known
      * currently and will be transferred later. Its value MUST be 1. If the length of an upload is not deferred,
      * this header MUST be omitted.

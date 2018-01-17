@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -50,6 +51,28 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     @Override
     public void cleanupStaleLocks() throws IOException {
         //TODO
+    }
+
+    //TODO UNIT TEST
+    @Override
+    public boolean isLocked(UUID id) {
+        boolean locked = false;
+        Path lockPath = getLockPath(id);
+
+        if (lockPath != null) {
+            //Try to obtain a lock to see if the upload is currently locked
+            try(UploadLock lock = new FileBasedLock(id.toString(), lockPath)) {
+
+                //We got the lock, so it means no one else is locking it.
+                locked = false;
+
+            } catch (UploadAlreadyLockedException | IOException e) {
+                //There was already a lock
+                locked = true;
+            }
+        }
+
+        return locked;
     }
 
     private Path getLockPath(final UUID id) {

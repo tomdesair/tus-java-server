@@ -2,6 +2,7 @@ package me.desair.tus.server.upload;
 
 import java.io.Serializable;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -23,6 +24,7 @@ public class UploadInfo implements Serializable {
     private Long length;
     private UUID id;
     private String ownerKey;
+    private Long expirationTimestamp;
 
     public UploadInfo() {
         offset = 0l;
@@ -113,6 +115,14 @@ public class UploadInfo implements Serializable {
         return ownerKey;
     }
 
+    public Long getExpirationTimestamp() {
+        return expirationTimestamp;
+    }
+
+    public void updateExpiration(final long expirationPeriod) {
+        expirationTimestamp = getCurrentTime() + expirationPeriod;
+    }
+
     @Override
     public boolean equals(final Object o) {
         if (this == o) return true;
@@ -127,6 +137,7 @@ public class UploadInfo implements Serializable {
                 .append(getLength(), info.getLength())
                 .append(getId(), info.getId())
                 .append(getOwnerKey(), info.getOwnerKey())
+                .append(getExpirationTimestamp(), info.getExpirationTimestamp())
                 .isEquals();
     }
 
@@ -138,6 +149,7 @@ public class UploadInfo implements Serializable {
                 .append(getLength())
                 .append(getId())
                 .append(getOwnerKey())
+                .append(getExpirationTimestamp())
                 .toHashCode();
     }
 
@@ -189,4 +201,20 @@ public class UploadInfo implements Serializable {
 
         return APPLICATION_OCTET_STREAM;
     }
+
+    /**
+     * Check if this upload is expired
+     * @return True if the upload is expired, false otherwise
+     */
+    public boolean isExpired() {
+        return expirationTimestamp != null && expirationTimestamp < getCurrentTime();
+    }
+
+    /**
+     * Get the current time in the number of milliseconds since January 1, 1970, 00:00:00 GMT
+     */
+    protected long getCurrentTime() {
+        return new Date().getTime();
+    }
+
 }
