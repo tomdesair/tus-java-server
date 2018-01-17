@@ -65,6 +65,7 @@ public class ITTusFileUploadService {
         tusFileUploadService = new TusFileUploadService()
             .withUploadURI(UPLOAD_URI)
             .withStoragePath(storagePath.toAbsolutePath().toString())
+            .withMaxUploadSize(1073741824L)
             .withDownloadFeature();
     }
 
@@ -535,10 +536,12 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
 
-        //If the Server supports this extension, it MUST add creation to the Tus-Extension header.
-        //If the Server supports deferring length, it MUST add creation-defer-length to the Tus-Extension header.
-        assertResponseHeader(HttpHeader.TUS_EXTENSION, "creation", "creation-defer-length",
-                "checksum", "checksum-trailer", "termination", "download", "expiration");
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.TUS_VERSION, "1.0.0");
+        assertResponseHeader(HttpHeader.TUS_MAX_SIZE, "1073741824");
+        assertResponseHeader(HttpHeader.TUS_CHECKSUM_ALGORITHM, "md5", "sha1", "sha256", "sha384", "sha512");
+        assertResponseHeader(HttpHeader.TUS_EXTENSION, "creation", "creation-defer-length", "checksum",
+                "checksum-trailer", "termination", "download", "expiration");
     }
 
     @Test
