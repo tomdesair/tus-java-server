@@ -53,7 +53,6 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
         //TODO
     }
 
-    //TODO UNIT TEST
     @Override
     public boolean isLocked(UUID id) {
         boolean locked = false;

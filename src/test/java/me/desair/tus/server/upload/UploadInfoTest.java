@@ -3,15 +3,16 @@ package me.desair.tus.server.upload;
 import static me.desair.tus.server.util.MapMatcher.hasSize;
 import static org.hamcrest.CoreMatchers.allOf;
 import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.collection.IsIterableContainingInAnyOrder.containsInAnyOrder;
 import static org.hamcrest.collection.IsMapContaining.hasEntry;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import java.text.ParseException;
+import java.util.Stack;
 import java.util.UUID;
 
-import org.apache.commons.lang3.tuple.Pair;
+import org.apache.commons.lang3.time.DateFormatUtils;
 import org.junit.Test;
 
 public class UploadInfoTest {
@@ -191,6 +192,38 @@ public class UploadInfoTest {
 
         assertThat(info.getFileName(), is(id.toString()));
         assertThat(info.getFileMimeType(), is("application/octet-stream"));
+    }
+
+    @Test
+    public void testExpiration() throws Exception {
+        UploadInfo info1 = new UploadInfo();
+        assertFalse(info1.isExpired());
+
+        UploadInfo info2 = new UploadInfo() {
+            @Override
+            protected long getCurrentTime() {
+                try {
+                    return DateFormatUtils.ISO_8601_EXTENDED_DATETIME_FORMAT.parse("2018-01-20T10:43:11").getTime();
+                } catch (ParseException e) {
+                    return 0L;
+                }
+            }
+        };
+        info2.updateExpiration(172800000L);
+        assertFalse(info2.isExpired());
+
+        final Stack<Long> dateStack = new Stack<>();
+        dateStack.push(DateFormatUtils.ISO_8601_EXTENDED_DATETIME_FORMAT.parse("2018-01-23T10:43:11").getTime());
+        dateStack.push(DateFormatUtils.ISO_8601_EXTENDED_DATETIME_FORMAT.parse("2018-01-20T10:43:11").getTime());
+
+        UploadInfo info3 = new UploadInfo() {
+            @Override
+            protected long getCurrentTime() {
+                return dateStack.pop();
+            }
+        };
+        info3.updateExpiration(172800000L);
+        assertTrue(info3.isExpired());
     }
 
 }

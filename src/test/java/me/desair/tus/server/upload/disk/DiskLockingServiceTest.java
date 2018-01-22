@@ -1,5 +1,6 @@
 package me.desair.tus.server.upload.disk;
 
+import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
@@ -72,6 +73,23 @@ public class DiskLockingServiceTest {
         assertThat(uploadLock, not(nullValue()));
 
         uploadLock.release();
+    }
+
+    @Test
+    public void isLockedTrue() throws Exception {
+        UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
+
+        assertThat(lockingService.isLocked(UUID.fromString("000003f1-a850-49de-af03-997272d834c9")), is(true));
+
+        uploadLock.release();
+    }
+
+    @Test
+    public void isLockedFalse() throws Exception {
+        UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
+        uploadLock.release();
+
+        assertThat(lockingService.isLocked(UUID.fromString("000003f1-a850-49de-af03-997272d834c9")), is(false));
     }
 
     @Test

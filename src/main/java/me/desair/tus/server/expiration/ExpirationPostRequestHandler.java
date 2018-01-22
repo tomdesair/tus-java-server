@@ -30,7 +30,7 @@ public class ExpirationPostRequestHandler implements RequestHandler {
         Long expirationPeriod = uploadStorageService.getUploadExpirationPeriod();
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletResponse.getHeader(HttpHeader.LOCATION), ownerKey);
 
-        if(expirationPeriod != null && uploadInfo != null) {
+        if(expirationPeriod != null && expirationPeriod > 0 && uploadInfo != null) {
 
             uploadInfo.updateExpiration(expirationPeriod);
             uploadStorageService.update(uploadInfo);

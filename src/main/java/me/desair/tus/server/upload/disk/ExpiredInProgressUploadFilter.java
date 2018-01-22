@@ -13,7 +13,6 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Directory stream filter that only accepts uploads that are still in progress and expired
- * //TODO UNIT TEST
  */
 public class ExpiredInProgressUploadFilter implements DirectoryStream.Filter<Path> {
 

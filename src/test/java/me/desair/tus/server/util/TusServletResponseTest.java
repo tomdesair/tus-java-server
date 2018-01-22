@@ -1,20 +1,24 @@
 package me.desair.tus.server.util;
 
 import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
+import java.util.Locale;
+import java.util.TimeZone;
 
+import org.apache.commons.lang3.time.FastDateFormat;
+import org.apache.commons.lang3.time.TimeZones;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 public class TusServletResponseTest {
 
-    private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    private static final FastDateFormat DATE_FORMAT = FastDateFormat.getInstance("yyyy-MM-dd HH:mm:ss",
+            TimeZone.getTimeZone(TimeZones.GMT_ID), Locale.US);
 
     private TusServletResponse tusServletResponse;
     private MockHttpServletResponse servletResponse;
@@ -82,7 +86,7 @@ public class TusServletResponseTest {
 
     @Test
     public void getHeaderNull() throws Exception {
-        assertThat(tusServletResponse.getHeader("TEST"), is(""));
+        assertThat(tusServletResponse.getHeader("TEST"), is(nullValue()));
     }
 
 }

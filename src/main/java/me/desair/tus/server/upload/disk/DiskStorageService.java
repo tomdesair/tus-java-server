@@ -216,7 +216,6 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         }
     }
 
-    //TODO UNIT TEST
     @Override
     public void cleanupExpiredUploads(final UploadLockingService uploadLockingService) throws IOException {
         try (DirectoryStream<Path> expiredUploadsStream = Files.newDirectoryStream(getStoragePath(),

@@ -4,6 +4,7 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.upload.UploadStorageService;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * Abstract request handler to add tus extension values to the correct header
@@ -17,7 +18,8 @@ public abstract class AbstractExtensionRequestHandler implements RequestHandler 
 
     @Override
     public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) {
-        StringBuilder extensionBuilder = new StringBuilder(servletResponse.getHeader(HttpHeader.TUS_EXTENSION));
+        StringBuilder extensionBuilder = new StringBuilder(StringUtils.trimToEmpty(
+                servletResponse.getHeader(HttpHeader.TUS_EXTENSION)));
 
         appendExtensions(extensionBuilder);
 

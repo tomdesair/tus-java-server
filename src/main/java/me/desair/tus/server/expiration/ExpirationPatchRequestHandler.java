@@ -30,7 +30,8 @@ public class ExpirationPatchRequestHandler implements RequestHandler {
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
 
         //Only set expiration header for uploads that are unfinished
-        if(expirationPeriod != null && uploadInfo != null && uploadInfo.isUploadInProgress()) {
+        if(expirationPeriod != null && expirationPeriod > 0
+                && uploadInfo != null && uploadInfo.isUploadInProgress()) {
 
             uploadInfo.updateExpiration(expirationPeriod);
             uploadStorageService.update(uploadInfo);

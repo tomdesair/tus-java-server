@@ -17,7 +17,6 @@ import me.desair.tus.server.util.TusServletResponse;
 
 /**
  * Send the uploaded bytes of finished uploads
- * TODO UNIT TEST
  */
 public class DownloadGetRequestHandler implements RequestHandler {
 

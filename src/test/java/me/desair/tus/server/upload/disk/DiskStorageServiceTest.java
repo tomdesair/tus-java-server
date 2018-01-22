@@ -7,6 +7,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Mockito.doThrow;
@@ -28,6 +29,7 @@ import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLockingService;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -49,6 +51,9 @@ public class DiskStorageServiceTest {
 
     @Mock
     private UploadIdFactory idFactory;
+
+    @Mock
+    private UploadLockingService uploadLockingService;
 
     private static Path storagePath;
 
@@ -465,7 +470,23 @@ public class DiskStorageServiceTest {
 
     @Test
     public void cleanupExpiredUploads() throws Exception {
-        //TODO
+        when(uploadLockingService.isLocked(any(UUID.class))).thenReturn(false);
+
+        String content = "This is the content of my upload";
+
+        //Create our upload with the correct length
+        UploadInfo info = new UploadInfo();
+        info.setLength((long) content.getBytes().length + 20);
+        info.updateExpiration(100L);
+
+        info = storageService.create(info, null);
+        assertTrue(Files.exists(getUploadInfoPath(info.getId())));
+
+        Thread.sleep(500L);
+        storageService.cleanupExpiredUploads(uploadLockingService);
+
+        assertFalse(Files.exists(getUploadInfoPath(info.getId())));
+        assertFalse(Files.exists(getStoragePath(info.getId())));
     }
 
     private Path getUploadInfoPath(final UUID id) {
