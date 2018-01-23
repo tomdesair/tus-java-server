@@ -37,10 +37,21 @@ public abstract class AbstractTusFeature implements TusFeature {
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) throws IOException, TusException {
+    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse,
+                        final UploadStorageService uploadStorageService, final String ownerKey) throws IOException, TusException {
         for (RequestHandler requestHandler : requestHandlers) {
             if(requestHandler.supports(method)) {
                 requestHandler.process(method, servletRequest, servletResponse, uploadStorageService, ownerKey);
+            }
+        }
+    }
+
+    @Override
+    public void handleError(final HttpMethod method, final TusServletRequest request, final TusServletResponse response,
+                            final UploadStorageService uploadStorageService, final String ownerKey) throws IOException, TusException {
+        for (RequestHandler requestHandler : requestHandlers) {
+            if(requestHandler.supports(method) && requestHandler.isErrorHandler()) {
+                requestHandler.process(method, request, response, uploadStorageService, ownerKey);
             }
         }
     }

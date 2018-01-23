@@ -4,9 +4,9 @@ import java.io.IOException;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 
@@ -18,7 +18,7 @@ import me.desair.tus.server.util.TusServletResponse;
  *  As long as the length of the upload is not known, the Server MUST set Upload-Defer-Length: 1 in
  *  all responses to HEAD requests.
  */
-public class CreationHeadRequestHandler implements RequestHandler {
+public class CreationHeadRequestHandler extends AbstractRequestHandler {
 
     @Override
     public boolean supports(final HttpMethod method) {

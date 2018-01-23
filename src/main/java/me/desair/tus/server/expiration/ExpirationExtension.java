@@ -32,7 +32,6 @@ public class ExpirationExtension extends AbstractTusFeature {
     @Override
     protected void initRequestHandlers(List<RequestHandler> requestHandlers) {
         requestHandlers.add(new ExpirationOptionsRequestHandler());
-        requestHandlers.add(new ExpirationPostRequestHandler());
-        requestHandlers.add(new ExpirationPatchRequestHandler());
+        requestHandlers.add(new ExpirationRequestHandler());
     }
 }

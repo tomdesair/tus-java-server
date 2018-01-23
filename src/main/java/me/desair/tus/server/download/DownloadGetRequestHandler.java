@@ -7,18 +7,18 @@ import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadInProgressException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 
 /**
  * Send the uploaded bytes of finished uploads
  */
-public class DownloadGetRequestHandler implements RequestHandler {
+public class DownloadGetRequestHandler extends AbstractRequestHandler {
 
     private static final String CONTENT_DISPOSITION_FORMAT = "attachment;filename=\"%s\"";
 

@@ -26,4 +26,9 @@ public class CoreDefaultResponseHeadersHandler implements RequestHandler {
         //By default, set the Content-Length to 0
         servletResponse.setHeader(HttpHeader.CONTENT_LENGTH, "0");
     }
+
+    @Override
+    public boolean isErrorHandler() {
+        return true;
+    }
 }

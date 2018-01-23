@@ -148,17 +148,18 @@ public class TusFileUploadService {
 
         log.debug("Processing request with method {} and URL {}", method, servletRequest.getRequestURL());
 
+        TusServletRequest request = new TusServletRequest(servletRequest);
+        TusServletResponse response = new TusServletResponse(servletResponse);
         try {
-            validateRequest(method, servletRequest, ownerKey);
+            validateRequest(method, request, ownerKey);
 
-            try(UploadLock lock = uploadLockingService.lockUploadByUri(servletRequest.getRequestURI())) {
+            try(UploadLock lock = uploadLockingService.lockUploadByUri(request.getRequestURI())) {
 
-                executeProcessingByFeatures(method, new TusServletRequest(servletRequest),
-                        new TusServletResponse(servletResponse), ownerKey);
+                executeProcessingByFeatures(method, request, response, ownerKey);
             }
 
         } catch (TusException e) {
-            processTusException(method, servletRequest, servletResponse, e);
+            processTusException(method, request, response, ownerKey, e);
         }
     }
 
@@ -198,12 +199,23 @@ public class TusFileUploadService {
         }
     }
 
-    private void processTusException(final HttpMethod method, final HttpServletRequest servletRequest,
-                                     final HttpServletResponse servletResponse, final TusException ex) throws IOException {
-        int status = ex.getStatus();
-        String message = ex.getMessage();
-        log.warn("Unable to process request {} {}. Sent response status {} with message \"{}\"", method, servletRequest.getRequestURL(), status, message);
-        servletResponse.sendError(status, message);
+    private void processTusException(final HttpMethod method, final TusServletRequest request, final TusServletResponse response,
+                                     final String ownerKey, final TusException exception) throws IOException {
+        int status = exception.getStatus();
+        String message = exception.getMessage();
+
+        log.warn("Unable to process request {} {}. Sent response status {} with message \"{}\"",
+                method, request.getRequestURL(), status, message);
+
+        for (TusFeature feature : enabledFeatures.values()) {
+            try {
+                feature.handleError(method, request, response, uploadStorageService, ownerKey);
+            } catch (TusException ex) {
+                log.warn("An exception occurred while handling another exception", ex);
+            }
+        }
+
+        response.sendError(status, message);
     }
 
     private void updateSupportedHttpMethods() {

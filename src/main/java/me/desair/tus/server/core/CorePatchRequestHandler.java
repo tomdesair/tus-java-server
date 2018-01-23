@@ -7,11 +7,11 @@ import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.slf4j.Logger;
@@ -25,7 +25,7 @@ import org.slf4j.LoggerFactory;
  * Upload-Offset header containing the new offset. The new offset MUST be the sum of the offset before the PATCH
  * request and the number of bytes received and processed or stored during the current PATCH request.
  */
-public class CorePatchRequestHandler implements RequestHandler {
+public class CorePatchRequestHandler extends AbstractRequestHandler {
 
     private static final Logger log = LoggerFactory.getLogger(CorePatchRequestHandler.class);
 

@@ -21,6 +21,7 @@ public interface TusFeature {
 
     void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) throws IOException, TusException;
 
-    Collection<HttpMethod> getMinimalSupportedHttpMethods();
+    void handleError(HttpMethod method, TusServletRequest request, TusServletResponse response, UploadStorageService uploadStorageService, String ownerKey) throws IOException, TusException;
 
+    Collection<HttpMethod> getMinimalSupportedHttpMethods();
 }

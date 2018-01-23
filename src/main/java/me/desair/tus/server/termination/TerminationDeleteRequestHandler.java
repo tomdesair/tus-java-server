@@ -5,10 +5,10 @@ import java.io.IOException;
 import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 
@@ -17,7 +17,7 @@ import me.desair.tus.server.util.TusServletResponse;
  * and MUST respond with the 204 No Content status confirming that the upload was terminated. For all future requests
  * to this URL the Server SHOULD respond with the 404 Not Found or 410 Gone status.
  */
-public class TerminationDeleteRequestHandler implements RequestHandler {
+public class TerminationDeleteRequestHandler extends AbstractRequestHandler {
 
     @Override
     public boolean supports(final HttpMethod method) {

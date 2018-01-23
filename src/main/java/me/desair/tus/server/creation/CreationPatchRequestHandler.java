@@ -6,10 +6,10 @@ import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
  * Upload-Defer-Length: 1 if upload size is not known at the time. Once it is known the Client MUST set
  * the Upload-Length header in the next PATCH request. Once set the length MUST NOT be changed.
  */
-public class CreationPatchRequestHandler implements RequestHandler {
+public class CreationPatchRequestHandler extends AbstractRequestHandler {
 
     private static final Logger log = LoggerFactory.getLogger(CreationPatchRequestHandler.class);
 

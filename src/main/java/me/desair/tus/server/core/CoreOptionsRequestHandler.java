@@ -6,9 +6,9 @@ import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.TusFileUploadService;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 
@@ -17,7 +17,7 @@ import me.desair.tus.server.util.TusServletResponse;
  * response indicated by the 204 No Content or 200 OK status MUST contain the Tus-Version header. It MAY include
  * the Tus-Extension and Tus-Max-Size headers.
  */
-public class CoreOptionsRequestHandler implements RequestHandler {
+public class CoreOptionsRequestHandler extends AbstractRequestHandler {
 
     @Override
     public boolean supports(final HttpMethod method) {

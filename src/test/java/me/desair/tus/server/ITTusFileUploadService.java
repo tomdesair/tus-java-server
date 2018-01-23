@@ -63,6 +63,7 @@ public class ITTusFileUploadService {
             .withUploadURI(UPLOAD_URI)
             .withStoragePath(storagePath.toAbsolutePath().toString())
             .withMaxUploadSize(1073741824L)
+            .withUploadExpirationPeriod(2 * 24 * 60 * 60 * 1000)
             .withDownloadFeature();
     }
 
@@ -94,6 +95,8 @@ public class ITTusFileUploadService {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
         assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
 
         reset();
@@ -102,6 +105,8 @@ public class ITTusFileUploadService {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
         assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
     }
 
@@ -130,6 +135,8 @@ public class ITTusFileUploadService {
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeaderNotBlank(HttpHeader.LOCATION);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
         String location = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
@@ -147,8 +154,13 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + uploadContent.getBytes().length);
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
 
         //Check with HEAD request upload is complete
         reset();
@@ -158,6 +170,7 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + uploadContent.getBytes().length);
         assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "" + uploadContent.getBytes().length);
         assertResponseHeaderNull(HttpHeader.UPLOAD_DEFER_LENGTH);
@@ -180,6 +193,9 @@ public class ITTusFileUploadService {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is my test upload content"));
         }
+
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
 
         //Download the upload
         reset();
@@ -211,9 +227,14 @@ public class ITTusFileUploadService {
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeaderNotBlank(HttpHeader.LOCATION);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
         String location = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
 
         //Upload part 1 bytes
         reset();
@@ -229,6 +250,8 @@ public class ITTusFileUploadService {
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "41");
 
         //Check with service that upload is still in progress
@@ -241,6 +264,9 @@ public class ITTusFileUploadService {
                 hasEntry("filename", "world_domination_plan.pdf")
                 )
         );
+
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
 
         //Upload part 2 bytes
         reset();
@@ -255,7 +281,9 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "69");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
 
         //Check with HEAD request upload is complete
@@ -266,6 +294,7 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "69");
         assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "69");
         assertResponseHeaderNull(HttpHeader.UPLOAD_DEFER_LENGTH);
@@ -307,6 +336,8 @@ public class ITTusFileUploadService {
         tusFileUploadService.process(servletRequest, servletResponse);
         assertResponseHeaderNotBlank(HttpHeader.LOCATION);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
         String location = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
@@ -323,6 +354,8 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + part1.getBytes().length);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
 
@@ -337,6 +370,9 @@ public class ITTusFileUploadService {
                 )
         );
 
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
+
         //Check with HEAD request length is still not known
         reset();
         servletRequest.setMethod("HEAD");
@@ -345,6 +381,7 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + part1.getBytes().length);
         assertResponseHeader(HttpHeader.UPLOAD_DEFER_LENGTH, "1");
         assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
@@ -363,8 +400,13 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + (part1+part2).getBytes().length);
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
 
         //Check with HEAD request length is known
         reset();
@@ -374,6 +416,7 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + (part1+part2).getBytes().length);
         assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "" + (part1+part2+part3).getBytes().length);
         assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
@@ -396,8 +439,13 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + (part1+part2+part3).getBytes().length);
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
 
         //Get upload info from service
         info = tusFileUploadService.getUploadInfo(location, null);
@@ -417,6 +465,9 @@ public class ITTusFileUploadService {
                             "when sending this part, we know the length but the upload is not complete. " +
                             "Finally when sending the third part, the upload is complete."));
         }
+
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
 
         //Download the upload
         reset();
@@ -452,9 +503,14 @@ public class ITTusFileUploadService {
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeaderNotBlank(HttpHeader.LOCATION);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
         String location = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
 
         //Upload part 1 bytes
         reset();
@@ -470,7 +526,12 @@ public class ITTusFileUploadService {
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "41");
+
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
 
         //Upload part 2 bytes
         reset();
@@ -487,6 +548,8 @@ public class ITTusFileUploadService {
 
         //We expect the server to return a checksum mismatch error
         assertResponseStatus(460);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
 
         //Check that upload info is still from the first patch
         UploadInfo info = tusFileUploadService.getUploadInfo(location, OWNER_KEY);
@@ -505,6 +568,9 @@ public class ITTusFileUploadService {
                     is("This is the first part of my test upload "));
         }
 
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
+
         //Terminate our in progress upload
         reset();
         servletRequest.setMethod("DELETE");
@@ -515,6 +581,11 @@ public class ITTusFileUploadService {
 
         //We expect the server to return a no content code to indicate successful deletion
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
 
         //Check that the upload is really gone
         reset();
@@ -524,7 +595,73 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse);
         assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
     }
+
+    @Test
+    public void testCleanupExpiredUpload() throws Exception {
+        //Set the expiration period to 500 ms
+        tusFileUploadService.withUploadExpirationPeriod(500L);
+
+        String part1 = "This is the first part of my test upload";
+        //Create upload
+        servletRequest.setMethod("POST");
+        servletRequest.setRequestURI(UPLOAD_URI);
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, part1.getBytes().length + 20L);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseStatus(HttpServletResponse.SC_CREATED);
+
+        String location = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+        //Upload part 1 bytes
+        reset();
+        servletRequest.setMethod("PATCH");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, part1.getBytes().length);
+        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.setContent(part1.getBytes());
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + part1.getBytes().length);
+
+        //Check with service that upload is still in progress
+        UploadInfo info = tusFileUploadService.getUploadInfo(location, OWNER_KEY);
+        assertTrue(info.isUploadInProgress());
+        assertThat(info.getLength(), is(part1.getBytes().length + 20L));
+        assertThat(info.getOffset(), is(Long.valueOf(part1.getBytes().length)));
+
+        //Now wait until the upload expired and run the cleanup
+        Thread.sleep(1000L);
+        tusFileUploadService.cleanup();
+
+        //Check with HEAD request that the upload is gone
+        //If a Client does attempt to resume an upload which has since been removed by the Server,
+        //the Server SHOULD respond with the404 Not Found or 410 Gone status.
+        reset();
+        servletRequest.setMethod("HEAD");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
+    }
+
 
     @Test
     public void testOptions() throws Exception {
@@ -533,7 +670,9 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
 
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
         assertResponseHeader(HttpHeader.TUS_VERSION, "1.0.0");
         assertResponseHeader(HttpHeader.TUS_MAX_SIZE, "1073741824");
         assertResponseHeader(HttpHeader.TUS_CHECKSUM_ALGORITHM, "md5", "sha1", "sha256", "sha384", "sha512");
@@ -549,6 +688,8 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
     }
 
     @Test
@@ -561,6 +702,8 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseStatus(HttpServletResponse.SC_PRECONDITION_FAILED);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
     }
 
     @Test
@@ -578,6 +721,8 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
     }
 
     @Test
@@ -596,6 +741,8 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
 
         reset();
         servletRequest.setMethod("TRACE");
@@ -604,6 +751,8 @@ public class ITTusFileUploadService {
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
 
     }
 
