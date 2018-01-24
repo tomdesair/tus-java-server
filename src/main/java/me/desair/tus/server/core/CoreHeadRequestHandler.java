@@ -9,6 +9,7 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.upload.UploadType;
 import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
@@ -34,11 +35,14 @@ public class CoreHeadRequestHandler extends AbstractRequestHandler {
                         final UploadStorageService uploadStorageService, final String ownerKey) throws IOException {
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
 
-        if(uploadInfo.hasLength()) {
-            servletResponse.setHeader(HttpHeader.UPLOAD_LENGTH, Objects.toString(uploadInfo.getLength()));
+        if(!UploadType.CONCATENATED.equals(uploadInfo.getUploadType())) {
+
+            if (uploadInfo.hasLength()) {
+                servletResponse.setHeader(HttpHeader.UPLOAD_LENGTH, Objects.toString(uploadInfo.getLength()));
+            }
+            servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, Objects.toString(uploadInfo.getOffset()));
         }
 
-        servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, Objects.toString(uploadInfo.getOffset()));
         servletResponse.setHeader(HttpHeader.CACHE_CONTROL, "no-store");
 
         servletResponse.setStatus(HttpServletResponse.SC_NO_CONTENT);

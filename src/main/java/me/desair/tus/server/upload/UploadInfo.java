@@ -19,12 +19,15 @@ public class UploadInfo implements Serializable {
     private static List<String> fileNameKeys = Arrays.asList("filename", "name");
     private static List<String> mimeTypeKeys = Arrays.asList("mimetype", "filetype", "type");
 
+    private UploadType uploadType;
     private Long offset;
     private String encodedMetadata;
     private Long length;
     private UUID id;
     private String ownerKey;
     private Long expirationTimestamp;
+    private List<UUID> concatenationParts;
+    private String uploadConcatHeaderValue;
 
     public UploadInfo() {
         offset = 0l;
@@ -123,6 +126,30 @@ public class UploadInfo implements Serializable {
         expirationTimestamp = getCurrentTime() + expirationPeriod;
     }
 
+    public UploadType getUploadType() {
+        return uploadType;
+    }
+
+    public void setUploadType(final UploadType uploadType) {
+        this.uploadType = uploadType;
+    }
+
+    public void setConcatenationParts(final List<UUID> concatenationParts) {
+        this.concatenationParts = concatenationParts;
+    }
+
+    public List<UUID> getConcatenationParts() {
+        return concatenationParts;
+    }
+
+    public void setUploadConcatHeaderValue(final String uploadConcatHeaderValue) {
+        this.uploadConcatHeaderValue = uploadConcatHeaderValue;
+    }
+
+    public String getUploadConcatHeaderValue() {
+        return uploadConcatHeaderValue;
+    }
+
     @Override
     public boolean equals(final Object o) {
         if (this == o) return true;
@@ -138,6 +165,8 @@ public class UploadInfo implements Serializable {
                 .append(getId(), info.getId())
                 .append(getOwnerKey(), info.getOwnerKey())
                 .append(getExpirationTimestamp(), info.getExpirationTimestamp())
+                .append(getUploadType(), info.getUploadType())
+                .append(getUploadConcatHeaderValue(), info.getUploadConcatHeaderValue())
                 .isEquals();
     }
 
@@ -150,19 +179,9 @@ public class UploadInfo implements Serializable {
                 .append(getId())
                 .append(getOwnerKey())
                 .append(getExpirationTimestamp())
+                .append(getUploadType())
+                .append(getUploadConcatHeaderValue())
                 .toHashCode();
-    }
-
-    private String[] splitToArray(final String value, final String separatorRegex) {
-        if(StringUtils.isBlank(value)) {
-            return new String[0];
-        } else {
-            return StringUtils.trimToEmpty(value).split(separatorRegex);
-        }
-    }
-
-    private String decode(final String encodedValue) {
-        return org.apache.commons.codec.binary.StringUtils.newStringUtf8(Base64.decodeBase64(encodedValue));
     }
 
     /**
@@ -217,4 +236,15 @@ public class UploadInfo implements Serializable {
         return new Date().getTime();
     }
 
+    private String[] splitToArray(final String value, final String separatorRegex) {
+        if(StringUtils.isBlank(value)) {
+            return new String[0];
+        } else {
+            return StringUtils.trimToEmpty(value).split(separatorRegex);
+        }
+    }
+
+    private String decode(final String encodedValue) {
+        return org.apache.commons.codec.binary.StringUtils.newStringUtf8(Base64.decodeBase64(encodedValue));
+    }
 }
