@@ -33,7 +33,7 @@ public class ExpiredInProgressUploadFilter implements DirectoryStream.Filter<Pat
             id = UUID.fromString(upload.getFileName().toString());
             UploadInfo info = diskStorageService.getUploadInfo(id);
 
-            if(info != null && info.isUploadInProgress() && info.isExpired() && !uploadLockingService.isLocked(id)) {
+            if(info != null && info.isExpired() && !uploadLockingService.isLocked(id)) {
                 return true;
             }
 

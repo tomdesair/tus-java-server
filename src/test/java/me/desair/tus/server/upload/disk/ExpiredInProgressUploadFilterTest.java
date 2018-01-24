@@ -69,7 +69,8 @@ public class ExpiredInProgressUploadFilterTest {
         when(diskStorageService.getUploadInfo(eq(info.getId()))).thenReturn(info);
         when(uploadLockingService.isLocked(eq(info.getId()))).thenReturn(false);
 
-        assertFalse(uploadFilter.accept(Paths.get(info.getId().toString())));
+        //Completed uploads also expire
+        assertTrue(uploadFilter.accept(Paths.get(info.getId().toString())));
     }
 
     @Test
