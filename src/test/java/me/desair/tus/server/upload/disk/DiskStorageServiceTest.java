@@ -30,6 +30,7 @@ import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -482,7 +483,7 @@ public class DiskStorageServiceTest {
         info = storageService.create(info, null);
         assertTrue(Files.exists(getUploadInfoPath(info.getId())));
 
-        Thread.sleep(500L);
+        Utils.sleep(500L);
         storageService.cleanupExpiredUploads(uploadLockingService);
 
         assertFalse(Files.exists(getUploadInfoPath(info.getId())));

@@ -22,6 +22,7 @@ import java.util.UUID;
 import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -645,7 +646,7 @@ public class ITTusFileUploadService {
         assertThat(info.getOffset(), is(Long.valueOf(part1.getBytes().length)));
 
         //Now wait until the upload expired and run the cleanup
-        Thread.sleep(1000L);
+        Utils.sleep(1000L);
         tusFileUploadService.cleanup();
 
         //Check with HEAD request that the upload is gone

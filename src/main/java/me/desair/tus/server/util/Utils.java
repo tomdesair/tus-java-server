@@ -29,8 +29,8 @@ import org.slf4j.LoggerFactory;
 public class Utils {
 
     private static final Logger log = LoggerFactory.getLogger(Utils.class);
-    public static final int LOCK_FILE_RETRY_COUNT = 3;
-    public static final int LOCK_FILE_SLEEP_TIME = 500;
+    private static final int LOCK_FILE_RETRY_COUNT = 3;
+    private static final long LOCK_FILE_SLEEP_TIME = 500;
 
     private Utils() {
         //This is a utility class that only holds static utility methods
@@ -96,16 +96,22 @@ public class Utils {
         return lockFile(channel, true);
     }
 
+    public static void sleep(long sleepTime) {
+        try {
+            Thread.sleep(sleepTime);
+        } catch (InterruptedException e) {
+            log.warn("Sleep was interrupted");
+            // Restore interrupted state...
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private static FileLock lockFile(FileChannel channel, boolean shared) throws IOException {
         int i = 0;
         FileLock lock = null;
         do {
             if(i > 0) {
-                try {
-                    Thread.sleep(LOCK_FILE_SLEEP_TIME);
-                } catch (InterruptedException e) {
-                    log.warn("Sleep was interrupted");
-                }
+                sleep(LOCK_FILE_SLEEP_TIME);
             }
 
             lock = channel.tryLock(0L, Long.MAX_VALUE, shared);

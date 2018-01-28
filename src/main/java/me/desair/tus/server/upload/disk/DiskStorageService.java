@@ -235,15 +235,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
     @Override
     public void copyUploadTo(final UploadInfo info, final OutputStream outputStream) throws UploadNotFoundException, IOException {
-        List<UploadInfo> uploads;
-
-        if(info != null && UploadType.CONCATENATED.equals(info.getUploadType())
-                && uploadConcatenationService != null) {
-            uploadConcatenationService.merge(info);
-            uploads = uploadConcatenationService.getPartialUploads(info);
-        } else {
-            uploads = Collections.singletonList(info);
-        }
+        List<UploadInfo> uploads = getUploads(info);
 
         WritableByteChannel outputChannel = Channels.newChannel(outputStream);
 
@@ -283,6 +275,19 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         } catch (UploadNotFoundException e) {
             return null;
         }
+    }
+
+    private List<UploadInfo> getUploads(UploadInfo info) throws IOException {
+        List<UploadInfo> uploads;
+
+        if(info != null && UploadType.CONCATENATED.equals(info.getUploadType())
+                && uploadConcatenationService != null) {
+            uploadConcatenationService.merge(info);
+            uploads = uploadConcatenationService.getPartialUploads(info);
+        } else {
+            uploads = Collections.singletonList(info);
+        }
+        return uploads;
     }
 
     private Path getBytesPath(final UUID id) throws UploadNotFoundException {

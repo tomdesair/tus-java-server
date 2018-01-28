@@ -73,7 +73,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
     public List<UploadInfo> getPartialUploads(UploadInfo info) throws IOException {
         List<UUID> concatenationParts = info.getConcatenationParts();
 
-        if (concatenationParts == null || concatenationParts.size() <= 0) {
+        if (concatenationParts == null || concatenationParts.isEmpty()) {
             return Collections.singletonList(info);
         } else {
             List<UploadInfo> output = new ArrayList<>(concatenationParts.size());
