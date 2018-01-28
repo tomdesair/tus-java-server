@@ -7,6 +7,7 @@ import java.util.List;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
+import me.desair.tus.server.concatenation.validation.NoUploadLengthOnFinalValidator;
 import me.desair.tus.server.concatenation.validation.PatchFinalUploadValidator;
 import me.desair.tus.server.util.AbstractTusFeature;
 
@@ -30,6 +31,7 @@ public class ConcatenationExtension extends AbstractTusFeature {
     @Override
     protected void initValidators(final List<RequestValidator> requestValidators) {
         requestValidators.add(new PatchFinalUploadValidator());
+        requestValidators.add(new NoUploadLengthOnFinalValidator());
     }
 
     @Override
