@@ -74,7 +74,7 @@ public class ITTusFileUploadService {
                 HttpMethod.POST, HttpMethod.DELETE, HttpMethod.GET));
 
         assertThat(tusFileUploadService.getEnabledFeatures(), containsInAnyOrder(
-                "core", "creation", "checksum", "termination", "download", "expiration"));
+                "core", "creation", "checksum", "termination", "download", "expiration", "concatenation"));
     }
 
     @Test
@@ -87,7 +87,7 @@ public class ITTusFileUploadService {
                 HttpMethod.POST));
 
         assertThat(tusFileUploadService.getEnabledFeatures(), containsInAnyOrder(
-                "core", "creation", "checksum", "expiration"));
+                "core", "creation", "checksum", "expiration", "concatenation"));
 
         reset();
         servletRequest.setMethod("GET");
@@ -677,7 +677,7 @@ public class ITTusFileUploadService {
         assertResponseHeader(HttpHeader.TUS_MAX_SIZE, "1073741824");
         assertResponseHeader(HttpHeader.TUS_CHECKSUM_ALGORITHM, "md5", "sha1", "sha256", "sha384", "sha512");
         assertResponseHeader(HttpHeader.TUS_EXTENSION, "creation", "creation-defer-length", "checksum",
-                "checksum-trailer", "termination", "download", "expiration");
+                "checksum-trailer", "termination", "download", "expiration", "concatenation", "concatenation-unfinished");
     }
 
     @Test

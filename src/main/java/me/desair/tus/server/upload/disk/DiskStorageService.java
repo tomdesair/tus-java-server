@@ -10,19 +10,25 @@ import java.io.OutputStream;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.WritableByteChannel;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.UploadConcatenationService;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.upload.UploadType;
+import me.desair.tus.server.upload.concatenation.VirtualConcatenationService;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.Validate;
@@ -43,11 +49,13 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     private Long maxUploadSize = null;
     private Long uploadExpirationPeriod = null;
     private UploadIdFactory idFactory;
+    private UploadConcatenationService uploadConcatenationService;
 
     public DiskStorageService(final UploadIdFactory idFactory, final String storagePath) {
         super(storagePath + File.separator + UPLOAD_SUB_DIRECTORY);
         Validate.notNull(idFactory, "The IdFactory cannot be null");
         this.idFactory = idFactory;
+        setUploadConcatenationService(new VirtualConcatenationService(this));
     }
 
     @Override
@@ -189,15 +197,37 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
+    public void setUploadConcatenationService(UploadConcatenationService concatenationService) {
+        Validate.notNull(concatenationService);
+        this.uploadConcatenationService = concatenationService;
+    }
+
+    @Override
+    public UploadConcatenationService getUploadConcatenationService() {
+        return uploadConcatenationService;
+    }
+
+    @Override
     public InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws IOException, UploadNotFoundException {
-        InputStream inputStream = null;
 
         UUID id = idFactory.readUploadId(uploadURI);
-        Path bytesPath = getBytesPath(id);
 
-        //If bytesPath is not null, we know this is a valid Upload URI
-        if(bytesPath != null) {
-            inputStream = Channels.newInputStream(FileChannel.open(bytesPath, READ));
+        return getUploadedBytes(id);
+    }
+
+    @Override
+    public InputStream getUploadedBytes(UUID id) throws IOException, UploadNotFoundException {
+        InputStream inputStream = null;
+        UploadInfo uploadInfo = getUploadInfo(id);
+        if(UploadType.CONCATENATED.equals(uploadInfo.getUploadType()) && uploadConcatenationService != null) {
+            inputStream = uploadConcatenationService.getConcatenatedBytes(uploadInfo);
+
+        } else {
+            Path bytesPath = getBytesPath(id);
+            //If bytesPath is not null, we know this is a valid Upload URI
+            if(bytesPath != null) {
+                inputStream = Channels.newInputStream(FileChannel.open(bytesPath, READ));
+            }
         }
 
         return inputStream;
@@ -205,13 +235,31 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
     @Override
     public void copyUploadTo(final UploadInfo info, final OutputStream outputStream) throws UploadNotFoundException, IOException {
-        if (info != null && !info.isUploadInProgress()) {
-            Path bytesPath = getBytesPath(info.getId());
+        List<UploadInfo> uploads;
 
-            try (FileChannel file = FileChannel.open(bytesPath, READ)) {
+        if(info != null && UploadType.CONCATENATED.equals(info.getUploadType())
+                && uploadConcatenationService != null) {
+            uploadConcatenationService.merge(info);
+            uploads = uploadConcatenationService.getPartialUploads(info);
+        } else {
+            uploads = Collections.singletonList(info);
+        }
 
-                //Efficiently copy the bytes to the output stream
-                file.transferTo(0, info.getLength(), Channels.newChannel(outputStream));
+        WritableByteChannel outputChannel = Channels.newChannel(outputStream);
+
+        for (UploadInfo upload : uploads) {
+            if(upload == null) {
+                log.warn("We cannot copy the bytes of an upload that does not exist");
+
+            } else if(upload.isUploadInProgress()) {
+                log.warn("We cannot copy the bytes of upload {} because it is still in progress", upload.getId());
+
+            } else {
+                Path bytesPath = getBytesPath(upload.getId());
+                try (FileChannel file = FileChannel.open(bytesPath, READ)) {
+                    //Efficiently copy the bytes to the output stream
+                    file.transferTo(0, upload.getLength(), outputChannel);
+                }
             }
         }
     }
@@ -227,7 +275,8 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         }
     }
 
-    UploadInfo getUploadInfo(final UUID id) throws IOException {
+    @Override
+    public UploadInfo getUploadInfo(final UUID id) throws IOException {
         try {
             Path infoPath = getInfoPath(id);
             return Utils.readSerializable(infoPath, UploadInfo.class);

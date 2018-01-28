@@ -46,13 +46,17 @@ public class ConcatenationPostRequestHandler extends AbstractRequestHandler {
                 uploadInfo.setUploadType(UploadType.PARTIAL);
 
             } else if (StringUtils.startsWithIgnoreCase(uploadConcatValue, "final")) {
+                //reset the length, just to be sure
+                uploadInfo.setLength(null);
                 uploadInfo.setUploadType(UploadType.CONCATENATED);
                 uploadInfo.setConcatenationParts(parseConcatenationIDs(uploadConcatValue));
 
-                //TODO uploadService.getConcatenationService().merge(uploadInfo);
+                uploadStorageService.getUploadConcatenationService().merge(uploadInfo);
+
             } else {
                 uploadInfo.setUploadType(UploadType.REGULAR);
             }
+
             uploadInfo.setUploadConcatHeaderValue(uploadConcatValue);
 
             uploadStorageService.update(uploadInfo);

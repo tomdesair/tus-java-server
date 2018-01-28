@@ -3,6 +3,7 @@ package me.desair.tus.server.upload;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.UUID;
 
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
@@ -19,6 +20,14 @@ public interface UploadStorageService {
      * @return The upload info matching the given URL, or null when not found.
      */
     UploadInfo getUploadInfo(final String uploadUrl, final String ownerKey) throws IOException;
+
+    /**
+     * Method to retrieve the upload info by its ID
+     * @param id The ID of the upload
+     * @return The matching upload info
+     * @throws IOException When the service is not able to retrieve the upload information
+     */
+    UploadInfo getUploadInfo(final UUID id) throws IOException;
 
     /**
      * The URI which is configured as the upload endpoint
@@ -65,10 +74,19 @@ public interface UploadStorageService {
     /**
      * Get the uploaded bytes corresponding to the given upload URL as a stream
      * @param uploadURI The URI
-     * @param ownerKey
+     * @param ownerKey The owner key of this upload
      * @return an {@link OutputStream} containing the bytes of the upload
      */
     InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws IOException, UploadNotFoundException;
+
+    /**
+     * Get the uploaded bytes corresponding to the given upload ID as a stream
+     * @param id the ID of the upload
+     * @return an {@link OutputStream} containing the bytes of the upload
+     * @throws IOException
+     * @throws UploadNotFoundException
+     */
+    InputStream getUploadedBytes(UUID id) throws IOException, UploadNotFoundException;
 
     /**
      * Copy the uploaded bytes to the given output stream
@@ -107,4 +125,17 @@ public interface UploadStorageService {
      * @param uploadExpirationPeriod The period in milliseconds
      */
     void setUploadExpirationPeriod(Long uploadExpirationPeriod);
+
+    /**
+     * Set the {@link UploadConcatenationService} that this upload storage service should use
+     * @param concatenationService The UploadConcatenationService implementation to use
+     */
+    void setUploadConcatenationService(final UploadConcatenationService concatenationService);
+
+    /**
+     * Return the {@link UploadConcatenationService} implementation that this upload service is using
+     * @return The UploadConcatenationService that is being used
+     */
+    UploadConcatenationService getUploadConcatenationService();
+
 }

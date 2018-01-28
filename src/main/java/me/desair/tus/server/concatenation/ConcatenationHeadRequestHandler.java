@@ -43,8 +43,7 @@ public class ConcatenationHeadRequestHandler extends AbstractRequestHandler {
         if(UploadType.CONCATENATED.equals(uploadInfo.getUploadType())) {
             if(uploadInfo.isUploadInProgress()) {
                 //Execute the merge function again to update our final upload data
-                //TODO uploadService.getConcatenationService().merge(uploadInfo);
-                uploadStorageService.update(uploadInfo);
+                uploadStorageService.getUploadConcatenationService().merge(uploadInfo);
             }
 
             if(uploadInfo.hasLength()) {

@@ -85,7 +85,7 @@ public class UploadInfo implements Serializable {
     }
 
     public void setLength(final Long length) {
-        this.length = length;
+        this.length = (length != null && length > 0 ? length : null);
     }
 
     public boolean hasLength() {

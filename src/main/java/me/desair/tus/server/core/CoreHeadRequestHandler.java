@@ -33,8 +33,10 @@ public class CoreHeadRequestHandler extends AbstractRequestHandler {
     @Override
     public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse,
                         final UploadStorageService uploadStorageService, final String ownerKey) throws IOException {
+
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
 
+        //TODO extend unit test
         if(!UploadType.CONCATENATED.equals(uploadInfo.getUploadType())) {
 
             if (uploadInfo.hasLength()) {

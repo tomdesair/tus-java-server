@@ -12,6 +12,7 @@ import java.nio.file.Path;
 
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import me.desair.tus.server.upload.UploadLock;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,7 +48,7 @@ public class FileBasedLock implements UploadLock {
         try {
             //Try to acquire a lock
             fileChannel = createFileChannel();
-            FileLock fileLock = fileChannel.tryLock();
+            FileLock fileLock = Utils.lockFileExclusively(fileChannel);
 
             //If the upload is already locked, our lock will be null
             if (fileLock == null) {
