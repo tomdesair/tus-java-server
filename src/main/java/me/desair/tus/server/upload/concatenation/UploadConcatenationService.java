@@ -1,8 +1,10 @@
-package me.desair.tus.server.upload;
+package me.desair.tus.server.upload.concatenation;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+
+import me.desair.tus.server.upload.UploadInfo;
 
 /**
  * Interface for a service that is able to concatenate partial uploads

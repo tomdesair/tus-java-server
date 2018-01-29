@@ -14,6 +14,7 @@ import me.desair.tus.server.upload.UploadType;
 import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,7 +50,7 @@ public class ConcatenationPostRequestHandler extends AbstractRequestHandler {
                 //reset the length, just to be sure
                 uploadInfo.setLength(null);
                 uploadInfo.setUploadType(UploadType.CONCATENATED);
-                uploadInfo.setConcatenationParts(parseConcatenationIDs(uploadConcatValue));
+                uploadInfo.setConcatenationParts(Utils.parseConcatenationIDsFromHeader(uploadConcatValue));
 
                 uploadStorageService.getUploadConcatenationService().merge(uploadInfo);
 
@@ -61,20 +62,5 @@ public class ConcatenationPostRequestHandler extends AbstractRequestHandler {
 
             uploadStorageService.update(uploadInfo);
         }
-    }
-
-    private List<UUID> parseConcatenationIDs(String uploadConcatValue) {
-        List<UUID> output = new LinkedList<>();
-
-        String idString = StringUtils.substringAfter(uploadConcatValue, ";");
-        for (String id : StringUtils.trimToEmpty(idString).split("\\s")) {
-            try {
-                output.add(UUID.fromString(id));
-            } catch(IllegalArgumentException ex) {
-                log.warn("The {} header contained an invalid ID {}", HttpHeader.UPLOAD_CONCAT, id);
-            }
-        }
-
-        return output;
     }
 }

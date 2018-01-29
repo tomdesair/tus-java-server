@@ -12,6 +12,8 @@ import me.desair.tus.server.util.TusServletResponse;
 
 /**
  * Interface that represents a feature in the tus protocol
+ * TODO JAVA DOCS
+ * TODO RENAME TO TusExtension (+ sub class)
  */
 public interface TusFeature {
 

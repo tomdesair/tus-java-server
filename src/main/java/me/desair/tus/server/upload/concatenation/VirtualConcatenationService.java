@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.UUID;
 
 import me.desair.tus.server.exception.UploadNotFoundException;
-import me.desair.tus.server.upload.UploadConcatenationService;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.slf4j.Logger;
@@ -36,23 +35,36 @@ public class VirtualConcatenationService implements UploadConcatenationService {
                 && uploadInfo.getConcatenationParts() != null) {
 
             Long totalLength = 0L;
+            Long expirationPeriod = uploadStorageService.getUploadExpirationPeriod();
 
             for (UploadInfo childInfo : getPartialUploads(uploadInfo)) {
+
                 if (childInfo.isUploadInProgress()) {
+                    //One of our partial uploads is still in progress, we can't calculate the total length yet
                     totalLength = null;
-                } else if (totalLength != null) {
-                    totalLength += uploadInfo.getLength();
+                } else {
+                    if (totalLength != null) {
+                        totalLength += childInfo.getLength();
+                    }
+
+                    //Make sure our child uploads do not expire
+                    //since the partial child upload is complete, it's safe to update it.
+                    if(expirationPeriod != null) {
+                        childInfo.updateExpiration(expirationPeriod);
+                        updateUpload(childInfo);
+                    }
                 }
             }
 
             if(totalLength != null && totalLength > 0) {
                 uploadInfo.setLength(totalLength);
                 uploadInfo.setOffset(totalLength);
-                try {
-                    uploadStorageService.update(uploadInfo);
-                } catch (UploadNotFoundException e) {
-                    log.warn("Unexpected exception occurred while saving upload info", e);
+
+                if(expirationPeriod != null) {
+                    uploadInfo.updateExpiration(expirationPeriod);
                 }
+
+                updateUpload(uploadInfo);
             }
         }
     }
@@ -81,6 +93,14 @@ public class VirtualConcatenationService implements UploadConcatenationService {
                 output.add(uploadStorageService.getUploadInfo(childId));
             }
             return output;
+        }
+    }
+
+    private void updateUpload(UploadInfo uploadInfo) throws IOException {
+        try {
+            uploadStorageService.update(uploadInfo);
+        } catch (UploadNotFoundException e) {
+            log.warn("Unexpected exception occurred while saving upload info with ID " + uploadInfo.getId(), e);
         }
     }
 

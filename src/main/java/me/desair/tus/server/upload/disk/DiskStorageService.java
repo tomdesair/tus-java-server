@@ -22,7 +22,7 @@ import java.util.UUID;
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
-import me.desair.tus.server.upload.UploadConcatenationService;
+import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;

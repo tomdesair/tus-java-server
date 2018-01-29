@@ -16,9 +16,13 @@ import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.Path;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.UUID;
 
 import javax.servlet.http.HttpServletRequest;
 
+import me.desair.tus.server.HttpHeader;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +50,22 @@ public class Utils {
         } catch(NumberFormatException ex) {
             return null;
         }
+    }
+
+    public static List<UUID> parseConcatenationIDsFromHeader(String uploadConcatValue) {
+        List<UUID> output = new LinkedList<>();
+
+        String idString = StringUtils.substringAfter(uploadConcatValue, ";");
+        for (String id : StringUtils.trimToEmpty(idString).split("\\s")) {
+            try {
+                output.add(UUID.fromString(id));
+            } catch(IllegalArgumentException ex) {
+                log.warn("The {} header contained an invalid ID {}", HttpHeader.UPLOAD_CONCAT, id);
+                output.add(null);
+            }
+        }
+
+        return output;
     }
 
     public static <T> T readSerializable(final Path path, final Class<T> clazz) throws IOException {

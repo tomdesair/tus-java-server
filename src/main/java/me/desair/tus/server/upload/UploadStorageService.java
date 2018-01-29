@@ -7,6 +7,7 @@ import java.util.UUID;
 
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 
 /**
  * Interface to a service that is able to store the (partially) uploaded files.
