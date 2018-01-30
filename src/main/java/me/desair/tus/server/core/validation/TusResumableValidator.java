@@ -33,6 +33,6 @@ public class TusResumableValidator implements RequestValidator {
 
     @Override
     public boolean supports(final HttpMethod method) {
-        return !HttpMethod.OPTIONS.equals(method);
+        return !HttpMethod.OPTIONS.equals(method) && !HttpMethod.GET.equals(method);
     }
 }

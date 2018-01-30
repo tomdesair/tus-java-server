@@ -5,7 +5,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import me.desair.tus.server.TusFileUploadService;
 import org.apache.commons.lang3.Validate;
@@ -21,8 +20,6 @@ public class AbstractDiskBasedService {
 
     private Path storagePath;
 
-    private final AtomicBoolean hasInitialised = new AtomicBoolean(false);
-
     public AbstractDiskBasedService(final String path) {
         Validate.notBlank(path, "The storage path cannot be blank");
         this.storagePath = Paths.get(path);
@@ -33,7 +30,7 @@ public class AbstractDiskBasedService {
     }
 
     protected Path getPathInStorageDirectory(final UUID id) {
-        if(hasInitialised.compareAndSet(false,true)) {
+        if(!Files.exists(storagePath)) {
             init();
         }
 
@@ -44,7 +41,7 @@ public class AbstractDiskBasedService {
         }
     }
 
-    private void init() {
+    private synchronized void init() {
         if(!Files.exists(storagePath)) {
             try {
                 Files.createDirectories(storagePath);

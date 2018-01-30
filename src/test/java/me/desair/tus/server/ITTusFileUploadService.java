@@ -202,7 +202,6 @@ public class ITTusFileUploadService {
         reset();
         servletRequest.setMethod("GET");
         servletRequest.setRequestURI(location);
-        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
         tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
@@ -474,7 +473,6 @@ public class ITTusFileUploadService {
         reset();
         servletRequest.setMethod("GET");
         servletRequest.setRequestURI(location);
-        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
         tusFileUploadService.process(servletRequest, servletResponse, null);
         assertResponseStatus(HttpServletResponse.SC_OK);
