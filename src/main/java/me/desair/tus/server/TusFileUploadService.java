@@ -180,6 +180,22 @@ public class TusFileUploadService {
     }
 
     /**
+     * Method to delete an upload associated with the given upload URL. Invoke this method if you no longer need
+     * the upload.
+     * TODO UNIT TEST
+     * @param uploadURI The upload URI
+     * @param ownerKey The key of the owner of this upload
+     */
+    public void deleteUpload(final String uploadURI, final String ownerKey) throws IOException, TusException {
+        try(UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
+            UploadInfo uploadInfo = uploadStorageService.getUploadInfo(uploadURI, ownerKey);
+            if(uploadInfo != null) {
+                uploadStorageService.terminateUpload(uploadInfo);
+            }
+        }
+    }
+
+    /**
      * This method should be invoked periodically. It will cleanup any expired uploads
      * and stale locks
      * @throws IOException When cleaning fails
