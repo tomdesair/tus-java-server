@@ -1,9 +1,6 @@
 package me.desair.tus.server.concatenation;
 
 import java.io.IOException;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.UUID;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;

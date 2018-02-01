@@ -34,31 +34,19 @@ public class VirtualConcatenationService implements UploadConcatenationService {
         if (uploadInfo != null && uploadInfo.isUploadInProgress()
                 && uploadInfo.getConcatenationParts() != null) {
 
-            Long totalLength = 0L;
             Long expirationPeriod = uploadStorageService.getUploadExpirationPeriod();
 
-            for (UploadInfo childInfo : getPartialUploads(uploadInfo)) {
+            List<UploadInfo> partialUploads = getPartialUploads(uploadInfo);
 
-                if (childInfo.isUploadInProgress()) {
-                    //One of our partial uploads is still in progress, we can't calculate the total length yet
-                    totalLength = null;
-                } else {
-                    if (totalLength != null) {
-                        totalLength += childInfo.getLength();
-                    }
-
-                    //Make sure our child uploads do not expire
-                    //since the partial child upload is complete, it's safe to update it.
-                    if(expirationPeriod != null) {
-                        childInfo.updateExpiration(expirationPeriod);
-                        updateUpload(childInfo);
-                    }
-                }
-            }
+            Long totalLength = calculateTotalLength(partialUploads);
+            boolean completed = checkAllCompleted(expirationPeriod, partialUploads);
 
             if(totalLength != null && totalLength > 0) {
                 uploadInfo.setLength(totalLength);
-                uploadInfo.setOffset(totalLength);
+
+                if(completed) {
+                    uploadInfo.setOffset(totalLength);
+                }
 
                 if(expirationPeriod != null) {
                     uploadInfo.updateExpiration(expirationPeriod);
@@ -94,6 +82,39 @@ public class VirtualConcatenationService implements UploadConcatenationService {
             }
             return output;
         }
+    }
+
+    private Long calculateTotalLength(List<UploadInfo> partialUploads) {
+        Long totalLength = 0L;
+
+        for (UploadInfo childInfo : partialUploads) {
+            if (childInfo.getLength() == null) {
+                //One of our partial uploads does not have a length, we can't calculate the total length yet
+                totalLength = null;
+            } else if (totalLength != null) {
+                totalLength += childInfo.getLength();
+            }
+        }
+
+        return totalLength;
+    }
+
+    private boolean checkAllCompleted(Long expirationPeriod, List<UploadInfo> partialUploads) throws IOException {
+        boolean completed = true;
+
+        for (UploadInfo childInfo : partialUploads) {
+            if(childInfo.isUploadInProgress()) {
+                completed = false;
+
+            } else if (expirationPeriod != null) {
+                //Make sure our child uploads do not expire
+                //since the partial child upload is complete, it's safe to update it.
+                childInfo.updateExpiration(expirationPeriod);
+                updateUpload(childInfo);
+            }
+        }
+
+        return completed;
     }
 
     private void updateUpload(UploadInfo uploadInfo) throws IOException {
