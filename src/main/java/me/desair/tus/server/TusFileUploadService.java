@@ -152,16 +152,20 @@ public class TusFileUploadService {
 
         TusServletRequest request = new TusServletRequest(servletRequest);
         TusServletResponse response = new TusServletResponse(servletResponse);
-        try {
-            validateRequest(method, request, ownerKey);
 
-            try (UploadLock lock = uploadLockingService.lockUploadByUri(request.getRequestURI())) {
+        try (UploadLock lock = uploadLockingService.lockUploadByUri(request.getRequestURI())) {
+
+            try {
+                validateRequest(method, request, ownerKey);
 
                 executeProcessingByFeatures(method, request, response, ownerKey);
+
+            } catch (TusException e) {
+                processTusException(method, request, response, ownerKey, e);
             }
 
         } catch (TusException e) {
-            processTusException(method, request, response, ownerKey, e);
+            log.error("Unable to lock upload for request URI " + request.getRequestURI(), e);
         }
     }
 
