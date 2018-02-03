@@ -121,7 +121,7 @@ public class TusFileUploadService {
     public TusFileUploadService disableTusFeature(final String featureName) {
         Validate.notNull(featureName, "The feature name cannot be null");
 
-        if(StringUtils.equals("core", featureName)) {
+        if (StringUtils.equals("core", featureName)) {
             throw new IllegalArgumentException("The core protocol cannot be disabled");
         }
 
@@ -155,7 +155,7 @@ public class TusFileUploadService {
         try {
             validateRequest(method, request, ownerKey);
 
-            try(UploadLock lock = uploadLockingService.lockUploadByUri(request.getRequestURI())) {
+            try (UploadLock lock = uploadLockingService.lockUploadByUri(request.getRequestURI())) {
 
                 executeProcessingByFeatures(method, request, response, ownerKey);
             }
@@ -166,14 +166,14 @@ public class TusFileUploadService {
     }
 
     public InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws IOException, TusException {
-        try(UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
+        try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
 
             return uploadStorageService.getUploadedBytes(uploadURI, ownerKey);
         }
     }
 
     public UploadInfo getUploadInfo(final String uploadURI, final String ownerKey) throws IOException, TusException {
-        try(UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
+        try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
 
             return uploadStorageService.getUploadInfo(uploadURI, ownerKey);
         }
@@ -183,13 +183,14 @@ public class TusFileUploadService {
      * Method to delete an upload associated with the given upload URL. Invoke this method if you no longer need
      * the upload.
      * TODO UNIT TEST
+     *
      * @param uploadURI The upload URI
-     * @param ownerKey The key of the owner of this upload
+     * @param ownerKey  The key of the owner of this upload
      */
     public void deleteUpload(final String uploadURI, final String ownerKey) throws IOException, TusException {
-        try(UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
+        try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
             UploadInfo uploadInfo = uploadStorageService.getUploadInfo(uploadURI, ownerKey);
-            if(uploadInfo != null) {
+            if (uploadInfo != null) {
                 uploadStorageService.terminateUpload(uploadInfo);
             }
         }
@@ -198,6 +199,7 @@ public class TusFileUploadService {
     /**
      * This method should be invoked periodically. It will cleanup any expired uploads
      * and stale locks
+     *
      * @throws IOException When cleaning fails
      */
     public void cleanup() throws IOException {
@@ -207,7 +209,10 @@ public class TusFileUploadService {
 
     protected void executeProcessingByFeatures(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final String ownerKey) throws IOException, TusException {
         for (TusFeature feature : enabledFeatures.values()) {
-            feature.process(method, servletRequest, servletResponse, uploadStorageService, ownerKey);
+            if (!servletRequest.isProcessedBy(feature)) {
+                servletRequest.addProcessor(feature);
+                feature.process(method, servletRequest, servletResponse, uploadStorageService, ownerKey);
+            }
         }
     }
 
@@ -217,20 +222,29 @@ public class TusFileUploadService {
         }
     }
 
-    private void processTusException(final HttpMethod method, final TusServletRequest request, final TusServletResponse response,
-                                     final String ownerKey, final TusException exception) throws IOException {
+    protected void processTusException(final HttpMethod method, final TusServletRequest request, final TusServletResponse response,
+                                       final String ownerKey, final TusException exception) throws IOException {
         int status = exception.getStatus();
         String message = exception.getMessage();
 
         log.warn("Unable to process request {} {}. Sent response status {} with message \"{}\"",
                 method, request.getRequestURL(), status, message);
 
-        for (TusFeature feature : enabledFeatures.values()) {
-            try {
-                feature.handleError(method, request, response, uploadStorageService, ownerKey);
-            } catch (TusException ex) {
-                log.warn("An exception occurred while handling another exception", ex);
+        try {
+            for (TusFeature feature : enabledFeatures.values()) {
+
+                if (!request.isProcessedBy(feature)) {
+                    request.addProcessor(feature);
+                    feature.handleError(method, request, response, uploadStorageService, ownerKey);
+                }
             }
+
+            //Since an error occurred, the bytes we have written are probably not valid. So remove them.
+            UploadInfo uploadInfo = uploadStorageService.getUploadInfo(request.getRequestURI(), ownerKey);
+            uploadStorageService.removeLastNumberOfBytes(uploadInfo, request.getBytesRead());
+
+        } catch (TusException ex) {
+            log.warn("An exception occurred while handling another exception", ex);
         }
 
         response.sendError(status, message);

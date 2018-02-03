@@ -13,16 +13,12 @@ import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * The Server MUST acknowledge a successful upload creation with the 201 Created status.
  * The Server MUST set the Location header to the URL of the created resource. This URL MAY be absolute or relative.
  */
 public class ConcatenationPostRequestHandler extends AbstractRequestHandler {
-
-    private static final Logger log = LoggerFactory.getLogger(ConcatenationPostRequestHandler.class);
 
     @Override
     public boolean supports(final HttpMethod method) {

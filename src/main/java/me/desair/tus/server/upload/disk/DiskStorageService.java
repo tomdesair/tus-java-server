@@ -161,7 +161,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
     @Override
     public void removeLastNumberOfBytes(final UploadInfo info, final long byteCount) throws UploadNotFoundException, IOException {
-        if (info != null) {
+        if (info != null && byteCount > 0) {
             Path bytesPath = getBytesPath(info.getId());
 
             try (FileChannel file = FileChannel.open(bytesPath, WRITE)) {

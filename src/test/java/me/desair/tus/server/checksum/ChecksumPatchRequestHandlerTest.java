@@ -2,11 +2,7 @@ package me.desair.tus.server.checksum;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyString;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import me.desair.tus.server.HttpHeader;
@@ -63,8 +59,6 @@ public class ChecksumPatchRequestHandlerTest {
         when(servletRequest.hasCalculatedChecksum()).thenReturn(true);
 
         handler.process(HttpMethod.PATCH, servletRequest, null, uploadStorageService, null);
-
-        verify(uploadStorageService, never()).removeLastNumberOfBytes(Matchers.any(UploadInfo.class), anyLong());
     }
 
     @Test(expected = UploadChecksumMismatchException.class)
@@ -74,8 +68,6 @@ public class ChecksumPatchRequestHandlerTest {
         when(servletRequest.hasCalculatedChecksum()).thenReturn(true);
 
         handler.process(HttpMethod.PATCH, servletRequest, null, uploadStorageService, null);
-
-        verify(uploadStorageService, times(1)).removeLastNumberOfBytes(Matchers.any(UploadInfo.class), anyLong());
     }
 
     @Test
@@ -83,8 +75,6 @@ public class ChecksumPatchRequestHandlerTest {
         when(servletRequest.getHeader(HttpHeader.UPLOAD_CHECKSUM)).thenReturn(null);
 
         handler.process(HttpMethod.PATCH, servletRequest, null, uploadStorageService, null);
-
-        verify(uploadStorageService, never()).removeLastNumberOfBytes(Matchers.any(UploadInfo.class), anyLong());
     }
 
     @Test(expected = ChecksumAlgorithmNotSupportedException.class)
@@ -93,7 +83,5 @@ public class ChecksumPatchRequestHandlerTest {
         when(servletRequest.hasCalculatedChecksum()).thenReturn(true);
 
         handler.process(HttpMethod.PATCH, servletRequest, null, uploadStorageService, null);
-
-        verify(uploadStorageService, times(1)).removeLastNumberOfBytes(Matchers.any(UploadInfo.class), anyLong());
     }
 }

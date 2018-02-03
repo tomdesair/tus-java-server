@@ -7,12 +7,15 @@ import java.security.MessageDigest;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletRequestWrapper;
 
 import me.desair.tus.server.HttpHeader;
+import me.desair.tus.server.TusFeature;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.io.input.CountingInputStream;
@@ -23,8 +26,10 @@ public class TusServletRequest extends HttpServletRequestWrapper {
     private CountingInputStream countingInputStream;
     private Map<ChecksumAlgorithm, DigestInputStream> digestInputStreamMap = new EnumMap<>(ChecksumAlgorithm.class);
     private DigestInputStream singleDigestInputStream = null;
-    private Map<String, List<String>> trailerHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     private InputStream contentInputStream = null;
+
+    private Map<String, List<String>> trailerHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    private final Set<String> processedBySet = new TreeSet<>();
 
     /**
      * Constructs a request object wrapping the given request.
@@ -42,7 +47,6 @@ public class TusServletRequest extends HttpServletRequestWrapper {
 
             //If we're dealing with chunked transfer encoding, abstract it so that the rest of our code doesn't need to care
             boolean isChunked = hasChunkedTransferEncoding();
-
             if(isChunked) {
                 contentInputStream = new HttpChunkedEncodingInputStream(contentInputStream, trailerHeaders);
             }
@@ -74,7 +78,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
     }
 
     public long getBytesRead() {
-        return countingInputStream.getByteCount();
+        return countingInputStream == null ? 0 : countingInputStream.getByteCount();
     }
 
     public boolean hasCalculatedChecksum() {
@@ -109,5 +113,13 @@ public class TusServletRequest extends HttpServletRequestWrapper {
         }
 
         return value;
+    }
+
+    public boolean isProcessedBy(TusFeature processor) {
+        return processedBySet.contains(processor.getName());
+    }
+
+    public void addProcessor(TusFeature processor) {
+        processedBySet.add(processor.getName());
     }
 }

@@ -53,4 +53,10 @@ public class ExpirationRequestHandler extends AbstractRequestHandler {
             servletResponse.setDateHeader(HttpHeader.UPLOAD_EXPIRES, uploadInfo.getExpirationTimestamp());
         }
     }
+
+    //TODO TEST that expiration timestamp is updated on error
+    @Override
+    public boolean isErrorHandler() {
+        return true;
+    }
 }
