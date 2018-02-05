@@ -22,7 +22,7 @@ public class UploadInputStreamEnumeration implements Enumeration<InputStream> {
 
     private final List<UploadInfo> uploads;
     private final UploadStorageService uploadStorageService;
-    private final Iterator<UploadInfo> uploadIterator;
+    private Iterator<UploadInfo> uploadIterator;
     private InputStream currentInputStream = null;
 
     public UploadInputStreamEnumeration(List<UploadInfo> uploadList, UploadStorageService uploadStorageService) {
@@ -33,11 +33,19 @@ public class UploadInputStreamEnumeration implements Enumeration<InputStream> {
 
     @Override
     public boolean hasMoreElements() {
-        if(uploadIterator.hasNext()) {
+        if(uploadIterator != null && uploadIterator.hasNext()) {
             currentInputStream = getNextInputStream();
+        } else {
+            currentInputStream = null;
         }
 
-        return currentInputStream != null;
+        //if we could not get a next upload stream, set the iterator to null to make sure repeated calls give the same result
+        if(currentInputStream == null) {
+            uploadIterator = null;
+            return false;
+        } else {
+            return true;
+        }
     }
 
     @Override
