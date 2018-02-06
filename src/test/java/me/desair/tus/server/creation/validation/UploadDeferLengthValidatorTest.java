@@ -90,6 +90,17 @@ public class UploadDeferLengthValidatorTest {
         //Expect an InvalidUploadLengthException
     }
 
+    @Test
+    public void validateUploadLengthNotPresentOnFinal() throws Exception {
+        //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
+        servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "final;1234 5678");
+
+        //When we validate the request
+        validator.validate(HttpMethod.POST, servletRequest, null, null);
+
+        //No Exception is thrown
+    }
+
     @Test(expected = InvalidUploadLengthException.class)
     public void validateUploadLengthNotNumeric() throws Exception {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "TEST");

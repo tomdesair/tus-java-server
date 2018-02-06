@@ -1,7 +1,6 @@
 package me.desair.tus.server.concatenation.validation;
 
 import java.io.IOException;
-import java.util.UUID;
 
 import javax.servlet.http.HttpServletRequest;
 
@@ -27,18 +26,14 @@ public class PartialUploadsExistValidator implements RequestValidator {
 
         if (StringUtils.startsWithIgnoreCase(uploadConcatValue, "final")) {
 
-            for (UUID id : Utils.parseConcatenationIDsFromHeader(uploadConcatValue)) {
-                if (id == null) {
-                    throw new InvalidPartialUploadIdException("The Upload-Concat header contains an ID which is not a UUID");
-                }
+            for (String uploadUri : Utils.parseConcatenationIDsFromHeader(uploadConcatValue)) {
 
-                UploadInfo uploadInfo = uploadStorageService.getUploadInfo(id);
+                UploadInfo uploadInfo = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
                 if (uploadInfo == null) {
-                    throw new InvalidPartialUploadIdException("The ID " + id
+                    throw new InvalidPartialUploadIdException("The URI " + uploadUri
                             + " in Upload-Concat header does not match an existing upload");
                 }
             }
-
         }
     }
 

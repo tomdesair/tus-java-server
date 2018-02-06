@@ -186,7 +186,6 @@ public class TusFileUploadService {
     /**
      * Method to delete an upload associated with the given upload URL. Invoke this method if you no longer need
      * the upload.
-     * TODO UNIT TEST
      *
      * @param uploadURI The upload URI
      * @param ownerKey  The key of the owner of this upload

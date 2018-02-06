@@ -54,7 +54,6 @@ public class ExpirationRequestHandler extends AbstractRequestHandler {
         }
     }
 
-    //TODO TEST that expiration timestamp is updated on error
     @Override
     public boolean isErrorHandler() {
         return true;

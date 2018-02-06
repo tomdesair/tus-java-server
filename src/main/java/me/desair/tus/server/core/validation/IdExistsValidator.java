@@ -20,7 +20,8 @@ public class IdExistsValidator implements RequestValidator {
     public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException, IOException {
 
         if (uploadStorageService.getUploadInfo(request.getRequestURI(), ownerKey) == null) {
-            throw new UploadNotFoundException("The upload for path " + request.getRequestURI() + " was not found.");
+            throw new UploadNotFoundException("The upload for path " + request.getRequestURI()
+                    + " and owner " + ownerKey + " was not found.");
         }
     }
 

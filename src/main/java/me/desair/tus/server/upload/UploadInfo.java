@@ -26,7 +26,7 @@ public class UploadInfo implements Serializable {
     private UUID id;
     private String ownerKey;
     private Long expirationTimestamp;
-    private List<UUID> concatenationParts;
+    private List<String> concatenationParts;
     private String uploadConcatHeaderValue;
 
     public UploadInfo() {
@@ -134,11 +134,11 @@ public class UploadInfo implements Serializable {
         this.uploadType = uploadType;
     }
 
-    public void setConcatenationParts(final List<UUID> concatenationParts) {
+    public void setConcatenationParts(final List<String> concatenationParts) {
         this.concatenationParts = concatenationParts;
     }
 
-    public List<UUID> getConcatenationParts() {
+    public List<String> getConcatenationParts() {
         return concatenationParts;
     }
 

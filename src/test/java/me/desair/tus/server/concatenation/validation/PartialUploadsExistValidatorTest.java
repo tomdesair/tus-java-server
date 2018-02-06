@@ -54,8 +54,8 @@ public class PartialUploadsExistValidatorTest {
         UploadInfo info2 = new UploadInfo();
         info2.setId(UUID.randomUUID());
 
-        when(uploadStorageService.getUploadInfo(info1.getId())).thenReturn(info1);
-        when(uploadStorageService.getUploadInfo(info2.getId())).thenReturn(info2);
+        when(uploadStorageService.getUploadInfo(info1.getId().toString(), null)).thenReturn(info1);
+        when(uploadStorageService.getUploadInfo(info2.getId().toString(), null)).thenReturn(info2);
 
         servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, String.format("final; %s %s", info1.getId(), info2.getId()));
 
@@ -83,7 +83,7 @@ public class PartialUploadsExistValidatorTest {
         UploadInfo info1 = new UploadInfo();
         info1.setId(UUID.randomUUID());
 
-        when(uploadStorageService.getUploadInfo(info1.getId())).thenReturn(info1);
+        when(uploadStorageService.getUploadInfo(info1.getId().toString(), null)).thenReturn(info1);
 
         servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, String.format("final; %s %s", info1.getId(), "test"));
 

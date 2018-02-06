@@ -6,6 +6,7 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.collection.IsMapContaining.hasEntry;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -209,6 +210,20 @@ public class ITTusFileUploadService {
         assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
         assertResponseStatus(HttpServletResponse.SC_OK);
         assertThat(servletResponse.getContentAsString(), is("This is my test upload content"));
+
+        //Pretend that we processed the upload and that we can remove it
+        tusFileUploadService.deleteUpload(location, OWNER_KEY);
+
+        //Check that the upload is really gone
+        reset();
+        servletRequest.setMethod("HEAD");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse);
+        assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
     }
 
     @Test
@@ -340,6 +355,8 @@ public class ITTusFileUploadService {
         assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
+        Long expirationTimestampBefore = Long.parseLong(servletResponse.getHeader(HttpHeader.UPLOAD_EXPIRES));
+
         String location = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
 
         //Upload part 1 bytes
@@ -426,6 +443,9 @@ public class ITTusFileUploadService {
         info = tusFileUploadService.getUploadInfo(location, null);
         assertTrue(info.isUploadInProgress());
         assertThat(info.getLength(), is((long) (part1+part2+part3).getBytes().length));
+
+        //check that expiration timestamp was updated
+        assertThat(info.getExpirationTimestamp(), greaterThan(expirationTimestampBefore));
 
         //Upload part 3 bytes
         reset();
@@ -529,6 +549,8 @@ public class ITTusFileUploadService {
         assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "41");
 
+        Long expirationTimestampBefore = Long.parseLong(servletResponse.getHeader(HttpHeader.UPLOAD_EXPIRES));
+
         //Make sure cleanup does not interfere with this test
         tusFileUploadService.cleanup();
 
@@ -560,6 +582,9 @@ public class ITTusFileUploadService {
                 hasEntry("filename", "world_domination_plan.pdf")
                 )
         );
+
+        //check that expiration timestamp was updated
+        assertThat(info.getExpirationTimestamp(), greaterThan(expirationTimestampBefore));
 
         //We only stored the first valid part
         try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, null)) {
@@ -661,6 +686,153 @@ public class ITTusFileUploadService {
         assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
     }
 
+    @Test
+    public void testConcatenationCompleted() throws Exception {
+        String part1 = "29\r\nThis is the first part of my test upload \r\n0\r\nUpload-Checksum: sha1 n5RQbRwM6UVAD+9iuHEmnN6HCGQ=";
+        String part2 = "1C\r\nand this is the second part.\r\n0\r\nUpload-Checksum: sha1 oNge323kGFKICxp+Me5xJgPvGEM=";
+
+        //Create first upload
+        servletRequest.setMethod("POST");
+        servletRequest.setRequestURI(UPLOAD_URI);
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "41");
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "partial");
+        servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseStatus(HttpServletResponse.SC_CREATED);
+
+        String location1 = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
+
+        //Upload part 1 bytes
+        reset();
+        servletRequest.setMethod("PATCH");
+        servletRequest.setRequestURI(location1);
+        servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, "41");
+        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
+        servletRequest.setContent(part1.getBytes());
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "41");
+
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
+
+        //Create the second upload
+        reset();
+        servletRequest.setMethod("POST");
+        servletRequest.setRequestURI(UPLOAD_URI);
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "28");
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "partial");
+        servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseStatus(HttpServletResponse.SC_CREATED);
+
+        String location2 = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+        //Upload part 2 bytes
+        reset();
+        servletRequest.setMethod("PATCH");
+        servletRequest.setRequestURI(location2);
+        servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, "28");
+        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
+        servletRequest.setContent(part2.getBytes());
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "28");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        //Create the final concatenated upload
+        reset();
+        servletRequest.setMethod("POST");
+        servletRequest.setRequestURI(UPLOAD_URI);
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "final ; " + location1 + " " + location2);
+        servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9tYXBfY29uY2F0ZW5hdGVkLnBkZg==");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseStatus(HttpServletResponse.SC_CREATED);
+
+        String location = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+        //Check with HEAD request upload is complete
+        reset();
+        servletRequest.setMethod("HEAD");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "69");
+        assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "69");
+        assertResponseHeader(HttpHeader.UPLOAD_CONCAT, "final ; " + location1 + " " + location2);
+        assertResponseHeaderNull(HttpHeader.UPLOAD_DEFER_LENGTH);
+        assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9tYXBfY29uY2F0ZW5hdGVkLnBkZg==");
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        //Get upload info from service
+        UploadInfo info = tusFileUploadService.getUploadInfo(location, OWNER_KEY);
+        assertFalse(info.isUploadInProgress());
+        assertThat(info.getLength(), is(69L));
+        assertThat(info.getOffset(), is(69L));
+        assertThat(info.isUploadInProgress(), is(false));
+        assertThat(info.getMetadata(), allOf(
+                hasSize(1),
+                hasEntry("filename", "world_domination_map_concatenated.pdf")
+                )
+        );
+
+        //Download the upload
+        reset();
+        servletRequest.setMethod("GET");
+        servletRequest.setRequestURI(location);
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseStatus(HttpServletResponse.SC_OK);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "69");
+        assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9tYXBfY29uY2F0ZW5hdGVkLnBkZg==");
+        assertThat(servletResponse.getContentAsString(), is("This is the first part of my test upload and this is the second part."));
+    }
+
+    @Test
+    public void testConcatenationUnfinished() throws Exception {
+        //TODO test creating final upload when partial uploads unfinished and with deferred length
+    }
 
     @Test
     public void testOptions() throws Exception {

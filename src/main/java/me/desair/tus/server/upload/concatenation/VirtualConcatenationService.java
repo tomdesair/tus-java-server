@@ -6,7 +6,6 @@ import java.io.SequenceInputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.UUID;
 
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
@@ -71,16 +70,16 @@ public class VirtualConcatenationService implements UploadConcatenationService {
 
     @Override
     public List<UploadInfo> getPartialUploads(UploadInfo info) throws IOException, UploadNotFoundException {
-        List<UUID> concatenationParts = info.getConcatenationParts();
+        List<String> concatenationParts = info.getConcatenationParts();
 
         if (concatenationParts == null || concatenationParts.isEmpty()) {
             return Collections.emptyList();
         } else {
             List<UploadInfo> output = new ArrayList<>(concatenationParts.size());
-            for (UUID childId : concatenationParts) {
-                UploadInfo childInfo = uploadStorageService.getUploadInfo(childId);
+            for (String childUri : concatenationParts) {
+                UploadInfo childInfo = uploadStorageService.getUploadInfo(childUri, info.getOwnerKey());
                 if(childInfo == null) {
-                    throw new UploadNotFoundException("Upload with ID " + childId + " was not found");
+                    throw new UploadNotFoundException("Upload with URI " + childUri + " was not found for owner " + info.getOwnerKey());
                 } else {
                     output.add(childInfo);
                 }

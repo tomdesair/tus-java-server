@@ -36,7 +36,6 @@ public class CoreHeadRequestHandler extends AbstractRequestHandler {
 
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
 
-        //TODO extend unit test
         if(!UploadType.CONCATENATED.equals(uploadInfo.getUploadType())) {
 
             if (uploadInfo.hasLength()) {

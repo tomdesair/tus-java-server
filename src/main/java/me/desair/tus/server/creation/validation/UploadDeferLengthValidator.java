@@ -9,6 +9,7 @@ import me.desair.tus.server.exception.InvalidUploadLengthException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 
 /**
@@ -22,21 +23,27 @@ public class UploadDeferLengthValidator implements RequestValidator {
     public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException {
         boolean uploadLength = false;
         boolean deferredLength = false;
+        boolean concatenatedUpload = false;
 
-        if(NumberUtils.isCreatable(Utils.getHeader(request, HttpHeader.UPLOAD_LENGTH))) {
+        if (NumberUtils.isCreatable(Utils.getHeader(request, HttpHeader.UPLOAD_LENGTH))) {
             uploadLength = true;
         }
 
-        if(Utils.getHeader(request, HttpHeader.UPLOAD_DEFER_LENGTH).equals("1")) {
+        if (Utils.getHeader(request, HttpHeader.UPLOAD_DEFER_LENGTH).equals("1")) {
             deferredLength = true;
         }
 
-        if(!uploadLength && !deferredLength) {
+        String uploadConcatValue = request.getHeader(HttpHeader.UPLOAD_CONCAT);
+        if (StringUtils.startsWithIgnoreCase(uploadConcatValue, "final")) {
+            concatenatedUpload = true;
+        }
+
+        if (!concatenatedUpload && !uploadLength && !deferredLength) {
             throw new InvalidUploadLengthException("No valid value was found in headers " + HttpHeader.UPLOAD_LENGTH
-                + " and " + HttpHeader.UPLOAD_DEFER_LENGTH);
+                    + " and " + HttpHeader.UPLOAD_DEFER_LENGTH);
         } else if (uploadLength && deferredLength) {
             throw new InvalidUploadLengthException("A POST request cannot contain both " + HttpHeader.UPLOAD_LENGTH
-            + " and " + HttpHeader.UPLOAD_DEFER_LENGTH + " headers.");
+                    + " and " + HttpHeader.UPLOAD_DEFER_LENGTH + " headers.");
         }
     }
 
