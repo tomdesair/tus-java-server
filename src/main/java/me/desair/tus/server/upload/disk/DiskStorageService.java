@@ -277,7 +277,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         }
     }
 
-    private List<UploadInfo> getUploads(UploadInfo info) throws IOException {
+    private List<UploadInfo> getUploads(UploadInfo info) throws IOException, UploadNotFoundException {
         List<UploadInfo> uploads;
 
         if(info != null && UploadType.CONCATENATED.equals(info.getUploadType())

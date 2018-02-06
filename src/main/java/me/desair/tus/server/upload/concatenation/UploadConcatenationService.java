@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 
+import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 
 /**
@@ -19,22 +20,25 @@ public interface UploadConcatenationService {
      *
      * @param uploadInfo The concatenated upload
      * @throws IOException If merging the upload fails
+     * @throws UploadNotFoundException When one of the partial uploads cannot be found
      */
-    void merge(final UploadInfo uploadInfo) throws IOException;
+    void merge(final UploadInfo uploadInfo) throws IOException, UploadNotFoundException;
 
     /**
      * Get the concatenated bytes of this concatenated upload
      * @param uploadInfo The concatenated upload
      * @return The concatenated bytes, or null if this upload is still in progress
      * @throws IOException When return the concatenated bytes fails
+     * @throws UploadNotFoundException When the final or one of the partial uploads cannot be found
      */
-    InputStream getConcatenatedBytes(UploadInfo uploadInfo) throws IOException;
+    InputStream getConcatenatedBytes(UploadInfo uploadInfo) throws IOException, UploadNotFoundException;
 
     /**
      * Get all underlying partial uploads associated with the given concatenated upload
      * @param info The concatenated upload
      * @return The underlying partial uploads
      * @throws IOException When retrieving the underlying partial uploads fails
+     * @throws UploadNotFoundException When one of the partial uploads cannot be found
      */
-    List<UploadInfo> getPartialUploads(UploadInfo info) throws IOException;
+    List<UploadInfo> getPartialUploads(UploadInfo info) throws IOException, UploadNotFoundException;
 }

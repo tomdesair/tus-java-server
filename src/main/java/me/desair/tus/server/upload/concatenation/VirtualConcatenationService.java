@@ -30,7 +30,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
     }
 
     @Override
-    public void merge(UploadInfo uploadInfo) throws IOException {
+    public void merge(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
         if (uploadInfo != null && uploadInfo.isUploadInProgress()
                 && uploadInfo.getConcatenationParts() != null) {
 
@@ -58,7 +58,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
     }
 
     @Override
-    public InputStream getConcatenatedBytes(UploadInfo uploadInfo) throws IOException {
+    public InputStream getConcatenatedBytes(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
         merge(uploadInfo);
 
         if (uploadInfo == null || uploadInfo.isUploadInProgress()) {
@@ -70,15 +70,20 @@ public class VirtualConcatenationService implements UploadConcatenationService {
     }
 
     @Override
-    public List<UploadInfo> getPartialUploads(UploadInfo info) throws IOException {
+    public List<UploadInfo> getPartialUploads(UploadInfo info) throws IOException, UploadNotFoundException {
         List<UUID> concatenationParts = info.getConcatenationParts();
 
         if (concatenationParts == null || concatenationParts.isEmpty()) {
-            return Collections.singletonList(info);
+            return Collections.emptyList();
         } else {
             List<UploadInfo> output = new ArrayList<>(concatenationParts.size());
             for (UUID childId : concatenationParts) {
-                output.add(uploadStorageService.getUploadInfo(childId));
+                UploadInfo childInfo = uploadStorageService.getUploadInfo(childId);
+                if(childInfo == null) {
+                    throw new UploadNotFoundException("Upload with ID " + childId + " was not found");
+                } else {
+                    output.add(childInfo);
+                }
             }
             return output;
         }
