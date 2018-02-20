@@ -831,7 +831,168 @@ public class ITTusFileUploadService {
 
     @Test
     public void testConcatenationUnfinished() throws Exception {
-        //TODO test creating final upload when partial uploads unfinished and with deferred length
+        String part1 = "When sending this part, the final upload was already created. ";
+        String part2 = "This is the second part of our concatenated upload. ";
+        String part3 = "Finally when sending the third part, the final upload is complete.";
+
+        //Create upload part 1
+        servletRequest.setMethod("POST");
+        servletRequest.setRequestURI(UPLOAD_URI);
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+        servletRequest.addHeader(HttpHeader.UPLOAD_DEFER_LENGTH, 1);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "partial");
+        servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename cGFydDEucGRm");
+
+        tusFileUploadService.process(servletRequest, servletResponse);
+        assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseStatus(HttpServletResponse.SC_CREATED);
+
+        String location1 = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+        reset();
+        //Create upload part 2
+        servletRequest.setMethod("POST");
+        servletRequest.setRequestURI(UPLOAD_URI);
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+        servletRequest.addHeader(HttpHeader.UPLOAD_DEFER_LENGTH, 1);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "partial");
+        servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename cGFydDIucGRm");
+
+        tusFileUploadService.process(servletRequest, servletResponse);
+        assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseStatus(HttpServletResponse.SC_CREATED);
+
+        String location2 = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+        reset();
+        //Create upload part 3
+        servletRequest.setMethod("POST");
+        servletRequest.setRequestURI(UPLOAD_URI);
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+        servletRequest.addHeader(HttpHeader.UPLOAD_DEFER_LENGTH, 1);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "partial");
+        servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename cGFydDMucGRm");
+
+        tusFileUploadService.process(servletRequest, servletResponse);
+        assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseStatus(HttpServletResponse.SC_CREATED);
+
+        String location3 = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+        reset();
+        //Create final upload
+        servletRequest.setMethod("POST");
+        servletRequest.setRequestURI(UPLOAD_URI);
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "final;" + location1 + " " + location2 + " " + location3);
+        servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename ZmluYWwucGRm");
+
+        tusFileUploadService.process(servletRequest, servletResponse);
+        assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseStatus(HttpServletResponse.SC_CREATED);
+
+        String locationFinal = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+
+        //Upload part 1 bytes
+        reset();
+        servletRequest.setMethod("PATCH");
+        servletRequest.setRequestURI(location1);
+        servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, part1.getBytes().length);
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, part1.getBytes().length);
+        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.setContent(part1.getBytes());
+
+        tusFileUploadService.process(servletRequest, servletResponse);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + part1.getBytes().length);
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        //Upload part 2 bytes
+        reset();
+        servletRequest.setMethod("PATCH");
+        servletRequest.setRequestURI(location2);
+        servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, part2.getBytes().length);
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, part2.getBytes().length);
+        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.setContent(part2.getBytes());
+
+        tusFileUploadService.process(servletRequest, servletResponse);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + part2.getBytes().length);
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        //Upload part 3 bytes
+        reset();
+        servletRequest.setMethod("PATCH");
+        servletRequest.setRequestURI(location3);
+        servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, part3.getBytes().length);
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, part3.getBytes().length);
+        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.setContent(part3.getBytes());
+
+        tusFileUploadService.process(servletRequest, servletResponse);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + part3.getBytes().length);
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        //Check with HEAD request length of final upload is known
+        reset();
+        servletRequest.setMethod("HEAD");
+        servletRequest.setRequestURI(locationFinal);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + (part1+part2+part3).getBytes().length);
+        assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "" + (part1+part2+part3).getBytes().length);
+        assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename ZmluYWwucGRm");
+        assertResponseHeaderNull(HttpHeader.UPLOAD_DEFER_LENGTH);
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        //Download the upload
+        reset();
+        servletRequest.setMethod("GET");
+        servletRequest.setRequestURI(locationFinal);
+
+        tusFileUploadService.process(servletRequest, servletResponse, null);
+        assertResponseStatus(HttpServletResponse.SC_OK);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "" + (part1+part2+part3).getBytes().length);
+        assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename ZmluYWwucGRm");
+        assertThat(servletResponse.getContentAsString(), is(
+                "When sending this part, the final upload was already created. " +
+                        "This is the second part of our concatenated upload. " +
+                        "Finally when sending the third part, the final upload is complete."));
     }
 
     @Test
