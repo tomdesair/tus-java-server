@@ -11,12 +11,12 @@ import me.desair.tus.server.creation.validation.PostEmptyRequestValidator;
 import me.desair.tus.server.creation.validation.PostURIValidator;
 import me.desair.tus.server.creation.validation.UploadDeferLengthValidator;
 import me.desair.tus.server.creation.validation.UploadLengthValidator;
-import me.desair.tus.server.util.AbstractTusFeature;
+import me.desair.tus.server.util.AbstractTusExtension;
 
 /**
  * The Client and the Server SHOULD implement the upload creation extension. If the Server supports this extension.
  */
-public class CreationExtension extends AbstractTusFeature {
+public class CreationExtension extends AbstractTusExtension {
 
     @Override
     public String getName() {

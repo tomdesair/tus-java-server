@@ -7,12 +7,12 @@ import java.util.List;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
-import me.desair.tus.server.util.AbstractTusFeature;
+import me.desair.tus.server.util.AbstractTusExtension;
 
 /**
  * The Server MAY remove unfinished uploads once they expire.
  */
-public class ExpirationExtension extends AbstractTusFeature {
+public class ExpirationExtension extends AbstractTusExtension {
 
     @Override
     public String getName() {

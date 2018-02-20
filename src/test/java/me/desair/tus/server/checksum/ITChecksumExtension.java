@@ -1,6 +1,6 @@
 package me.desair.tus.server.checksum;
 
-import me.desair.tus.server.AbstractTusFeatureIntegrationTest;
+import me.desair.tus.server.AbstractTusExtensionIntegrationTest;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.ChecksumAlgorithmNotSupportedException;
@@ -10,7 +10,7 @@ import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-public class ITChecksumExtension extends AbstractTusFeatureIntegrationTest {
+public class ITChecksumExtension extends AbstractTusExtensionIntegrationTest {
 
     @Before
     public void setUp() throws Exception {

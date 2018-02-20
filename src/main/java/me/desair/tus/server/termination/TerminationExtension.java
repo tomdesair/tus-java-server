@@ -7,7 +7,7 @@ import java.util.List;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
-import me.desair.tus.server.util.AbstractTusFeature;
+import me.desair.tus.server.util.AbstractTusExtension;
 
 /**
  * This extension defines a way for the Client to terminate completed and unfinished
@@ -16,7 +16,7 @@ import me.desair.tus.server.util.AbstractTusFeature;
  * If this extension is supported by the Server, it MUST be announced by adding "termination"
  * to the Tus-Extension header.
  */
-public class TerminationExtension extends AbstractTusFeature {
+public class TerminationExtension extends AbstractTusExtension {
 
     @Override
     public String getName() {

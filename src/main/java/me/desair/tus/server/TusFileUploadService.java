@@ -46,7 +46,7 @@ public class TusFileUploadService {
     private UploadStorageService uploadStorageService;
     private UploadLockingService uploadLockingService;
     private UploadIdFactory idFactory = new UploadIdFactory();
-    private final LinkedHashMap<String, TusFeature> enabledFeatures = new LinkedHashMap<>();
+    private final LinkedHashMap<String, TusExtension> enabledFeatures = new LinkedHashMap<>();
     private final Set<HttpMethod> supportedHttpMethods = EnumSet.noneOf(HttpMethod.class);
 
     public TusFileUploadService() {
@@ -111,7 +111,7 @@ public class TusFileUploadService {
         return this;
     }
 
-    public TusFileUploadService addTusFeature(final TusFeature feature) {
+    public TusFileUploadService addTusFeature(final TusExtension feature) {
         Validate.notNull(feature, "A custom feature cannot be null");
         enabledFeatures.put(feature.getName(), feature);
         updateSupportedHttpMethods();
@@ -211,7 +211,7 @@ public class TusFileUploadService {
     }
 
     protected void executeProcessingByFeatures(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final String ownerKey) throws IOException, TusException {
-        for (TusFeature feature : enabledFeatures.values()) {
+        for (TusExtension feature : enabledFeatures.values()) {
             if (!servletRequest.isProcessedBy(feature)) {
                 servletRequest.addProcessor(feature);
                 feature.process(method, servletRequest, servletResponse, uploadStorageService, ownerKey);
@@ -220,7 +220,7 @@ public class TusFileUploadService {
     }
 
     protected void validateRequest(final HttpMethod method, final HttpServletRequest servletRequest, final String ownerKey) throws TusException, IOException {
-        for (TusFeature feature : enabledFeatures.values()) {
+        for (TusExtension feature : enabledFeatures.values()) {
             feature.validate(method, servletRequest, uploadStorageService, ownerKey);
         }
     }
@@ -234,7 +234,7 @@ public class TusFileUploadService {
                 method, request.getRequestURL(), status, message);
 
         try {
-            for (TusFeature feature : enabledFeatures.values()) {
+            for (TusExtension feature : enabledFeatures.values()) {
 
                 if (!request.isProcessedBy(feature)) {
                     request.addProcessor(feature);
@@ -255,7 +255,7 @@ public class TusFileUploadService {
 
     private void updateSupportedHttpMethods() {
         supportedHttpMethods.clear();
-        for (TusFeature tusFeature : enabledFeatures.values()) {
+        for (TusExtension tusFeature : enabledFeatures.values()) {
             supportedHttpMethods.addAll(tusFeature.getMinimalSupportedHttpMethods());
         }
     }

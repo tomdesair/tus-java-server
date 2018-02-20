@@ -15,7 +15,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletRequestWrapper;
 
 import me.desair.tus.server.HttpHeader;
-import me.desair.tus.server.TusFeature;
+import me.desair.tus.server.TusExtension;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.io.input.CountingInputStream;
@@ -115,11 +115,11 @@ public class TusServletRequest extends HttpServletRequestWrapper {
         return value;
     }
 
-    public boolean isProcessedBy(TusFeature processor) {
+    public boolean isProcessedBy(TusExtension processor) {
         return processedBySet.contains(processor.getName());
     }
 
-    public void addProcessor(TusFeature processor) {
+    public void addProcessor(TusExtension processor) {
         processedBySet.add(processor.getName());
     }
 }

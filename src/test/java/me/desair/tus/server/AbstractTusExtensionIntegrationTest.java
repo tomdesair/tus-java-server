@@ -16,7 +16,7 @@ import java.util.Arrays;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
-import me.desair.tus.server.util.AbstractTusFeature;
+import me.desair.tus.server.util.AbstractTusExtension;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.apache.commons.io.IOUtils;
@@ -27,9 +27,9 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 @RunWith(MockitoJUnitRunner.class)
-public abstract class AbstractTusFeatureIntegrationTest {
+public abstract class AbstractTusExtensionIntegrationTest {
 
-    protected AbstractTusFeature tusFeature;
+    protected AbstractTusExtension tusFeature;
 
     protected MockHttpServletRequest servletRequest;
 

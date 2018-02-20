@@ -11,7 +11,7 @@ import java.io.InputStream;
 
 import javax.servlet.http.HttpServletResponse;
 
-import me.desair.tus.server.AbstractTusFeatureIntegrationTest;
+import me.desair.tus.server.AbstractTusExtensionIntegrationTest;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.InvalidContentLengthException;
@@ -26,7 +26,7 @@ import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-public class ITCoreProtocol extends AbstractTusFeatureIntegrationTest {
+public class ITCoreProtocol extends AbstractTusExtensionIntegrationTest {
 
     @Before
     public void setUp() {

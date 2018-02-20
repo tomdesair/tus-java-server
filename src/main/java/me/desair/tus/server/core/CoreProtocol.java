@@ -13,14 +13,14 @@ import me.desair.tus.server.core.validation.HttpMethodValidator;
 import me.desair.tus.server.core.validation.IdExistsValidator;
 import me.desair.tus.server.core.validation.TusResumableValidator;
 import me.desair.tus.server.core.validation.UploadOffsetValidator;
-import me.desair.tus.server.util.AbstractTusFeature;
+import me.desair.tus.server.util.AbstractTusExtension;
 
 /**
  * The core protocol describes how to resume an interrupted upload.
  * It assumes that you already have a URL for the upload, usually created via the Creation extension.
  * All Clients and Servers MUST implement the core protocol.
  */
-public class CoreProtocol extends AbstractTusFeature {
+public class CoreProtocol extends AbstractTusExtension {
 
     @Override
     public String getName() {

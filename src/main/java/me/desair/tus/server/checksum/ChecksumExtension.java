@@ -8,13 +8,13 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.checksum.validation.ChecksumAlgorithmValidator;
-import me.desair.tus.server.util.AbstractTusFeature;
+import me.desair.tus.server.util.AbstractTusExtension;
 
 /**
  * The Client and the Server MAY implement and use this extension to verify data integrity of each PATCH request.
  * If supported, the Server MUST add checksum to the Tus-Extension header.
  */
-public class ChecksumExtension extends AbstractTusFeature {
+public class ChecksumExtension extends AbstractTusExtension {
 
     @Override
     public String getName() {

@@ -10,14 +10,14 @@ import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.concatenation.validation.NoUploadLengthOnFinalValidator;
 import me.desair.tus.server.concatenation.validation.PartialUploadsExistValidator;
 import me.desair.tus.server.concatenation.validation.PatchFinalUploadValidator;
-import me.desair.tus.server.util.AbstractTusFeature;
+import me.desair.tus.server.util.AbstractTusExtension;
 
 /**
  * This extension can be used to concatenate multiple uploads into a single one enabling Clients
  * to perform parallel uploads and to upload non-contiguous chunks.
  * If the Server supports this extension, it MUST add concatenation to the Tus-Extension header.
  */
-public class ConcatenationExtension extends AbstractTusFeature {
+public class ConcatenationExtension extends AbstractTusExtension {
 
     @Override
     public String getName() {

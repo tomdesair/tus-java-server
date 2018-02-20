@@ -7,13 +7,13 @@ import java.util.List;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
-import me.desair.tus.server.util.AbstractTusFeature;
+import me.desair.tus.server.util.AbstractTusExtension;
 
 /**
  * Some Tus clients also send GET request to retrieve the uploaded content. We consider this
  * as an unofficial extension.
  */
-public class DownloadExtension extends AbstractTusFeature {
+public class DownloadExtension extends AbstractTusExtension {
 
     @Override
     public String getName() {

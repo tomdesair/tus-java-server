@@ -13,7 +13,7 @@ import java.util.UUID;
 
 import javax.servlet.http.HttpServletResponse;
 
-import me.desair.tus.server.AbstractTusFeatureIntegrationTest;
+import me.desair.tus.server.AbstractTusExtensionIntegrationTest;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.InvalidUploadLengthException;
@@ -28,7 +28,7 @@ import org.mockito.stubbing.Answer;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-public class ITCreationExtension extends AbstractTusFeatureIntegrationTest {
+public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
     private static final String UPLOAD_URI = "/test/upload";
     private static final String UPLOAD_URL = "http://localhost:80/test/upload/";
