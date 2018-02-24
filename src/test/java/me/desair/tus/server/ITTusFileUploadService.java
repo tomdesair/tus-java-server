@@ -283,6 +283,17 @@ public class ITTusFileUploadService {
         //Make sure cleanup does not interfere with this test
         tusFileUploadService.cleanup();
 
+        //Verify that we cannot download an in-progress upload
+        reset();
+        servletRequest.setMethod("GET");
+        servletRequest.setRequestURI(location);
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseStatus(422);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertThat(servletResponse.getContentAsString(), is(""));
+
         //Upload part 2 bytes
         reset();
         servletRequest.setMethod("PATCH");
@@ -827,6 +838,12 @@ public class ITTusFileUploadService {
         assertResponseHeader(HttpHeader.CONTENT_LENGTH, "69");
         assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9tYXBfY29uY2F0ZW5hdGVkLnBkZg==");
         assertThat(servletResponse.getContentAsString(), is("This is the first part of my test upload and this is the second part."));
+
+        //Get uploaded bytes from service
+        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, null)) {
+            assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
+                    is("This is the first part of my test upload and this is the second part."));
+        }
     }
 
     @Test
@@ -943,6 +960,17 @@ public class ITTusFileUploadService {
         assertResponseHeaderNull(HttpHeader.UPLOAD_DEFER_LENGTH);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
 
+        //Verify that we cannot download an unfinished final upload
+        reset();
+        servletRequest.setMethod("GET");
+        servletRequest.setRequestURI(locationFinal);
+
+        tusFileUploadService.process(servletRequest, servletResponse);
+        assertResponseStatus(422);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertThat(servletResponse.getContentAsString(), is(""));
+
         //Upload part 1 bytes
         reset();
         servletRequest.setMethod("PATCH");
@@ -1009,6 +1037,14 @@ public class ITTusFileUploadService {
                 "When sending this part, the final upload was already created. " +
                         "This is the second part of our concatenated upload. " +
                         "Finally when sending the third part, the final upload is complete."));
+
+        //Get uploaded bytes from service
+        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(locationFinal, null)) {
+            assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
+                    is("When sending this part, the final upload was already created. " +
+                                    "This is the second part of our concatenated upload. " +
+                                    "Finally when sending the third part, the final upload is complete."));
+        }
     }
 
     @Test

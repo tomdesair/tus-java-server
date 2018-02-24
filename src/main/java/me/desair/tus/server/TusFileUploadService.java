@@ -155,14 +155,7 @@ public class TusFileUploadService {
 
         try (UploadLock lock = uploadLockingService.lockUploadByUri(request.getRequestURI())) {
 
-            try {
-                validateRequest(method, request, ownerKey);
-
-                executeProcessingByFeatures(method, request, response, ownerKey);
-
-            } catch (TusException e) {
-                processTusException(method, request, response, ownerKey, e);
-            }
+            processLockedRequest(method, request, response, ownerKey);
 
         } catch (TusException e) {
             log.error("Unable to lock upload for request URI " + request.getRequestURI(), e);
@@ -208,6 +201,17 @@ public class TusFileUploadService {
     public void cleanup() throws IOException {
         uploadLockingService.cleanupStaleLocks();
         uploadStorageService.cleanupExpiredUploads(uploadLockingService);
+    }
+
+    protected void processLockedRequest(HttpMethod method, TusServletRequest request, TusServletResponse response, String ownerKey) throws IOException {
+        try {
+            validateRequest(method, request, ownerKey);
+
+            executeProcessingByFeatures(method, request, response, ownerKey);
+
+        } catch (TusException e) {
+            processTusException(method, request, response, ownerKey, e);
+        }
     }
 
     protected void executeProcessingByFeatures(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final String ownerKey) throws IOException, TusException {
