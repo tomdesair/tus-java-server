@@ -891,6 +891,24 @@ public class ITTusFileUploadService {
 
         String location3 = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
 
+        //Upload part 2 bytes
+        reset();
+        servletRequest.setMethod("PATCH");
+        servletRequest.setRequestURI(location2);
+        servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, part2.getBytes().length);
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, part2.getBytes().length);
+        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.setContent(part2.getBytes());
+
+        tusFileUploadService.process(servletRequest, servletResponse);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + part2.getBytes().length);
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
         reset();
         //Create final upload
         servletRequest.setMethod("POST");
@@ -909,6 +927,21 @@ public class ITTusFileUploadService {
 
         String locationFinal = UPLOAD_URI + StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
 
+        //Check with HEAD request that length of final upload is undefined
+        reset();
+        servletRequest.setMethod("HEAD");
+        servletRequest.setRequestURI(locationFinal);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNull(HttpHeader.UPLOAD_OFFSET);
+        assertResponseHeaderNull(HttpHeader.UPLOAD_LENGTH);
+        assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename ZmluYWwucGRm");
+        assertResponseHeader(HttpHeader.UPLOAD_CONCAT, "final;" + location1 + " " + location2 + " " + location3);
+        assertResponseHeaderNull(HttpHeader.UPLOAD_DEFER_LENGTH);
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
 
         //Upload part 1 bytes
         reset();
@@ -926,24 +959,6 @@ public class ITTusFileUploadService {
         assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
         assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + part1.getBytes().length);
-        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
-
-        //Upload part 2 bytes
-        reset();
-        servletRequest.setMethod("PATCH");
-        servletRequest.setRequestURI(location2);
-        servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
-        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, part2.getBytes().length);
-        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, part2.getBytes().length);
-        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
-        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-        servletRequest.setContent(part2.getBytes());
-
-        tusFileUploadService.process(servletRequest, servletResponse);
-        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
-        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
-        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + part2.getBytes().length);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
 
         //Upload part 3 bytes
@@ -976,6 +991,7 @@ public class ITTusFileUploadService {
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + (part1+part2+part3).getBytes().length);
         assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "" + (part1+part2+part3).getBytes().length);
         assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename ZmluYWwucGRm");
+        assertResponseHeader(HttpHeader.UPLOAD_CONCAT, "final;" + location1 + " " + location2 + " " + location3);
         assertResponseHeaderNull(HttpHeader.UPLOAD_DEFER_LENGTH);
         assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
 
