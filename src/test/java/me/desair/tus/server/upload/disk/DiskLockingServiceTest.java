@@ -116,15 +116,22 @@ public class DiskLockingServiceTest {
 
         String staleLock = UUID.randomUUID().toString();
         Files.createFile(locksPath.resolve(staleLock));
+
+        String recentLock = UUID.randomUUID().toString();
+        Files.createFile(locksPath.resolve(recentLock));
+
         Files.setLastModifiedTime(locksPath.resolve(staleLock), FileTime.fromMillis(System.currentTimeMillis() - 20000));
+        Files.setLastModifiedTime(locksPath.resolve(activeLock), FileTime.fromMillis(System.currentTimeMillis() - 20000));
 
         assertTrue(Files.exists(locksPath.resolve(staleLock)));
         assertTrue(Files.exists(locksPath.resolve(activeLock)));
+        assertTrue(Files.exists(locksPath.resolve(recentLock)));
 
         lockingService.cleanupStaleLocks();
 
         assertFalse(Files.exists(locksPath.resolve(staleLock)));
         assertTrue(Files.exists(locksPath.resolve(activeLock)));
+        assertTrue(Files.exists(locksPath.resolve(recentLock)));
 
         uploadLock.release();
     }
