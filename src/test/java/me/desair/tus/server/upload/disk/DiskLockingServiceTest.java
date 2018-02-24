@@ -4,6 +4,8 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
@@ -12,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.FileTime;
 import java.util.UUID;
 
 import me.desair.tus.server.upload.UploadIdFactory;
@@ -100,6 +103,30 @@ public class DiskLockingServiceTest {
         UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
 
         assertThat(uploadLock, nullValue());
+    }
+
+    @Test
+    public void cleanupStaleLocks() throws Exception {
+        Path locksPath = storagePath.resolve("locks");
+
+        String activeLock = "000003f1-a850-49de-af03-997272d834c9";
+        UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/" + activeLock);
+
+        assertThat(uploadLock, not(nullValue()));
+
+        String staleLock = UUID.randomUUID().toString();
+        Files.createFile(locksPath.resolve(staleLock));
+        Files.setLastModifiedTime(locksPath.resolve(staleLock), FileTime.fromMillis(System.currentTimeMillis() - 20000));
+
+        assertTrue(Files.exists(locksPath.resolve(staleLock)));
+        assertTrue(Files.exists(locksPath.resolve(activeLock)));
+
+        lockingService.cleanupStaleLocks();
+
+        assertFalse(Files.exists(locksPath.resolve(staleLock)));
+        assertTrue(Files.exists(locksPath.resolve(activeLock)));
+
+        uploadLock.release();
     }
 
 }

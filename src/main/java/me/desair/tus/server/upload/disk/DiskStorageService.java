@@ -259,7 +259,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     @Override
     public void cleanupExpiredUploads(final UploadLockingService uploadLockingService) throws IOException {
         try (DirectoryStream<Path> expiredUploadsStream = Files.newDirectoryStream(getStoragePath(),
-                new ExpiredInProgressUploadFilter(this, uploadLockingService))) {
+                new ExpiredUploadFilter(this, uploadLockingService))) {
 
             for (Path path : expiredUploadsStream) {
                 FileUtils.deleteDirectory(path.toFile());

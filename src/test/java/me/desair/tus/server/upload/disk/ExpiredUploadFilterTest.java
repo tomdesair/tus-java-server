@@ -21,7 +21,7 @@ import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 
 @RunWith(MockitoJUnitRunner.class)
-public class ExpiredInProgressUploadFilterTest {
+public class ExpiredUploadFilterTest {
 
     @Mock
     private DiskStorageService diskStorageService;
@@ -29,11 +29,11 @@ public class ExpiredInProgressUploadFilterTest {
     @Mock
     private UploadLockingService uploadLockingService;
 
-    private ExpiredInProgressUploadFilter uploadFilter;
+    private ExpiredUploadFilter uploadFilter;
 
     @Before
     public void setUp() {
-        uploadFilter = new ExpiredInProgressUploadFilter(diskStorageService, uploadLockingService);
+        uploadFilter = new ExpiredUploadFilter(diskStorageService, uploadLockingService);
     }
 
     @Test

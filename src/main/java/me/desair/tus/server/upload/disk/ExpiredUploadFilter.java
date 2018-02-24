@@ -14,14 +14,14 @@ import org.slf4j.LoggerFactory;
 /**
  * Directory stream filter that only accepts uploads that are still in progress and expired
  */
-public class ExpiredInProgressUploadFilter implements DirectoryStream.Filter<Path> {
+public class ExpiredUploadFilter implements DirectoryStream.Filter<Path> {
 
-    private static final Logger log = LoggerFactory.getLogger(ExpiredInProgressUploadFilter.class);
+    private static final Logger log = LoggerFactory.getLogger(ExpiredUploadFilter.class);
 
     private DiskStorageService diskStorageService;
     private UploadLockingService uploadLockingService;
 
-    ExpiredInProgressUploadFilter(DiskStorageService diskStorageService, UploadLockingService uploadLockingService) {
+    ExpiredUploadFilter(DiskStorageService diskStorageService, UploadLockingService uploadLockingService) {
         this.diskStorageService = diskStorageService;
         this.uploadLockingService = uploadLockingService;
     }

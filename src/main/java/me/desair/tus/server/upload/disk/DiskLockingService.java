@@ -2,7 +2,10 @@ package me.desair.tus.server.upload.disk;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.UUID;
 
 import me.desair.tus.server.exception.TusException;
@@ -50,7 +53,20 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
 
     @Override
     public void cleanupStaleLocks() throws IOException {
-        //TODO
+        try (DirectoryStream<Path> locksStream = Files.newDirectoryStream(getStoragePath())) {
+            for (Path path : locksStream) {
+
+                FileTime lastModifiedTime = Files.getLastModifiedTime(path);
+                if (lastModifiedTime.toMillis() < System.currentTimeMillis() - 10000L) {
+                    UUID id = UUID.fromString(path.getFileName().toString());
+
+                    if (!isLocked(id)) {
+                        Files.deleteIfExists(path);
+                    }
+                }
+
+            }
+        }
     }
 
     @Override
