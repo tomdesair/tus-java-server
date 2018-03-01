@@ -1,4 +1,45 @@
 [![Build Status](https://travis-ci.org/tomdesair/tus-java-server.svg?branch=master)](https://travis-ci.org/tomdesair/tus-java-server) [![Test Coverage](https://sonarcloud.io/api/badges/measure?key=me.desair.tus%3Atus-java-server&metric=coverage)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Bugs](https://sonarcloud.io/api/badges/measure?key=me.desair.tus%3Atus-java-server&metric=bugs)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Vulnerabilities](https://sonarcloud.io/api/badges/measure?key=me.desair.tus%3Atus-java-server&metric=vulnerabilities)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Blocker Issues](https://sonarcloud.io/api/badges/measure?key=me.desair.tus%3Atus-java-server&metric=blocker_violations)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Critical Issues](https://sonarcloud.io/api/badges/measure?key=me.desair.tus%3Atus-java-server&metric=critical_violations)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Duplicated Lines](https://sonarcloud.io/api/badges/measure?key=me.desair.tus%3Atus-java-server&metric=duplicated_lines_density)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server)
 
 # tus-java-server
-Library to receive tus v1.0.0 file uploads in a Java server environment
+This library can be use to enable resumable (and potentially asynchronous) file uploads in any Java web application. This allows the users of your application to upload large files over slow and unreliable internet connections. The ability to pause or resume a file upload (after a connection loss or reset) is achieved by implementing the open file upload protocol tus (https://tus.io/). This library implements the server-side of the tus v1.0.0 protocol with [all optional extensions](#tus-protocol-extensions).
+
+## Quick Start and Dependencies
+The tus-java-server library only depends on Java Servlet API 3.1 and some Apache Commons utility libraries. This means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on the file system of the application server (and currently this is the only option, see [configuration section](#usage-and-configuration)).
+
+You can add this library to your application using Maven by adding the following to the pom dependencies:
+
+    <dependency>
+      <groupId>me.desair.tus</groupId>
+      <artifactId>tus-java-server</artifactId>
+      <version>1.0.0-0.1-SNAPSHOT</version>
+    </dependency>
+
+The main entry point of the library is the `me.desair.tus.server.TusFileUploadService.process(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)` method. You can call this method inside a `javax.servlet.http.HttpServlet`, a `javax.servlet.Filter` or any REST API controller of a framework that gives you access to `HttpServletRequest` and `HttpServletResponse`. In the following list, you can find some example implementations:
+
+* [Tus resumable file upload in Spring Boot REST API with Uppy JavaScript client.](https://github.com/tomdesair/tus-java-server-spring-demo)
+* (more examples to come!)
+
+## Tus Protocol Extensions
+Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-protocol), the library has all optional tus protocol extensions enabled by default. This means that the `Tus-Extension` header has value `creation,creation-defer-length,checksum,checksum-trailer,termination,expiration,concatenation,concatenation-unfinished`. Optionally you can also enable an unofficial `download` extension (see [configuration section](#usage-and-configuration)).
+
+* [creation](https://tus.io/protocols/resumable-upload.html#creation): The creation extension allows you to create new uploads and to retrieve the upload URL for them.
+* [creation-defer-length](https://tus.io/protocols/resumable-upload.html#post): You can create a new upload even if you don't know its final length at the time of creation.
+* [checksum](https://tus.io/protocols/resumable-upload.html#checksum): An extension that allows you to verify data integrity of each upload (PATCH) request.
+* [checksum-trailer](https://tus.io/protocols/resumable-upload.html#checksum): If the checksum hash cannot be calculated at the beginning of the upload, it may be included as a trailer HTTP header at the end of the chunked HTTP request.
+* [termination](https://tus.io/protocols/resumable-upload.html#termination): Clients can terminate completed or in-progress uploads which allows the tus-java-server library to free up resources on the server.
+* [expiration](https://tus.io/protocols/resumable-upload.html#expiration): You can instruct the tus-java-server library to cleanup uploads that are older than a configurable period.
+* [concatenation](https://tus.io/protocols/resumable-upload.html#concatenation): This extension can be used to concatenate multiple uploads into a single final upload enabling clients to perform parallel uploads and to upload non-contiguous chunks.
+* [concatenation-unfinished](https://tus.io/protocols/resumable-upload.html#concatenation): The client is allowed send the request to concatenate partial uploads while these partial uploads are still in progress.
+* `download`: The (unofficial) download extension allows clients to download uploaded files using a HTTP `GET` request.
+
+## Usage and Configuration
+TODO
+
+## Compatible Client Implementations
+TODO
+
+## Versioning
+TODO
+
+## Contributing
+TODO
