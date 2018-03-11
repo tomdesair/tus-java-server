@@ -14,7 +14,7 @@ You can add this library to your application using Maven by adding the following
       <version>1.0.0-0.1-SNAPSHOT</version>
     </dependency>
 
-The main entry point of the library is the `me.desair.tus.server.TusFileUploadService.process(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)` method. You can call this method inside a `javax.servlet.http.HttpServlet`, a `javax.servlet.Filter` or any REST API controller of a framework that gives you access to `HttpServletRequest` and `HttpServletResponse`. In the following list, you can find some example implementations:
+The main entry point of the library is the `me.desair.tus.server.TusFileUploadService.process(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)` method. You can call this method inside a `javax.servlet.http.HttpServlet`, a `javax.servlet.Filter` or any REST API controller of a framework that gives you access to `HttpServletRequest` and `HttpServletResponse` objects. In the following list, you can find some example implementations:
 
 * [Tus resumable file upload in Spring Boot REST API with Uppy JavaScript client.](https://github.com/tomdesair/tus-java-server-spring-demo)
 * (more examples to come!)
@@ -30,10 +30,33 @@ Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-
 * [expiration](https://tus.io/protocols/resumable-upload.html#expiration): You can instruct the tus-java-server library to cleanup uploads that are older than a configurable period.
 * [concatenation](https://tus.io/protocols/resumable-upload.html#concatenation): This extension can be used to concatenate multiple uploads into a single final upload enabling clients to perform parallel uploads and to upload non-contiguous chunks.
 * [concatenation-unfinished](https://tus.io/protocols/resumable-upload.html#concatenation): The client is allowed send the request to concatenate partial uploads while these partial uploads are still in progress.
-* `download`: The (unofficial) download extension allows clients to download uploaded files using a HTTP `GET` request.
+* `download`: The (unofficial) download extension allows clients to download uploaded files using a HTTP `GET` request. You can enable this extension by calling the `withDownloadFeature()` method.
 
 ## Usage and Configuration
+
+### 1. Setup
+The first step is to create a `TusFileUploadService` object using its constructor. You can make this object available as a (Spring bean) singleton or create a new instance for each request. After creating the object, you can configure it using the following methods:
+
+* `withUploadURI(String)`: Set the relative URL under which the tus upload endpoint will be made available, for example `/files/upload`.
+* `withMaxUploadSize(Long)`: Specify the maximum number of bytes that can be uploaded per upload. If you don't call this method, the maximum number of bytes is `Long.MAX_VALUE`.
+* `withStoragePath(String)`: If you're using the default filesystem-based storage service, you can use this method to specify the path where to store the uploaded bytes and upload information.
+* `withUploadExpirationPeriod(Long)`: You can set the number of milliseconds after which an upload is considered as expired and available for cleanup.
+* `withDownloadFeature()`: Enable the unofficial `download` extension that also allows you to download uploaded bytes.
+* `addTusExtension(TusExtension)`: Add a custom (application-specific) extension that implements the `me.desair.tus.server.TusExtension` interface. For example you can add your own extension that checks authentication and authorization policies within your application for the user doing the upload.
+* `disableTusExtension(String)`: Disable the `TusExtension` for which the `getName()` method matches the provided string. The default extensions have names "creation", "checksum", "expiration", "concatenation", "termination" and "download". You cannot disable the "core" feature.
+
+
+For now this library only provides filesystem-based storage and locking options. You can however provide your own implementation of a `UploadStorageService` and `UploadLockingService` using the methods `withUploadStorageService(UploadStorageService)` and `withUploadLockingService(UploadLockingService)`
+
+### 2. Processing an upload
 TODO
+
+### 3. Retrieving the uploaded bytes and metadata within the application
+TODO
+
+### 4. Upload cleanup
+TODO
+
 
 ## Compatible Client Implementations
 TODO

@@ -58,12 +58,12 @@ public class TusFileUploadService {
 
     protected void initFeatures() {
         //The order of the features is important
-        addTusFeature(new CoreProtocol());
-        addTusFeature(new CreationExtension());
-        addTusFeature(new ChecksumExtension());
-        addTusFeature(new TerminationExtension());
-        addTusFeature(new ExpirationExtension());
-        addTusFeature(new ConcatenationExtension());
+        addTusExtension(new CoreProtocol());
+        addTusExtension(new CreationExtension());
+        addTusExtension(new ChecksumExtension());
+        addTusExtension(new TerminationExtension());
+        addTusExtension(new ExpirationExtension());
+        addTusExtension(new ConcatenationExtension());
     }
 
     public TusFileUploadService withUploadURI(final String uploadURI) {
@@ -107,18 +107,18 @@ public class TusFileUploadService {
     }
 
     public TusFileUploadService withDownloadFeature() {
-        addTusFeature(new DownloadExtension());
+        addTusExtension(new DownloadExtension());
         return this;
     }
 
-    public TusFileUploadService addTusFeature(final TusExtension feature) {
+    public TusFileUploadService addTusExtension(final TusExtension feature) {
         Validate.notNull(feature, "A custom feature cannot be null");
         enabledFeatures.put(feature.getName(), feature);
         updateSupportedHttpMethods();
         return this;
     }
 
-    public TusFileUploadService disableTusFeature(final String featureName) {
+    public TusFileUploadService disableTusExtension(final String featureName) {
         Validate.notNull(featureName, "The feature name cannot be null");
 
         if (StringUtils.equals("core", featureName)) {

@@ -81,8 +81,8 @@ public class ITTusFileUploadService {
 
     @Test
     public void testDisableFeature() throws Exception {
-        tusFileUploadService.disableTusFeature("download");
-        tusFileUploadService.disableTusFeature("termination");
+        tusFileUploadService.disableTusExtension("download");
+        tusFileUploadService.disableTusExtension("termination");
 
         assertThat(tusFileUploadService.getSupportedHttpMethods(), containsInAnyOrder(
                 HttpMethod.HEAD, HttpMethod.OPTIONS, HttpMethod.PATCH,
@@ -114,7 +114,7 @@ public class ITTusFileUploadService {
 
     @Test(expected = IllegalArgumentException.class)
     public void testDisableCore() {
-        tusFileUploadService.disableTusFeature("core");
+        tusFileUploadService.disableTusExtension("core");
     }
 
     @Test(expected = NullPointerException.class)
