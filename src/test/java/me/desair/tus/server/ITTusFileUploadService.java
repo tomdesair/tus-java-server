@@ -10,6 +10,7 @@ import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.collection.IsMapContaining.hasEntry;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -22,6 +23,7 @@ import java.util.UUID;
 
 import javax.servlet.http.HttpServletResponse;
 
+import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.FileUtils;
@@ -190,8 +192,16 @@ public class ITTusFileUploadService {
                 )
         );
 
+        //Try retrieving the uploaded bytes without owner key
+        try {
+            tusFileUploadService.getUploadedBytes(location);
+            fail();
+        } catch(TusException ex) {
+            assertThat(ex.getStatus(), is(404));
+        }
+
         //Get uploaded bytes from service
-        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, null)) {
+        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is my test upload content"));
         }
@@ -339,7 +349,7 @@ public class ITTusFileUploadService {
         );
 
         //Get uploaded bytes from service
-        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, null)) {
+        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is the first part of my test upload and this is the second part."));
         }
@@ -598,7 +608,7 @@ public class ITTusFileUploadService {
         assertThat(info.getExpirationTimestamp(), greaterThan(expirationTimestampBefore));
 
         //We only stored the first valid part
-        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, null)) {
+        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is the first part of my test upload "));
         }
@@ -840,7 +850,7 @@ public class ITTusFileUploadService {
         assertThat(servletResponse.getContentAsString(), is("This is the first part of my test upload and this is the second part."));
 
         //Get uploaded bytes from service
-        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, null)) {
+        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is the first part of my test upload and this is the second part."));
         }

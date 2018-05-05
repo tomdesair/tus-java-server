@@ -209,10 +209,14 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
     @Override
     public InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws IOException, UploadNotFoundException {
-
         UUID id = idFactory.readUploadId(uploadURI);
 
-        return getUploadedBytes(id);
+        UploadInfo uploadInfo = getUploadInfo(id);
+        if(uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
+            throw new UploadNotFoundException("The upload with id " + id + " could not be found for owner " + ownerKey);
+        } else {
+            return getUploadedBytes(id);
+        }
     }
 
     @Override

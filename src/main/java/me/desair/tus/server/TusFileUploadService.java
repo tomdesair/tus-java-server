@@ -162,6 +162,25 @@ public class TusFileUploadService {
         }
     }
 
+    /**
+     * Method to retrieve the bytes that were uploaded to a specific upload URI
+     * @param uploadURI The URI of the upload
+     * @return An {@link InputStream} that will stream the uploaded bytes
+     * @throws IOException When the retreiving the uploaded bytes fails
+     * @throws TusException When the upload is still in progress or cannot be found
+     */
+    public InputStream getUploadedBytes(final String uploadURI) throws IOException, TusException {
+        return getUploadedBytes(uploadURI, null);
+    }
+
+    /**
+     * Method to retrieve the bytes that were uploaded to a specific upload URI
+     * @param uploadURI The URI of the upload
+     * @param ownerKey The key of the owner of this upload
+     * @return An {@link InputStream} that will stream the uploaded bytes
+     * @throws IOException When the retreiving the uploaded bytes fails
+     * @throws TusException When the upload is still in progress or cannot be found
+     */
     public InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws IOException, TusException {
         try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
 
@@ -169,11 +188,40 @@ public class TusFileUploadService {
         }
     }
 
+    /**
+     * Get the information on the upload corresponding to the given upload URI
+     * @param uploadURI The URI of the upload
+     * @return Information on the upload
+     * @throws IOException When retrieving the upload information fails
+     * @throws TusException When the upload is still in progress or cannot be found
+     */
+    public UploadInfo getUploadInfo(final String uploadURI) throws IOException, TusException {
+        return getUploadInfo(uploadURI, null);
+    }
+
+    /**
+     * Get the information on the upload corresponding to the given upload URI
+     * @param uploadURI The URI of the upload
+     * @param ownerKey The key of the owner of this upload
+     * @return Information on the upload
+     * @throws IOException When retrieving the upload information fails
+     * @throws TusException When the upload is still in progress or cannot be found
+     */
     public UploadInfo getUploadInfo(final String uploadURI, final String ownerKey) throws IOException, TusException {
         try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
 
             return uploadStorageService.getUploadInfo(uploadURI, ownerKey);
         }
+    }
+
+    /**
+     * Method to delete an upload associated with the given upload URL. Invoke this method if you no longer need
+     * the upload.
+     *
+     * @param uploadURI The upload URI
+     */
+    public void deleteUpload(final String uploadURI) throws IOException, TusException {
+        deleteUpload(uploadURI, null);
     }
 
     /**

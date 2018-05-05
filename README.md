@@ -1,9 +1,9 @@
 [![Build Status](https://travis-ci.org/tomdesair/tus-java-server.svg?branch=master)](https://travis-ci.org/tomdesair/tus-java-server) [![Test Coverage](https://sonarcloud.io/api/badges/measure?key=me.desair.tus%3Atus-java-server&metric=coverage)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Bugs](https://sonarcloud.io/api/badges/measure?key=me.desair.tus%3Atus-java-server&metric=bugs)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Vulnerabilities](https://sonarcloud.io/api/badges/measure?key=me.desair.tus%3Atus-java-server&metric=vulnerabilities)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Blocker Issues](https://sonarcloud.io/api/badges/measure?key=me.desair.tus%3Atus-java-server&metric=blocker_violations)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Critical Issues](https://sonarcloud.io/api/badges/measure?key=me.desair.tus%3Atus-java-server&metric=critical_violations)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Duplicated Lines](https://sonarcloud.io/api/badges/measure?key=me.desair.tus%3Atus-java-server&metric=duplicated_lines_density)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server)
 
 # tus-java-server
-This library can be use to enable resumable (and potentially asynchronous) file uploads in any Java web application. This allows the users of your application to upload large files over slow and unreliable internet connections. The ability to pause or resume a file upload (after a connection loss or reset) is achieved by implementing the open file upload protocol tus (https://tus.io/). This library implements the server-side of the tus v1.0.0 protocol with [all optional extensions](#tus-protocol-extensions).
+This library can be used to enable resumable (and potentially asynchronous) file uploads in any Java web application. This allows the users of your application to upload large files over slow and unreliable internet connections. The ability to pause or resume a file upload (after a connection loss or reset) is achieved by implementing the open file upload protocol tus (https://tus.io/). This library implements the server-side of the tus v1.0.0 protocol with [all optional extensions](#tus-protocol-extensions).
 
-## Quick Start and Dependencies
+## Quick Start and Examples
 The tus-java-server library only depends on Java Servlet API 3.1 and some Apache Commons utility libraries. This means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on the file system of the application server (and currently this is the only option, see [configuration section](#usage-and-configuration)).
 
 You can add this library to your application using Maven by adding the following to the pom dependencies:
@@ -46,13 +46,15 @@ The first step is to create a `TusFileUploadService` object using its constructo
 * `disableTusExtension(String)`: Disable the `TusExtension` for which the `getName()` method matches the provided string. The default extensions have names "creation", "checksum", "expiration", "concatenation", "termination" and "download". You cannot disable the "core" feature.
 
 
-For now this library only provides filesystem-based storage and locking options. You can however provide your own implementation of a `UploadStorageService` and `UploadLockingService` using the methods `withUploadStorageService(UploadStorageService)` and `withUploadLockingService(UploadLockingService)`
+For now this library only provides filesystem-based storage and locking options. You can however provide your own implementation of a `UploadStorageService` and `UploadLockingService` using the methods `withUploadStorageService(UploadStorageService)` and `withUploadLockingService(UploadLockingService)` in order to support different types of upload storage.
 
 ### 2. Processing an upload
-TODO
+To process an upload request you have to pass the current `javax.servlet.http.HttpServletRequest` and `javax.servlet.http.HttpServletResponse` objects to the `me.desair.tus.server.TusFileUploadService.process()` method. Typical places were you can do this are inside Servlets, Filters or REST API Controllers (see [examples](#quick-start-and-examples)).
+
+Optionally you can also pass a `String ownerKey` parameter. The `ownerKey` can be used to have a hard separation between uploads of different users, groups or tenants in a multi-tenant setup. Examples of `ownerKey` values are user ID's, group names, client ID's...
 
 ### 3. Retrieving the uploaded bytes and metadata within the application
-TODO
+Once the upload has been completed by the user, the business logic layer of your application needs to retrieve and do something with the uploaded bytes. This can be achieved by using the `me.desair.tus.server.TusFileUploadService.getUploadedBytes(String uploadURL)` method. The passed `uploadURL` value should be the upload url used by the user to which he uploaded his file. Therefor your application should pass the upload URL of completed uploads to the backend. Optionally, you can also pass an `ownerKey` value to this method in case your application chooses to process uploads using owner keys.
 
 ### 4. Upload cleanup
 TODO
