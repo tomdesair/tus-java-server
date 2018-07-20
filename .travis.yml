@@ -3,4 +3,4 @@ addons:
   sonarcloud:
     organization: "tomdesair-github"
 script:
-  - mvn clean install sonar:sonar -Dsonar.host.url=https://sonarcloud.io
+  - mvn clean install
