@@ -1,17 +1,18 @@
 package me.desair.tus.server.upload;
 
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.apache.commons.lang3.builder.HashCodeBuilder;
+
+import javax.xml.bind.DatatypeConverter;
 import java.io.Serializable;
+import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
-
-import org.apache.commons.codec.binary.Base64;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.builder.EqualsBuilder;
-import org.apache.commons.lang3.builder.HashCodeBuilder;
 
 public class UploadInfo implements Serializable {
 
@@ -245,6 +246,7 @@ public class UploadInfo implements Serializable {
     }
 
     private String decode(final String encodedValue) {
-        return org.apache.commons.codec.binary.StringUtils.newStringUtf8(Base64.decodeBase64(encodedValue));
+        if( encodedValue == null ) return null;
+        return new String(DatatypeConverter.parseBase64Binary(encodedValue), Charset.forName("UTF-8"));
     }
 }
