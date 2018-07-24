@@ -13,7 +13,6 @@ import org.apache.commons.lang3.Validate;
  * method by the Server, if the header is presented. The actual method of the request MUST be ignored.
  * The Client SHOULD use this header if its environment does not support the PATCH or DELETE methods.
  * (https://tus.io/protocols/resumable-upload.html#x-http-method-override)
- *
  */
 public enum HttpMethod {
 
@@ -37,7 +36,8 @@ public enum HttpMethod {
         return null;
     }
 
-    public static HttpMethod getMethodIfSupported(final HttpServletRequest request, Set<HttpMethod> supportedHttpMethods) {
+    public static HttpMethod getMethodIfSupported(final HttpServletRequest request,
+                                                  Set<HttpMethod> supportedHttpMethods) {
         Validate.notNull(request, "The HttpServletRequest cannot be null");
 
         String requestMethod = request.getHeader(HttpHeader.METHOD_OVERRIDE);

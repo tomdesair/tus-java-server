@@ -16,7 +16,10 @@ public abstract class AbstractExtensionRequestHandler extends AbstractRequestHan
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) {
+    public void process(final HttpMethod method, final TusServletRequest servletRequest,
+                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
+                        final String ownerKey) {
+
         StringBuilder extensionBuilder = new StringBuilder(StringUtils.trimToEmpty(
                 servletResponse.getHeader(HttpHeader.TUS_EXTENSION)));
 
@@ -28,7 +31,7 @@ public abstract class AbstractExtensionRequestHandler extends AbstractRequestHan
     protected abstract void appendExtensions(final StringBuilder extensionBuilder);
 
     protected void addExtension(final StringBuilder stringBuilder, final String extension) {
-        if(stringBuilder.length() > 0) {
+        if (stringBuilder.length() > 0) {
             stringBuilder.append(",");
         }
         stringBuilder.append(extension);

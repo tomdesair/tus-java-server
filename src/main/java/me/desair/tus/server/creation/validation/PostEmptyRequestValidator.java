@@ -16,10 +16,14 @@ import me.desair.tus.server.util.Utils;
 public class PostEmptyRequestValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request,
+                         final UploadStorageService uploadStorageService, final String ownerKey)
+            throws TusException {
+
         Long contentLength = Utils.getLongHeader(request, HttpHeader.CONTENT_LENGTH);
-        if(contentLength != null && contentLength > 0) {
-            throw new InvalidContentLengthException("A POST request should have a Content-Length header with value 0 and no content");
+        if (contentLength != null && contentLength > 0) {
+            throw new InvalidContentLengthException("A POST request should have a Content-Length header with value "
+                    + "0 and no content");
         }
     }
 

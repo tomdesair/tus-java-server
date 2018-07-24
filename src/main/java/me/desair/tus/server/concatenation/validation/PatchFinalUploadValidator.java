@@ -19,12 +19,15 @@ import me.desair.tus.server.upload.UploadType;
 public class PatchFinalUploadValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService,
-                         final String ownerKey) throws IOException, TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request,
+                         final UploadStorageService uploadStorageService, final String ownerKey)
+            throws IOException, TusException {
+
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(request.getRequestURI(), ownerKey);
 
-        if(uploadInfo != null && UploadType.CONCATENATED.equals(uploadInfo.getUploadType())) {
-            throw new PatchOnFinalUploadNotAllowedException("You cannot send a PATCH request for a final concatenated upload URI");
+        if (uploadInfo != null && UploadType.CONCATENATED.equals(uploadInfo.getUploadType())) {
+            throw new PatchOnFinalUploadNotAllowedException("You cannot send a PATCH request for a final "
+                    + "concatenated upload URI");
         }
     }
 

@@ -1,10 +1,5 @@
 package me.desair.tus.server.upload;
 
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.builder.EqualsBuilder;
-import org.apache.commons.lang3.builder.HashCodeBuilder;
-
-import javax.xml.bind.DatatypeConverter;
 import java.io.Serializable;
 import java.nio.charset.Charset;
 import java.util.Arrays;
@@ -13,6 +8,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+
+import javax.xml.bind.DatatypeConverter;
+
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.apache.commons.lang3.builder.HashCodeBuilder;
 
 public class UploadInfo implements Serializable {
 
@@ -31,7 +32,7 @@ public class UploadInfo implements Serializable {
     private String uploadConcatHeaderValue;
 
     public UploadInfo() {
-        offset = 0l;
+        offset = 0L;
         encodedMetadata = null;
         length = null;
     }
@@ -58,16 +59,16 @@ public class UploadInfo implements Serializable {
             String[] keyValue = splitToArray(valuePair, "\\s");
             String key = null;
             String value = null;
-            if(keyValue.length > 0) {
+            if (keyValue.length > 0) {
                 key = StringUtils.trimToEmpty(keyValue[0]);
 
                 //Skip any blank values
                 int i = 1;
-                while(keyValue.length > i && StringUtils.isBlank(keyValue[i])) {
+                while (keyValue.length > i && StringUtils.isBlank(keyValue[i])) {
                     i++;
                 }
 
-                if(keyValue.length > i) {
+                if (keyValue.length > i) {
                     value = decode(keyValue[i]);
                 }
 
@@ -153,9 +154,13 @@ public class UploadInfo implements Serializable {
 
     @Override
     public boolean equals(final Object o) {
-        if (this == o) return true;
+        if (this == o) {
+            return true;
+        }
 
-        if (o == null || getClass() != o.getClass()) return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
 
         UploadInfo info = (UploadInfo) o;
 
@@ -188,7 +193,7 @@ public class UploadInfo implements Serializable {
     /**
      * Try to guess the filename of the uploaded data. If we cannot guess the name
      * we fall back to the ID.
-     *
+     * <p/>
      * NOTE: This is only a guess, there are no guarantees that the return value is correct
      *
      * @return A potential file name
@@ -196,7 +201,7 @@ public class UploadInfo implements Serializable {
     public String getFileName() {
         Map<String, String> metadata = getMetadata();
         for (String fileNameKey : fileNameKeys) {
-            if(metadata.containsKey(fileNameKey)) {
+            if (metadata.containsKey(fileNameKey)) {
                 return metadata.get(fileNameKey);
             }
         }
@@ -206,7 +211,7 @@ public class UploadInfo implements Serializable {
 
     /**
      * Try to guess the mime-type of the uploaded data.
-     *
+     * <p/>
      * NOTE: This is only a guess, there are no guarantees that the return value is correct
      *
      * @return A potential file name
@@ -214,7 +219,7 @@ public class UploadInfo implements Serializable {
     public String getFileMimeType() {
         Map<String, String> metadata = getMetadata();
         for (String fileNameKey : mimeTypeKeys) {
-            if(metadata.containsKey(fileNameKey)) {
+            if (metadata.containsKey(fileNameKey)) {
                 return metadata.get(fileNameKey);
             }
         }
@@ -238,7 +243,7 @@ public class UploadInfo implements Serializable {
     }
 
     private String[] splitToArray(final String value, final String separatorRegex) {
-        if(StringUtils.isBlank(value)) {
+        if (StringUtils.isBlank(value)) {
             return new String[0];
         } else {
             return StringUtils.trimToEmpty(value).split(separatorRegex);
@@ -246,7 +251,10 @@ public class UploadInfo implements Serializable {
     }
 
     private String decode(final String encodedValue) {
-        if( encodedValue == null ) return null;
-        return new String(DatatypeConverter.parseBase64Binary(encodedValue), Charset.forName("UTF-8"));
+        if (encodedValue == null) {
+            return null;
+        } else {
+            return new String(DatatypeConverter.parseBase64Binary(encodedValue), Charset.forName("UTF-8"));
+        }
     }
 }

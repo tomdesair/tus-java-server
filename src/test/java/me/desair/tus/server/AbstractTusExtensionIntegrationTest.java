@@ -49,7 +49,7 @@ public abstract class AbstractTusExtensionIntegrationTest {
     }
 
     protected void setRequestHeaders(String... headers) {
-        if(headers != null && headers.length > 0) {
+        if (headers != null && headers.length > 0) {
             for (String header : headers) {
                 switch (header) {
                     case HttpHeader.TUS_RESUMABLE:
@@ -73,7 +73,7 @@ public abstract class AbstractTusExtensionIntegrationTest {
         tusFeature.validate(method, servletRequest, uploadStorageService, null);
         TusServletRequest tusServletRequest = new TusServletRequest(this.servletRequest);
 
-        if(readContent) {
+        if (readContent) {
             StringWriter writer = new StringWriter();
             IOUtils.copy(tusServletRequest.getContentInputStream(), writer, StandardCharsets.UTF_8);
         }

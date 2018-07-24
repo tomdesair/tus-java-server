@@ -17,10 +17,12 @@ public interface RequestValidator {
      * @param method The HTTP method of this request (do not use {@link HttpServletRequest#getMethod()}!)
      * @param request The {@link HttpServletRequest} to validate
      * @param uploadStorageService The current upload storage service
-     * @param ownerKey
+     * @param ownerKey A key representing the owner of the upload
      * @throws TusException When validation fails and the request should not be processed
      */
-    void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException, IOException;
+    void validate(final HttpMethod method, final HttpServletRequest request,
+                  final UploadStorageService uploadStorageService, final String ownerKey)
+            throws TusException, IOException;
 
     /**
      * Test if this validator supports the given HTTP method

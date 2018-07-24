@@ -15,9 +15,13 @@ import org.apache.commons.lang3.StringUtils;
 public class PostURIValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException {
-        if(!StringUtils.equals(request.getRequestURI(), uploadStorageService.getUploadURI())) {
-            throw new PostOnInvalidRequestURIException("POST requests have to be send to " + uploadStorageService.getUploadURI());
+    public void validate(final HttpMethod method, final HttpServletRequest request,
+                         final UploadStorageService uploadStorageService, final String ownerKey)
+            throws TusException {
+
+        if (!StringUtils.equals(request.getRequestURI(), uploadStorageService.getUploadURI())) {
+            throw new PostOnInvalidRequestURIException("POST requests have to be send to "
+                    + uploadStorageService.getUploadURI());
         }
     }
 

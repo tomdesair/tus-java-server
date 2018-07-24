@@ -25,12 +25,13 @@ public class TerminationDeleteRequestHandler extends AbstractRequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse,
-                        final UploadStorageService uploadStorageService, final String ownerKey) throws IOException, TusException {
+    public void process(final HttpMethod method, final TusServletRequest servletRequest,
+                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
+                        final String ownerKey) throws IOException, TusException {
 
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
 
-        if(uploadInfo != null) {
+        if (uploadInfo != null) {
             uploadStorageService.terminateUpload(uploadInfo);
         }
 

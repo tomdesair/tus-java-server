@@ -20,19 +20,22 @@ import me.desair.tus.server.util.Utils;
 public class ContentLengthValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException, IOException {
+    public void validate(final HttpMethod method, final HttpServletRequest request,
+                         final UploadStorageService uploadStorageService, final String ownerKey)
+            throws TusException, IOException {
+
         Long contentLength = Utils.getLongHeader(request, HttpHeader.CONTENT_LENGTH);
 
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(request.getRequestURI(), ownerKey);
 
-        if(contentLength != null
+        if (contentLength != null
                 && uploadInfo != null
                 && uploadInfo.hasLength()
                 && (uploadInfo.getOffset() + contentLength > uploadInfo.getLength())) {
 
             throw new InvalidContentLengthException("The " + HttpHeader.CONTENT_LENGTH + " value " + contentLength
-                    + " in combination with the current offset " + uploadInfo.getOffset() + " exceeds the declared upload length "
-                    + uploadInfo.getLength());
+                    + " in combination with the current offset " + uploadInfo.getOffset()
+                    + " exceeds the declared upload length " + uploadInfo.getLength());
         }
     }
 

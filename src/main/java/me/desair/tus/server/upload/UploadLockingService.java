@@ -34,7 +34,7 @@ public interface UploadLockingService {
     /**
      * Set an instance if IdFactory to be used for creating identities and extracting them from uploadURIs
      *
-     * @param idFactory
+     * @param idFactory The {@link UploadIdFactory} to use within this locking service
      */
     void setIdFactory(UploadIdFactory idFactory);
 }

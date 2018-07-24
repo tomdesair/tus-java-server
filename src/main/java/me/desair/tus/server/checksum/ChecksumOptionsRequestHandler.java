@@ -10,12 +10,16 @@ import org.apache.commons.lang3.StringUtils;
 
 /**
  * The Tus-Checksum-Algorithm header MUST be included in the response to an OPTIONS request.
- * The Tus-Checksum-Algorithm response header MUST be a comma-separated list of the checksum algorithms supported by the server.
+ * The Tus-Checksum-Algorithm response header MUST be a comma-separated list of the checksum
+ * algorithms supported by the server.
  */
 public class ChecksumOptionsRequestHandler extends AbstractExtensionRequestHandler {
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) {
+    public void process(final HttpMethod method, final TusServletRequest servletRequest,
+                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
+                        final String ownerKey) {
+
         super.process(method, servletRequest, servletResponse, uploadStorageService, ownerKey);
 
         servletResponse.setHeader(HttpHeader.TUS_CHECKSUM_ALGORITHM,

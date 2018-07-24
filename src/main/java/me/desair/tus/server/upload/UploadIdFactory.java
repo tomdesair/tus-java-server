@@ -18,7 +18,7 @@ public class UploadIdFactory {
         String pathId = StringUtils.substringAfter(url, uploadURI + (StringUtils.endsWith(uploadURI, "/") ? "" : "/"));
         UUID id = null;
 
-        if(StringUtils.isNotBlank(pathId)) {
+        if (StringUtils.isNotBlank(pathId)) {
             try {
                 id = UUID.fromString(pathId);
             } catch (IllegalArgumentException ex) {

@@ -13,8 +13,8 @@ import me.desair.tus.server.util.TusServletResponse;
 import org.apache.commons.lang3.StringUtils;
 
 /**
- * The Upload-Expires response header indicates the time after which the unfinished upload expires.
- * This header MUST be included in every PATCH response if the upload is going to expire. Its value MAY change over time.
+ * The Upload-Expires response header indicates the time after which the unfinished upload expires. This header MUST
+ * be included in every PATCH response if the upload is going to expire. Its value MAY change over time.
  * If the expiration is known at the creation, the Upload-Expires header MUST be included in the response to
  * the initial POST request. Its value MAY change over time. The value of the Upload-Expires header MUST be in
  * RFC 7231 (https://tools.ietf.org/html/rfc7231#section-7.1.1.1) datetime format.
@@ -33,7 +33,7 @@ public class ExpirationRequestHandler extends AbstractRequestHandler {
 
         //For post requests, the upload URI is part of the response
         String uploadUri = servletResponse.getHeader(HttpHeader.LOCATION);
-        if(StringUtils.isBlank(uploadUri)) {
+        if (StringUtils.isBlank(uploadUri)) {
             //For patch request, our upload URI is the URI of the request
             uploadUri = servletRequest.getRequestURI();
         }
@@ -45,7 +45,7 @@ public class ExpirationRequestHandler extends AbstractRequestHandler {
         // If the expiration is known at the creation, the Upload-Expires header MUST be included in the response to
         // the initial POST request. Its value MAY change over time.
 
-        if(expirationPeriod != null && expirationPeriod > 0 && uploadInfo != null) {
+        if (expirationPeriod != null && expirationPeriod > 0 && uploadInfo != null) {
 
             uploadInfo.updateExpiration(expirationPeriod);
             uploadStorageService.update(uploadInfo);

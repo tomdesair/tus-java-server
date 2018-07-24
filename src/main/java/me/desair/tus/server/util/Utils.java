@@ -45,7 +45,7 @@ public class Utils {
     public static Long getLongHeader(final HttpServletRequest request, final String header) {
         try {
             return Long.valueOf(getHeader(request, header));
-        } catch(NumberFormatException ex) {
+        } catch (NumberFormatException ex) {
             return null;
         }
     }
@@ -66,7 +66,7 @@ public class Utils {
         if (path != null) {
             try (FileChannel channel = FileChannel.open(path, READ)) {
                 //Lock will be released when the channel is closed
-                if(lockFileShared(channel) != null) {
+                if (lockFileShared(channel) != null) {
 
                     try (ObjectInputStream ois = new ObjectInputStream(Channels.newInputStream(channel))) {
                         info = clazz.cast(ois.readObject());
@@ -87,7 +87,7 @@ public class Utils {
         if (path != null) {
             try (FileChannel channel = FileChannel.open(path, WRITE, CREATE, TRUNCATE_EXISTING)) {
                 //Lock will be released when the channel is closed
-                if(lockFileExclusively(channel) != null) {
+                if (lockFileExclusively(channel) != null) {
 
                     try (OutputStream buffer = new BufferedOutputStream(Channels.newOutputStream(channel));
                          ObjectOutput output = new ObjectOutputStream(buffer)) {
@@ -123,14 +123,14 @@ public class Utils {
         int i = 0;
         FileLock lock = null;
         do {
-            if(i > 0) {
+            if (i > 0) {
                 sleep(LOCK_FILE_SLEEP_TIME);
             }
 
             lock = channel.tryLock(0L, Long.MAX_VALUE, shared);
 
             i++;
-        } while(lock == null && i < LOCK_FILE_RETRY_COUNT);
+        } while (lock == null && i < LOCK_FILE_RETRY_COUNT);
 
         return lock;
     }

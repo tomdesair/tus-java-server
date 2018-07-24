@@ -28,19 +28,24 @@ public abstract class AbstractTusExtension implements TusExtension {
     protected abstract void initRequestHandlers(final List<RequestHandler> requestHandlers);
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest servletRequest, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException, IOException {
+    public void validate(final HttpMethod method, final HttpServletRequest servletRequest,
+                         final UploadStorageService uploadStorageService, final String ownerKey)
+            throws TusException, IOException {
+
         for (RequestValidator requestValidator : requestValidators) {
-            if(requestValidator.supports(method)) {
+            if (requestValidator.supports(method)) {
                 requestValidator.validate(method, servletRequest, uploadStorageService, ownerKey);
             }
         }
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse,
-                        final UploadStorageService uploadStorageService, final String ownerKey) throws IOException, TusException {
+    public void process(final HttpMethod method, final TusServletRequest servletRequest,
+                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
+                        final String ownerKey) throws IOException, TusException {
+
         for (RequestHandler requestHandler : requestHandlers) {
-            if(requestHandler.supports(method)) {
+            if (requestHandler.supports(method)) {
                 requestHandler.process(method, servletRequest, servletResponse, uploadStorageService, ownerKey);
             }
         }
@@ -48,9 +53,11 @@ public abstract class AbstractTusExtension implements TusExtension {
 
     @Override
     public void handleError(final HttpMethod method, final TusServletRequest request, final TusServletResponse response,
-                            final UploadStorageService uploadStorageService, final String ownerKey) throws IOException, TusException {
+                            final UploadStorageService uploadStorageService, final String ownerKey)
+            throws IOException, TusException {
+
         for (RequestHandler requestHandler : requestHandlers) {
-            if(requestHandler.supports(method) && requestHandler.isErrorHandler()) {
+            if (requestHandler.supports(method) && requestHandler.isErrorHandler()) {
                 requestHandler.process(method, request, response, uploadStorageService, ownerKey);
             }
         }

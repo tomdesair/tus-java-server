@@ -31,8 +31,9 @@ public class CreationPostRequestHandler extends AbstractRequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse,
-                        final UploadStorageService uploadStorageService, final String ownerKey) throws IOException {
+    public void process(final HttpMethod method, final TusServletRequest servletRequest,
+                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
+                        final String ownerKey) throws IOException {
 
         UploadInfo info = buildUploadInfo(servletRequest);
         info = uploadStorageService.create(info, ownerKey);
@@ -49,12 +50,12 @@ public class CreationPostRequestHandler extends AbstractRequestHandler {
         UploadInfo info = new UploadInfo();
 
         Long length = Utils.getLongHeader(servletRequest, HttpHeader.UPLOAD_LENGTH);
-        if(length != null) {
+        if (length != null) {
             info.setLength(length);
         }
 
         String metadata = Utils.getHeader(servletRequest, HttpHeader.UPLOAD_METADATA);
-        if(StringUtils.isNotBlank(metadata)) {
+        if (StringUtils.isNotBlank(metadata)) {
             info.setEncodedMetadata(metadata);
         }
 

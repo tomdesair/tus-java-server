@@ -40,14 +40,14 @@ public class VirtualConcatenationService implements UploadConcatenationService {
             Long totalLength = calculateTotalLength(partialUploads);
             boolean completed = checkAllCompleted(expirationPeriod, partialUploads);
 
-            if(totalLength != null && totalLength > 0) {
+            if (totalLength != null && totalLength > 0) {
                 uploadInfo.setLength(totalLength);
 
-                if(completed) {
+                if (completed) {
                     uploadInfo.setOffset(totalLength);
                 }
 
-                if(expirationPeriod != null) {
+                if (expirationPeriod != null) {
                     uploadInfo.updateExpiration(expirationPeriod);
                 }
 
@@ -78,8 +78,9 @@ public class VirtualConcatenationService implements UploadConcatenationService {
             List<UploadInfo> output = new ArrayList<>(concatenationParts.size());
             for (String childUri : concatenationParts) {
                 UploadInfo childInfo = uploadStorageService.getUploadInfo(childUri, info.getOwnerKey());
-                if(childInfo == null) {
-                    throw new UploadNotFoundException("Upload with URI " + childUri + " was not found for owner " + info.getOwnerKey());
+                if (childInfo == null) {
+                    throw new UploadNotFoundException("Upload with URI " + childUri
+                            + " was not found for owner " + info.getOwnerKey());
                 } else {
                     output.add(childInfo);
                 }
@@ -107,7 +108,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
         boolean completed = true;
 
         for (UploadInfo childInfo : partialUploads) {
-            if(childInfo.isUploadInProgress()) {
+            if (childInfo.isUploadInProgress()) {
                 completed = false;
 
             } else if (expirationPeriod != null) {

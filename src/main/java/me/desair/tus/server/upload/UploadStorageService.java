@@ -17,7 +17,7 @@ public interface UploadStorageService {
     /**
      * Method to retrieve the upload info by its upload URL
      * @param uploadUrl The URL corresponding to this upload. This parameter can be null.
-     * @param ownerKey
+     * @param ownerKey A key representing the owner of the upload
      * @return The upload info matching the given URL, or null when not found.
      */
     UploadInfo getUploadInfo(final String uploadUrl, final String ownerKey) throws IOException;
@@ -61,8 +61,8 @@ public interface UploadStorageService {
     /**
      * Create an upload location with the given upload information
      * @param info The Upload information to use to create the new upload
-     * @param ownerKey
-     * @return An {@link UploadInfo} object containing the information used to create the upload and the unique ID of this upload
+     * @param ownerKey A key representing the owner of the upload
+     * @return An {@link UploadInfo} object containing the information used to create the upload and its unique ID
      */
     UploadInfo create(final UploadInfo info, final String ownerKey) throws IOException;
 
@@ -78,14 +78,15 @@ public interface UploadStorageService {
      * @param ownerKey The owner key of this upload
      * @return an {@link OutputStream} containing the bytes of the upload
      */
-    InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws IOException, UploadNotFoundException;
+    InputStream getUploadedBytes(final String uploadURI, final String ownerKey)
+            throws IOException, UploadNotFoundException;
 
     /**
      * Get the uploaded bytes corresponding to the given upload ID as a stream
      * @param id the ID of the upload
      * @return an {@link OutputStream} containing the bytes of the upload
-     * @throws IOException
-     * @throws UploadNotFoundException
+     * @throws IOException When retrieving the bytes from the storage layer fails
+     * @throws UploadNotFoundException When the proved id is not linked to an upload
      */
     InputStream getUploadedBytes(UUID id) throws IOException, UploadNotFoundException;
 
@@ -98,7 +99,7 @@ public interface UploadStorageService {
 
     /**
      * Clean up any upload data that is expired according to the configured expiration time
-     * @param uploadLockingService
+     * @param uploadLockingService An {@link UploadLockingService} that can be used to check and lock uploads
      */
     void cleanupExpiredUploads(final UploadLockingService uploadLockingService) throws IOException;
 
@@ -142,7 +143,7 @@ public interface UploadStorageService {
     /**
      * Set an instance if IdFactory to be used for creating identities and extracting them from uploadURIs
      *
-     * @param idFactory
+     * @param idFactory The {@link UploadIdFactory} to use within this storage service
      */
     void setIdFactory(UploadIdFactory idFactory);
 }
