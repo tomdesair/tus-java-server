@@ -57,7 +57,8 @@ Optionally you can also pass a `String ownerKey` parameter. The `ownerKey` can b
 Once the upload has been completed by the user, the business logic layer of your application needs to retrieve and do something with the uploaded bytes. This can be achieved by using the `me.desair.tus.server.TusFileUploadService.getUploadedBytes(String uploadURL)` method. The passed `uploadURL` value should be the upload url used by the user to which he uploaded his file. Therefor your application should pass the upload URL of completed uploads to the backend. Optionally, you can also pass an `ownerKey` value to this method in case your application chooses to process uploads using owner keys.
 
 ### 4. Upload cleanup
-TODO
+After having processed an upload, it is important to cleanup the uploaded bytes.
+TODO TEST PR
 
 
 ## Compatible Client Implementations
