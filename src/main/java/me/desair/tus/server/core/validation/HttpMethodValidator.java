@@ -14,8 +14,8 @@ import me.desair.tus.server.upload.UploadStorageService;
 public class HttpMethodValidator implements RequestValidator {
 
     @Override
-    public void validate(HttpMethod method, HttpServletRequest request, final UploadStorageService uploadStorageService,
-                         final String ownerKey) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request,
+                         final UploadStorageService uploadStorageService, final String ownerKey) throws TusException {
 
         if (method == null) {
             throw new UnsupportedMethodException("The HTTP method " + request.getMethod() + " is not supported");

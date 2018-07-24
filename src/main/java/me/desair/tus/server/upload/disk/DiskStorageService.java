@@ -59,7 +59,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public void setIdFactory(UploadIdFactory idFactory) {
+    public void setIdFactory(final UploadIdFactory idFactory) {
         this.idFactory = idFactory;
     }
 
@@ -209,12 +209,12 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public void setUploadExpirationPeriod(Long uploadExpirationPeriod) {
+    public void setUploadExpirationPeriod(final Long uploadExpirationPeriod) {
         this.uploadExpirationPeriod = uploadExpirationPeriod;
     }
 
     @Override
-    public void setUploadConcatenationService(UploadConcatenationService concatenationService) {
+    public void setUploadConcatenationService(final UploadConcatenationService concatenationService) {
         Validate.notNull(concatenationService);
         this.uploadConcatenationService = concatenationService;
     }
@@ -239,7 +239,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public InputStream getUploadedBytes(UUID id) throws IOException, UploadNotFoundException {
+    public InputStream getUploadedBytes(final UUID id) throws IOException, UploadNotFoundException {
         InputStream inputStream = null;
         UploadInfo uploadInfo = getUploadInfo(id);
         if (UploadType.CONCATENATED.equals(uploadInfo.getUploadType()) && uploadConcatenationService != null) {
@@ -292,7 +292,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         }
     }
 
-    private List<UploadInfo> getUploads(UploadInfo info) throws IOException, UploadNotFoundException {
+    private List<UploadInfo> getUploads(final UploadInfo info) throws IOException, UploadNotFoundException {
         List<UploadInfo> uploads;
 
         if (info != null && UploadType.CONCATENATED.equals(info.getUploadType())

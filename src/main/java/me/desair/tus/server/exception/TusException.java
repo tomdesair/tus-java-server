@@ -11,7 +11,7 @@ public class TusException extends Exception {
         this(status, message, null);
     }
 
-    public TusException(final int status, final String message, Throwable e) {
+    public TusException(final int status, final String message, final Throwable e) {
         super(message, e);
         this.status = status;
     }

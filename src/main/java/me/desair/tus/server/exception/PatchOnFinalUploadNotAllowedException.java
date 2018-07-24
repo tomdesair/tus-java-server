@@ -7,7 +7,7 @@ import javax.servlet.http.HttpServletResponse;
  */
 public class PatchOnFinalUploadNotAllowedException extends TusException {
 
-    public PatchOnFinalUploadNotAllowedException(String message) {
+    public PatchOnFinalUploadNotAllowedException(final String message) {
         super(HttpServletResponse.SC_FORBIDDEN, message);
     }
 }

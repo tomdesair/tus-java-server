@@ -107,7 +107,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
      * @throws IOException if an IO problem occurs.
      */
     @Override
-    public int read(byte[] b, int off, int len) throws IOException {
+    public int read(final byte[] b, final int off, final int len) throws IOException {
 
         if (closed) {
             throw new IOException("Attempted read from closed stream.");
@@ -122,8 +122,8 @@ public class HttpChunkedEncodingInputStream extends InputStream {
                 return -1;
             }
         }
-        len = Math.min(len, chunkSize - pos);
-        int count = in.read(b, off, len);
+        int minLen = Math.min(len, chunkSize - pos);
+        int count = in.read(b, off, minLen);
         pos += count;
         return count;
     }
@@ -136,7 +136,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
      * @throws IOException if an IO problem occurs.
      */
     @Override
-    public int read(byte[] b) throws IOException {
+    public int read(final byte[] b) throws IOException {
         return read(b, 0, b.length);
     }
 
@@ -279,7 +279,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         }
     }
 
-    private List<Pair<String, String>> parseHeaders(InputStream is, Charset charset) throws IOException {
+    private List<Pair<String, String>> parseHeaders(final InputStream is, final Charset charset) throws IOException {
         List<Pair<String, String>> headers = new LinkedList<>();
         String name = null;
         StringBuilder value = null;
@@ -329,7 +329,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         return c == ' ' || c == '\t';
     }
 
-    private String readLine(InputStream inputStream, Charset charset) throws IOException {
+    private String readLine(final InputStream inputStream, final Charset charset) throws IOException {
         byte[] rawdata = readRawLine(inputStream);
         if (rawdata == null || rawdata.length == 0) {
             return null;
@@ -347,7 +347,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         return new String(rawdata, 0, len - offset, charset);
     }
 
-    private byte[] readRawLine(InputStream inputStream) throws IOException {
+    private byte[] readRawLine(final InputStream inputStream) throws IOException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         int ch;
         while ((ch = inputStream.read()) >= 0) {
