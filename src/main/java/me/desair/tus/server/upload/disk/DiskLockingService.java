@@ -90,6 +90,11 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
         return locked;
     }
 
+    @Override
+    public void setIdFactory(UploadIdFactory idFactory) {
+        this.idFactory = idFactory;
+    }
+
     private Path getLockPath(final UUID id) {
         return getPathInStorageDirectory(id);
     }

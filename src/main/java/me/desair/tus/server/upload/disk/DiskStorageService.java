@@ -59,6 +59,11 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
+    public void setIdFactory(UploadIdFactory idFactory) {
+        this.idFactory = idFactory;
+    }
+
+    @Override
     public void setMaxUploadSize(final Long maxUploadSize) {
         this.maxUploadSize = (maxUploadSize != null && maxUploadSize > 0 ? maxUploadSize : 0);
     }
