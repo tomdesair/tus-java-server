@@ -82,6 +82,7 @@ public class TusFileUploadService {
         Validate.notNull(uploadStorageService, "The UploadStorageService cannot be null");
         //Copy over any previous configuration
         uploadStorageService.setMaxUploadSize(this.uploadStorageService.getMaxUploadSize());
+        uploadStorageService.setIdFactory(this.idFactory);
         //Update the upload storage service
         this.uploadStorageService = uploadStorageService;
         return this;
@@ -89,6 +90,7 @@ public class TusFileUploadService {
 
     public TusFileUploadService withUploadLockingService(final UploadLockingService uploadLockingService) {
         Validate.notNull(uploadLockingService, "The UploadStorageService cannot be null");
+        uploadLockingService.setIdFactory(this.idFactory);
         //Update the upload storage service
         this.uploadLockingService = uploadLockingService;
         return this;

@@ -31,4 +31,10 @@ public interface UploadLockingService {
      */
     boolean isLocked(UUID id);
 
+    /**
+     * Set an instance if IdFactory to be used for creating identities and extracting them from uploadURIs
+     *
+     * @param idFactory
+     */
+    void setIdFactory(UploadIdFactory idFactory);
 }
