@@ -29,7 +29,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
     }
 
     @Override
-    public void merge(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
+    public void merge(final UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
         if (uploadInfo != null && uploadInfo.isUploadInProgress()
                 && uploadInfo.getConcatenationParts() != null) {
 
@@ -57,7 +57,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
     }
 
     @Override
-    public InputStream getConcatenatedBytes(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
+    public InputStream getConcatenatedBytes(final UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
         merge(uploadInfo);
 
         if (uploadInfo == null || uploadInfo.isUploadInProgress()) {
@@ -69,7 +69,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
     }
 
     @Override
-    public List<UploadInfo> getPartialUploads(UploadInfo info) throws IOException, UploadNotFoundException {
+    public List<UploadInfo> getPartialUploads(final UploadInfo info) throws IOException, UploadNotFoundException {
         List<String> concatenationParts = info.getConcatenationParts();
 
         if (concatenationParts == null || concatenationParts.isEmpty()) {
@@ -89,7 +89,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
         }
     }
 
-    private Long calculateTotalLength(List<UploadInfo> partialUploads) {
+    private Long calculateTotalLength(final List<UploadInfo> partialUploads) {
         Long totalLength = 0L;
 
         for (UploadInfo childInfo : partialUploads) {
@@ -104,7 +104,9 @@ public class VirtualConcatenationService implements UploadConcatenationService {
         return totalLength;
     }
 
-    private boolean checkAllCompleted(Long expirationPeriod, List<UploadInfo> partialUploads) throws IOException {
+    private boolean checkAllCompleted(final Long expirationPeriod, final List<UploadInfo> partialUploads)
+            throws IOException {
+
         boolean completed = true;
 
         for (UploadInfo childInfo : partialUploads) {
@@ -122,7 +124,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
         return completed;
     }
 
-    private void updateUpload(UploadInfo uploadInfo) throws IOException {
+    private void updateUpload(final UploadInfo uploadInfo) throws IOException {
         try {
             uploadStorageService.update(uploadInfo);
         } catch (UploadNotFoundException e) {

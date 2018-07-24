@@ -90,7 +90,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
         return singleDigestInputStream != null || !digestInputStreamMap.isEmpty();
     }
 
-    public String getCalculatedChecksum(ChecksumAlgorithm algorithm) {
+    public String getCalculatedChecksum(final ChecksumAlgorithm algorithm) {
         MessageDigest messageDigest = getMessageDigest(algorithm);
         return messageDigest == null ? null :
                 DatatypeConverter.printBase64Binary(messageDigest.digest());
@@ -107,7 +107,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
     }
 
     @Override
-    public String getHeader(String name) {
+    public String getHeader(final String name) {
         String value = super.getHeader(name);
 
         if (StringUtils.isBlank(value) && trailerHeaders.containsKey(name)) {
@@ -120,11 +120,11 @@ public class TusServletRequest extends HttpServletRequestWrapper {
         return value;
     }
 
-    public boolean isProcessedBy(TusExtension processor) {
+    public boolean isProcessedBy(final TusExtension processor) {
         return processedBySet.contains(processor.getName());
     }
 
-    public void addProcessor(TusExtension processor) {
+    public void addProcessor(final TusExtension processor) {
         processedBySet.add(processor.getName());
     }
 }

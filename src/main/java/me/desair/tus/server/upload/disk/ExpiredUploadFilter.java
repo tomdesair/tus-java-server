@@ -21,13 +21,13 @@ public class ExpiredUploadFilter implements DirectoryStream.Filter<Path> {
     private DiskStorageService diskStorageService;
     private UploadLockingService uploadLockingService;
 
-    ExpiredUploadFilter(DiskStorageService diskStorageService, UploadLockingService uploadLockingService) {
+    ExpiredUploadFilter(final DiskStorageService diskStorageService, final UploadLockingService uploadLockingService) {
         this.diskStorageService = diskStorageService;
         this.uploadLockingService = uploadLockingService;
     }
 
     @Override
-    public boolean accept(Path upload) throws IOException {
+    public boolean accept(final Path upload) throws IOException {
         UUID id = null;
         try {
             id = UUID.fromString(upload.getFileName().toString());

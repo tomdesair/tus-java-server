@@ -50,7 +50,7 @@ public class Utils {
         }
     }
 
-    public static List<String> parseConcatenationIDsFromHeader(String uploadConcatValue) {
+    public static List<String> parseConcatenationIDsFromHeader(final String uploadConcatValue) {
         List<String> output = new LinkedList<>();
 
         String idString = StringUtils.substringAfter(uploadConcatValue, ";");
@@ -101,15 +101,15 @@ public class Utils {
         }
     }
 
-    public static FileLock lockFileExclusively(FileChannel channel) throws IOException {
+    public static FileLock lockFileExclusively(final FileChannel channel) throws IOException {
         return lockFile(channel, false);
     }
 
-    public static FileLock lockFileShared(FileChannel channel) throws IOException {
+    public static FileLock lockFileShared(final FileChannel channel) throws IOException {
         return lockFile(channel, true);
     }
 
-    public static void sleep(long sleepTime) {
+    public static void sleep(final long sleepTime) {
         try {
             Thread.sleep(sleepTime);
         } catch (InterruptedException e) {
@@ -119,7 +119,7 @@ public class Utils {
         }
     }
 
-    private static FileLock lockFile(FileChannel channel, boolean shared) throws IOException {
+    private static FileLock lockFile(final FileChannel channel, final boolean shared) throws IOException {
         int i = 0;
         FileLock lock = null;
         do {

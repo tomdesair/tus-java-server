@@ -25,12 +25,12 @@ public class ExpirationExtension extends AbstractTusExtension {
     }
 
     @Override
-    protected void initValidators(List<RequestValidator> requestValidators) {
+    protected void initValidators(final List<RequestValidator> requestValidators) {
         //No validators
     }
 
     @Override
-    protected void initRequestHandlers(List<RequestHandler> requestHandlers) {
+    protected void initRequestHandlers(final List<RequestHandler> requestHandlers) {
         requestHandlers.add(new ExpirationOptionsRequestHandler());
         requestHandlers.add(new ExpirationRequestHandler());
     }

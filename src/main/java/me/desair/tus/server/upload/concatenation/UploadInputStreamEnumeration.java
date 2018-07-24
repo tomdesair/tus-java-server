@@ -25,7 +25,8 @@ public class UploadInputStreamEnumeration implements Enumeration<InputStream> {
     private Iterator<UploadInfo> uploadIterator;
     private InputStream currentInputStream = null;
 
-    public UploadInputStreamEnumeration(List<UploadInfo> uploadList, UploadStorageService uploadStorageService) {
+    public UploadInputStreamEnumeration(final List<UploadInfo> uploadList,
+                                        final UploadStorageService uploadStorageService) {
         this.uploads = new ArrayList<>(uploadList);
         this.uploadStorageService = uploadStorageService;
         this.uploadIterator = this.uploads.iterator();

@@ -256,8 +256,8 @@ public class TusFileUploadService {
         uploadStorageService.cleanupExpiredUploads(uploadLockingService);
     }
 
-    protected void processLockedRequest(HttpMethod method, TusServletRequest request, TusServletResponse response,
-                                        String ownerKey) throws IOException {
+    protected void processLockedRequest(final HttpMethod method, final TusServletRequest request,
+                                        final TusServletResponse response, final String ownerKey) throws IOException {
         try {
             validateRequest(method, request, ownerKey);
 

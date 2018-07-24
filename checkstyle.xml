@@ -248,5 +248,9 @@
             <property name="exceptionVariableName" value="expected"/>
         </module>
         <module name="CommentsIndentation"/>
+        <module name="FinalParameters">
+            <property name="ignorePrimitiveTypes" value="false"/>
+            <property name="tokens" value="METHOD_DEF,CTOR_DEF"/>
+        </module>
     </module>
 </module>

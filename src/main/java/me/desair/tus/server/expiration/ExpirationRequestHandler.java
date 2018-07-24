@@ -28,8 +28,9 @@ public class ExpirationRequestHandler extends AbstractRequestHandler {
     }
 
     @Override
-    public void process(HttpMethod method, TusServletRequest servletRequest, TusServletResponse servletResponse,
-                        UploadStorageService uploadStorageService, String ownerKey) throws IOException, TusException {
+    public void process(final HttpMethod method, final TusServletRequest servletRequest,
+                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
+                        final String ownerKey) throws IOException, TusException {
 
         //For post requests, the upload URI is part of the response
         String uploadUri = servletResponse.getHeader(HttpHeader.LOCATION);

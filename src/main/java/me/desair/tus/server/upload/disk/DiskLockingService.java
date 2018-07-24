@@ -70,7 +70,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public boolean isLocked(UUID id) {
+    public boolean isLocked(final UUID id) {
         boolean locked = false;
         Path lockPath = getLockPath(id);
 
@@ -91,7 +91,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public void setIdFactory(UploadIdFactory idFactory) {
+    public void setIdFactory(final UploadIdFactory idFactory) {
         this.idFactory = idFactory;
     }
 

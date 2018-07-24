@@ -37,7 +37,7 @@ public enum HttpMethod {
     }
 
     public static HttpMethod getMethodIfSupported(final HttpServletRequest request,
-                                                  Set<HttpMethod> supportedHttpMethods) {
+                                                  final Set<HttpMethod> supportedHttpMethods) {
         Validate.notNull(request, "The HttpServletRequest cannot be null");
 
         String requestMethod = request.getHeader(HttpHeader.METHOD_OVERRIDE);
