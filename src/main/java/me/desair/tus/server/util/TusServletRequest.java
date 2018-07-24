@@ -1,14 +1,5 @@
 package me.desair.tus.server.util;
 
-import me.desair.tus.server.HttpHeader;
-import me.desair.tus.server.TusExtension;
-import me.desair.tus.server.checksum.ChecksumAlgorithm;
-import org.apache.commons.io.input.CountingInputStream;
-import org.apache.commons.lang3.StringUtils;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletRequestWrapper;
-import javax.xml.bind.DatatypeConverter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.DigestInputStream;
@@ -19,6 +10,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletRequestWrapper;
+import javax.xml.bind.DatatypeConverter;
+
+import me.desair.tus.server.HttpHeader;
+import me.desair.tus.server.TusExtension;
+import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import org.apache.commons.io.input.CountingInputStream;
+import org.apache.commons.lang3.StringUtils;
 
 public class TusServletRequest extends HttpServletRequestWrapper {
 
@@ -41,20 +42,23 @@ public class TusServletRequest extends HttpServletRequestWrapper {
     }
 
     public InputStream getContentInputStream() throws IOException {
-        if(contentInputStream == null) {
+        if (contentInputStream == null) {
             contentInputStream = super.getInputStream();
 
-            //If we're dealing with chunked transfer encoding, abstract it so that the rest of our code doesn't need to care
+            //If we're dealing with chunked transfer encoding,
+            //abstract it so that the rest of our code doesn't need to care
             boolean isChunked = hasChunkedTransferEncoding();
-            if(isChunked) {
+            if (isChunked) {
                 contentInputStream = new HttpChunkedEncodingInputStream(contentInputStream, trailerHeaders);
             }
 
             countingInputStream = new CountingInputStream(contentInputStream);
             contentInputStream = countingInputStream;
 
-            ChecksumAlgorithm checksumAlgorithm = ChecksumAlgorithm.forUploadChecksumHeader(getHeader(HttpHeader.UPLOAD_CHECKSUM));
-            if(isChunked) {
+            ChecksumAlgorithm checksumAlgorithm = ChecksumAlgorithm.forUploadChecksumHeader(
+                    getHeader(HttpHeader.UPLOAD_CHECKSUM));
+
+            if (isChunked) {
                 //Since the Checksum header can still come at the end, keep track of all checksums
                 for (ChecksumAlgorithm algorithm : ChecksumAlgorithm.values()) {
                     DigestInputStream is = new DigestInputStream(contentInputStream, algorithm.getMessageDigest());
@@ -63,7 +67,9 @@ public class TusServletRequest extends HttpServletRequestWrapper {
                     contentInputStream = is;
                 }
             } else if (checksumAlgorithm != null) {
-                singleDigestInputStream = new DigestInputStream(contentInputStream, checksumAlgorithm.getMessageDigest());
+                singleDigestInputStream = new DigestInputStream(contentInputStream,
+                        checksumAlgorithm.getMessageDigest());
+
                 contentInputStream = singleDigestInputStream;
             }
 
@@ -91,9 +97,9 @@ public class TusServletRequest extends HttpServletRequestWrapper {
     }
 
     private MessageDigest getMessageDigest(final ChecksumAlgorithm algorithm) {
-        if(digestInputStreamMap.containsKey(algorithm)) {
+        if (digestInputStreamMap.containsKey(algorithm)) {
             return digestInputStreamMap.get(algorithm).getMessageDigest();
-        } else if(singleDigestInputStream != null) {
+        } else if (singleDigestInputStream != null) {
             return singleDigestInputStream.getMessageDigest();
         } else {
             return null;
@@ -104,9 +110,9 @@ public class TusServletRequest extends HttpServletRequestWrapper {
     public String getHeader(String name) {
         String value = super.getHeader(name);
 
-        if(StringUtils.isBlank(value) && trailerHeaders.containsKey(name)) {
+        if (StringUtils.isBlank(value) && trailerHeaders.containsKey(name)) {
             List<String> values = trailerHeaders.get(name);
-            if(values != null && !values.isEmpty()) {
+            if (values != null && !values.isEmpty()) {
                 value = values.get(0);
             }
         }

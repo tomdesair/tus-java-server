@@ -8,7 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Enum that contains all supported checksum algorithms
- * The names of the checksum algorithms MUST only consist of ASCII characters with the modification that uppercase characters are excluded.
+ * The names of the checksum algorithms MUST only consist of ASCII characters
+ * with the modification that uppercase characters are excluded.
  */
 public enum ChecksumAlgorithm {
 

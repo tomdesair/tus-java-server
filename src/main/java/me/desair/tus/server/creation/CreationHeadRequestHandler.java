@@ -12,10 +12,10 @@ import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 
 /** A HEAD request can be used to retrieve the metadata that was supplied at creation.
- *
+ * <p/>
  *  If an upload contains additional metadata, responses to HEAD requests MUST include the Upload-Metadata
  *  header and its value as specified by the Client during the creation.
- *
+ * <p/>
  *  As long as the length of the upload is not known, the Server MUST set Upload-Defer-Length: 1 in
  *  all responses to HEAD requests.
  */
@@ -27,14 +27,17 @@ public class CreationHeadRequestHandler extends AbstractRequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) throws IOException {
+    public void process(final HttpMethod method, final TusServletRequest servletRequest,
+                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
+                        final String ownerKey) throws IOException {
+
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
 
-        if(uploadInfo.hasMetadata()) {
+        if (uploadInfo.hasMetadata()) {
             servletResponse.setHeader(HttpHeader.UPLOAD_METADATA, uploadInfo.getEncodedMetadata());
         }
 
-        if(!uploadInfo.hasLength() && !UploadType.CONCATENATED.equals(uploadInfo.getUploadType())) {
+        if (!uploadInfo.hasLength() && !UploadType.CONCATENATED.equals(uploadInfo.getUploadType())) {
             servletResponse.setHeader(HttpHeader.UPLOAD_DEFER_LENGTH, "1");
         }
     }

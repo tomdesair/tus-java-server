@@ -18,8 +18,10 @@ import org.apache.commons.lang3.StringUtils;
 public class NoUploadLengthOnFinalValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService,
-                         final String ownerKey) throws IOException, TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request,
+                         final UploadStorageService uploadStorageService, final String ownerKey)
+            throws IOException, TusException {
+
         String uploadConcatValue = request.getHeader(HttpHeader.UPLOAD_CONCAT);
 
         if (StringUtils.startsWithIgnoreCase(uploadConcatValue, "final")

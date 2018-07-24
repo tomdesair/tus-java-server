@@ -67,7 +67,7 @@ public class TusServletResponse extends HttpServletResponseWrapper {
     @Override
     public String getHeader(final String name) {
         String value;
-        if(headers.containsKey(name)) {
+        if (headers.containsKey(name)) {
             value = headers.get(name).get(0);
         } else {
             value = super.getHeader(name);
@@ -77,7 +77,7 @@ public class TusServletResponse extends HttpServletResponseWrapper {
 
     private void recordHeader(final String name, final String value) {
         List<String> values = headers.get(name);
-        if(values == null) {
+        if (values == null) {
             values = new LinkedList<>();
             headers.put(name, values);
         }

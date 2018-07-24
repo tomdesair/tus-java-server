@@ -33,14 +33,15 @@ public class UploadInputStreamEnumeration implements Enumeration<InputStream> {
 
     @Override
     public boolean hasMoreElements() {
-        if(uploadIterator != null && uploadIterator.hasNext()) {
+        if (uploadIterator != null && uploadIterator.hasNext()) {
             currentInputStream = getNextInputStream();
         } else {
             currentInputStream = null;
         }
 
-        //if we could not get a next upload stream, set the iterator to null to make sure repeated calls give the same result
-        if(currentInputStream == null) {
+        //if we could not get a next upload stream, set the iterator to null
+        // to make sure repeated calls give the same result
+        if (currentInputStream == null) {
             uploadIterator = null;
             return false;
         } else {
@@ -56,7 +57,7 @@ public class UploadInputStreamEnumeration implements Enumeration<InputStream> {
     private InputStream getNextInputStream() {
         InputStream is = null;
         UploadInfo info = uploadIterator.next();
-        if(info != null) {
+        if (info != null) {
             try {
                 is = uploadStorageService.getUploadedBytes(info.getId());
             } catch (IOException | UploadNotFoundException ex) {

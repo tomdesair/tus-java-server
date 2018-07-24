@@ -30,17 +30,21 @@ public class CreationPatchRequestHandler extends AbstractRequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) throws IOException {
+    public void process(final HttpMethod method, final TusServletRequest servletRequest,
+                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
+                        final String ownerKey) throws IOException {
+
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
 
-        if(uploadInfo != null && !uploadInfo.hasLength()) {
+        if (uploadInfo != null && !uploadInfo.hasLength()) {
             Long uploadLength = Utils.getLongHeader(servletRequest, HttpHeader.UPLOAD_LENGTH);
-            if(uploadLength != null) {
+            if (uploadLength != null) {
                 uploadInfo.setLength(uploadLength);
                 try {
                     uploadStorageService.update(uploadInfo);
                 } catch (UploadNotFoundException e) {
-                    log.error("The patch request handler could not find the upload for URL " + servletRequest.getRequestURI()
+                    log.error("The patch request handler could not find the upload for URL "
+                            + servletRequest.getRequestURI()
                             + ". This means something is really wrong the request validators!", e);
                     servletResponse.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                 }

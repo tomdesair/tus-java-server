@@ -31,7 +31,8 @@ public class HttpHeader {
 
     /**
      * The Upload-Checksum request header contains information about the checksum of the current body payload.
-     * The header MUST consist of the name of the used checksum algorithm and the Base64 encoded checksum separated by a space.
+     * The header MUST consist of the name of the used checksum algorithm and the Base64 encoded checksum
+     * separated by a space.
      */
     public static final String UPLOAD_CHECKSUM = "Upload-Checksum";
 

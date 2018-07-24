@@ -17,7 +17,9 @@ import me.desair.tus.server.upload.UploadStorageService;
 public class IdExistsValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException, IOException {
+    public void validate(final HttpMethod method, final HttpServletRequest request,
+                         final UploadStorageService uploadStorageService, final String ownerKey)
+            throws TusException, IOException {
 
         if (uploadStorageService.getUploadInfo(request.getRequestURI(), ownerKey) == null) {
             throw new UploadNotFoundException("The upload for path " + request.getRequestURI()
@@ -28,11 +30,11 @@ public class IdExistsValidator implements RequestValidator {
     @Override
     public boolean supports(final HttpMethod method) {
         return method != null && (
-                HttpMethod.HEAD.equals(method) ||
-                        HttpMethod.PATCH.equals(method) ||
-                        HttpMethod.DELETE.equals(method) ||
-                        HttpMethod.GET.equals(method)
-        );
+                HttpMethod.HEAD.equals(method)
+                        || HttpMethod.PATCH.equals(method)
+                        || HttpMethod.DELETE.equals(method)
+                        || HttpMethod.GET.equals(method)
+            );
     }
 
 }

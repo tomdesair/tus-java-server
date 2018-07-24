@@ -1,9 +1,5 @@
 package me.desair.tus.server.util;
 
-import org.apache.commons.lang3.tuple.Pair;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -13,11 +9,15 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.commons.lang3.tuple.Pair;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Transparently coalesces chunks of a HTTP stream that uses Transfer-Encoding chunked.
  * This {@link InputStream} wrapper also supports collecting Trailer header values that are
  * sent at the end of the stream.
- *
+ * <p/>
  * Based on org.apache.commons.httpclient.ChunkedInputStream
  */
 public class HttpChunkedEncodingInputStream extends InputStream {
@@ -75,8 +75,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
      * returned as an <code>int</code> in the range <code>0</code> to
      * <code>255</code>.
      *
-     * @return -1 of the end of the stream has been reached or the next data
-     * byte
+     * @return -1 of the end of the stream has been reached or the next data byte
      * @throws IOException If an IO problem occurs
      */
     @Override
@@ -101,11 +100,9 @@ public class HttpChunkedEncodingInputStream extends InputStream {
     /**
      * Read some bytes from the stream.
      * @param b The byte array that will hold the contents from the stream.
-     * @param off The offset into the byte array at which bytes will start to be
-     * placed.
+     * @param off The offset into the byte array at which bytes will start to be placed.
      * @param len the maximum number of bytes that can be returned.
-     * @return The number of bytes returned or -1 if the end of stream has been
-     * reached.
+     * @return The number of bytes returned or -1 if the end of stream has been reached.
      * @see java.io.InputStream#read(byte[], int, int)
      * @throws IOException if an IO problem occurs.
      */
@@ -134,13 +131,12 @@ public class HttpChunkedEncodingInputStream extends InputStream {
     /**
      * Read some bytes from the stream.
      * @param b The byte array that will hold the contents from the stream.
-     * @return The number of bytes returned or -1 if the end of stream has been
-     * reached.
+     * @return The number of bytes returned or -1 if the end of stream has been reached.
      * @see java.io.InputStream#read(byte[])
      * @throws IOException if an IO problem occurs.
      */
     @Override
-    public int read (byte[] b) throws IOException {
+    public int read(byte[] b) throws IOException {
         return read(b, 0, b.length);
     }
 
@@ -201,7 +197,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         try {
             result = Integer.parseInt(dataString.trim(), 16);
         } catch (NumberFormatException e) {
-            throw new IOException ("Bad chunk size: " + dataString);
+            throw new IOException("Bad chunk size: " + dataString);
         }
         return result;
     }
@@ -231,7 +227,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
             List<Pair<String, String>> footers = parseHeaders(in, StandardCharsets.US_ASCII);
             for (Pair<String, String> footer : footers) {
                 List<String> values = trailerHeaders.get(footer.getKey());
-                if(values == null) {
+                if (values == null) {
                     values = new LinkedList<>();
                     trailerHeaders.put(footer.getKey(), values);
                 }
@@ -277,7 +273,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
 
         log.trace("Clearing underlying input stream, this is what was left:");
         while (in.read(buffer) >= 0) {
-            if(log.isTraceEnabled()) {
+            if (log.isTraceEnabled()) {
                 log.trace(new String(buffer, StandardCharsets.UTF_8));
             }
         }
@@ -288,7 +284,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         String name = null;
         StringBuilder value = null;
         String line = readLine(is, charset);
-        while(org.apache.commons.lang3.StringUtils.isNotBlank(line)) {
+        while (org.apache.commons.lang3.StringUtils.isNotBlank(line)) {
             // Parse the header name and value
             // Check for folded headers first
             // Detect LWS-char see HTTP/1.0 or HTTP/1.1 Section 2.2
@@ -322,7 +318,8 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         return headers;
     }
 
-    private void addHeaderValue(final List<Pair<String, String>> headers, final String name, final StringBuilder value) {
+    private void addHeaderValue(final List<Pair<String, String>> headers, final String name,
+                                final StringBuilder value) {
         if (name != null) {
             headers.add(Pair.of(name, value.toString()));
         }
@@ -369,10 +366,10 @@ public class HttpChunkedEncodingInputStream extends InputStream {
                     throws IOException {
 
                 ChunkSizeState newState;
-                if(b == '\r') {
+                if (b == '\r') {
                     newState = READ_CARRIAGE_RETURN;
                 } else {
-                    if(b == '\"') {
+                    if (b == '\"') {
                         newState = INSIDE_QUOTED_STRING;
                     } else {
                         newState = NORMAL;
@@ -401,14 +398,14 @@ public class HttpChunkedEncodingInputStream extends InputStream {
                     throws IOException {
 
                 ChunkSizeState newState;
-                if(b == '\\') {
+                if (b == '\\') {
                     int nextByte = in.read();
-                    if(nextByte >= 0) {
+                    if (nextByte >= 0) {
                         baos.write(nextByte);
                     }
                     newState = INSIDE_QUOTED_STRING;
                 } else {
-                    if(b == '\"') {
+                    if (b == '\"') {
                         newState = NORMAL;
                     } else {
                         newState = INSIDE_QUOTED_STRING;

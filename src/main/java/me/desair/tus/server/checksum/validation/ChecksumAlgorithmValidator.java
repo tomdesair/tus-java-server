@@ -14,13 +14,16 @@ import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.lang3.StringUtils;
 
 /**
- * The Server MAY respond with one of the following status code: 400 Bad Request if the checksum algorithm is not supported by the server
+ * The Server MAY respond with one of the following status code: 400 Bad Request
+ * if the checksum algorithm is not supported by the server
  */
 public class ChecksumAlgorithmValidator implements RequestValidator {
 
     @Override
     public void validate(final HttpMethod method, final HttpServletRequest request,
-                         final UploadStorageService uploadStorageService, final String ownerKey) throws TusException, IOException {
+                         final UploadStorageService uploadStorageService, final String ownerKey)
+            throws TusException, IOException {
+
         String uploadChecksum = request.getHeader(HttpHeader.UPLOAD_CHECKSUM);
 
         //If the client provided a checksum header, check that we support the algorithm

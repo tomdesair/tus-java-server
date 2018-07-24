@@ -15,11 +15,11 @@ import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 
 /** A HEAD request is used to determine the offset at which the upload should be continued.
- *
+ * <p/>
  * The Server MUST always include the Upload-Offset header in the response for a HEAD request,
  * even if the offset is 0, or the upload is already considered completed. If the size of the upload is known,
  * the Server MUST include the Upload-Length header in the response.
- *
+ * <p/>
  * The Server MUST prevent the client and/or proxies from caching the response by adding
  * the Cache-Control: no-store header to the response.
  */
@@ -31,12 +31,13 @@ public class CoreHeadRequestHandler extends AbstractRequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse,
-                        final UploadStorageService uploadStorageService, final String ownerKey) throws IOException {
+    public void process(final HttpMethod method, final TusServletRequest servletRequest,
+                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
+                        final String ownerKey) throws IOException {
 
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
 
-        if(!UploadType.CONCATENATED.equals(uploadInfo.getUploadType())) {
+        if (!UploadType.CONCATENATED.equals(uploadInfo.getUploadType())) {
 
             if (uploadInfo.hasLength()) {
                 servletResponse.setHeader(HttpHeader.UPLOAD_LENGTH, Objects.toString(uploadInfo.getLength()));

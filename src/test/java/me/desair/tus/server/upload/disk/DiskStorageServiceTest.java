@@ -348,7 +348,7 @@ public class DiskStorageServiceTest {
             //Write the content of the upload
             storageService.append(info, sequenceStream);
             fail();
-        } catch(Exception ex) {
+        } catch (Exception ex) {
             //ignore
         }
 
@@ -393,7 +393,7 @@ public class DiskStorageServiceTest {
         storageService.append(info, IOUtils.toInputStream(content, StandardCharsets.UTF_8));
         assertTrue(Files.exists(getUploadDataPath(info.getId())));
 
-        try(InputStream uploadedBytes = storageService.getUploadedBytes(UPLOAD_URL + "/" + info.getId(), null)) {
+        try (InputStream uploadedBytes = storageService.getUploadedBytes(UPLOAD_URL + "/" + info.getId(), null)) {
 
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is the content of my upload"));
@@ -415,7 +415,7 @@ public class DiskStorageServiceTest {
         storageService.append(info, IOUtils.toInputStream(content, StandardCharsets.UTF_8));
         assertTrue(Files.exists(getUploadDataPath(info.getId())));
 
-        try(ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             storageService.copyUploadTo(info, output);
             assertThat(new String(output.toByteArray(), StandardCharsets.UTF_8),
                     is("This is the content of my upload"));

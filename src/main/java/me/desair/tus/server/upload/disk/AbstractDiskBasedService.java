@@ -30,11 +30,11 @@ public class AbstractDiskBasedService {
     }
 
     protected Path getPathInStorageDirectory(final UUID id) {
-        if(!Files.exists(storagePath)) {
+        if (!Files.exists(storagePath)) {
             init();
         }
 
-        if(id == null) {
+        if (id == null) {
             return null;
         } else {
             return storagePath.resolve(id.toString());
@@ -42,7 +42,7 @@ public class AbstractDiskBasedService {
     }
 
     private synchronized void init() {
-        if(!Files.exists(storagePath)) {
+        if (!Files.exists(storagePath)) {
             try {
                 Files.createDirectories(storagePath);
             } catch (IOException e) {

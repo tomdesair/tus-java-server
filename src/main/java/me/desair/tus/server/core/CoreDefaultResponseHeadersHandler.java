@@ -16,11 +16,14 @@ public class CoreDefaultResponseHeadersHandler implements RequestHandler {
 
     @Override
     public boolean supports(final HttpMethod method) {
-         return true;
+        return true;
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) {
+    public void process(final HttpMethod method, final TusServletRequest servletRequest,
+                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
+                        final String ownerKey) {
+
         //Always set Tus-Resumable header
         servletResponse.setHeader(HttpHeader.TUS_RESUMABLE, TusFileUploadService.TUS_API_VERSION);
         //By default, set the Content-Length to 0

@@ -17,10 +17,12 @@ import me.desair.tus.server.util.Utils;
 public class UploadLengthValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request,
+                         final UploadStorageService uploadStorageService, final String ownerKey)
+            throws TusException {
 
         Long uploadLength = Utils.getLongHeader(request, HttpHeader.UPLOAD_LENGTH);
-        if(uploadLength != null
+        if (uploadLength != null
                 && uploadStorageService.getMaxUploadSize() > 0
                 && uploadLength > uploadStorageService.getMaxUploadSize()) {
 

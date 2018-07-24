@@ -76,10 +76,20 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     @Override
     public UploadInfo getUploadInfo(final String uploadUrl, final String ownerKey) throws IOException {
         UploadInfo uploadInfo = getUploadInfo(idFactory.readUploadId(uploadUrl));
-        if(uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
+        if (uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
             return null;
         } else {
             return uploadInfo;
+        }
+    }
+
+    @Override
+    public UploadInfo getUploadInfo(final UUID id) throws IOException {
+        try {
+            Path infoPath = getInfoPath(id);
+            return Utils.readSerializable(infoPath, UploadInfo.class);
+        } catch (UploadNotFoundException e) {
+            return null;
         }
     }
 
@@ -123,7 +133,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
     @Override
     public UploadInfo append(final UploadInfo info, final InputStream inputStream) throws IOException, TusException {
-        if(info != null) {
+        if (info != null) {
             Path bytesPath = getBytesPath(info.getId());
 
             long max = getMaxUploadSize() > 0 ? getMaxUploadSize() : Long.MAX_VALUE;
@@ -131,7 +141,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
             Long offset = info.getOffset();
             long newOffset = offset;
 
-            try(ReadableByteChannel uploadedBytes = Channels.newChannel(inputStream);
+            try (ReadableByteChannel uploadedBytes = Channels.newChannel(inputStream);
                 FileChannel file = FileChannel.open(bytesPath, WRITE)) {
 
                 try {
@@ -140,8 +150,8 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
                     //Validate that the given offset is at the end of the file
                     if (!offset.equals(file.size())) {
-                        throw new InvalidUploadOffsetException("The upload offset does not correspond to the written bytes. " +
-                                "You can only append to the end of an upload");
+                        throw new InvalidUploadOffsetException("The upload offset does not correspond to the written"
+                                + " bytes. You can only append to the end of an upload");
                     }
 
                     //write all bytes in the channel up to the configured maximum
@@ -149,7 +159,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
                     file.force(true);
                     newOffset = offset + transferred;
 
-                } catch(Exception ex) {
+                } catch (Exception ex) {
                     //An error occurred, try to write as much data as possible
                     newOffset = writeAsMuchAsPossible(file);
                     throw ex;
@@ -165,7 +175,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public void removeLastNumberOfBytes(final UploadInfo info, final long byteCount) throws UploadNotFoundException, IOException {
+    public void removeLastNumberOfBytes(final UploadInfo info, final long byteCount)
+            throws UploadNotFoundException, IOException {
+
         if (info != null && byteCount > 0) {
             Path bytesPath = getBytesPath(info.getId());
 
@@ -213,11 +225,13 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws IOException, UploadNotFoundException {
+    public InputStream getUploadedBytes(final String uploadURI, final String ownerKey)
+            throws IOException, UploadNotFoundException {
+
         UUID id = idFactory.readUploadId(uploadURI);
 
         UploadInfo uploadInfo = getUploadInfo(id);
-        if(uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
+        if (uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
             throw new UploadNotFoundException("The upload with id " + id + " could not be found for owner " + ownerKey);
         } else {
             return getUploadedBytes(id);
@@ -228,13 +242,13 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     public InputStream getUploadedBytes(UUID id) throws IOException, UploadNotFoundException {
         InputStream inputStream = null;
         UploadInfo uploadInfo = getUploadInfo(id);
-        if(UploadType.CONCATENATED.equals(uploadInfo.getUploadType()) && uploadConcatenationService != null) {
+        if (UploadType.CONCATENATED.equals(uploadInfo.getUploadType()) && uploadConcatenationService != null) {
             inputStream = uploadConcatenationService.getConcatenatedBytes(uploadInfo);
 
         } else {
             Path bytesPath = getBytesPath(id);
             //If bytesPath is not null, we know this is a valid Upload URI
-            if(bytesPath != null) {
+            if (bytesPath != null) {
                 inputStream = Channels.newInputStream(FileChannel.open(bytesPath, READ));
             }
         }
@@ -243,16 +257,18 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public void copyUploadTo(final UploadInfo info, final OutputStream outputStream) throws UploadNotFoundException, IOException {
+    public void copyUploadTo(final UploadInfo info, final OutputStream outputStream)
+            throws UploadNotFoundException, IOException {
+
         List<UploadInfo> uploads = getUploads(info);
 
         WritableByteChannel outputChannel = Channels.newChannel(outputStream);
 
         for (UploadInfo upload : uploads) {
-            if(upload == null) {
+            if (upload == null) {
                 log.warn("We cannot copy the bytes of an upload that does not exist");
 
-            } else if(upload.isUploadInProgress()) {
+            } else if (upload.isUploadInProgress()) {
                 log.warn("We cannot copy the bytes of upload {} because it is still in progress", upload.getId());
 
             } else {
@@ -276,20 +292,10 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         }
     }
 
-    @Override
-    public UploadInfo getUploadInfo(final UUID id) throws IOException {
-        try {
-            Path infoPath = getInfoPath(id);
-            return Utils.readSerializable(infoPath, UploadInfo.class);
-        } catch (UploadNotFoundException e) {
-            return null;
-        }
-    }
-
     private List<UploadInfo> getUploads(UploadInfo info) throws IOException, UploadNotFoundException {
         List<UploadInfo> uploads;
 
-        if(info != null && UploadType.CONCATENATED.equals(info.getUploadType())
+        if (info != null && UploadType.CONCATENATED.equals(info.getUploadType())
                 && uploadConcatenationService != null) {
             uploadConcatenationService.merge(info);
             uploads = uploadConcatenationService.getPartialUploads(info);
@@ -314,7 +320,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     private Path getPathInUploadDir(final UUID id, final String fileName) throws UploadNotFoundException {
         //Get the upload directory
         Path uploadDir = getPathInStorageDirectory(id);
-        if(uploadDir != null && Files.exists(uploadDir)) {
+        if (uploadDir != null && Files.exists(uploadDir)) {
             return uploadDir.resolve(fileName);
         } else {
             throw new UploadNotFoundException("The upload for id " + id + " was not found.");
@@ -326,7 +332,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         do {
             id = idFactory.createId();
             //For extra safety, double check that this ID is not in use yet
-        } while(getUploadInfo(id) != null);
+        } while (getUploadInfo(id) != null);
         return id;
     }
 

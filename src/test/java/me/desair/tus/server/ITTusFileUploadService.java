@@ -196,12 +196,12 @@ public class ITTusFileUploadService {
         try {
             tusFileUploadService.getUploadedBytes(location);
             fail();
-        } catch(TusException ex) {
+        } catch (TusException ex) {
             assertThat(ex.getStatus(), is(404));
         }
 
         //Get uploaded bytes from service
-        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
+        try (InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is my test upload content"));
         }
@@ -349,7 +349,7 @@ public class ITTusFileUploadService {
         );
 
         //Get uploaded bytes from service
-        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
+        try (InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is the first part of my test upload and this is the second part."));
         }
@@ -500,7 +500,7 @@ public class ITTusFileUploadService {
         );
 
         //Get uploaded bytes from service
-        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, null)) {
+        try (InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, null)) {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("When sending this part, we don't know the length and " +
                             "when sending this part, we know the length but the upload is not complete. " +
@@ -608,7 +608,7 @@ public class ITTusFileUploadService {
         assertThat(info.getExpirationTimestamp(), greaterThan(expirationTimestampBefore));
 
         //We only stored the first valid part
-        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
+        try (InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is the first part of my test upload "));
         }
@@ -850,7 +850,7 @@ public class ITTusFileUploadService {
         assertThat(servletResponse.getContentAsString(), is("This is the first part of my test upload and this is the second part."));
 
         //Get uploaded bytes from service
-        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
+        try (InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("This is the first part of my test upload and this is the second part."));
         }
@@ -1049,7 +1049,7 @@ public class ITTusFileUploadService {
                         "Finally when sending the third part, the final upload is complete."));
 
         //Get uploaded bytes from service
-        try(InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(locationFinal, null)) {
+        try (InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(locationFinal, null)) {
             assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
                     is("When sending this part, the final upload was already created. " +
                                     "This is the second part of our concatenated upload. " +

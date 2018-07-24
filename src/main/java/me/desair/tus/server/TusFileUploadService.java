@@ -140,11 +140,13 @@ public class TusFileUploadService {
         return new LinkedHashSet<>(enabledFeatures.keySet());
     }
 
-    public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse) throws IOException {
+    public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse)
+            throws IOException {
         process(servletRequest, servletResponse, null);
     }
 
-    public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse, final String ownerKey) throws IOException {
+    public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse,
+                        final String ownerKey) throws IOException {
         Validate.notNull(servletRequest, "The HTTP Servlet request cannot be null");
         Validate.notNull(servletResponse, "The HTTP Servlet response cannot be null");
 
@@ -183,7 +185,9 @@ public class TusFileUploadService {
      * @throws IOException When the retreiving the uploaded bytes fails
      * @throws TusException When the upload is still in progress or cannot be found
      */
-    public InputStream getUploadedBytes(final String uploadURI, final String ownerKey) throws IOException, TusException {
+    public InputStream getUploadedBytes(final String uploadURI, final String ownerKey)
+            throws IOException, TusException {
+
         try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
 
             return uploadStorageService.getUploadedBytes(uploadURI, ownerKey);
@@ -229,7 +233,6 @@ public class TusFileUploadService {
     /**
      * Method to delete an upload associated with the given upload URL. Invoke this method if you no longer need
      * the upload.
-     *
      * @param uploadURI The upload URI
      * @param ownerKey  The key of the owner of this upload
      */
@@ -253,7 +256,8 @@ public class TusFileUploadService {
         uploadStorageService.cleanupExpiredUploads(uploadLockingService);
     }
 
-    protected void processLockedRequest(HttpMethod method, TusServletRequest request, TusServletResponse response, String ownerKey) throws IOException {
+    protected void processLockedRequest(HttpMethod method, TusServletRequest request, TusServletResponse response,
+                                        String ownerKey) throws IOException {
         try {
             validateRequest(method, request, ownerKey);
 
@@ -264,7 +268,10 @@ public class TusFileUploadService {
         }
     }
 
-    protected void executeProcessingByFeatures(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final String ownerKey) throws IOException, TusException {
+    protected void executeProcessingByFeatures(final HttpMethod method, final TusServletRequest servletRequest,
+                                               final TusServletResponse servletResponse, final String ownerKey)
+            throws IOException, TusException {
+
         for (TusExtension feature : enabledFeatures.values()) {
             if (!servletRequest.isProcessedBy(feature)) {
                 servletRequest.addProcessor(feature);
@@ -273,14 +280,18 @@ public class TusFileUploadService {
         }
     }
 
-    protected void validateRequest(final HttpMethod method, final HttpServletRequest servletRequest, final String ownerKey) throws TusException, IOException {
+    protected void validateRequest(final HttpMethod method, final HttpServletRequest servletRequest,
+                                   final String ownerKey) throws TusException, IOException {
+
         for (TusExtension feature : enabledFeatures.values()) {
             feature.validate(method, servletRequest, uploadStorageService, ownerKey);
         }
     }
 
-    protected void processTusException(final HttpMethod method, final TusServletRequest request, final TusServletResponse response,
-                                       final String ownerKey, final TusException exception) throws IOException {
+    protected void processTusException(final HttpMethod method, final TusServletRequest request,
+                                       final TusServletResponse response, final String ownerKey,
+                                       final TusException exception) throws IOException {
+
         int status = exception.getStatus();
         String message = exception.getMessage();
 

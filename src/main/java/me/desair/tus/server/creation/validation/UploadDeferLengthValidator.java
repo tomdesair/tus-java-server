@@ -20,7 +20,10 @@ import org.apache.commons.lang3.math.NumberUtils;
 public class UploadDeferLengthValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request, final UploadStorageService uploadStorageService, final String ownerKey) throws TusException {
+    public void validate(final HttpMethod method, final HttpServletRequest request,
+                         final UploadStorageService uploadStorageService, final String ownerKey)
+            throws TusException {
+
         boolean uploadLength = false;
         boolean deferredLength = false;
         boolean concatenatedUpload = false;

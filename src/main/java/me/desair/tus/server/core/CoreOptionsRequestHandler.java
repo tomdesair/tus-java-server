@@ -25,9 +25,13 @@ public class CoreOptionsRequestHandler extends AbstractRequestHandler {
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest, final TusServletResponse servletResponse, final UploadStorageService uploadStorageService, final String ownerKey) {
-        if(uploadStorageService.getMaxUploadSize() > 0) {
-            servletResponse.setHeader(HttpHeader.TUS_MAX_SIZE, Objects.toString(uploadStorageService.getMaxUploadSize()));
+    public void process(final HttpMethod method, final TusServletRequest servletRequest,
+                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
+                        final String ownerKey) {
+
+        if (uploadStorageService.getMaxUploadSize() > 0) {
+            servletResponse.setHeader(HttpHeader.TUS_MAX_SIZE,
+                    Objects.toString(uploadStorageService.getMaxUploadSize()));
         }
 
         servletResponse.setHeader(HttpHeader.TUS_VERSION, TusFileUploadService.TUS_API_VERSION);

@@ -44,7 +44,7 @@ public class FileBasedLockTest {
     public void testOverlappingLock() throws Exception {
         UUID test = UUID.randomUUID();
         Path path = storagePath.resolve(test.toString());
-        try(FileBasedLock lock1 = new FileBasedLock("/test/upload/" + test.toString(), path)) {
+        try (FileBasedLock lock1 = new FileBasedLock("/test/upload/" + test.toString(), path)) {
             FileBasedLock lock2 = new FileBasedLock("/test/upload/" + test.toString(), path);
         }
     }
@@ -53,7 +53,7 @@ public class FileBasedLockTest {
     public void testAlreadyLocked() throws Exception {
         UUID test1 = UUID.randomUUID();
         Path path1 = storagePath.resolve(test1.toString());
-        try(FileBasedLock lock1 = new FileBasedLock("/test/upload/" + test1.toString(), path1)) {
+        try (FileBasedLock lock1 = new FileBasedLock("/test/upload/" + test1.toString(), path1)) {
             FileBasedLock lock2 = new FileBasedLock("/test/upload/" + test1.toString(), path1) {
                 @Override
                 protected FileChannel createFileChannel() throws IOException {
