@@ -5,7 +5,7 @@ package me.desair.tus.server.exception;
  * is not supported by the operation
  */
 public class UploadInProgressException extends TusException {
-    public UploadInProgressException(final String message) {
+    public UploadInProgressException(String message) {
         //422 Unprocessable Entity
         //The request was well-formed but was unable to be followed due to semantic errors.
         super(422, message);

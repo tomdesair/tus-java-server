@@ -28,13 +28,16 @@ public class TusServletResponseTest {
         servletResponse = new MockHttpServletResponse();
         tusServletResponse = new TusServletResponse(servletResponse);
     }
+
     @Test
     public void setDateHeader() throws Exception {
         tusServletResponse.setDateHeader("TEST", DATE_FORMAT.parse("2018-01-03 22:34:14").getTime());
         tusServletResponse.setDateHeader("TEST", DATE_FORMAT.parse("2018-01-03 22:38:14").getTime());
 
-        assertThat(tusServletResponse.getHeader("TEST"), is("" + DATE_FORMAT.parse("2018-01-03 22:38:14").getTime()));
-        assertThat(servletResponse.getHeaders("TEST"), contains("" + DATE_FORMAT.parse("2018-01-03 22:38:14").getTime()));
+        assertThat(tusServletResponse.getHeader("TEST"),
+                is("" + DATE_FORMAT.parse("2018-01-03 22:38:14").getTime()));
+        assertThat(servletResponse.getHeaders("TEST"),
+                contains("" + DATE_FORMAT.parse("2018-01-03 22:38:14").getTime()));
     }
 
     @Test
@@ -42,7 +45,8 @@ public class TusServletResponseTest {
         tusServletResponse.addDateHeader("TEST", DATE_FORMAT.parse("2018-01-03 22:34:12").getTime());
         tusServletResponse.addDateHeader("TEST", DATE_FORMAT.parse("2018-01-03 22:38:14").getTime());
 
-        assertThat(tusServletResponse.getHeader("TEST"), is("" + DATE_FORMAT.parse("2018-01-03 22:34:12").getTime()));
+        assertThat(tusServletResponse.getHeader("TEST"),
+                is("" + DATE_FORMAT.parse("2018-01-03 22:34:12").getTime()));
         assertThat(servletResponse.getHeaders("TEST"), containsInAnyOrder(
                 "" + DATE_FORMAT.parse("2018-01-03 22:34:12").getTime(),
                 "" + DATE_FORMAT.parse("2018-01-03 22:38:14").getTime()));

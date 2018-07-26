@@ -53,9 +53,12 @@ public class VirtualConcatenationServiceTest {
         infoParent.setId(UUID.randomUUID());
         infoParent.setConcatenationParts(Arrays.asList(child1.getId().toString(), child2.getId().toString()));
 
-        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey())).thenReturn(child1);
-        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey())).thenReturn(child2);
-        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey())).thenReturn(infoParent);
+        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child1);
+        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child2);
+        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(infoParent);
 
         concatenationService.merge(infoParent);
 
@@ -82,9 +85,12 @@ public class VirtualConcatenationServiceTest {
         infoParent.setId(UUID.randomUUID());
         infoParent.setConcatenationParts(Arrays.asList(child1.getId().toString(), child2.getId().toString()));
 
-        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey())).thenReturn(child1);
-        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey())).thenReturn(child2);
-        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey())).thenReturn(infoParent);
+        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child1);
+        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child2);
+        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(infoParent);
 
         concatenationService.merge(infoParent);
 
@@ -111,9 +117,12 @@ public class VirtualConcatenationServiceTest {
         infoParent.setId(UUID.randomUUID());
         infoParent.setConcatenationParts(Arrays.asList(child1.getId().toString(), child2.getId().toString()));
 
-        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey())).thenReturn(child1);
-        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey())).thenReturn(child2);
-        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey())).thenReturn(infoParent);
+        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child1);
+        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child2);
+        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(infoParent);
 
         concatenationService.merge(infoParent);
 
@@ -140,9 +149,12 @@ public class VirtualConcatenationServiceTest {
         infoParent.setId(UUID.randomUUID());
         infoParent.setConcatenationParts(Arrays.asList(child1.getId().toString(), child2.getId().toString()));
 
-        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey())).thenReturn(child1);
-        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey())).thenReturn(null);
-        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey())).thenReturn(infoParent);
+        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child1);
+        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(null);
+        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(infoParent);
 
         concatenationService.merge(infoParent);
     }
@@ -163,9 +175,12 @@ public class VirtualConcatenationServiceTest {
         infoParent.setId(UUID.randomUUID());
         infoParent.setConcatenationParts(Arrays.asList(child1.getId().toString(), child2.getId().toString()));
 
-        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey())).thenReturn(child1);
-        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey())).thenReturn(child2);
-        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey())).thenReturn(infoParent);
+        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child1);
+        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child2);
+        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(infoParent);
 
         when(uploadStorageService.getUploadExpirationPeriod()).thenReturn(500L);
 
@@ -192,7 +207,8 @@ public class VirtualConcatenationServiceTest {
         infoParent.setId(UUID.randomUUID());
         infoParent.setConcatenationParts(null);
 
-        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey())).thenReturn(infoParent);
+        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(infoParent);
 
         assertThat(concatenationService.getPartialUploads(infoParent), Matchers.<UploadInfo>empty());
 
@@ -222,9 +238,12 @@ public class VirtualConcatenationServiceTest {
         infoParent.setId(UUID.randomUUID());
         infoParent.setConcatenationParts(Arrays.asList(child1.getId().toString(), child2.getId().toString()));
 
-        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey())).thenReturn(child1);
-        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey())).thenReturn(child2);
-        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey())).thenReturn(infoParent);
+        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child1);
+        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child2);
+        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(infoParent);
 
         when(uploadStorageService.getUploadedBytes(child1.getId()))
                 .thenReturn(IOUtils.toInputStream(upload1, StandardCharsets.UTF_8));
@@ -254,9 +273,12 @@ public class VirtualConcatenationServiceTest {
         infoParent.setId(UUID.randomUUID());
         infoParent.setConcatenationParts(Arrays.asList(child1.getId().toString(), child2.getId().toString()));
 
-        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey())).thenReturn(child1);
-        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey())).thenReturn(child2);
-        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey())).thenReturn(infoParent);
+        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child1);
+        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child2);
+        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(infoParent);
 
         when(uploadStorageService.getUploadedBytes(child1.getId()))
                 .thenReturn(IOUtils.toInputStream(upload1, StandardCharsets.UTF_8));
@@ -286,9 +308,12 @@ public class VirtualConcatenationServiceTest {
         infoParent.setId(UUID.randomUUID());
         infoParent.setConcatenationParts(Arrays.asList(child1.getId().toString(), child2.getId().toString()));
 
-        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey())).thenReturn(child1);
-        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey())).thenReturn(null);
-        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey())).thenReturn(infoParent);
+        when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(child1);
+        when(uploadStorageService.getUploadInfo(child2.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(null);
+        when(uploadStorageService.getUploadInfo(infoParent.getId().toString(), infoParent.getOwnerKey()))
+                .thenReturn(infoParent);
 
         when(uploadStorageService.getUploadedBytes(child1.getId()))
                 .thenReturn(IOUtils.toInputStream(upload1, StandardCharsets.UTF_8));

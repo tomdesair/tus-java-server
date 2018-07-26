@@ -26,7 +26,7 @@ public enum HttpMethod {
     TRACE,
     PATCH;
 
-    public static HttpMethod forName(final String name) {
+    public static HttpMethod forName(String name) {
         for (HttpMethod method : HttpMethod.values()) {
             if (StringUtils.equalsIgnoreCase(method.name(), name)) {
                 return method;
@@ -36,8 +36,8 @@ public enum HttpMethod {
         return null;
     }
 
-    public static HttpMethod getMethodIfSupported(final HttpServletRequest request,
-                                                  final Set<HttpMethod> supportedHttpMethods) {
+    public static HttpMethod getMethodIfSupported(HttpServletRequest request,
+                                                  Set<HttpMethod> supportedHttpMethods) {
         Validate.notNull(request, "The HttpServletRequest cannot be null");
 
         String requestMethod = request.getHeader(HttpHeader.METHOD_OVERRIDE);

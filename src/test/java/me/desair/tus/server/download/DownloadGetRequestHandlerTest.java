@@ -62,7 +62,7 @@ public class DownloadGetRequestHandlerTest {
 
     @Test
     public void testWithCompletedUploadWithMetadata() throws Exception {
-        UUID id = UUID.randomUUID();
+        final UUID id = UUID.randomUUID();
 
         UploadInfo info = new UploadInfo();
         info.setId(id);
@@ -71,19 +71,24 @@ public class DownloadGetRequestHandlerTest {
         info.setEncodedMetadata("name dGVzdC5qcGc=,type aW1hZ2UvanBlZw==");
         when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
 
-        handler.process(HttpMethod.GET, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.GET, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
-        verify(uploadStorageService, times(1)).copyUploadTo(any(UploadInfo.class), any(OutputStream.class));
+        verify(uploadStorageService, times(1))
+                .copyUploadTo(any(UploadInfo.class), any(OutputStream.class));
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_OK));
         assertThat(servletResponse.getHeader(HttpHeader.CONTENT_LENGTH), is("10"));
-        assertThat(servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION), is("attachment;filename=\"test.jpg\""));
-        assertThat(servletResponse.getHeader(HttpHeader.CONTENT_TYPE), is("image/jpeg"));
-        assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_METADATA), is("name dGVzdC5qcGc=,type aW1hZ2UvanBlZw=="));
+        assertThat(servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
+                is("attachment;filename=\"test.jpg\""));
+        assertThat(servletResponse.getHeader(HttpHeader.CONTENT_TYPE),
+                is("image/jpeg"));
+        assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_METADATA),
+                is("name dGVzdC5qcGc=,type aW1hZ2UvanBlZw=="));
     }
 
     @Test
     public void testWithCompletedUploadWithoutMetadata() throws Exception {
-        UUID id = UUID.randomUUID();
+        final UUID id = UUID.randomUUID();
 
         UploadInfo info = new UploadInfo();
         info.setId(id);
@@ -91,18 +96,21 @@ public class DownloadGetRequestHandlerTest {
         info.setLength(10L);
         when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
 
-        handler.process(HttpMethod.GET, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.GET, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
-        verify(uploadStorageService, times(1)).copyUploadTo(any(UploadInfo.class), any(OutputStream.class));
+        verify(uploadStorageService, times(1))
+                .copyUploadTo(any(UploadInfo.class), any(OutputStream.class));
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_OK));
         assertThat(servletResponse.getHeader(HttpHeader.CONTENT_LENGTH), is("10"));
-        assertThat(servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION), is("attachment;filename=\"" + id.toString() + "\""));
+        assertThat(servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
+                is("attachment;filename=\"" + id.toString() + "\""));
         assertThat(servletResponse.getHeader(HttpHeader.CONTENT_TYPE), is("application/octet-stream"));
     }
 
     @Test(expected = UploadInProgressException.class)
     public void testWithInProgressUpload() throws Exception {
-        UUID id = UUID.randomUUID();
+        final UUID id = UUID.randomUUID();
 
         UploadInfo info = new UploadInfo();
         info.setId(id);
@@ -111,14 +119,16 @@ public class DownloadGetRequestHandlerTest {
         info.setEncodedMetadata("name dGVzdC5qcGc=,type aW1hZ2UvanBlZw==");
         when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
 
-        handler.process(HttpMethod.GET, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.GET, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
     }
 
     @Test(expected = UploadInProgressException.class)
     public void testWithUnknownUpload() throws Exception {
         when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(null);
 
-        handler.process(HttpMethod.GET, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.GET, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, never()).copyUploadTo(any(UploadInfo.class), any(OutputStream.class));
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_NO_CONTENT));

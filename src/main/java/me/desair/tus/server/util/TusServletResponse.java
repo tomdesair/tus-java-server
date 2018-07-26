@@ -16,7 +16,7 @@ import org.apache.commons.lang3.StringUtils;
  */
 public class TusServletResponse extends HttpServletResponseWrapper {
 
-    private final Map<String, List<String>> headers = new HashMap<>();
+    private Map<String, List<String>> headers = new HashMap<>();
 
     /**
      * Constructs a response adaptor wrapping the given response.
@@ -24,48 +24,48 @@ public class TusServletResponse extends HttpServletResponseWrapper {
      * @param response The response that has to be wrapped
      * @throws IllegalArgumentException if the response is null
      */
-    public TusServletResponse(final HttpServletResponse response) {
+    public TusServletResponse(HttpServletResponse response) {
         super(response);
     }
 
     @Override
-    public void setDateHeader(final String name, final long date) {
+    public void setDateHeader(String name, long date) {
         super.setDateHeader(name, date);
         overwriteHeader(name, Objects.toString(date));
     }
 
     @Override
-    public void addDateHeader(final String name, final long date) {
+    public void addDateHeader(String name, long date) {
         super.addDateHeader(name, date);
         recordHeader(name, Objects.toString(date));
     }
 
     @Override
-    public void setHeader(final String name, final String value) {
+    public void setHeader(String name, String value) {
         super.setHeader(name, value);
         overwriteHeader(name, value);
     }
 
     @Override
-    public void addHeader(final String name, final String value) {
+    public void addHeader(String name, String value) {
         super.addHeader(name, value);
         recordHeader(name, value);
     }
 
     @Override
-    public void setIntHeader(final String name, final int value) {
+    public void setIntHeader(String name, int value) {
         super.setIntHeader(name, value);
         overwriteHeader(name, Objects.toString(value));
     }
 
     @Override
-    public void addIntHeader(final String name, final int value) {
+    public void addIntHeader(String name, int value) {
         super.addIntHeader(name, value);
         recordHeader(name, Objects.toString(value));
     }
 
     @Override
-    public String getHeader(final String name) {
+    public String getHeader(String name) {
         String value;
         if (headers.containsKey(name)) {
             value = headers.get(name).get(0);
@@ -75,7 +75,7 @@ public class TusServletResponse extends HttpServletResponseWrapper {
         return StringUtils.trimToNull(value);
     }
 
-    private void recordHeader(final String name, final String value) {
+    private void recordHeader(String name, String value) {
         List<String> values = headers.get(name);
         if (values == null) {
             values = new LinkedList<>();
@@ -85,7 +85,7 @@ public class TusServletResponse extends HttpServletResponseWrapper {
         values.add(value);
     }
 
-    private void overwriteHeader(final String name, final String value) {
+    private void overwriteHeader(String name, String value) {
         List<String> values = new LinkedList<>();
         values.add(value);
         headers.put(name, values);

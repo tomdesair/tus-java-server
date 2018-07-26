@@ -11,7 +11,7 @@ import me.desair.tus.server.util.AbstractExtensionRequestHandler;
 public class CreationOptionsRequestHandler extends AbstractExtensionRequestHandler {
 
     @Override
-    protected void appendExtensions(final StringBuilder extensionBuilder) {
+    protected void appendExtensions(StringBuilder extensionBuilder) {
         addExtension(extensionBuilder, "creation");
         addExtension(extensionBuilder, "creation-defer-length");
     }

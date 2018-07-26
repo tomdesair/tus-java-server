@@ -57,8 +57,8 @@ public class HttpHeader {
     public static final String UPLOAD_DEFER_LENGTH = "Upload-Defer-Length";
 
     /**
-     * The Upload-Concat request and response header MUST be set in both partial and final upload creation requests.
-     * It indicates whether the upload is either a partial or final upload.
+     * The Upload-Concat request and response header MUST be set in both partial and upload creation requests.
+     * It indicates whether the upload is either a partial or upload.
      */
     public static final String UPLOAD_CONCAT = "Upload-Concat";
 

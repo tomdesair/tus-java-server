@@ -42,7 +42,8 @@ public class CoreDefaultResponseHeadersHandlerTest {
 
     @Test
     public void process() throws Exception {
-        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), null, null);
+        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), null, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.TUS_RESUMABLE), is(TusFileUploadService.TUS_API_VERSION));
         assertThat(servletResponse.getHeader(HttpHeader.CONTENT_LENGTH), is("0"));

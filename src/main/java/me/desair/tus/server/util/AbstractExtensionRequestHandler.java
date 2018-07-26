@@ -11,14 +11,14 @@ import org.apache.commons.lang3.StringUtils;
 public abstract class AbstractExtensionRequestHandler extends AbstractRequestHandler {
 
     @Override
-    public boolean supports(final HttpMethod method) {
+    public boolean supports(HttpMethod method) {
         return HttpMethod.OPTIONS.equals(method);
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest,
-                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
-                        final String ownerKey) {
+    public void process(HttpMethod method, TusServletRequest servletRequest,
+                        TusServletResponse servletResponse, UploadStorageService uploadStorageService,
+                        String ownerKey) {
 
         StringBuilder extensionBuilder = new StringBuilder(StringUtils.trimToEmpty(
                 servletResponse.getHeader(HttpHeader.TUS_EXTENSION)));
@@ -28,9 +28,9 @@ public abstract class AbstractExtensionRequestHandler extends AbstractRequestHan
         servletResponse.setHeader(HttpHeader.TUS_EXTENSION, extensionBuilder.toString());
     }
 
-    protected abstract void appendExtensions(final StringBuilder extensionBuilder);
+    protected abstract void appendExtensions(StringBuilder extensionBuilder);
 
-    protected void addExtension(final StringBuilder stringBuilder, final String extension) {
+    protected void addExtension(StringBuilder stringBuilder, String extension) {
         if (stringBuilder.length() > 0) {
             stringBuilder.append(",");
         }

@@ -72,7 +72,8 @@ public class PartialUploadsExistValidatorTest {
 
         when(uploadStorageService.getUploadInfo(info1.getId())).thenReturn(info1);
 
-        servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, String.format("final; %s %s", info1.getId(), UUID.randomUUID()));
+        servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT,
+                String.format("final; %s %s", info1.getId(), UUID.randomUUID()));
 
         //When we validate the request
         validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);

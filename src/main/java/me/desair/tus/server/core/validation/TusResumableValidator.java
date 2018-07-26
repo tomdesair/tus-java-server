@@ -24,8 +24,8 @@ import org.apache.commons.lang3.StringUtils;
  */
 public class TusResumableValidator implements RequestValidator {
 
-    public void validate(final HttpMethod method, final HttpServletRequest request,
-                         final UploadStorageService uploadStorageService, final String ownerKey)
+    public void validate(HttpMethod method, HttpServletRequest request,
+                         UploadStorageService uploadStorageService, String ownerKey)
             throws TusException {
 
         String requestVersion = Utils.getHeader(request, HttpHeader.TUS_RESUMABLE);
@@ -36,7 +36,7 @@ public class TusResumableValidator implements RequestValidator {
     }
 
     @Override
-    public boolean supports(final HttpMethod method) {
+    public boolean supports(HttpMethod method) {
         return !HttpMethod.OPTIONS.equals(method) && !HttpMethod.GET.equals(method);
     }
 }

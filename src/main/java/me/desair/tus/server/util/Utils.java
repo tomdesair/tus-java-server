@@ -38,11 +38,11 @@ public class Utils {
         //This is a utility class that only holds static utility methods
     }
 
-    public static String getHeader(final HttpServletRequest request, final String header) {
+    public static String getHeader(HttpServletRequest request, String header) {
         return StringUtils.trimToEmpty(request.getHeader(header));
     }
 
-    public static Long getLongHeader(final HttpServletRequest request, final String header) {
+    public static Long getLongHeader(HttpServletRequest request, String header) {
         try {
             return Long.valueOf(getHeader(request, header));
         } catch (NumberFormatException ex) {
@@ -50,7 +50,7 @@ public class Utils {
         }
     }
 
-    public static List<String> parseConcatenationIDsFromHeader(final String uploadConcatValue) {
+    public static List<String> parseConcatenationIDsFromHeader(String uploadConcatValue) {
         List<String> output = new LinkedList<>();
 
         String idString = StringUtils.substringAfter(uploadConcatValue, ";");
@@ -61,7 +61,7 @@ public class Utils {
         return output;
     }
 
-    public static <T> T readSerializable(final Path path, final Class<T> clazz) throws IOException {
+    public static <T> T readSerializable(Path path, Class<T> clazz) throws IOException {
         T info = null;
         if (path != null) {
             try (FileChannel channel = FileChannel.open(path, READ)) {
@@ -83,7 +83,7 @@ public class Utils {
     }
 
 
-    public static void writeSerializable(final Serializable object, final Path path) throws IOException {
+    public static void writeSerializable(Serializable object, Path path) throws IOException {
         if (path != null) {
             try (FileChannel channel = FileChannel.open(path, WRITE, CREATE, TRUNCATE_EXISTING)) {
                 //Lock will be released when the channel is closed
@@ -101,15 +101,15 @@ public class Utils {
         }
     }
 
-    public static FileLock lockFileExclusively(final FileChannel channel) throws IOException {
+    public static FileLock lockFileExclusively(FileChannel channel) throws IOException {
         return lockFile(channel, false);
     }
 
-    public static FileLock lockFileShared(final FileChannel channel) throws IOException {
+    public static FileLock lockFileShared(FileChannel channel) throws IOException {
         return lockFile(channel, true);
     }
 
-    public static void sleep(final long sleepTime) {
+    public static void sleep(long sleepTime) {
         try {
             Thread.sleep(sleepTime);
         } catch (InterruptedException e) {
@@ -119,7 +119,7 @@ public class Utils {
         }
     }
 
-    private static FileLock lockFile(final FileChannel channel, final boolean shared) throws IOException {
+    private static FileLock lockFile(FileChannel channel, boolean shared) throws IOException {
         int i = 0;
         FileLock lock = null;
         do {

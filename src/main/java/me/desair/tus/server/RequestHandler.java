@@ -9,11 +9,11 @@ import me.desair.tus.server.util.TusServletResponse;
 
 public interface RequestHandler {
 
-    boolean supports(final HttpMethod method);
+    boolean supports(HttpMethod method);
 
-    void process(final HttpMethod method, final TusServletRequest servletRequest,
-                 final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
-                 final String ownerKey) throws IOException, TusException;
+    void process(HttpMethod method, TusServletRequest servletRequest,
+                 TusServletResponse servletResponse, UploadStorageService uploadStorageService,
+                 String ownerKey) throws IOException, TusException;
 
     boolean isErrorHandler();
 

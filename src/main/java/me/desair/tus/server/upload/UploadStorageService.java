@@ -20,7 +20,7 @@ public interface UploadStorageService {
      * @param ownerKey A key representing the owner of the upload
      * @return The upload info matching the given URL, or null when not found.
      */
-    UploadInfo getUploadInfo(final String uploadUrl, final String ownerKey) throws IOException;
+    UploadInfo getUploadInfo(String uploadUrl, String ownerKey) throws IOException;
 
     /**
      * Method to retrieve the upload info by its ID
@@ -28,7 +28,7 @@ public interface UploadStorageService {
      * @return The matching upload info
      * @throws IOException When the service is not able to retrieve the upload information
      */
-    UploadInfo getUploadInfo(final UUID id) throws IOException;
+    UploadInfo getUploadInfo(UUID id) throws IOException;
 
     /**
      * The URI which is configured as the upload endpoint
@@ -44,7 +44,7 @@ public interface UploadStorageService {
      * @param inputStream The input stream containing the bytes to append
      * @return The new {@link UploadInfo} for this upload
      */
-    UploadInfo append(final UploadInfo upload, final InputStream inputStream) throws IOException, TusException;
+    UploadInfo append(UploadInfo upload, InputStream inputStream) throws IOException, TusException;
 
     /**
      * Limit the maximum upload size to the given value
@@ -64,13 +64,13 @@ public interface UploadStorageService {
      * @param ownerKey A key representing the owner of the upload
      * @return An {@link UploadInfo} object containing the information used to create the upload and its unique ID
      */
-    UploadInfo create(final UploadInfo info, final String ownerKey) throws IOException;
+    UploadInfo create(UploadInfo info, String ownerKey) throws IOException;
 
     /**
      * Update the upload information for the provided ID.
      * @param uploadInfo The upload info object containing the ID and information to update
      */
-    void update(final UploadInfo uploadInfo) throws IOException, UploadNotFoundException;
+    void update(UploadInfo uploadInfo) throws IOException, UploadNotFoundException;
 
     /**
      * Get the uploaded bytes corresponding to the given upload URL as a stream
@@ -78,7 +78,7 @@ public interface UploadStorageService {
      * @param ownerKey The owner key of this upload
      * @return an {@link OutputStream} containing the bytes of the upload
      */
-    InputStream getUploadedBytes(final String uploadURI, final String ownerKey)
+    InputStream getUploadedBytes(String uploadURI, String ownerKey)
             throws IOException, UploadNotFoundException;
 
     /**
@@ -101,7 +101,7 @@ public interface UploadStorageService {
      * Clean up any upload data that is expired according to the configured expiration time
      * @param uploadLockingService An {@link UploadLockingService} that can be used to check and lock uploads
      */
-    void cleanupExpiredUploads(final UploadLockingService uploadLockingService) throws IOException;
+    void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException;
 
     /**
      * Remove the given last amount of bytes from the uploaded data
@@ -132,7 +132,7 @@ public interface UploadStorageService {
      * Set the {@link UploadConcatenationService} that this upload storage service should use
      * @param concatenationService The UploadConcatenationService implementation to use
      */
-    void setUploadConcatenationService(final UploadConcatenationService concatenationService);
+    void setUploadConcatenationService(UploadConcatenationService concatenationService);
 
     /**
      * Return the {@link UploadConcatenationService} implementation that this upload service is using

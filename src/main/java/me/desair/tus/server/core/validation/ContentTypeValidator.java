@@ -18,8 +18,8 @@ public class ContentTypeValidator implements RequestValidator {
     static final String APPLICATION_OFFSET_OCTET_STREAM = "application/offset+octet-stream";
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request,
-                         final UploadStorageService uploadStorageService, final String ownerKey) throws TusException {
+    public void validate(HttpMethod method, HttpServletRequest request,
+                         UploadStorageService uploadStorageService, String ownerKey) throws TusException {
 
         String contentType = Utils.getHeader(request, HttpHeader.CONTENT_TYPE);
         if (!APPLICATION_OFFSET_OCTET_STREAM.equals(contentType)) {
@@ -29,7 +29,7 @@ public class ContentTypeValidator implements RequestValidator {
     }
 
     @Override
-    public boolean supports(final HttpMethod method) {
+    public boolean supports(HttpMethod method) {
         return HttpMethod.PATCH.equals(method);
     }
 

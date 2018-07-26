@@ -51,7 +51,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     private UploadIdFactory idFactory;
     private UploadConcatenationService uploadConcatenationService;
 
-    public DiskStorageService(final UploadIdFactory idFactory, final String storagePath) {
+    public DiskStorageService(UploadIdFactory idFactory, String storagePath) {
         super(storagePath + File.separator + UPLOAD_SUB_DIRECTORY);
         Validate.notNull(idFactory, "The IdFactory cannot be null");
         this.idFactory = idFactory;
@@ -59,12 +59,12 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public void setIdFactory(final UploadIdFactory idFactory) {
+    public void setIdFactory(UploadIdFactory idFactory) {
         this.idFactory = idFactory;
     }
 
     @Override
-    public void setMaxUploadSize(final Long maxUploadSize) {
+    public void setMaxUploadSize(Long maxUploadSize) {
         this.maxUploadSize = (maxUploadSize != null && maxUploadSize > 0 ? maxUploadSize : 0);
     }
 
@@ -74,7 +74,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public UploadInfo getUploadInfo(final String uploadUrl, final String ownerKey) throws IOException {
+    public UploadInfo getUploadInfo(String uploadUrl, String ownerKey) throws IOException {
         UploadInfo uploadInfo = getUploadInfo(idFactory.readUploadId(uploadUrl));
         if (uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
             return null;
@@ -84,7 +84,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public UploadInfo getUploadInfo(final UUID id) throws IOException {
+    public UploadInfo getUploadInfo(UUID id) throws IOException {
         try {
             Path infoPath = getInfoPath(id);
             return Utils.readSerializable(infoPath, UploadInfo.class);
@@ -99,7 +99,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public UploadInfo create(final UploadInfo info, final String ownerKey) throws IOException {
+    public UploadInfo create(UploadInfo info, String ownerKey) throws IOException {
         UUID id = createNewId();
 
         createUploadDirectory(id);
@@ -126,13 +126,13 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public void update(final UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
+    public void update(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
         Path infoPath = getInfoPath(uploadInfo.getId());
         Utils.writeSerializable(uploadInfo, infoPath);
     }
 
     @Override
-    public UploadInfo append(final UploadInfo info, final InputStream inputStream) throws IOException, TusException {
+    public UploadInfo append(UploadInfo info, InputStream inputStream) throws IOException, TusException {
         if (info != null) {
             Path bytesPath = getBytesPath(info.getId());
 
@@ -175,7 +175,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public void removeLastNumberOfBytes(final UploadInfo info, final long byteCount)
+    public void removeLastNumberOfBytes(UploadInfo info, long byteCount)
             throws UploadNotFoundException, IOException {
 
         if (info != null && byteCount > 0) {
@@ -196,7 +196,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public void terminateUpload(final UploadInfo info) throws UploadNotFoundException, IOException {
+    public void terminateUpload(UploadInfo info) throws UploadNotFoundException, IOException {
         if (info != null) {
             Path uploadPath = getPathInStorageDirectory(info.getId());
             FileUtils.deleteDirectory(uploadPath.toFile());
@@ -209,12 +209,12 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public void setUploadExpirationPeriod(final Long uploadExpirationPeriod) {
+    public void setUploadExpirationPeriod(Long uploadExpirationPeriod) {
         this.uploadExpirationPeriod = uploadExpirationPeriod;
     }
 
     @Override
-    public void setUploadConcatenationService(final UploadConcatenationService concatenationService) {
+    public void setUploadConcatenationService(UploadConcatenationService concatenationService) {
         Validate.notNull(concatenationService);
         this.uploadConcatenationService = concatenationService;
     }
@@ -225,7 +225,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public InputStream getUploadedBytes(final String uploadURI, final String ownerKey)
+    public InputStream getUploadedBytes(String uploadURI, String ownerKey)
             throws IOException, UploadNotFoundException {
 
         UUID id = idFactory.readUploadId(uploadURI);
@@ -239,7 +239,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public InputStream getUploadedBytes(final UUID id) throws IOException, UploadNotFoundException {
+    public InputStream getUploadedBytes(UUID id) throws IOException, UploadNotFoundException {
         InputStream inputStream = null;
         UploadInfo uploadInfo = getUploadInfo(id);
         if (UploadType.CONCATENATED.equals(uploadInfo.getUploadType()) && uploadConcatenationService != null) {
@@ -257,7 +257,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public void copyUploadTo(final UploadInfo info, final OutputStream outputStream)
+    public void copyUploadTo(UploadInfo info, OutputStream outputStream)
             throws UploadNotFoundException, IOException {
 
         List<UploadInfo> uploads = getUploads(info);
@@ -282,7 +282,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public void cleanupExpiredUploads(final UploadLockingService uploadLockingService) throws IOException {
+    public void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException {
         try (DirectoryStream<Path> expiredUploadsStream = Files.newDirectoryStream(getStoragePath(),
                 new ExpiredUploadFilter(this, uploadLockingService))) {
 
@@ -292,7 +292,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         }
     }
 
-    private List<UploadInfo> getUploads(final UploadInfo info) throws IOException, UploadNotFoundException {
+    private List<UploadInfo> getUploads(UploadInfo info) throws IOException, UploadNotFoundException {
         List<UploadInfo> uploads;
 
         if (info != null && UploadType.CONCATENATED.equals(info.getUploadType())
@@ -305,19 +305,19 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         return uploads;
     }
 
-    private Path getBytesPath(final UUID id) throws UploadNotFoundException {
+    private Path getBytesPath(UUID id) throws UploadNotFoundException {
         return getPathInUploadDir(id, DATA_FILE);
     }
 
-    private Path getInfoPath(final UUID id) throws UploadNotFoundException {
+    private Path getInfoPath(UUID id) throws UploadNotFoundException {
         return getPathInUploadDir(id, INFO_FILE);
     }
 
-    private Path createUploadDirectory(final UUID id) throws IOException {
+    private Path createUploadDirectory(UUID id) throws IOException {
         return Files.createDirectories(getPathInStorageDirectory(id));
     }
 
-    private Path getPathInUploadDir(final UUID id, final String fileName) throws UploadNotFoundException {
+    private Path getPathInUploadDir(UUID id, String fileName) throws UploadNotFoundException {
         //Get the upload directory
         Path uploadDir = getPathInStorageDirectory(id);
         if (uploadDir != null && Files.exists(uploadDir)) {
@@ -336,7 +336,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         return id;
     }
 
-    private long writeAsMuchAsPossible(final FileChannel file) throws IOException {
+    private long writeAsMuchAsPossible(FileChannel file) throws IOException {
         long offset = 0;
         if (file != null) {
             file.force(true);

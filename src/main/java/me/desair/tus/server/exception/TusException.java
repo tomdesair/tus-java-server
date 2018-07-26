@@ -5,13 +5,13 @@ package me.desair.tus.server.exception;
  */
 public class TusException extends Exception {
 
-    private final int status;
+    private int status;
 
-    public TusException(final int status, final String message) {
+    public TusException(int status, String message) {
         this(status, message, null);
     }
 
-    public TusException(final int status, final String message, final Throwable e) {
+    public TusException(int status, String message, Throwable e) {
         super(message, e);
         this.status = status;
     }

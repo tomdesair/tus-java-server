@@ -20,7 +20,7 @@ public class AbstractDiskBasedService {
 
     private Path storagePath;
 
-    public AbstractDiskBasedService(final String path) {
+    public AbstractDiskBasedService(String path) {
         Validate.notBlank(path, "The storage path cannot be blank");
         this.storagePath = Paths.get(path);
     }
@@ -29,7 +29,7 @@ public class AbstractDiskBasedService {
         return storagePath;
     }
 
-    protected Path getPathInStorageDirectory(final UUID id) {
+    protected Path getPathInStorageDirectory(UUID id) {
         if (!Files.exists(storagePath)) {
             init();
         }

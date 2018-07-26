@@ -15,7 +15,7 @@ public enum UploadType {
     PARTIAL,
 
     /**
-     * CONCATENATED is the final upload that combines different partial uploads
+     * CONCATENATED is the upload that combines different partial uploads
      */
     CONCATENATED
 }

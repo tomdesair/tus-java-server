@@ -29,12 +29,12 @@ public class TerminationExtension extends AbstractTusExtension {
     }
 
     @Override
-    protected void initValidators(final List<RequestValidator> requestValidators) {
+    protected void initValidators(List<RequestValidator> requestValidators) {
         //All validation is all read done by the Core protocol
     }
 
     @Override
-    protected void initRequestHandlers(final List<RequestHandler> requestHandlers) {
+    protected void initRequestHandlers(List<RequestHandler> requestHandlers) {
         requestHandlers.add(new TerminationDeleteRequestHandler());
         requestHandlers.add(new TerminationOptionsRequestHandler());
     }
