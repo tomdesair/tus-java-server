@@ -24,6 +24,7 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.upload.disk.CachedDiskAndLockingStorageService;
 import me.desair.tus.server.upload.disk.DiskLockingService;
 import me.desair.tus.server.upload.disk.DiskStorageService;
 import me.desair.tus.server.util.TusServletRequest;
@@ -98,8 +99,11 @@ public class TusFileUploadService {
 
     public TusFileUploadService withStoragePath(final String storagePath) {
         Validate.notBlank(storagePath, "The storage path cannot be blank");
-        withUploadStorageService(new DiskStorageService(idFactory, storagePath));
-        withUploadLockingService(new DiskLockingService(idFactory, storagePath));
+        CachedDiskAndLockingStorageService cachedDiskAndLockingStorageService =
+                new CachedDiskAndLockingStorageService(idFactory, storagePath,
+                                                       new DiskLockingService(idFactory, storagePath));
+        withUploadLockingService(cachedDiskAndLockingStorageService);
+        withUploadStorageService(cachedDiskAndLockingStorageService);
         return this;
     }
 
