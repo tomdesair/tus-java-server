@@ -1,6 +1,5 @@
 package me.desair.tus.server.expiration;
 
-
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -73,7 +72,8 @@ public class ExpirationRequestHandlerTest {
 
         TusServletResponse tusResponse = new TusServletResponse(this.servletResponse);
         tusResponse.setHeader(HttpHeader.LOCATION, "/tus/upload/12345");
-        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest), tusResponse, uploadStorageService, null);
+        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest),
+                tusResponse, uploadStorageService, null);
 
         verify(uploadStorageService, times(1)).update(info);
         assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_EXPIRES), is("1516617791000"));
@@ -88,7 +88,8 @@ public class ExpirationRequestHandlerTest {
         when(uploadStorageService.getUploadExpirationPeriod()).thenReturn(172800000L);
 
         TusServletResponse tusResponse = new TusServletResponse(this.servletResponse);
-        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), tusResponse, uploadStorageService, null);
+        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest),
+                tusResponse, uploadStorageService, null);
 
         verify(uploadStorageService, times(1)).update(info);
         assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_EXPIRES), is("1516617791000"));
@@ -100,7 +101,8 @@ public class ExpirationRequestHandlerTest {
         when(uploadStorageService.getUploadExpirationPeriod()).thenReturn(172800000L);
 
         TusServletResponse tusResponse = new TusServletResponse(this.servletResponse);
-        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), tusResponse, uploadStorageService, null);
+        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest),
+                tusResponse, uploadStorageService, null);
 
         verify(uploadStorageService, never()).update(any(UploadInfo.class));
         assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_EXPIRES), is(nullValue()));
@@ -115,7 +117,8 @@ public class ExpirationRequestHandlerTest {
         when(uploadStorageService.getUploadExpirationPeriod()).thenReturn(172800000L);
 
         TusServletResponse tusResponse = new TusServletResponse(this.servletResponse);
-        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), tusResponse, uploadStorageService, null);
+        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest),
+                tusResponse, uploadStorageService, null);
 
         //Upload Expires header must always be set
         verify(uploadStorageService, times(1)).update(info);
@@ -131,7 +134,8 @@ public class ExpirationRequestHandlerTest {
         when(uploadStorageService.getUploadExpirationPeriod()).thenReturn(null);
 
         TusServletResponse tusResponse = new TusServletResponse(this.servletResponse);
-        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), tusResponse, uploadStorageService, null);
+        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest),
+                tusResponse, uploadStorageService, null);
 
         verify(uploadStorageService, never()).update(any(UploadInfo.class));
         assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_EXPIRES), is(nullValue()));
@@ -146,7 +150,8 @@ public class ExpirationRequestHandlerTest {
         when(uploadStorageService.getUploadExpirationPeriod()).thenReturn(0L);
 
         TusServletResponse tusResponse = new TusServletResponse(this.servletResponse);
-        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), tusResponse, uploadStorageService, null);
+        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest),
+                tusResponse, uploadStorageService, null);
 
         verify(uploadStorageService, never()).update(any(UploadInfo.class));
         assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_EXPIRES), is(nullValue()));
@@ -161,7 +166,8 @@ public class ExpirationRequestHandlerTest {
         when(uploadStorageService.getUploadExpirationPeriod()).thenReturn(-10L);
 
         TusServletResponse tusResponse = new TusServletResponse(this.servletResponse);
-        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), tusResponse, uploadStorageService, null);
+        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest),
+                tusResponse, uploadStorageService, null);
 
         verify(uploadStorageService, never()).update(any(UploadInfo.class));
         assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_EXPIRES), is(nullValue()));

@@ -1,6 +1,5 @@
 package me.desair.tus.server.download;
 
-
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
@@ -34,7 +33,8 @@ public class DownloadOptionsRequestHandlerTest {
     @Test
     public void processListExtensions() throws Exception {
 
-        handler.process(HttpMethod.OPTIONS, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), null, null);
+        handler.process(HttpMethod.OPTIONS, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), null, null);
 
         assertThat(Arrays.asList(servletResponse.getHeader(HttpHeader.TUS_EXTENSION).split(",")),
                 containsInAnyOrder("download"));

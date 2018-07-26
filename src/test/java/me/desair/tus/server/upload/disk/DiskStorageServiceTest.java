@@ -339,7 +339,8 @@ public class DiskStorageServiceTest {
         assertTrue(Files.exists(getUploadInfoPath(info.getId())));
 
         InputStream exceptionStream = mock(InputStream.class);
-        doThrow(new RuntimeException()).when(exceptionStream).read(org.mockito.Mockito.any(byte[].class), anyInt(), anyInt());
+        doThrow(new RuntimeException()).when(exceptionStream)
+                .read(org.mockito.Mockito.any(byte[].class), anyInt(), anyInt());
 
         InputStream sequenceStream = new SequenceInputStream(IOUtils.toInputStream(content, StandardCharsets.UTF_8),
                 exceptionStream);

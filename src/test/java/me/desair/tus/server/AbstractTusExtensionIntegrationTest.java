@@ -23,11 +23,15 @@ import org.apache.commons.io.IOUtils;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 @RunWith(MockitoJUnitRunner.class)
 public abstract class AbstractTusExtensionIntegrationTest {
+
+    private static final Logger log = LoggerFactory.getLogger(AbstractTusExtensionIntegrationTest.class);
 
     protected AbstractTusExtension tusFeature;
 
@@ -62,7 +66,11 @@ public abstract class AbstractTusExtensionIntegrationTest {
                         servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, uploadInfo.getOffset());
                         break;
                     case HttpHeader.CONTENT_LENGTH:
-                        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, uploadInfo.getLength() - uploadInfo.getOffset());
+                        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH,
+                                uploadInfo.getLength() - uploadInfo.getOffset());
+                        break;
+                    default:
+                        log.warn("Undefined HTTP header " + header);
                         break;
                 }
             }
@@ -78,7 +86,8 @@ public abstract class AbstractTusExtensionIntegrationTest {
             IOUtils.copy(tusServletRequest.getContentInputStream(), writer, StandardCharsets.UTF_8);
         }
 
-        tusFeature.process(method, tusServletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        tusFeature.process(method, tusServletRequest,
+                new TusServletResponse(servletResponse), uploadStorageService, null);
     }
 
     protected void assertResponseHeader(String header, String value) {

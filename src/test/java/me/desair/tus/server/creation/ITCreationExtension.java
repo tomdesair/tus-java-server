@@ -32,7 +32,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
     private static final String UPLOAD_URI = "/test/upload";
     private static final String UPLOAD_URL = "http://localhost:80/test/upload/";
-    
+
     private UUID id;
 
     @Before

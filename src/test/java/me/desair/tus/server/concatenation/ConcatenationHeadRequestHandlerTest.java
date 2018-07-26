@@ -73,7 +73,8 @@ public class ConcatenationHeadRequestHandlerTest {
         when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()), anyString())).thenReturn(info1);
         servletRequest.setRequestURI(info1.getId().toString());
 
-        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_CONCAT), is(nullValue()));
     }
@@ -88,7 +89,8 @@ public class ConcatenationHeadRequestHandlerTest {
         when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()), anyString())).thenReturn(info1);
         servletRequest.setRequestURI(info1.getId().toString());
 
-        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_CONCAT), is("partial"));
     }
@@ -105,7 +107,8 @@ public class ConcatenationHeadRequestHandlerTest {
         when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()), anyString())).thenReturn(info1);
         servletRequest.setRequestURI(info1.getId().toString());
 
-        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_CONCAT), is("final; 123 456"));
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is("10"));
@@ -126,7 +129,8 @@ public class ConcatenationHeadRequestHandlerTest {
         when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()), anyString())).thenReturn(info1);
         servletRequest.setRequestURI(info1.getId().toString());
 
-        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_CONCAT), is("final; 123 456"));
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is("10"));
