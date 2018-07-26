@@ -16,8 +16,8 @@ import me.desair.tus.server.util.Utils;
 public class PostEmptyRequestValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request,
-                         final UploadStorageService uploadStorageService, final String ownerKey)
+    public void validate(HttpMethod method, HttpServletRequest request,
+                         UploadStorageService uploadStorageService, String ownerKey)
             throws TusException {
 
         Long contentLength = Utils.getLongHeader(request, HttpHeader.CONTENT_LENGTH);
@@ -28,7 +28,7 @@ public class PostEmptyRequestValidator implements RequestValidator {
     }
 
     @Override
-    public boolean supports(final HttpMethod method) {
+    public boolean supports(HttpMethod method) {
         return HttpMethod.POST.equals(method);
     }
 }

@@ -26,7 +26,7 @@ public enum ChecksumAlgorithm {
     private String javaName;
     private String tusName;
 
-    ChecksumAlgorithm(final String javaName, final String tusName) {
+    ChecksumAlgorithm(String javaName, String tusName) {
         this.javaName = javaName;
         this.tusName = tusName;
     }
@@ -53,7 +53,7 @@ public enum ChecksumAlgorithm {
         }
     }
 
-    public static ChecksumAlgorithm forTusName(final String name) {
+    public static ChecksumAlgorithm forTusName(String name) {
         for (ChecksumAlgorithm alg : ChecksumAlgorithm.values()) {
             if (alg.getTusName().equals(name)) {
                 return alg;
@@ -62,7 +62,7 @@ public enum ChecksumAlgorithm {
         return null;
     }
 
-    public static ChecksumAlgorithm forUploadChecksumHeader(final String uploadChecksumHeader) {
+    public static ChecksumAlgorithm forUploadChecksumHeader(String uploadChecksumHeader) {
         String algorithm = StringUtils.substringBefore(uploadChecksumHeader, CHECKSUM_VALUE_SEPARATOR);
         return forTusName(algorithm);
     }

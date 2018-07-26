@@ -74,7 +74,7 @@ public class CreationPostRequestHandlerTest {
         final UUID id = UUID.randomUUID();
         when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
-            public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
+            public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
                 assertThat(upload.getLength(), is(10L));
                 assertThat(upload.getEncodedMetadata(), is("encoded-metadata"));
@@ -101,7 +101,7 @@ public class CreationPostRequestHandlerTest {
         final UUID id = UUID.randomUUID();
         when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
-            public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
+            public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
                 assertThat(upload.getLength(), is(10L));
                 assertThat(upload.getEncodedMetadata(), is(nullValue()));
@@ -128,7 +128,7 @@ public class CreationPostRequestHandlerTest {
         final UUID id = UUID.randomUUID();
         when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
-            public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
+            public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
                 assertThat(upload.getLength(), is(nullValue()));
                 assertThat(upload.getEncodedMetadata(), is("encoded-metadata"));
@@ -155,7 +155,7 @@ public class CreationPostRequestHandlerTest {
         final UUID id = UUID.randomUUID();
         when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
-            public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
+            public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
                 assertThat(upload.getLength(), is(nullValue()));
                 assertThat(upload.getEncodedMetadata(), is(nullValue()));

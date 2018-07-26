@@ -29,7 +29,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
     private InputStream contentInputStream = null;
 
     private Map<String, List<String>> trailerHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-    private final Set<String> processedBySet = new TreeSet<>();
+    private Set<String> processedBySet = new TreeSet<>();
 
     /**
      * Constructs a request object wrapping the given request.
@@ -37,7 +37,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
      * @param request The upload request we need to wrap
      * @throws IllegalArgumentException if the request is null
      */
-    public TusServletRequest(final HttpServletRequest request) {
+    public TusServletRequest(HttpServletRequest request) {
         super(request);
     }
 
@@ -90,13 +90,13 @@ public class TusServletRequest extends HttpServletRequestWrapper {
         return singleDigestInputStream != null || !digestInputStreamMap.isEmpty();
     }
 
-    public String getCalculatedChecksum(final ChecksumAlgorithm algorithm) {
+    public String getCalculatedChecksum(ChecksumAlgorithm algorithm) {
         MessageDigest messageDigest = getMessageDigest(algorithm);
         return messageDigest == null ? null :
                 DatatypeConverter.printBase64Binary(messageDigest.digest());
     }
 
-    private MessageDigest getMessageDigest(final ChecksumAlgorithm algorithm) {
+    private MessageDigest getMessageDigest(ChecksumAlgorithm algorithm) {
         if (digestInputStreamMap.containsKey(algorithm)) {
             return digestInputStreamMap.get(algorithm).getMessageDigest();
         } else if (singleDigestInputStream != null) {
@@ -107,7 +107,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
     }
 
     @Override
-    public String getHeader(final String name) {
+    public String getHeader(String name) {
         String value = super.getHeader(name);
 
         if (StringUtils.isBlank(value) && trailerHeaders.containsKey(name)) {
@@ -120,11 +120,11 @@ public class TusServletRequest extends HttpServletRequestWrapper {
         return value;
     }
 
-    public boolean isProcessedBy(final TusExtension processor) {
+    public boolean isProcessedBy(TusExtension processor) {
         return processedBySet.contains(processor.getName());
     }
 
-    public void addProcessor(final TusExtension processor) {
+    public void addProcessor(TusExtension processor) {
         processedBySet.add(processor.getName());
     }
 }

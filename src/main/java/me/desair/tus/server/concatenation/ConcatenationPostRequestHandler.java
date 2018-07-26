@@ -21,14 +21,14 @@ import org.apache.commons.lang3.StringUtils;
 public class ConcatenationPostRequestHandler extends AbstractRequestHandler {
 
     @Override
-    public boolean supports(final HttpMethod method) {
+    public boolean supports(HttpMethod method) {
         return HttpMethod.POST.equals(method);
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest,
-                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
-                        final String ownerKey) throws IOException, TusException {
+    public void process(HttpMethod method, TusServletRequest servletRequest,
+                        TusServletResponse servletResponse, UploadStorageService uploadStorageService,
+                        String ownerKey) throws IOException, TusException {
 
         //For post requests, the upload URI is part of the response
         String uploadUri = servletResponse.getHeader(HttpHeader.LOCATION);

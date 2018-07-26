@@ -41,7 +41,7 @@ public class UploadInfo implements Serializable {
         return offset;
     }
 
-    public void setOffset(final Long offset) {
+    public void setOffset(Long offset) {
         this.offset = offset;
     }
 
@@ -49,7 +49,7 @@ public class UploadInfo implements Serializable {
         return encodedMetadata;
     }
 
-    public void setEncodedMetadata(final String encodedMetadata) {
+    public void setEncodedMetadata(String encodedMetadata) {
         this.encodedMetadata = encodedMetadata;
     }
 
@@ -86,7 +86,7 @@ public class UploadInfo implements Serializable {
         return length;
     }
 
-    public void setLength(final Long length) {
+    public void setLength(Long length) {
         this.length = (length != null && length > 0 ? length : null);
     }
 
@@ -104,7 +104,7 @@ public class UploadInfo implements Serializable {
         return length == null || !offset.equals(length);
     }
 
-    public void setId(final UUID id) {
+    public void setId(UUID id) {
         this.id = id;
     }
 
@@ -112,7 +112,7 @@ public class UploadInfo implements Serializable {
         return id;
     }
 
-    public void setOwnerKey(final String ownerKey) {
+    public void setOwnerKey(String ownerKey) {
         this.ownerKey = ownerKey;
     }
 
@@ -124,7 +124,7 @@ public class UploadInfo implements Serializable {
         return expirationTimestamp;
     }
 
-    public void updateExpiration(final long expirationPeriod) {
+    public void updateExpiration(long expirationPeriod) {
         expirationTimestamp = getCurrentTime() + expirationPeriod;
     }
 
@@ -132,11 +132,11 @@ public class UploadInfo implements Serializable {
         return uploadType;
     }
 
-    public void setUploadType(final UploadType uploadType) {
+    public void setUploadType(UploadType uploadType) {
         this.uploadType = uploadType;
     }
 
-    public void setConcatenationParts(final List<String> concatenationParts) {
+    public void setConcatenationParts(List<String> concatenationParts) {
         this.concatenationParts = concatenationParts;
     }
 
@@ -144,7 +144,7 @@ public class UploadInfo implements Serializable {
         return concatenationParts;
     }
 
-    public void setUploadConcatHeaderValue(final String uploadConcatHeaderValue) {
+    public void setUploadConcatHeaderValue(String uploadConcatHeaderValue) {
         this.uploadConcatHeaderValue = uploadConcatHeaderValue;
     }
 
@@ -153,7 +153,7 @@ public class UploadInfo implements Serializable {
     }
 
     @Override
-    public boolean equals(final Object o) {
+    public boolean equals(Object o) {
         if (this == o) {
             return true;
         }
@@ -242,7 +242,7 @@ public class UploadInfo implements Serializable {
         return new Date().getTime();
     }
 
-    private String[] splitToArray(final String value, final String separatorRegex) {
+    private String[] splitToArray(String value, String separatorRegex) {
         if (StringUtils.isBlank(value)) {
             return new String[0];
         } else {
@@ -250,7 +250,7 @@ public class UploadInfo implements Serializable {
         }
     }
 
-    private String decode(final String encodedValue) {
+    private String decode(String encodedValue) {
         if (encodedValue == null) {
             return null;
         } else {

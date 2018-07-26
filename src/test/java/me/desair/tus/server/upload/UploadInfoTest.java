@@ -187,7 +187,7 @@ public class UploadInfoTest {
     @Test
     public void testGetNameAndTypeWithoutMetadata() throws Exception {
         UploadInfo info = new UploadInfo();
-        UUID id = UUID.randomUUID();
+        final UUID id = UUID.randomUUID();
         info.setId(id);
 
         assertThat(info.getFileName(), is(id.toString()));

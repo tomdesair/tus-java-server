@@ -16,9 +16,9 @@ import org.apache.commons.lang3.StringUtils;
 public class ChecksumOptionsRequestHandler extends AbstractExtensionRequestHandler {
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest,
-                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
-                        final String ownerKey) {
+    public void process(HttpMethod method, TusServletRequest servletRequest,
+                        TusServletResponse servletResponse, UploadStorageService uploadStorageService,
+                        String ownerKey) {
 
         super.process(method, servletRequest, servletResponse, uploadStorageService, ownerKey);
 
@@ -27,7 +27,7 @@ public class ChecksumOptionsRequestHandler extends AbstractExtensionRequestHandl
     }
 
     @Override
-    protected void appendExtensions(final StringBuilder extensionBuilder) {
+    protected void appendExtensions(StringBuilder extensionBuilder) {
         addExtension(extensionBuilder, "checksum");
         addExtension(extensionBuilder, "checksum-trailer");
     }

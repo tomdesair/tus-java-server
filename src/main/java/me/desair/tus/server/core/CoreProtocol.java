@@ -33,7 +33,7 @@ public class CoreProtocol extends AbstractTusExtension {
     }
 
     @Override
-    protected void initValidators(final List<RequestValidator> validators) {
+    protected void initValidators(List<RequestValidator> validators) {
         validators.add(new HttpMethodValidator());
         validators.add(new TusResumableValidator());
         validators.add(new IdExistsValidator());
@@ -43,7 +43,7 @@ public class CoreProtocol extends AbstractTusExtension {
     }
 
     @Override
-    protected void initRequestHandlers(final List<RequestHandler> requestHandlers) {
+    protected void initRequestHandlers(List<RequestHandler> requestHandlers) {
         requestHandlers.add(new CoreDefaultResponseHeadersHandler());
         requestHandlers.add(new CoreHeadRequestHandler());
         requestHandlers.add(new CorePatchRequestHandler());

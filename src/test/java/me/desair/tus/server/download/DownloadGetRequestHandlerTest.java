@@ -62,7 +62,7 @@ public class DownloadGetRequestHandlerTest {
 
     @Test
     public void testWithCompletedUploadWithMetadata() throws Exception {
-        UUID id = UUID.randomUUID();
+        final UUID id = UUID.randomUUID();
 
         UploadInfo info = new UploadInfo();
         info.setId(id);
@@ -83,7 +83,7 @@ public class DownloadGetRequestHandlerTest {
 
     @Test
     public void testWithCompletedUploadWithoutMetadata() throws Exception {
-        UUID id = UUID.randomUUID();
+        final UUID id = UUID.randomUUID();
 
         UploadInfo info = new UploadInfo();
         info.setId(id);
@@ -102,7 +102,7 @@ public class DownloadGetRequestHandlerTest {
 
     @Test(expected = UploadInProgressException.class)
     public void testWithInProgressUpload() throws Exception {
-        UUID id = UUID.randomUUID();
+        final UUID id = UUID.randomUUID();
 
         UploadInfo info = new UploadInfo();
         info.setId(id);

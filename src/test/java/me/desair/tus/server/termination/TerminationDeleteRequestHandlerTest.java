@@ -69,7 +69,7 @@ public class TerminationDeleteRequestHandlerTest {
 
     @Test
     public void testWithExistingUpload() throws Exception {
-        UUID id = UUID.randomUUID();
+        final UUID id = UUID.randomUUID();
 
         UploadInfo info = new UploadInfo();
         info.setId(id);

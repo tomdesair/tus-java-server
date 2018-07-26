@@ -40,7 +40,7 @@ public abstract class AbstractTusExtensionIntegrationTest {
 
     protected UploadInfo uploadInfo;
 
-    protected void prepareUploadInfo(final Long offset, final Long length) throws IOException, TusException {
+    protected void prepareUploadInfo(Long offset, Long length) throws IOException, TusException {
         uploadInfo = new UploadInfo();
         uploadInfo.setOffset(offset);
         uploadInfo.setLength(length);
@@ -69,7 +69,7 @@ public abstract class AbstractTusExtensionIntegrationTest {
         }
     }
 
-    protected void executeCall(final HttpMethod method, final boolean readContent) throws TusException, IOException {
+    protected void executeCall(HttpMethod method, boolean readContent) throws TusException, IOException {
         tusFeature.validate(method, servletRequest, uploadStorageService, null);
         TusServletRequest tusServletRequest = new TusServletRequest(this.servletRequest);
 
@@ -81,16 +81,16 @@ public abstract class AbstractTusExtensionIntegrationTest {
         tusFeature.process(method, tusServletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
     }
 
-    protected void assertResponseHeader(final String header, final String value) {
+    protected void assertResponseHeader(String header, String value) {
         assertThat(servletResponse.getHeader(header), is(value));
     }
 
-    protected void assertResponseHeader(final String header, final String... values) {
+    protected void assertResponseHeader(String header, String... values) {
         assertThat(Arrays.asList(servletResponse.getHeader(header).split(",")),
                 containsInAnyOrder(values));
     }
 
-    protected void assertResponseStatus(final int httpStatus) {
+    protected void assertResponseStatus(int httpStatus) {
         assertThat(servletResponse.getStatus(), is(httpStatus));
     }
 

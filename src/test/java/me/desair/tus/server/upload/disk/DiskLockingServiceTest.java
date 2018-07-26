@@ -60,7 +60,7 @@ public class DiskLockingServiceTest {
         when(idFactory.createId()).thenReturn(UUID.randomUUID());
         when(idFactory.readUploadId(anyString())).then(new Answer<UUID>() {
             @Override
-            public UUID answer(final InvocationOnMock invocation) throws Throwable {
+            public UUID answer(InvocationOnMock invocation) throws Throwable {
                 return UUID.fromString(StringUtils.substringAfter(invocation.getArguments()[0].toString(),
                         UPLOAD_URL + "/"));
             }

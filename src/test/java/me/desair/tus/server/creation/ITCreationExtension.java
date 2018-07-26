@@ -47,7 +47,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
         when(uploadStorageService.getUploadURI()).thenReturn(UPLOAD_URI);
         when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
-            public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
+            public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
                 upload.setId(id);
 

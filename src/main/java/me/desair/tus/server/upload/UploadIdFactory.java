@@ -9,12 +9,12 @@ public class UploadIdFactory {
 
     private String uploadURI = "/";
 
-    public void setUploadURI(final String uploadURI) {
+    public void setUploadURI(String uploadURI) {
         Validate.notNull(uploadURI, "The upload URI cannot be null");
         this.uploadURI = uploadURI;
     }
 
-    public UUID readUploadId(final String url) {
+    public UUID readUploadId(String url) {
         String pathId = StringUtils.substringAfter(url, uploadURI + (StringUtils.endsWith(uploadURI, "/") ? "" : "/"));
         UUID id = null;
 

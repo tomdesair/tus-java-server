@@ -7,7 +7,7 @@ import javax.servlet.http.HttpServletResponse;
  */
 public class InvalidUploadLengthException extends TusException {
 
-    public InvalidUploadLengthException(final String message) {
+    public InvalidUploadLengthException(String message) {
         super(HttpServletResponse.SC_BAD_REQUEST, message);
     }
 }

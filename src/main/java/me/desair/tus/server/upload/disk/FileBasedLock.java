@@ -29,11 +29,11 @@ public class FileBasedLock implements UploadLock {
 
     private static final Logger log = LoggerFactory.getLogger(FileBasedLock.class);
 
-    private final String uploadUri;
+    private String uploadUri;
     private FileChannel fileChannel = null;
-    protected final Path lockPath;
+    protected Path lockPath;
 
-    public FileBasedLock(final String uploadUri, final Path lockPath) throws UploadAlreadyLockedException, IOException {
+    public FileBasedLock(String uploadUri, Path lockPath) throws UploadAlreadyLockedException, IOException {
         Validate.notBlank(uploadUri, "The upload URI cannot be blank");
         Validate.notNull(lockPath, "The path to the lock cannot be null");
         this.uploadUri = uploadUri;

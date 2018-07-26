@@ -23,14 +23,14 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
     private static final String CONTENT_DISPOSITION_FORMAT = "attachment;filename=\"%s\"";
 
     @Override
-    public boolean supports(final HttpMethod method) {
+    public boolean supports(HttpMethod method) {
         return HttpMethod.GET.equals(method);
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest,
-                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
-                        final String ownerKey) throws IOException, TusException {
+    public void process(HttpMethod method, TusServletRequest servletRequest,
+                        TusServletResponse servletResponse, UploadStorageService uploadStorageService,
+                        String ownerKey) throws IOException, TusException {
 
         UploadInfo info = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
         if (info == null || info.isUploadInProgress()) {

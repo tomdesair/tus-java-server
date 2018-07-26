@@ -16,7 +16,7 @@ import org.slf4j.LoggerFactory;
 /**
  * {@link UploadConcatenationService} implementation that uses the file system to keep track
  * of concatenated uploads. The concatenation is executed "virtually" meaning that upload bytes
- * are not duplicated to the final upload but "concatenated" on the fly.
+ * are not duplicated to the upload but "concatenated" on the fly.
  */
 public class VirtualConcatenationService implements UploadConcatenationService {
 
@@ -24,12 +24,12 @@ public class VirtualConcatenationService implements UploadConcatenationService {
 
     private UploadStorageService uploadStorageService;
 
-    public VirtualConcatenationService(final UploadStorageService uploadStorageService) {
+    public VirtualConcatenationService(UploadStorageService uploadStorageService) {
         this.uploadStorageService = uploadStorageService;
     }
 
     @Override
-    public void merge(final UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
+    public void merge(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
         if (uploadInfo != null && uploadInfo.isUploadInProgress()
                 && uploadInfo.getConcatenationParts() != null) {
 
@@ -57,7 +57,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
     }
 
     @Override
-    public InputStream getConcatenatedBytes(final UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
+    public InputStream getConcatenatedBytes(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
         merge(uploadInfo);
 
         if (uploadInfo == null || uploadInfo.isUploadInProgress()) {
@@ -69,7 +69,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
     }
 
     @Override
-    public List<UploadInfo> getPartialUploads(final UploadInfo info) throws IOException, UploadNotFoundException {
+    public List<UploadInfo> getPartialUploads(UploadInfo info) throws IOException, UploadNotFoundException {
         List<String> concatenationParts = info.getConcatenationParts();
 
         if (concatenationParts == null || concatenationParts.isEmpty()) {
@@ -89,7 +89,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
         }
     }
 
-    private Long calculateTotalLength(final List<UploadInfo> partialUploads) {
+    private Long calculateTotalLength(List<UploadInfo> partialUploads) {
         Long totalLength = 0L;
 
         for (UploadInfo childInfo : partialUploads) {
@@ -104,7 +104,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
         return totalLength;
     }
 
-    private boolean checkAllCompleted(final Long expirationPeriod, final List<UploadInfo> partialUploads)
+    private boolean checkAllCompleted(Long expirationPeriod, List<UploadInfo> partialUploads)
             throws IOException {
 
         boolean completed = true;
@@ -124,7 +124,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
         return completed;
     }
 
-    private void updateUpload(final UploadInfo uploadInfo) throws IOException {
+    private void updateUpload(UploadInfo uploadInfo) throws IOException {
         try {
             uploadStorageService.update(uploadInfo);
         } catch (UploadNotFoundException e) {
