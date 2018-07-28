@@ -44,7 +44,7 @@ public class ITTusFileUploadService {
     private MockHttpServletRequest servletRequest;
     private MockHttpServletResponse servletResponse;
 
-    TusFileUploadService tusFileUploadService;
+    protected TusFileUploadService tusFileUploadService;
 
     private static Path storagePath;
 
