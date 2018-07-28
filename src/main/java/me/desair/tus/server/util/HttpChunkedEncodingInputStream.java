@@ -51,7 +51,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
      * @param trailerHeaders Map to store any trailer header values. Can be <tt>null</tt>.
      */
     public HttpChunkedEncodingInputStream(
-            final InputStream in, final Map<String, List<String>> trailerHeaders) {
+            InputStream in, Map<String, List<String>> trailerHeaders) {
 
         if (in == null) {
             throw new IllegalArgumentException("InputStream parameter may not be null");
@@ -66,7 +66,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
      *
      * @param in the raw input stream
      */
-    public HttpChunkedEncodingInputStream(final InputStream in) {
+    public HttpChunkedEncodingInputStream(InputStream in) {
         this(in, null);
     }
 
@@ -107,7 +107,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
      * @throws IOException if an IO problem occurs.
      */
     @Override
-    public int read(final byte[] b, final int off, final int len) throws IOException {
+    public int read(byte[] b, int off, int len) throws IOException {
 
         if (closed) {
             throw new IOException("Attempted read from closed stream.");
@@ -136,7 +136,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
      * @throws IOException if an IO problem occurs.
      */
     @Override
-    public int read(final byte[] b) throws IOException {
+    public int read(byte[] b) throws IOException {
         return read(b, 0, b.length);
     }
 
@@ -279,7 +279,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         }
     }
 
-    private List<Pair<String, String>> parseHeaders(final InputStream is, final Charset charset) throws IOException {
+    private List<Pair<String, String>> parseHeaders(InputStream is, Charset charset) throws IOException {
         List<Pair<String, String>> headers = new LinkedList<>();
         String name = null;
         StringBuilder value = null;
@@ -318,18 +318,18 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         return headers;
     }
 
-    private void addHeaderValue(final List<Pair<String, String>> headers, final String name,
-                                final StringBuilder value) {
+    private void addHeaderValue(List<Pair<String, String>> headers, String name,
+                                StringBuilder value) {
         if (name != null) {
             headers.add(Pair.of(name, value.toString()));
         }
     }
 
-    private boolean isLwsChar(final char c) {
+    private boolean isLwsChar(char c) {
         return c == ' ' || c == '\t';
     }
 
-    private String readLine(final InputStream inputStream, final Charset charset) throws IOException {
+    private String readLine(InputStream inputStream, Charset charset) throws IOException {
         byte[] rawdata = readRawLine(inputStream);
         if (rawdata == null || rawdata.length == 0) {
             return null;
@@ -347,7 +347,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         return new String(rawdata, 0, len - offset, charset);
     }
 
-    private byte[] readRawLine(final InputStream inputStream) throws IOException {
+    private byte[] readRawLine(InputStream inputStream) throws IOException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         int ch;
         while ((ch = inputStream.read()) >= 0) {
@@ -362,7 +362,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
     private enum ChunkSizeState {
         NORMAL {
             @Override
-            public ChunkSizeState process(final InputStream in, final ByteArrayOutputStream baos, final int b)
+            public ChunkSizeState process(InputStream in, ByteArrayOutputStream baos, int b)
                     throws IOException {
 
                 ChunkSizeState newState;
@@ -381,7 +381,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         },
         READ_CARRIAGE_RETURN {
             @Override
-            public ChunkSizeState process(final InputStream in, final ByteArrayOutputStream baos, final int b)
+            public ChunkSizeState process(InputStream in, ByteArrayOutputStream baos, int b)
                     throws IOException {
 
                 if (b != '\n') {
@@ -394,7 +394,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         },
         INSIDE_QUOTED_STRING {
             @Override
-            public ChunkSizeState process(final InputStream in, final ByteArrayOutputStream baos, final int b)
+            public ChunkSizeState process(InputStream in, ByteArrayOutputStream baos, int b)
                     throws IOException {
 
                 ChunkSizeState newState;
@@ -417,13 +417,13 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         },
         END {
             @Override
-            public ChunkSizeState process(final InputStream in, final ByteArrayOutputStream baos, final int b)
+            public ChunkSizeState process(InputStream in, ByteArrayOutputStream baos, int b)
                     throws IOException {
                 throw new UnsupportedOperationException("The END state cannot do any processing");
             }
         };
 
-        public abstract ChunkSizeState process(final InputStream in, final ByteArrayOutputStream baos, final int b)
+        public abstract ChunkSizeState process(InputStream in, ByteArrayOutputStream baos, int b)
                 throws IOException;
     }
 }

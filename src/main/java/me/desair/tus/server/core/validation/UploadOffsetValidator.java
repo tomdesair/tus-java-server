@@ -23,8 +23,8 @@ import org.apache.commons.lang3.StringUtils;
 public class UploadOffsetValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request,
-                         final UploadStorageService uploadStorageService, final String ownerKey)
+    public void validate(HttpMethod method, HttpServletRequest request,
+                         UploadStorageService uploadStorageService, String ownerKey)
             throws IOException, TusException {
 
         String uploadOffset = Utils.getHeader(request, HttpHeader.UPLOAD_OFFSET);
@@ -42,7 +42,7 @@ public class UploadOffsetValidator implements RequestValidator {
     }
 
     @Override
-    public boolean supports(final HttpMethod method) {
+    public boolean supports(HttpMethod method) {
         return HttpMethod.PATCH.equals(method);
     }
 

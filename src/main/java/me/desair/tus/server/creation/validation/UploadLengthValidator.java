@@ -17,8 +17,8 @@ import me.desair.tus.server.util.Utils;
 public class UploadLengthValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request,
-                         final UploadStorageService uploadStorageService, final String ownerKey)
+    public void validate(HttpMethod method, HttpServletRequest request,
+                         UploadStorageService uploadStorageService, String ownerKey)
             throws TusException {
 
         Long uploadLength = Utils.getLongHeader(request, HttpHeader.UPLOAD_LENGTH);
@@ -32,7 +32,7 @@ public class UploadLengthValidator implements RequestValidator {
     }
 
     @Override
-    public boolean supports(final HttpMethod method) {
+    public boolean supports(HttpMethod method) {
         return HttpMethod.POST.equals(method);
     }
 }

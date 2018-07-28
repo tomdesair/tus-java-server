@@ -20,14 +20,14 @@ import me.desair.tus.server.util.TusServletResponse;
 public class CoreOptionsRequestHandler extends AbstractRequestHandler {
 
     @Override
-    public boolean supports(final HttpMethod method) {
+    public boolean supports(HttpMethod method) {
         return HttpMethod.OPTIONS.equals(method);
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest,
-                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
-                        final String ownerKey) {
+    public void process(HttpMethod method, TusServletRequest servletRequest,
+                        TusServletResponse servletResponse, UploadStorageService uploadStorageService,
+                        String ownerKey) {
 
         if (uploadStorageService.getMaxUploadSize() > 0) {
             servletResponse.setHeader(HttpHeader.TUS_MAX_SIZE,

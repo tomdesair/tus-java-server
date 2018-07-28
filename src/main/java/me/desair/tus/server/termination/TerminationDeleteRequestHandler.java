@@ -20,14 +20,14 @@ import me.desair.tus.server.util.TusServletResponse;
 public class TerminationDeleteRequestHandler extends AbstractRequestHandler {
 
     @Override
-    public boolean supports(final HttpMethod method) {
+    public boolean supports(HttpMethod method) {
         return HttpMethod.DELETE.equals(method);
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest,
-                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
-                        final String ownerKey) throws IOException, TusException {
+    public void process(HttpMethod method, TusServletRequest servletRequest,
+                        TusServletResponse servletResponse, UploadStorageService uploadStorageService,
+                        String ownerKey) throws IOException, TusException {
 
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
 

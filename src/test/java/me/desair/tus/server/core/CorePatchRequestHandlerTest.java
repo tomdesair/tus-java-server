@@ -75,7 +75,8 @@ public class CorePatchRequestHandlerTest {
         updatedInfo.setLength(10L);
         when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class))).thenReturn(updatedInfo);
 
-        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
 
         verify(uploadStorageService, times(1)).append(eq(info), any(InputStream.class));
@@ -92,7 +93,8 @@ public class CorePatchRequestHandlerTest {
         info.setLength(10L);
         when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
 
-        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, never()).append(any(UploadInfo.class), any(InputStream.class));
 
@@ -104,7 +106,8 @@ public class CorePatchRequestHandlerTest {
     public void processNotFound() throws Exception {
         when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(null);
 
-        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, never()).append(any(UploadInfo.class), any(InputStream.class));
 
@@ -118,9 +121,11 @@ public class CorePatchRequestHandlerTest {
         info.setOffset(10L);
         info.setLength(8L);
         when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
-        when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class))).thenThrow(new UploadNotFoundException("test"));
+        when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class)))
+                .thenThrow(new UploadNotFoundException("test"));
 
-        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
     }

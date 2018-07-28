@@ -20,13 +20,13 @@ public class UploadInputStreamEnumeration implements Enumeration<InputStream> {
 
     private static final Logger log = LoggerFactory.getLogger(UploadInputStreamEnumeration.class);
 
-    private final List<UploadInfo> uploads;
-    private final UploadStorageService uploadStorageService;
+    private List<UploadInfo> uploads;
+    private UploadStorageService uploadStorageService;
     private Iterator<UploadInfo> uploadIterator;
     private InputStream currentInputStream = null;
 
-    public UploadInputStreamEnumeration(final List<UploadInfo> uploadList,
-                                        final UploadStorageService uploadStorageService) {
+    public UploadInputStreamEnumeration(List<UploadInfo> uploadList,
+                                        UploadStorageService uploadStorageService) {
         this.uploads = new ArrayList<>(uploadList);
         this.uploadStorageService = uploadStorageService;
         this.uploadIterator = this.uploads.iterator();

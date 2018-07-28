@@ -7,7 +7,7 @@ import javax.servlet.http.HttpServletResponse;
  * 409 Conflict status without modifying the upload resource.
  */
 public class UploadOffsetMismatchException extends TusException {
-    public UploadOffsetMismatchException(final String message) {
+    public UploadOffsetMismatchException(String message) {
         super(HttpServletResponse.SC_CONFLICT, message);
     }
 }

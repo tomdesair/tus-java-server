@@ -23,11 +23,15 @@ import org.apache.commons.io.IOUtils;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 @RunWith(MockitoJUnitRunner.class)
 public abstract class AbstractTusExtensionIntegrationTest {
+
+    private static final Logger log = LoggerFactory.getLogger(AbstractTusExtensionIntegrationTest.class);
 
     protected AbstractTusExtension tusFeature;
 
@@ -40,7 +44,7 @@ public abstract class AbstractTusExtensionIntegrationTest {
 
     protected UploadInfo uploadInfo;
 
-    protected void prepareUploadInfo(final Long offset, final Long length) throws IOException, TusException {
+    protected void prepareUploadInfo(Long offset, Long length) throws IOException, TusException {
         uploadInfo = new UploadInfo();
         uploadInfo.setOffset(offset);
         uploadInfo.setLength(length);
@@ -62,14 +66,18 @@ public abstract class AbstractTusExtensionIntegrationTest {
                         servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, uploadInfo.getOffset());
                         break;
                     case HttpHeader.CONTENT_LENGTH:
-                        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, uploadInfo.getLength() - uploadInfo.getOffset());
+                        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH,
+                                uploadInfo.getLength() - uploadInfo.getOffset());
+                        break;
+                    default:
+                        log.warn("Undefined HTTP header " + header);
                         break;
                 }
             }
         }
     }
 
-    protected void executeCall(final HttpMethod method, final boolean readContent) throws TusException, IOException {
+    protected void executeCall(HttpMethod method, boolean readContent) throws TusException, IOException {
         tusFeature.validate(method, servletRequest, uploadStorageService, null);
         TusServletRequest tusServletRequest = new TusServletRequest(this.servletRequest);
 
@@ -78,19 +86,20 @@ public abstract class AbstractTusExtensionIntegrationTest {
             IOUtils.copy(tusServletRequest.getContentInputStream(), writer, StandardCharsets.UTF_8);
         }
 
-        tusFeature.process(method, tusServletRequest, new TusServletResponse(servletResponse), uploadStorageService, null);
+        tusFeature.process(method, tusServletRequest,
+                new TusServletResponse(servletResponse), uploadStorageService, null);
     }
 
-    protected void assertResponseHeader(final String header, final String value) {
+    protected void assertResponseHeader(String header, String value) {
         assertThat(servletResponse.getHeader(header), is(value));
     }
 
-    protected void assertResponseHeader(final String header, final String... values) {
+    protected void assertResponseHeader(String header, String... values) {
         assertThat(Arrays.asList(servletResponse.getHeader(header).split(",")),
                 containsInAnyOrder(values));
     }
 
-    protected void assertResponseStatus(final int httpStatus) {
+    protected void assertResponseStatus(int httpStatus) {
         assertThat(servletResponse.getStatus(), is(httpStatus));
     }
 

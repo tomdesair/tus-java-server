@@ -14,26 +14,26 @@ import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 
 /**
- * The response to a HEAD request for a final upload SHOULD NOT contain the Upload-Offset header unless the
+ * The response to a HEAD request for a upload SHOULD NOT contain the Upload-Offset header unless the
  * concatenation has been successfully finished. After successful concatenation, the Upload-Offset and
  * Upload-Length MUST be set and their values MUST be equal. The value of the Upload-Offset header before
- * concatenation is not defined for a final upload.
+ * concatenation is not defined for a upload.
  * <p/>
  * The response to a HEAD request for a partial upload MUST contain the Upload-Offset header. Response to HEAD
- * request against partial or final upload MUST include the Upload-Concat header and its value as received in
+ * request against partial or upload MUST include the Upload-Concat header and its value as received in
  * the upload creation request.
  */
 public class ConcatenationHeadRequestHandler extends AbstractRequestHandler {
 
     @Override
-    public boolean supports(final HttpMethod method) {
+    public boolean supports(HttpMethod method) {
         return HttpMethod.HEAD.equals(method);
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest,
-                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
-                        final String ownerKey) throws IOException, TusException {
+    public void process(HttpMethod method, TusServletRequest servletRequest,
+                        TusServletResponse servletResponse, UploadStorageService uploadStorageService,
+                        String ownerKey) throws IOException, TusException {
 
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
 
@@ -43,7 +43,7 @@ public class ConcatenationHeadRequestHandler extends AbstractRequestHandler {
 
         if (UploadType.CONCATENATED.equals(uploadInfo.getUploadType())) {
             if (uploadInfo.isUploadInProgress()) {
-                //Execute the merge function again to update our final upload data
+                //Execute the merge function again to update our upload data
                 uploadStorageService.getUploadConcatenationService().merge(uploadInfo);
             }
 

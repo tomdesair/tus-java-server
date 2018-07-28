@@ -13,13 +13,13 @@ import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.lang3.StringUtils;
 
 /**
- * The Client MUST NOT include the Upload-Length header in the final upload creation.
+ * The Client MUST NOT include the Upload-Length header in the upload creation.
  */
 public class NoUploadLengthOnFinalValidator implements RequestValidator {
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest request,
-                         final UploadStorageService uploadStorageService, final String ownerKey)
+    public void validate(HttpMethod method, HttpServletRequest request,
+                         UploadStorageService uploadStorageService, String ownerKey)
             throws IOException, TusException {
 
         String uploadConcatValue = request.getHeader(HttpHeader.UPLOAD_CONCAT);
@@ -28,12 +28,12 @@ public class NoUploadLengthOnFinalValidator implements RequestValidator {
                 && StringUtils.isNotBlank(request.getHeader(HttpHeader.UPLOAD_LENGTH))) {
 
             throw new UploadLengthNotAllowedOnConcatenationException(
-                    "The upload length of a final concatenated upload cannot be set");
+                    "The upload length of a concatenated upload cannot be set");
         }
     }
 
     @Override
-    public boolean supports(final HttpMethod method) {
+    public boolean supports(HttpMethod method) {
         return HttpMethod.POST.equals(method);
     }
 }

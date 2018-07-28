@@ -14,7 +14,7 @@ import javax.servlet.http.HttpServletResponse;
  */
 public class InvalidTusResumableException extends TusException {
 
-    public InvalidTusResumableException(final String message) {
+    public InvalidTusResumableException(String message) {
         super(HttpServletResponse.SC_PRECONDITION_FAILED, message);
     }
 }

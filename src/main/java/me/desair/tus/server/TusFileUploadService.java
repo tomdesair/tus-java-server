@@ -47,8 +47,8 @@ public class TusFileUploadService {
     private UploadStorageService uploadStorageService;
     private UploadLockingService uploadLockingService;
     private UploadIdFactory idFactory = new UploadIdFactory();
-    private final LinkedHashMap<String, TusExtension> enabledFeatures = new LinkedHashMap<>();
-    private final Set<HttpMethod> supportedHttpMethods = EnumSet.noneOf(HttpMethod.class);
+    private LinkedHashMap<String, TusExtension> enabledFeatures = new LinkedHashMap<>();
+    private Set<HttpMethod> supportedHttpMethods = EnumSet.noneOf(HttpMethod.class);
 
     public TusFileUploadService() {
         String storagePath = FileUtils.getTempDirectoryPath() + File.separator + "tus";
@@ -67,19 +67,19 @@ public class TusFileUploadService {
         addTusExtension(new ConcatenationExtension());
     }
 
-    public TusFileUploadService withUploadURI(final String uploadURI) {
+    public TusFileUploadService withUploadURI(String uploadURI) {
         Validate.notBlank(uploadURI, "The upload URI cannot be blank");
         this.idFactory.setUploadURI(uploadURI);
         return this;
     }
 
-    public TusFileUploadService withMaxUploadSize(final Long maxUploadSize) {
+    public TusFileUploadService withMaxUploadSize(Long maxUploadSize) {
         Validate.exclusiveBetween(0, Long.MAX_VALUE, maxUploadSize, "The max upload size must be bigger than 0");
         this.uploadStorageService.setMaxUploadSize(maxUploadSize);
         return this;
     }
 
-    public TusFileUploadService withUploadStorageService(final UploadStorageService uploadStorageService) {
+    public TusFileUploadService withUploadStorageService(UploadStorageService uploadStorageService) {
         Validate.notNull(uploadStorageService, "The UploadStorageService cannot be null");
         //Copy over any previous configuration
         uploadStorageService.setMaxUploadSize(this.uploadStorageService.getMaxUploadSize());
@@ -89,7 +89,7 @@ public class TusFileUploadService {
         return this;
     }
 
-    public TusFileUploadService withUploadLockingService(final UploadLockingService uploadLockingService) {
+    public TusFileUploadService withUploadLockingService(UploadLockingService uploadLockingService) {
         Validate.notNull(uploadLockingService, "The UploadStorageService cannot be null");
         uploadLockingService.setIdFactory(this.idFactory);
         //Update the upload storage service
@@ -97,7 +97,7 @@ public class TusFileUploadService {
         return this;
     }
 
-    public TusFileUploadService withStoragePath(final String storagePath) {
+    public TusFileUploadService withStoragePath(String storagePath) {
         Validate.notBlank(storagePath, "The storage path cannot be blank");
         CachedDiskAndLockingStorageService cachedDiskAndLockingStorageService =
                 new CachedDiskAndLockingStorageService(idFactory, storagePath,
@@ -107,7 +107,7 @@ public class TusFileUploadService {
         return this;
     }
 
-    public TusFileUploadService withUploadExpirationPeriod(final long expirationPeriod) {
+    public TusFileUploadService withUploadExpirationPeriod(long expirationPeriod) {
         uploadStorageService.setUploadExpirationPeriod(expirationPeriod);
         return this;
     }
@@ -117,14 +117,14 @@ public class TusFileUploadService {
         return this;
     }
 
-    public TusFileUploadService addTusExtension(final TusExtension feature) {
+    public TusFileUploadService addTusExtension(TusExtension feature) {
         Validate.notNull(feature, "A custom feature cannot be null");
         enabledFeatures.put(feature.getName(), feature);
         updateSupportedHttpMethods();
         return this;
     }
 
-    public TusFileUploadService disableTusExtension(final String featureName) {
+    public TusFileUploadService disableTusExtension(String featureName) {
         Validate.notNull(featureName, "The feature name cannot be null");
 
         if (StringUtils.equals("core", featureName)) {
@@ -144,13 +144,13 @@ public class TusFileUploadService {
         return new LinkedHashSet<>(enabledFeatures.keySet());
     }
 
-    public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse)
+    public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse)
             throws IOException {
         process(servletRequest, servletResponse, null);
     }
 
-    public void process(final HttpServletRequest servletRequest, final HttpServletResponse servletResponse,
-                        final String ownerKey) throws IOException {
+    public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse,
+                        String ownerKey) throws IOException {
         Validate.notNull(servletRequest, "The HTTP Servlet request cannot be null");
         Validate.notNull(servletResponse, "The HTTP Servlet response cannot be null");
 
@@ -177,7 +177,7 @@ public class TusFileUploadService {
      * @throws IOException When the retreiving the uploaded bytes fails
      * @throws TusException When the upload is still in progress or cannot be found
      */
-    public InputStream getUploadedBytes(final String uploadURI) throws IOException, TusException {
+    public InputStream getUploadedBytes(String uploadURI) throws IOException, TusException {
         return getUploadedBytes(uploadURI, null);
     }
 
@@ -189,7 +189,7 @@ public class TusFileUploadService {
      * @throws IOException When the retreiving the uploaded bytes fails
      * @throws TusException When the upload is still in progress or cannot be found
      */
-    public InputStream getUploadedBytes(final String uploadURI, final String ownerKey)
+    public InputStream getUploadedBytes(String uploadURI, String ownerKey)
             throws IOException, TusException {
 
         try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
@@ -205,7 +205,7 @@ public class TusFileUploadService {
      * @throws IOException When retrieving the upload information fails
      * @throws TusException When the upload is still in progress or cannot be found
      */
-    public UploadInfo getUploadInfo(final String uploadURI) throws IOException, TusException {
+    public UploadInfo getUploadInfo(String uploadURI) throws IOException, TusException {
         return getUploadInfo(uploadURI, null);
     }
 
@@ -217,7 +217,7 @@ public class TusFileUploadService {
      * @throws IOException When retrieving the upload information fails
      * @throws TusException When the upload is still in progress or cannot be found
      */
-    public UploadInfo getUploadInfo(final String uploadURI, final String ownerKey) throws IOException, TusException {
+    public UploadInfo getUploadInfo(String uploadURI, String ownerKey) throws IOException, TusException {
         try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
 
             return uploadStorageService.getUploadInfo(uploadURI, ownerKey);
@@ -230,7 +230,7 @@ public class TusFileUploadService {
      *
      * @param uploadURI The upload URI
      */
-    public void deleteUpload(final String uploadURI) throws IOException, TusException {
+    public void deleteUpload(String uploadURI) throws IOException, TusException {
         deleteUpload(uploadURI, null);
     }
 
@@ -240,7 +240,7 @@ public class TusFileUploadService {
      * @param uploadURI The upload URI
      * @param ownerKey  The key of the owner of this upload
      */
-    public void deleteUpload(final String uploadURI, final String ownerKey) throws IOException, TusException {
+    public void deleteUpload(String uploadURI, String ownerKey) throws IOException, TusException {
         try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
             UploadInfo uploadInfo = uploadStorageService.getUploadInfo(uploadURI, ownerKey);
             if (uploadInfo != null) {
@@ -260,8 +260,8 @@ public class TusFileUploadService {
         uploadStorageService.cleanupExpiredUploads(uploadLockingService);
     }
 
-    protected void processLockedRequest(final HttpMethod method, final TusServletRequest request,
-                                        final TusServletResponse response, final String ownerKey) throws IOException {
+    protected void processLockedRequest(HttpMethod method, TusServletRequest request,
+                                        TusServletResponse response, String ownerKey) throws IOException {
         try {
             validateRequest(method, request, ownerKey);
 
@@ -272,8 +272,8 @@ public class TusFileUploadService {
         }
     }
 
-    protected void executeProcessingByFeatures(final HttpMethod method, final TusServletRequest servletRequest,
-                                               final TusServletResponse servletResponse, final String ownerKey)
+    protected void executeProcessingByFeatures(HttpMethod method, TusServletRequest servletRequest,
+                                               TusServletResponse servletResponse, String ownerKey)
             throws IOException, TusException {
 
         for (TusExtension feature : enabledFeatures.values()) {
@@ -284,17 +284,17 @@ public class TusFileUploadService {
         }
     }
 
-    protected void validateRequest(final HttpMethod method, final HttpServletRequest servletRequest,
-                                   final String ownerKey) throws TusException, IOException {
+    protected void validateRequest(HttpMethod method, HttpServletRequest servletRequest,
+                                   String ownerKey) throws TusException, IOException {
 
         for (TusExtension feature : enabledFeatures.values()) {
             feature.validate(method, servletRequest, uploadStorageService, ownerKey);
         }
     }
 
-    protected void processTusException(final HttpMethod method, final TusServletRequest request,
-                                       final TusServletResponse response, final String ownerKey,
-                                       final TusException exception) throws IOException {
+    protected void processTusException(HttpMethod method, TusServletRequest request,
+                                       TusServletResponse response, String ownerKey,
+                                       TusException exception) throws IOException {
 
         int status = exception.getStatus();
         String message = exception.getMessage();

@@ -60,7 +60,7 @@ public class DiskLockingServiceTest {
         when(idFactory.createId()).thenReturn(UUID.randomUUID());
         when(idFactory.readUploadId(anyString())).then(new Answer<UUID>() {
             @Override
-            public UUID answer(final InvocationOnMock invocation) throws Throwable {
+            public UUID answer(InvocationOnMock invocation) throws Throwable {
                 return UUID.fromString(StringUtils.substringAfter(invocation.getArguments()[0].toString(),
                         UPLOAD_URL + "/"));
             }
@@ -120,8 +120,10 @@ public class DiskLockingServiceTest {
         String recentLock = UUID.randomUUID().toString();
         Files.createFile(locksPath.resolve(recentLock));
 
-        Files.setLastModifiedTime(locksPath.resolve(staleLock), FileTime.fromMillis(System.currentTimeMillis() - 20000));
-        Files.setLastModifiedTime(locksPath.resolve(activeLock), FileTime.fromMillis(System.currentTimeMillis() - 20000));
+        Files.setLastModifiedTime(locksPath.resolve(staleLock),
+                FileTime.fromMillis(System.currentTimeMillis() - 20000));
+        Files.setLastModifiedTime(locksPath.resolve(activeLock),
+                FileTime.fromMillis(System.currentTimeMillis() - 20000));
 
         assertTrue(Files.exists(locksPath.resolve(staleLock)));
         assertTrue(Files.exists(locksPath.resolve(activeLock)));

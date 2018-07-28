@@ -76,7 +76,7 @@ public class DiskStorageServiceTest {
         when(idFactory.createId()).thenReturn(UUID.randomUUID());
         when(idFactory.readUploadId(anyString())).then(new Answer<UUID>() {
             @Override
-            public UUID answer(final InvocationOnMock invocation) throws Throwable {
+            public UUID answer(InvocationOnMock invocation) throws Throwable {
                 return UUID.fromString(StringUtils.substringAfter(invocation.getArguments()[0].toString(),
                         UPLOAD_URL + "/"));
             }
@@ -339,7 +339,8 @@ public class DiskStorageServiceTest {
         assertTrue(Files.exists(getUploadInfoPath(info.getId())));
 
         InputStream exceptionStream = mock(InputStream.class);
-        doThrow(new RuntimeException()).when(exceptionStream).read(org.mockito.Mockito.any(byte[].class), anyInt(), anyInt());
+        doThrow(new RuntimeException()).when(exceptionStream)
+                .read(org.mockito.Mockito.any(byte[].class), anyInt(), anyInt());
 
         InputStream sequenceStream = new SequenceInputStream(IOUtils.toInputStream(content, StandardCharsets.UTF_8),
                 exceptionStream);
@@ -490,15 +491,15 @@ public class DiskStorageServiceTest {
         assertFalse(Files.exists(getStoragePath(info.getId())));
     }
 
-    private Path getUploadInfoPath(final UUID id) {
+    private Path getUploadInfoPath(UUID id) {
         return getStoragePath(id).resolve("info");
     }
 
-    private Path getUploadDataPath(final UUID id) {
+    private Path getUploadDataPath(UUID id) {
         return getStoragePath(id).resolve("data");
     }
 
-    private Path getStoragePath(final UUID id) {
+    private Path getStoragePath(UUID id) {
         return storagePath.resolve("uploads").resolve(id.toString());
     }
 }

@@ -11,6 +11,9 @@ import org.hamcrest.TypeSafeMatcher;
  */
 public class MapMatcher {
 
+    private MapMatcher() {
+    }
+
     public static <K, V> Matcher<Map<? extends K, ? extends V>> hasSize(final int size) {
         return new TypeSafeMatcher<Map<? extends K, ? extends V>>() {
             @Override

@@ -29,7 +29,7 @@ public class CreationExtension extends AbstractTusExtension {
     }
 
     @Override
-    protected void initValidators(final List<RequestValidator> requestValidators) {
+    protected void initValidators(List<RequestValidator> requestValidators) {
         requestValidators.add(new PostURIValidator());
         requestValidators.add(new PostEmptyRequestValidator());
         requestValidators.add(new UploadDeferLengthValidator());
@@ -37,7 +37,7 @@ public class CreationExtension extends AbstractTusExtension {
     }
 
     @Override
-    protected void initRequestHandlers(final List<RequestHandler> requestHandlers) {
+    protected void initRequestHandlers(List<RequestHandler> requestHandlers) {
         requestHandlers.add(new CreationHeadRequestHandler());
         requestHandlers.add(new CreationPatchRequestHandler());
         requestHandlers.add(new CreationPostRequestHandler());

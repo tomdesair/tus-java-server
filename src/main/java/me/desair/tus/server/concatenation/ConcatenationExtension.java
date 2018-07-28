@@ -30,14 +30,14 @@ public class ConcatenationExtension extends AbstractTusExtension {
     }
 
     @Override
-    protected void initValidators(final List<RequestValidator> requestValidators) {
+    protected void initValidators(List<RequestValidator> requestValidators) {
         requestValidators.add(new PatchFinalUploadValidator());
         requestValidators.add(new NoUploadLengthOnFinalValidator());
         requestValidators.add(new PartialUploadsExistValidator());
     }
 
     @Override
-    protected void initRequestHandlers(final List<RequestHandler> requestHandlers) {
+    protected void initRequestHandlers(List<RequestHandler> requestHandlers) {
         requestHandlers.add(new ConcatenationOptionsRequestHandler());
         requestHandlers.add(new ConcatenationPostRequestHandler());
         requestHandlers.add(new ConcatenationHeadRequestHandler());

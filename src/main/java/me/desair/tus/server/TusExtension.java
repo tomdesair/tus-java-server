@@ -30,8 +30,8 @@ public interface TusExtension {
      * @throws TusException When the request is invalid
      * @throws IOException When unable to read upload information
      */
-    void validate(final HttpMethod method, final HttpServletRequest servletRequest,
-                  final UploadStorageService uploadStorageService, final String ownerKey)
+    void validate(HttpMethod method, HttpServletRequest servletRequest,
+                  UploadStorageService uploadStorageService, String ownerKey)
             throws TusException, IOException;
 
     /**
@@ -44,9 +44,9 @@ public interface TusExtension {
      * @throws TusException When processing the request fails
      * @throws IOException When unable to read upload information
      */
-    void process(final HttpMethod method, final TusServletRequest servletRequest,
-                 final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
-                 final String ownerKey) throws IOException, TusException;
+    void process(HttpMethod method, TusServletRequest servletRequest,
+                 TusServletResponse servletResponse, UploadStorageService uploadStorageService,
+                 String ownerKey) throws IOException, TusException;
 
     /**
      * If a request is invalid, or when processing the request fails, it might be necessary to react to this failure.
@@ -59,9 +59,9 @@ public interface TusExtension {
      * @throws TusException When handling the error fails
      * @throws IOException When unable to read upload information
      */
-    void handleError(final HttpMethod method, final TusServletRequest servletRequest,
-                     final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
-                     final String ownerKey) throws IOException, TusException;
+    void handleError(HttpMethod method, TusServletRequest servletRequest,
+                     TusServletResponse servletResponse, UploadStorageService uploadStorageService,
+                     String ownerKey) throws IOException, TusException;
 
     /**
      * The minimal list of HTTP methods that this extension needs to function properly

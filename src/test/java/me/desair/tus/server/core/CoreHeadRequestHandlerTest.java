@@ -49,7 +49,8 @@ public class CoreHeadRequestHandlerTest {
         info.setLength(10L);
         when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
 
-        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is("10"));
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("2"));
@@ -65,7 +66,8 @@ public class CoreHeadRequestHandlerTest {
         info.setUploadType(UploadType.CONCATENATED);
         when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
 
-        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is(nullValue()));
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is(nullValue()));
@@ -79,7 +81,8 @@ public class CoreHeadRequestHandlerTest {
         info.setOffset(0L);
         when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
 
-        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is(nullValue()));
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("0"));

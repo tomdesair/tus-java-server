@@ -97,11 +97,13 @@ public class ITCoreProtocol extends AbstractTusExtensionIntegrationTest {
     @Test
     public void testPatchSuccess() throws Exception {
         prepareUploadInfo(2L, 10L);
-        setRequestHeaders(HttpHeader.TUS_RESUMABLE, HttpHeader.CONTENT_TYPE, HttpHeader.UPLOAD_OFFSET, HttpHeader.CONTENT_LENGTH);
+        setRequestHeaders(HttpHeader.TUS_RESUMABLE, HttpHeader.CONTENT_TYPE, HttpHeader.UPLOAD_OFFSET,
+                HttpHeader.CONTENT_LENGTH);
 
         executeCall(HttpMethod.PATCH, false);
 
-        verify(uploadStorageService, times(1)).append(any(UploadInfo.class), any(InputStream.class));
+        verify(uploadStorageService, times(1))
+                .append(any(UploadInfo.class), any(InputStream.class));
 
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "2");

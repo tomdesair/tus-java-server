@@ -15,21 +15,21 @@ import me.desair.tus.server.upload.UploadStorageService;
 
 public abstract class AbstractTusExtension implements TusExtension {
 
-    private final List<RequestValidator> requestValidators = new LinkedList<>();
-    private final List<RequestHandler> requestHandlers = new LinkedList<>();
+    private List<RequestValidator> requestValidators = new LinkedList<>();
+    private List<RequestHandler> requestHandlers = new LinkedList<>();
 
     public AbstractTusExtension() {
         initValidators(requestValidators);
         initRequestHandlers(requestHandlers);
     }
 
-    protected abstract void initValidators(final List<RequestValidator> requestValidators);
+    protected abstract void initValidators(List<RequestValidator> requestValidators);
 
-    protected abstract void initRequestHandlers(final List<RequestHandler> requestHandlers);
+    protected abstract void initRequestHandlers(List<RequestHandler> requestHandlers);
 
     @Override
-    public void validate(final HttpMethod method, final HttpServletRequest servletRequest,
-                         final UploadStorageService uploadStorageService, final String ownerKey)
+    public void validate(HttpMethod method, HttpServletRequest servletRequest,
+                         UploadStorageService uploadStorageService, String ownerKey)
             throws TusException, IOException {
 
         for (RequestValidator requestValidator : requestValidators) {
@@ -40,9 +40,9 @@ public abstract class AbstractTusExtension implements TusExtension {
     }
 
     @Override
-    public void process(final HttpMethod method, final TusServletRequest servletRequest,
-                        final TusServletResponse servletResponse, final UploadStorageService uploadStorageService,
-                        final String ownerKey) throws IOException, TusException {
+    public void process(HttpMethod method, TusServletRequest servletRequest,
+                        TusServletResponse servletResponse, UploadStorageService uploadStorageService,
+                        String ownerKey) throws IOException, TusException {
 
         for (RequestHandler requestHandler : requestHandlers) {
             if (requestHandler.supports(method)) {
@@ -52,8 +52,8 @@ public abstract class AbstractTusExtension implements TusExtension {
     }
 
     @Override
-    public void handleError(final HttpMethod method, final TusServletRequest request, final TusServletResponse response,
-                            final UploadStorageService uploadStorageService, final String ownerKey)
+    public void handleError(HttpMethod method, TusServletRequest request, TusServletResponse response,
+                            UploadStorageService uploadStorageService, String ownerKey)
             throws IOException, TusException {
 
         for (RequestHandler requestHandler : requestHandlers) {

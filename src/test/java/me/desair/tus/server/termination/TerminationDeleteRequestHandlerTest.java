@@ -61,7 +61,8 @@ public class TerminationDeleteRequestHandlerTest {
     public void testWithNotExistingUpload() throws Exception {
         when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(null);
 
-        handler.process(HttpMethod.DELETE, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.DELETE, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, never()).terminateUpload(any(UploadInfo.class));
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_NO_CONTENT));
@@ -69,7 +70,7 @@ public class TerminationDeleteRequestHandlerTest {
 
     @Test
     public void testWithExistingUpload() throws Exception {
-        UUID id = UUID.randomUUID();
+        final UUID id = UUID.randomUUID();
 
         UploadInfo info = new UploadInfo();
         info.setId(id);
@@ -77,7 +78,8 @@ public class TerminationDeleteRequestHandlerTest {
         info.setLength(10L);
         when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
 
-        handler.process(HttpMethod.DELETE, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.DELETE, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, times(1)).terminateUpload(info);
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_NO_CONTENT));

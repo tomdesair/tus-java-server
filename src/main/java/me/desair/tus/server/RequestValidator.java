@@ -20,8 +20,8 @@ public interface RequestValidator {
      * @param ownerKey A key representing the owner of the upload
      * @throws TusException When validation fails and the request should not be processed
      */
-    void validate(final HttpMethod method, final HttpServletRequest request,
-                  final UploadStorageService uploadStorageService, final String ownerKey)
+    void validate(HttpMethod method, HttpServletRequest request,
+                  UploadStorageService uploadStorageService, String ownerKey)
             throws TusException, IOException;
 
     /**
@@ -29,5 +29,5 @@ public interface RequestValidator {
      * @param method The current HTTP method
      * @return true if supported, false otherwise
      */
-    boolean supports(final HttpMethod method);
+    boolean supports(HttpMethod method);
 }

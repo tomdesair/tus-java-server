@@ -27,12 +27,12 @@ public class ChecksumExtension extends AbstractTusExtension {
     }
 
     @Override
-    protected void initValidators(final List<RequestValidator> requestValidators) {
+    protected void initValidators(List<RequestValidator> requestValidators) {
         requestValidators.add(new ChecksumAlgorithmValidator());
     }
 
     @Override
-    protected void initRequestHandlers(final List<RequestHandler> requestHandlers) {
+    protected void initRequestHandlers(List<RequestHandler> requestHandlers) {
         requestHandlers.add(new ChecksumOptionsRequestHandler());
         requestHandlers.add(new ChecksumPatchRequestHandler());
     }

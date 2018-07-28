@@ -32,7 +32,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
     private static final String UPLOAD_URI = "/test/upload";
     private static final String UPLOAD_URL = "http://localhost:80/test/upload/";
-    
+
     private UUID id;
 
     @Before
@@ -47,7 +47,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
         when(uploadStorageService.getUploadURI()).thenReturn(UPLOAD_URI);
         when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
-            public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
+            public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
                 upload.setId(id);
 

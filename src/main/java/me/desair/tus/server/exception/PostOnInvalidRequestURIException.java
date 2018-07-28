@@ -7,7 +7,7 @@ import javax.servlet.http.HttpServletResponse;
  */
 public class PostOnInvalidRequestURIException extends TusException {
 
-    public PostOnInvalidRequestURIException(final String message) {
+    public PostOnInvalidRequestURIException(String message) {
         super(HttpServletResponse.SC_METHOD_NOT_ALLOWED, message);
     }
 }

@@ -74,7 +74,7 @@ public class CreationPostRequestHandlerTest {
         final UUID id = UUID.randomUUID();
         when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
-            public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
+            public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
                 assertThat(upload.getLength(), is(10L));
                 assertThat(upload.getEncodedMetadata(), is("encoded-metadata"));
@@ -85,7 +85,8 @@ public class CreationPostRequestHandlerTest {
             }
         });
 
-        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class), anyString());
         assertThat(servletResponse.getHeader(HttpHeader.LOCATION), endsWith("/test/upload/" + id.toString()));
@@ -101,7 +102,7 @@ public class CreationPostRequestHandlerTest {
         final UUID id = UUID.randomUUID();
         when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
-            public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
+            public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
                 assertThat(upload.getLength(), is(10L));
                 assertThat(upload.getEncodedMetadata(), is(nullValue()));
@@ -112,7 +113,8 @@ public class CreationPostRequestHandlerTest {
             }
         });
 
-        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class), anyString());
         assertThat(servletResponse.getHeader(HttpHeader.LOCATION), endsWith("/test/upload/" + id.toString()));
@@ -128,7 +130,7 @@ public class CreationPostRequestHandlerTest {
         final UUID id = UUID.randomUUID();
         when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
-            public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
+            public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
                 assertThat(upload.getLength(), is(nullValue()));
                 assertThat(upload.getEncodedMetadata(), is("encoded-metadata"));
@@ -139,7 +141,8 @@ public class CreationPostRequestHandlerTest {
             }
         });
 
-        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class), anyString());
         assertThat(servletResponse.getHeader(HttpHeader.LOCATION), endsWith("/test/upload/" + id.toString()));
@@ -155,7 +158,7 @@ public class CreationPostRequestHandlerTest {
         final UUID id = UUID.randomUUID();
         when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
-            public UploadInfo answer(final InvocationOnMock invocation) throws Throwable {
+            public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
                 UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
                 assertThat(upload.getLength(), is(nullValue()));
                 assertThat(upload.getEncodedMetadata(), is(nullValue()));
@@ -166,7 +169,8 @@ public class CreationPostRequestHandlerTest {
             }
         });
 
-        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest), new TusServletResponse(servletResponse), uploadStorageService, null);
+        handler.process(HttpMethod.POST, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
 
         verify(uploadStorageService, times(1)).create(Matchers.any(UploadInfo.class), anyString());
         assertThat(servletResponse.getHeader(HttpHeader.LOCATION), endsWith("/test/upload/" + id.toString()));

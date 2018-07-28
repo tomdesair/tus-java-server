@@ -30,14 +30,14 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
 
     private UploadIdFactory idFactory;
 
-    public DiskLockingService(final UploadIdFactory idFactory, final String storagePath) {
+    public DiskLockingService(UploadIdFactory idFactory, String storagePath) {
         super(storagePath + File.separator + LOCK_SUB_DIRECTORY);
         Validate.notNull(idFactory, "The IdFactory cannot be null");
         this.idFactory = idFactory;
     }
 
     @Override
-    public UploadLock lockUploadByUri(final String requestURI) throws TusException, IOException {
+    public UploadLock lockUploadByUri(String requestURI) throws TusException, IOException {
 
         UUID id = idFactory.readUploadId(requestURI);
 
@@ -70,7 +70,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public boolean isLocked(final UUID id) {
+    public boolean isLocked(UUID id) {
         boolean locked = false;
         Path lockPath = getLockPath(id);
 
@@ -91,11 +91,11 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public void setIdFactory(final UploadIdFactory idFactory) {
+    public void setIdFactory(UploadIdFactory idFactory) {
         this.idFactory = idFactory;
     }
 
-    private Path getLockPath(final UUID id) {
+    private Path getLockPath(UUID id) {
         return getPathInStorageDirectory(id);
     }
 

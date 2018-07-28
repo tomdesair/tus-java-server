@@ -5,16 +5,18 @@
 <module name = "Checker">
     <property name="charset" value="UTF-8"/>
 
-    <property name="severity" value="warning"/>
-
     <property name="fileExtensions" value="java, properties, xml"/>
-    <!-- Checks for whitespace                               -->
-    <!-- See http://checkstyle.sf.net/config_whitespace.html -->
+
     <module name="FileTabCharacter">
         <property name="eachLine" value="true"/>
     </module>
 
     <module name="TreeWalker">
+        <module name="TodoComment">
+            <property name="severity" value="warning"/>
+            <property name="format" value="(TODO)|(FIXME)"/>
+        </module>
+
         <module name="OuterTypeFilename"/>
         <module name="IllegalTokenText">
             <property name="tokens" value="STRING_LITERAL, CHAR_LITERAL"/>
@@ -33,6 +35,8 @@
             <property name="ignorePattern" value="^package.*|^import.*|a href|href|http://|https://|ftp://"/>
         </module>
         <module name="AvoidStarImport"/>
+        <module name="RedundantImport"/>
+        <module name="UnusedImports"/>
         <module name="OneTopLevelClass"/>
         <module name="NoLineWrap"/>
         <module name="EmptyBlock">
@@ -121,11 +125,6 @@
             <message key="name.invalidPattern"
                      value="Parameter name ''{0}'' must match pattern ''{1}''."/>
         </module>
-        <module name="LambdaParameterName">
-            <property name="format" value="^[a-z]([a-z0-9][a-zA-Z0-9]*)?$"/>
-            <message key="name.invalidPattern"
-                     value="Lambda parameter name ''{0}'' must match pattern ''{1}''."/>
-        </module>
         <module name="CatchParameterName">
             <property name="format" value="^[a-z]([a-z0-9][a-zA-Z0-9]*)?$"/>
             <message key="name.invalidPattern"
@@ -176,7 +175,6 @@
             <property name="allowedAbbreviationLength" value="4"/>
         </module>
         <module name="OverloadMethodsDeclarationOrder"/>
-        <module name="VariableDeclarationUsageDistance"/>
         <module name="CustomImportOrder">
             <property name="sortImportsInGroupAlphabetically" value="true"/>
             <property name="separateLineBetweenGroups" value="true"/>
@@ -189,12 +187,6 @@
             <property name="allowLineBreaks" value="true"/>
         </module>
         <module name="ParenPad"/>
-        <module name="OperatorWrap">
-            <property name="option" value="NL"/>
-            <property name="tokens"
-                      value="BAND, BOR, BSR, BXOR, DIV, EQUAL, GE, GT, LAND, LE, LITERAL_INSTANCEOF, LOR,
-                    LT, MINUS, MOD, NOT_EQUAL, PLUS, QUESTION, SL, SR, STAR, METHOD_REF "/>
-        </module>
         <module name="AnnotationLocation">
             <property name="id" value="AnnotationLocationMostCases"/>
             <property name="tokens"
@@ -235,9 +227,12 @@
             <property name="exceptionVariableName" value="expected"/>
         </module>
         <module name="CommentsIndentation"/>
-        <module name="FinalParameters">
-            <property name="ignorePrimitiveTypes" value="false"/>
-            <property name="tokens" value="METHOD_DEF,CTOR_DEF"/>
-        </module>
+        <module name="HideUtilityClassConstructor"/>
+    </module>
+    <!-- No Trailing Whitespace, except on lines that only have an asterisk (e.g. Javadoc comments) -->
+    <module name="RegexpSingleline">
+        <property name="format" value="(?&lt;!\*)\s+$|\*\s\s+$"/>
+        <property name="message" value="Line has trailing whitespace"/>
+        <property name="fileExtensions" value="java, properties, cfg, css, js, xml"/>
     </module>
 </module>

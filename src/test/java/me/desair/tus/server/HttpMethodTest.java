@@ -26,7 +26,8 @@ public class HttpMethodTest {
         MockHttpServletRequest servletRequest = new MockHttpServletRequest();
         servletRequest.setMethod("patch");
 
-        assertEquals(HttpMethod.PATCH, HttpMethod.getMethodIfSupported(servletRequest, EnumSet.allOf(HttpMethod.class)));
+        assertEquals(HttpMethod.PATCH,
+                HttpMethod.getMethodIfSupported(servletRequest, EnumSet.allOf(HttpMethod.class)));
     }
 
     @Test
@@ -35,7 +36,8 @@ public class HttpMethodTest {
         servletRequest.setMethod("post");
         servletRequest.addHeader(HttpHeader.METHOD_OVERRIDE, "patch");
 
-        assertEquals(HttpMethod.PATCH, HttpMethod.getMethodIfSupported(servletRequest, EnumSet.allOf(HttpMethod.class)));
+        assertEquals(HttpMethod.PATCH,
+                HttpMethod.getMethodIfSupported(servletRequest, EnumSet.allOf(HttpMethod.class)));
     }
 
     @Test
@@ -44,7 +46,8 @@ public class HttpMethodTest {
         servletRequest.setMethod("post");
         servletRequest.addHeader(HttpHeader.METHOD_OVERRIDE, "test");
 
-        assertEquals(HttpMethod.POST, HttpMethod.getMethodIfSupported(servletRequest, EnumSet.allOf(HttpMethod.class)));
+        assertEquals(HttpMethod.POST,
+                HttpMethod.getMethodIfSupported(servletRequest, EnumSet.allOf(HttpMethod.class)));
     }
 
     @Test(expected = NullPointerException.class)
@@ -57,7 +60,8 @@ public class HttpMethodTest {
         MockHttpServletRequest servletRequest = new MockHttpServletRequest();
         servletRequest.setMethod("put");
 
-        assertEquals(null, HttpMethod.getMethodIfSupported(servletRequest, EnumSet.noneOf(HttpMethod.class)));
+        assertEquals(null,
+                HttpMethod.getMethodIfSupported(servletRequest, EnumSet.noneOf(HttpMethod.class)));
     }
 
     @Test
@@ -65,6 +69,7 @@ public class HttpMethodTest {
         MockHttpServletRequest servletRequest = new MockHttpServletRequest();
         servletRequest.setMethod("test");
 
-        assertEquals(null, HttpMethod.getMethodIfSupported(servletRequest, EnumSet.noneOf(HttpMethod.class)));
+        assertEquals(null,
+                HttpMethod.getMethodIfSupported(servletRequest, EnumSet.noneOf(HttpMethod.class)));
     }
 }

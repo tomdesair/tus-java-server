@@ -8,7 +8,7 @@ import javax.servlet.http.HttpServletResponse;
  * 404 Not Found, 410 Gone or 403 Forbidden status without the Upload-Offset header.
  */
 public class UploadNotFoundException extends TusException {
-    public UploadNotFoundException(final String message) {
+    public UploadNotFoundException(String message) {
         super(HttpServletResponse.SC_NOT_FOUND, message);
     }
 }
