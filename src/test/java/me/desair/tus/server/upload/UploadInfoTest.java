@@ -151,7 +151,10 @@ public class UploadInfoTest {
         info6.setEncodedMetadata("Encoded-Metadata");
         info6.setId(UUID.fromString("1911e8a4-6939-490c-c58b-a5d70f8d91fb"));
 
+        assertTrue(info1.equals(info1));
         assertTrue(info1.equals(info2));
+        assertFalse(info1.equals(null));
+        assertFalse(info1.equals(new Object()));
         assertFalse(info1.equals(info3));
         assertFalse(info1.equals(info4));
         assertFalse(info1.equals(info5));
