@@ -7,10 +7,8 @@ import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Set;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
 import me.desair.tus.server.checksum.ChecksumExtension;
 import me.desair.tus.server.concatenation.ConcatenationExtension;
 import me.desair.tus.server.core.CoreProtocol;
@@ -26,6 +24,7 @@ import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.disk.DiskLockingService;
 import me.desair.tus.server.upload.disk.DiskStorageService;
+import me.desair.tus.server.upload.disk.ThreadLocalCachedStorageAndLockingService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.apache.commons.io.FileUtils;
@@ -46,8 +45,9 @@ public class TusFileUploadService {
     private UploadStorageService uploadStorageService;
     private UploadLockingService uploadLockingService;
     private UploadIdFactory idFactory = new UploadIdFactory();
-    private LinkedHashMap<String, TusExtension> enabledFeatures = new LinkedHashMap<>();
-    private Set<HttpMethod> supportedHttpMethods = EnumSet.noneOf(HttpMethod.class);
+    private final LinkedHashMap<String, TusExtension> enabledFeatures = new LinkedHashMap<>();
+    private final Set<HttpMethod> supportedHttpMethods = EnumSet.noneOf(HttpMethod.class);
+    private boolean isThreadLocalCacheEnabled;
 
     public TusFileUploadService() {
         String storagePath = FileUtils.getTempDirectoryPath() + File.separator + "tus";
@@ -85,6 +85,7 @@ public class TusFileUploadService {
         uploadStorageService.setIdFactory(this.idFactory);
         //Update the upload storage service
         this.uploadStorageService = uploadStorageService;
+        prepareCacheIfEnable();
         return this;
     }
 
@@ -93,6 +94,7 @@ public class TusFileUploadService {
         uploadLockingService.setIdFactory(this.idFactory);
         //Update the upload storage service
         this.uploadLockingService = uploadLockingService;
+        prepareCacheIfEnable();
         return this;
     }
 
@@ -100,6 +102,13 @@ public class TusFileUploadService {
         Validate.notBlank(storagePath, "The storage path cannot be blank");
         withUploadStorageService(new DiskStorageService(idFactory, storagePath));
         withUploadLockingService(new DiskLockingService(idFactory, storagePath));
+        prepareCacheIfEnable();
+        return this;
+    }
+
+    public TusFileUploadService withThreadLocalCache(boolean isEnable) {
+        this.isThreadLocalCacheEnabled = isEnable;
+        prepareCacheIfEnable();
         return this;
     }
 
@@ -168,9 +177,10 @@ public class TusFileUploadService {
 
     /**
      * Method to retrieve the bytes that were uploaded to a specific upload URI
+     *
      * @param uploadURI The URI of the upload
      * @return An {@link InputStream} that will stream the uploaded bytes
-     * @throws IOException When the retreiving the uploaded bytes fails
+     * @throws IOException  When the retreiving the uploaded bytes fails
      * @throws TusException When the upload is still in progress or cannot be found
      */
     public InputStream getUploadedBytes(String uploadURI) throws IOException, TusException {
@@ -179,10 +189,11 @@ public class TusFileUploadService {
 
     /**
      * Method to retrieve the bytes that were uploaded to a specific upload URI
+     *
      * @param uploadURI The URI of the upload
-     * @param ownerKey The key of the owner of this upload
+     * @param ownerKey  The key of the owner of this upload
      * @return An {@link InputStream} that will stream the uploaded bytes
-     * @throws IOException When the retreiving the uploaded bytes fails
+     * @throws IOException  When the retreiving the uploaded bytes fails
      * @throws TusException When the upload is still in progress or cannot be found
      */
     public InputStream getUploadedBytes(String uploadURI, String ownerKey)
@@ -196,9 +207,10 @@ public class TusFileUploadService {
 
     /**
      * Get the information on the upload corresponding to the given upload URI
+     *
      * @param uploadURI The URI of the upload
      * @return Information on the upload
-     * @throws IOException When retrieving the upload information fails
+     * @throws IOException  When retrieving the upload information fails
      * @throws TusException When the upload is still in progress or cannot be found
      */
     public UploadInfo getUploadInfo(String uploadURI) throws IOException, TusException {
@@ -207,10 +219,11 @@ public class TusFileUploadService {
 
     /**
      * Get the information on the upload corresponding to the given upload URI
+     *
      * @param uploadURI The URI of the upload
-     * @param ownerKey The key of the owner of this upload
+     * @param ownerKey  The key of the owner of this upload
      * @return Information on the upload
-     * @throws IOException When retrieving the upload information fails
+     * @throws IOException  When retrieving the upload information fails
      * @throws TusException When the upload is still in progress or cannot be found
      */
     public UploadInfo getUploadInfo(String uploadURI, String ownerKey) throws IOException, TusException {
@@ -233,6 +246,7 @@ public class TusFileUploadService {
     /**
      * Method to delete an upload associated with the given upload URL. Invoke this method if you no longer need
      * the upload.
+     *
      * @param uploadURI The upload URI
      * @param ownerKey  The key of the owner of this upload
      */
@@ -325,4 +339,15 @@ public class TusFileUploadService {
         }
     }
 
+    private void prepareCacheIfEnable() {
+        if (isThreadLocalCacheEnabled && uploadStorageService != null && uploadLockingService != null) {
+            ThreadLocalCachedStorageAndLockingService service =
+                    new ThreadLocalCachedStorageAndLockingService(
+                            uploadStorageService,
+                            uploadLockingService);
+            service.setIdFactory(this.idFactory);
+            this.uploadStorageService = service;
+            this.uploadLockingService = service;
+        }
+    }
 }
