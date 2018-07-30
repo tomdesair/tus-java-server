@@ -40,6 +40,7 @@ The first step is to create a `TusFileUploadService` object using its constructo
 * `withUploadURI(String)`: Set the relative URL under which the tus upload endpoint will be made available, for example `/files/upload`.
 * `withMaxUploadSize(Long)`: Specify the maximum number of bytes that can be uploaded per upload. If you don't call this method, the maximum number of bytes is `Long.MAX_VALUE`.
 * `withStoragePath(String)`: If you're using the default filesystem-based storage service, you can use this method to specify the path where to store the uploaded bytes and upload information.
+* `withThreadLocalCache(Boolean)`: Optionally you can enable (or disable) an in-memory (thread local) cache of upload request data to reduce load on the storage backend and potentially increase performance when processing upload requests.
 * `withUploadExpirationPeriod(Long)`: You can set the number of milliseconds after which an upload is considered as expired and available for cleanup.
 * `withDownloadFeature()`: Enable the unofficial `download` extension that also allows you to download uploaded bytes.
 * `addTusExtension(TusExtension)`: Add a custom (application-specific) extension that implements the `me.desair.tus.server.TusExtension` interface. For example you can add your own extension that checks authentication and authorization policies within your application for the user doing the upload.

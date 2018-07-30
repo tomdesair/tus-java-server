@@ -1,4 +1,4 @@
-package me.desair.tus.server.upload.disk;
+package me.desair.tus.server.upload.cache;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -22,6 +22,7 @@ import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
  * UploadLockingService service is used as a delegate to cleanup cached data on releasing a lock.
  */
 public class ThreadLocalCachedStorageAndLockingService implements UploadLockingService, UploadStorageService {
+
     private final ThreadLocal<WeakReference<UploadInfo>> uploadInfoCache = new ThreadLocal<>();
     private final UploadLockingService lockingServiceDelegate;
     private final UploadStorageService storageServiceDelegate;
@@ -125,6 +126,9 @@ public class ThreadLocalCachedStorageAndLockingService implements UploadLockingS
     @Override
     public void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException {
         storageServiceDelegate.cleanupExpiredUploads(uploadLockingService);
+        //Since any cached uploads was potentially removed by the storage service
+        //we clean the cache to prevent any stale state
+        cleanupCache();
     }
 
     @Override
@@ -137,7 +141,9 @@ public class ThreadLocalCachedStorageAndLockingService implements UploadLockingS
     @Override
     public void terminateUpload(UploadInfo uploadInfo) throws UploadNotFoundException, IOException {
         storageServiceDelegate.terminateUpload(uploadInfo);
-        uploadInfoCache.set(new WeakReference<>(uploadInfo));
+        //Since the upload is terminated and potentially removed by the storage service
+        //we clean the cache to prevent any stale state
+        cleanupCache();
     }
 
     @Override

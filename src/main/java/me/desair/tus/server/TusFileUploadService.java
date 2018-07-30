@@ -22,9 +22,9 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.upload.cache.ThreadLocalCachedStorageAndLockingService;
 import me.desair.tus.server.upload.disk.DiskLockingService;
 import me.desair.tus.server.upload.disk.DiskStorageService;
-import me.desair.tus.server.upload.disk.ThreadLocalCachedStorageAndLockingService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.apache.commons.io.FileUtils;
@@ -82,6 +82,7 @@ public class TusFileUploadService {
         Validate.notNull(uploadStorageService, "The UploadStorageService cannot be null");
         //Copy over any previous configuration
         uploadStorageService.setMaxUploadSize(this.uploadStorageService.getMaxUploadSize());
+        uploadStorageService.setUploadExpirationPeriod(this.uploadStorageService.getUploadExpirationPeriod());
         uploadStorageService.setIdFactory(this.idFactory);
         //Update the upload storage service
         this.uploadStorageService = uploadStorageService;

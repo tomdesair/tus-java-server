@@ -38,15 +38,15 @@ import org.springframework.mock.web.MockHttpServletResponse;
 
 public class ITTusFileUploadService {
 
-    private static final String UPLOAD_URI = "/test/upload";
-    private static final String OWNER_KEY = "JOHN_DOE";
+    protected static final String UPLOAD_URI = "/test/upload";
+    protected static final String OWNER_KEY = "JOHN_DOE";
 
-    private MockHttpServletRequest servletRequest;
-    private MockHttpServletResponse servletResponse;
+    protected MockHttpServletRequest servletRequest;
+    protected MockHttpServletResponse servletResponse;
 
     protected TusFileUploadService tusFileUploadService;
 
-    private static Path storagePath;
+    protected static Path storagePath;
 
     @BeforeClass
     public static void setupDataFolder() throws IOException {
@@ -231,7 +231,83 @@ public class ITTusFileUploadService {
         servletRequest.setRequestURI(location);
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
-        tusFileUploadService.process(servletRequest, servletResponse);
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    }
+
+    @Test
+    public void testTerminateViaHttpRequest() throws Exception {
+        String uploadContent = "This is my terminated test upload";
+
+        //Create upload
+        servletRequest.setMethod("POST");
+        servletRequest.setRequestURI(UPLOAD_URI);
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, uploadContent.getBytes().length);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseStatus(HttpServletResponse.SC_CREATED);
+
+        String location = UPLOAD_URI +
+                StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+        //Upload bytes
+        reset();
+        servletRequest.setMethod("PATCH");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, uploadContent.getBytes().length);
+        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.setContent(uploadContent.getBytes());
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + uploadContent.getBytes().length);
+        assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        //Make sure cleanup does not interfere with this test
+        tusFileUploadService.cleanup();
+
+        //Download the upload to make sure it was uploaded correctly
+        reset();
+        servletRequest.setMethod("GET");
+        servletRequest.setRequestURI(location);
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "" + uploadContent.getBytes().length);
+        assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
+        assertResponseStatus(HttpServletResponse.SC_OK);
+        assertThat(servletResponse.getContentAsString(), is("This is my terminated test upload"));
+
+        //Terminate the upload so that the server can remove it
+        reset();
+        servletRequest.setMethod("DELETE");
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.setRequestURI(location);
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        //Check that the upload is really gone
+        reset();
+        servletRequest.setMethod("HEAD");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
         assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
         assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
         assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
@@ -1173,28 +1249,28 @@ public class ITTusFileUploadService {
 
     }
 
-    private void assertResponseHeader(final String header, final String value) {
+    protected void assertResponseHeader(final String header, final String value) {
         assertThat(servletResponse.getHeader(header), is(value));
     }
 
-    private void assertResponseHeader(final String header, final String... values) {
+    protected void assertResponseHeader(final String header, final String... values) {
         assertThat(Arrays.asList(servletResponse.getHeader(header).split(",")),
                 containsInAnyOrder(values));
     }
 
-    private void assertResponseHeaderNotBlank(final String header) {
+    protected void assertResponseHeaderNotBlank(final String header) {
         assertTrue(StringUtils.isNotBlank(servletResponse.getHeader(header)));
     }
 
-    private void assertResponseHeaderNull(final String header) {
+    protected void assertResponseHeaderNull(final String header) {
         assertTrue(servletResponse.getHeader(header) == null);
     }
 
-    private void assertResponseStatus(final int httpStatus) {
+    protected void assertResponseStatus(final int httpStatus) {
         assertThat(servletResponse.getStatus(), is(httpStatus));
     }
 
-    private void reset() {
+    protected void reset() {
         servletRequest = new MockHttpServletRequest();
         servletResponse = new MockHttpServletResponse();
     }
