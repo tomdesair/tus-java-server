@@ -55,17 +55,16 @@ To process an upload request you have to pass the current `javax.servlet.http.Ht
 Optionally you can also pass a `String ownerKey` parameter. The `ownerKey` can be used to have a hard separation between uploads of different users, groups or tenants in a multi-tenant setup. Examples of `ownerKey` values are user ID's, group names, client ID's...
 
 ### 3. Retrieving the uploaded bytes and metadata within the application
-Once the upload has been completed by the user, the business logic layer of your application needs to retrieve and do something with the uploaded bytes. This can be achieved by using the `me.desair.tus.server.TusFileUploadService.getUploadedBytes(String uploadURL)` method. The passed `uploadURL` value should be the upload url used by the user to which he uploaded his file. Therefor your application should pass the upload URL of completed uploads to the backend. Optionally, you can also pass an `ownerKey` value to this method in case your application chooses to process uploads using owner keys.
+Once the upload has been completed by the user, the business logic layer of your application needs to retrieve and do something with the uploaded bytes. This can be achieved by using the `me.desair.tus.server.TusFileUploadService.getUploadedBytes(String uploadURL)` method. The passed `uploadURL` value should be the upload url used by the client to which the file was uploaded. Therefor your application should pass the upload URL of completed uploads to the backend. Optionally, you can also pass an `ownerKey` value to this method in case your application chooses to process uploads using owner keys. Examples of values that can be used as an `ownerKey` are: an internal user identifier, a session ID, the name of the subpart of your application...
 
 ### 4. Upload cleanup
-TODO
-
+After having processed the uploaded bytes on the server backend, it's important to cleanup the uploaded bytes. This can be done by calling the `me.desair.tus.server.TusFileUploadService.deleteUpload(String uploadURI)` method. This will remove the uploaded bytes and any associated upload information from the storage backend. Alternatively, a client can also remove an (in-progress) upload using the [termination extension](https://tus.io/protocols/resumable-upload.html#termination). 
 
 ## Compatible Client Implementations
-TODO
+This tus protocol implementation has been [tested](https://github.com/tomdesair/tus-java-server-spring-demo) with the [Uppy file upload client](https://uppy.io/). This repository also contains [many automated integration tests](https://github.com/tomdesair/tus-java-server/blob/master/src/test/java/me/desair/tus/server/ITTusFileUploadService.java) that validate the tus protocol server implementation using plain HTTP requests. So in theory this means we're compatible with any tus 1.0.0 compliant client.
 
 ## Versioning
-TODO
+This artifact is versioned as `A.B.C-X.Y` where `A.B.C` is the version of the implemented tus protocol (currently 1.0.0) and `X.Y` is the version of this library. 
 
 ## Contributing
-TODO
+This library comes without any warranty and is released under a [MIT license](https://github.com/tomdesair/tus-java-server/blob/master/LICENSE). If you encounter any bugs or if you have an idea for a useful improvement you are welcome to [open a new issue](https://github.com/tomdesair/tus-java-server/issues) or to [create a pull request](https://github.com/tomdesair/tus-java-server/pulls) with the proposed implementation. Please note that any contributed code needs to be accompanied by automated unit and/or integration tests and comply with the [define code-style](https://github.com/tomdesair/tus-java-server/blob/master/checkstyle.xml).
