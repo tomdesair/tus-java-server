@@ -6,7 +6,7 @@ This library can be used to enable resumable (and potentially asynchronous) file
 ## Quick Start and Examples
 The tus-java-server library only depends on Java Servlet API 3.1 and some Apache Commons utility libraries. This means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on the file system of the application server (and currently this is the only option, see [configuration section](#usage-and-configuration)).
 
-You can add this library to your application using Maven by adding the following to the pom dependencies:
+You can add the latest stable version of this library to your application using Maven by adding the following dependency:
 
     <dependency>
       <groupId>me.desair.tus</groupId>
