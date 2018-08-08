@@ -10,7 +10,6 @@ import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.math.NumberUtils;
 
 /**
  * The request MUST include one of the following headers:
@@ -28,7 +27,7 @@ public class UploadDeferLengthValidator implements RequestValidator {
         boolean deferredLength = false;
         boolean concatenatedUpload = false;
 
-        if (NumberUtils.isCreatable(Utils.getHeader(request, HttpHeader.UPLOAD_LENGTH))) {
+        if (StringUtils.isNumeric(Utils.getHeader(request, HttpHeader.UPLOAD_LENGTH))) {
             uploadLength = true;
         }
 

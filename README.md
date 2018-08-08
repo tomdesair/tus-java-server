@@ -40,6 +40,7 @@ The first step is to create a `TusFileUploadService` object using its constructo
 * `withUploadURI(String)`: Set the relative URL under which the tus upload endpoint will be made available, for example `/files/upload`.
 * `withMaxUploadSize(Long)`: Specify the maximum number of bytes that can be uploaded per upload. If you don't call this method, the maximum number of bytes is `Long.MAX_VALUE`.
 * `withStoragePath(String)`: If you're using the default filesystem-based storage service, you can use this method to specify the path where to store the uploaded bytes and upload information.
+* `withChunkedTransferDecoding`: You can enable or disable the decoding of chunked HTTP requests by this library. Enable this feature in case the web container in which this service is running does not decode chunked transfers itself. By default, chunked decoding via this library is disabled (as modern frameworks tend to already do this for you).
 * `withThreadLocalCache(Boolean)`: Optionally you can enable (or disable) an in-memory (thread local) cache of upload request data to reduce load on the storage backend and potentially increase performance when processing upload requests.
 * `withUploadExpirationPeriod(Long)`: You can set the number of milliseconds after which an upload is considered as expired and available for cleanup.
 * `withDownloadFeature()`: Enable the unofficial `download` extension that also allows you to download uploaded bytes.

@@ -67,9 +67,9 @@ public class ITTusFileUploadService {
             .withUploadURI(UPLOAD_URI)
             .withStoragePath(storagePath.toAbsolutePath().toString())
             .withMaxUploadSize(1073741824L)
-            .withUploadExpirationPeriod(2 * 24 * 60 * 60 * 1000)
+            .withUploadExpirationPeriod(2L * 24 * 60 * 60 * 1000)
             .withDownloadFeature()
-            .enableChunkedTransferDecoding();
+            .withChunkedTransferDecoding(true);
     }
 
     @Test

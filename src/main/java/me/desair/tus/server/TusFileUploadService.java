@@ -108,13 +108,32 @@ public class TusFileUploadService {
         return this;
     }
 
-    public TusFileUploadService withThreadLocalCache(boolean isEnable) {
-        this.isThreadLocalCacheEnabled = isEnable;
+    /**
+     * Enable or disable a thread-local based cache of upload data. This can reduce the load
+     * on the storage backends. By default this cache is disabled.
+     * @param isEnabled True if the cache should be enabled, false otherwise
+     * @return The current service
+     */
+    public TusFileUploadService withThreadLocalCache(boolean isEnabled) {
+        this.isThreadLocalCacheEnabled = isEnabled;
         prepareCacheIfEnable();
         return this;
     }
 
-    public TusFileUploadService withUploadExpirationPeriod(long expirationPeriod) {
+    /**
+     * Instruct this service to (not) decode any requests with Transfer-Encoding value "chunked".
+     * Use this method in case the web container in which this service is running does not decode
+     * chunked transfers itself. By default, chunked decoding is disabled.
+     *
+     * @param isEnabled True if chunked requests should be decoded, false otherwise.
+     * @return The current service
+     */
+    public TusFileUploadService withChunkedTransferDecoding(boolean isEnabled) {
+        isChunkedTransferDecodingEnabled = isEnabled;
+        return this;
+    }
+
+    public TusFileUploadService withUploadExpirationPeriod(Long expirationPeriod) {
         uploadStorageService.setUploadExpirationPeriod(expirationPeriod);
         return this;
     }
@@ -140,18 +159,6 @@ public class TusFileUploadService {
 
         enabledFeatures.remove(featureName);
         updateSupportedHttpMethods();
-        return this;
-    }
-
-    /**
-     * Instruct this service to decode any requests with Transfer-Encoding value "chunked".
-     * Use this method in case the web container in which this service is running does not decode
-     * chunked transfers itself.
-     *
-     * @return The current service
-     */
-    public TusFileUploadService enableChunkedTransferDecoding() {
-        isChunkedTransferDecodingEnabled = true;
         return this;
     }
 
