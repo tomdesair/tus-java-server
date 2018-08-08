@@ -79,7 +79,7 @@ public abstract class AbstractTusExtensionIntegrationTest {
 
     protected void executeCall(HttpMethod method, boolean readContent) throws TusException, IOException {
         tusFeature.validate(method, servletRequest, uploadStorageService, null);
-        TusServletRequest tusServletRequest = new TusServletRequest(this.servletRequest);
+        TusServletRequest tusServletRequest = new TusServletRequest(this.servletRequest, true);
 
         if (readContent) {
             StringWriter writer = new StringWriter();

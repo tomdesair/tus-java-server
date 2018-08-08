@@ -28,10 +28,10 @@ public class HttpChunkedEncodingInputStream extends InputStream {
     private InputStream in;
 
     /** The current chunk size */
-    private int chunkSize;
+    private int chunkSize = 0;
 
     /** The current position within the current chunk */
-    private int pos;
+    private int pos = 0;
 
     /** True if we'are at the beginning of stream */
     private boolean bof = true;
@@ -58,7 +58,6 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         }
         this.in = in;
         this.trailerHeaders = trailerHeaders;
-        this.pos = 0;
     }
 
     /**

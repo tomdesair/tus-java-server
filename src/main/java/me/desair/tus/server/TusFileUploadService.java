@@ -47,7 +47,8 @@ public class TusFileUploadService {
     private UploadIdFactory idFactory = new UploadIdFactory();
     private final LinkedHashMap<String, TusExtension> enabledFeatures = new LinkedHashMap<>();
     private final Set<HttpMethod> supportedHttpMethods = EnumSet.noneOf(HttpMethod.class);
-    private boolean isThreadLocalCacheEnabled;
+    private boolean isThreadLocalCacheEnabled = false;
+    private boolean isChunkedTransferDecodingEnabled = false;
 
     public TusFileUploadService() {
         String storagePath = FileUtils.getTempDirectoryPath() + File.separator + "tus";
@@ -142,6 +143,18 @@ public class TusFileUploadService {
         return this;
     }
 
+    /**
+     * Instruct this service to decode any requests with Transfer-Encoding value "chunked".
+     * Use this method in case the web container in which this service is running does not decode
+     * chunked transfers itself.
+     *
+     * @return The current service
+     */
+    public TusFileUploadService enableChunkedTransferDecoding() {
+        isChunkedTransferDecodingEnabled = true;
+        return this;
+    }
+
     public Set<HttpMethod> getSupportedHttpMethods() {
         return EnumSet.copyOf(supportedHttpMethods);
     }
@@ -164,7 +177,7 @@ public class TusFileUploadService {
 
         log.debug("Processing request with method {} and URL {}", method, servletRequest.getRequestURL());
 
-        TusServletRequest request = new TusServletRequest(servletRequest);
+        TusServletRequest request = new TusServletRequest(servletRequest, isChunkedTransferDecodingEnabled);
         TusServletResponse response = new TusServletResponse(servletResponse);
 
         try (UploadLock lock = uploadLockingService.lockUploadByUri(request.getRequestURI())) {

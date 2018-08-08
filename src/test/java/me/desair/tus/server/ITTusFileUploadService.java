@@ -68,7 +68,8 @@ public class ITTusFileUploadService {
             .withStoragePath(storagePath.toAbsolutePath().toString())
             .withMaxUploadSize(1073741824L)
             .withUploadExpirationPeriod(2 * 24 * 60 * 60 * 1000)
-            .withDownloadFeature();
+            .withDownloadFeature()
+            .enableChunkedTransferDecoding();
     }
 
     @Test
@@ -1152,6 +1153,89 @@ public class ITTusFileUploadService {
                     is("When sending this part, the final upload was already created. " +
                                     "This is the second part of our concatenated upload. " +
                                     "Finally when sending the third part, the final upload is complete."));
+        }
+    }
+
+    @Test
+    public void testChunkedDecodingDisabled() throws Exception {
+        String chunkedContent = "1B;test=value\r\nThis upload looks chunked, \r\n"
+                + "D\r\nbut it's not!\r\n"
+                + "\r\n0\r\n";
+
+        //Create service without chunked decoding
+        tusFileUploadService = new TusFileUploadService()
+                .withUploadURI(UPLOAD_URI)
+                .withStoragePath(storagePath.toAbsolutePath().toString())
+                .withDownloadFeature();
+
+        //Create upload
+        servletRequest.setMethod("POST");
+        servletRequest.setRequestURI(UPLOAD_URI);
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "67");
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNull(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseStatus(HttpServletResponse.SC_CREATED);
+
+        String location = UPLOAD_URI +
+                StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+        //Upload content
+        reset();
+        servletRequest.setMethod("PATCH");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+        servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, "67");
+        servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        servletRequest.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
+        servletRequest.setContent(chunkedContent.getBytes());
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeaderNull(HttpHeader.UPLOAD_EXPIRES);
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "67");
+
+        //Check with HEAD request upload is complete
+        reset();
+        servletRequest.setMethod("HEAD");
+        servletRequest.setRequestURI(location);
+        servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+        assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+        assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+        assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "67");
+        assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "67");
+        assertResponseHeaderNull(HttpHeader.UPLOAD_DEFER_LENGTH);
+        assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
+        assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+        //Get upload info from service
+        UploadInfo info = tusFileUploadService.getUploadInfo(location, OWNER_KEY);
+        assertFalse(info.isUploadInProgress());
+        assertThat(info.getLength(), is(67L));
+        assertThat(info.getOffset(), is(67L));
+        assertThat(info.getMetadata(), allOf(
+                hasSize(1),
+                hasEntry("filename", "world_domination_plan.pdf")
+                )
+        );
+
+        //Get uploaded bytes from service
+        try (InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
+            assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
+                    is("1B;test=value\r\nThis upload looks chunked, \r\n"
+                            + "D\r\nbut it's not!\r\n"
+                            + "\r\n0\r\n"));
         }
     }
 

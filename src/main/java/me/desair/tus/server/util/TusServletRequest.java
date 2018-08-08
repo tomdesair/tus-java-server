@@ -27,6 +27,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
     private Map<ChecksumAlgorithm, DigestInputStream> digestInputStreamMap = new EnumMap<>(ChecksumAlgorithm.class);
     private DigestInputStream singleDigestInputStream = null;
     private InputStream contentInputStream = null;
+    private boolean isChunkedTransferDecodingEnabled = true;
 
     private Map<String, List<String>> trailerHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     private Set<String> processedBySet = new TreeSet<>();
@@ -35,10 +36,22 @@ public class TusServletRequest extends HttpServletRequestWrapper {
      * Constructs a request object wrapping the given request.
      *
      * @param request The upload request we need to wrap
+     * @param isChunkedTransferDecodingEnabled Should this request wrapper decode a chunked input stream
+     * @throws IllegalArgumentException if the request is null
+     */
+    public TusServletRequest(HttpServletRequest request, boolean isChunkedTransferDecodingEnabled) {
+        super(request);
+        this.isChunkedTransferDecodingEnabled = isChunkedTransferDecodingEnabled;
+    }
+
+    /**
+     * Constructs a request object wrapping the given request.
+     *
+     * @param request The upload request we need to wrap
      * @throws IllegalArgumentException if the request is null
      */
     public TusServletRequest(HttpServletRequest request) {
-        super(request);
+        this(request, false);
     }
 
     public InputStream getContentInputStream() throws IOException {
@@ -48,7 +61,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
             //If we're dealing with chunked transfer encoding,
             //abstract it so that the rest of our code doesn't need to care
             boolean isChunked = hasChunkedTransferEncoding();
-            if (isChunked) {
+            if (isChunked && isChunkedTransferDecodingEnabled) {
                 contentInputStream = new HttpChunkedEncodingInputStream(contentInputStream, trailerHeaders);
             }
 
