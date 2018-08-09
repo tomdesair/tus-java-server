@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -25,7 +27,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
 
     private CountingInputStream countingInputStream;
     private Map<ChecksumAlgorithm, DigestInputStream> digestInputStreamMap = new EnumMap<>(ChecksumAlgorithm.class);
-    private DigestInputStream singleDigestInputStream = null;
+
     private InputStream contentInputStream = null;
     private boolean isChunkedTransferDecodingEnabled = true;
 
@@ -71,28 +73,26 @@ public class TusServletRequest extends HttpServletRequestWrapper {
             ChecksumAlgorithm checksumAlgorithm = ChecksumAlgorithm.forUploadChecksumHeader(
                     getHeader(HttpHeader.UPLOAD_CHECKSUM));
 
+            List<ChecksumAlgorithm> algorithms;
+
             if (isChunked) {
                 //Since the Checksum header can still come at the end, keep track of all checksums
-                for (ChecksumAlgorithm algorithm : ChecksumAlgorithm.values()) {
-                    DigestInputStream is = new DigestInputStream(contentInputStream, algorithm.getMessageDigest());
-                    digestInputStreamMap.put(algorithm, is);
-
-                    contentInputStream = is;
-                }
+                algorithms = Arrays.asList(ChecksumAlgorithm.values());
             } else if (checksumAlgorithm != null) {
-                singleDigestInputStream = new DigestInputStream(contentInputStream,
-                        checksumAlgorithm.getMessageDigest());
-
-                contentInputStream = singleDigestInputStream;
+                algorithms = Collections.singletonList(checksumAlgorithm);
+            } else {
+                algorithms = Collections.emptyList();
             }
 
+            for (ChecksumAlgorithm algorithm : algorithms) {
+                DigestInputStream is = new DigestInputStream(contentInputStream, algorithm.getMessageDigest());
+                digestInputStreamMap.put(algorithm, is);
+
+                contentInputStream = is;
+            }
         }
 
         return contentInputStream;
-    }
-
-    private boolean hasChunkedTransferEncoding() {
-        return StringUtils.equalsIgnoreCase("chunked", getHeader(HttpHeader.TRANSFER_ENCODING));
     }
 
     public long getBytesRead() {
@@ -100,7 +100,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
     }
 
     public boolean hasCalculatedChecksum() {
-        return singleDigestInputStream != null || !digestInputStreamMap.isEmpty();
+        return !digestInputStreamMap.isEmpty();
     }
 
     public String getCalculatedChecksum(ChecksumAlgorithm algorithm) {
@@ -109,14 +109,12 @@ public class TusServletRequest extends HttpServletRequestWrapper {
                 DatatypeConverter.printBase64Binary(messageDigest.digest());
     }
 
-    private MessageDigest getMessageDigest(ChecksumAlgorithm algorithm) {
-        if (digestInputStreamMap.containsKey(algorithm)) {
-            return digestInputStreamMap.get(algorithm).getMessageDigest();
-        } else if (singleDigestInputStream != null) {
-            return singleDigestInputStream.getMessageDigest();
-        } else {
-            return null;
-        }
+    /**
+     * Get the set of checksum algorithms that are actively calculated within this request
+     * @return The set of active checksum algorithms
+     */
+    public Set<ChecksumAlgorithm> getEnabledChecksums() {
+        return digestInputStreamMap.keySet();
     }
 
     @Override
@@ -139,5 +137,17 @@ public class TusServletRequest extends HttpServletRequestWrapper {
 
     public void addProcessor(TusExtension processor) {
         processedBySet.add(processor.getName());
+    }
+
+    private boolean hasChunkedTransferEncoding() {
+        return StringUtils.equalsIgnoreCase("chunked", getHeader(HttpHeader.TRANSFER_ENCODING));
+    }
+
+    private MessageDigest getMessageDigest(ChecksumAlgorithm algorithm) {
+        if (digestInputStreamMap.containsKey(algorithm)) {
+            return digestInputStreamMap.get(algorithm).getMessageDigest();
+        } else {
+            return null;
+        }
     }
 }
