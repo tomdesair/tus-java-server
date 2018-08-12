@@ -2,6 +2,7 @@ package me.desair.tus.server.core.validation;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.fail;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Mockito.when;
 
@@ -58,7 +59,11 @@ public class UploadOffsetValidatorTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 5L);
 
         //When we validate the request
-        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }
@@ -116,7 +121,11 @@ public class UploadOffsetValidatorTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 3L);
 
         //When we validate the request
-        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }

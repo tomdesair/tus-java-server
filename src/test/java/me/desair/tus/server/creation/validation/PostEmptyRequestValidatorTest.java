@@ -2,6 +2,7 @@ package me.desair.tus.server.creation.validation;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.fail;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -50,7 +51,11 @@ public class PostEmptyRequestValidatorTest {
         servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0L);
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, null, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }

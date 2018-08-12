@@ -2,6 +2,7 @@ package me.desair.tus.server.core.validation;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.fail;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -37,13 +38,21 @@ public class TusResumableValidatorTest {
     @Test
     public void validateValid() throws Exception {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
     }
 
     @Test
     public void validateNullMethod() throws Exception {
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-        validator.validate(null, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(null, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
     }
 
     @Test

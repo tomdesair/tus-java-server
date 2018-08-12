@@ -2,6 +2,7 @@ package me.desair.tus.server.creation.validation;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.fail;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -44,7 +45,11 @@ public class UploadDeferLengthValidatorTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, null, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }
@@ -54,7 +59,11 @@ public class UploadDeferLengthValidatorTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_DEFER_LENGTH, 1);
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, null, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }

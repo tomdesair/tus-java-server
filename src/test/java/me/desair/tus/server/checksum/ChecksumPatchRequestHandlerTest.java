@@ -2,7 +2,11 @@ package me.desair.tus.server.checksum;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import me.desair.tus.server.HttpHeader;
@@ -59,6 +63,8 @@ public class ChecksumPatchRequestHandlerTest {
         when(servletRequest.hasCalculatedChecksum()).thenReturn(true);
 
         handler.process(HttpMethod.PATCH, servletRequest, null, uploadStorageService, null);
+
+        verify(servletRequest, times(1)).getCalculatedChecksum(any(ChecksumAlgorithm.class));
     }
 
     @Test(expected = UploadChecksumMismatchException.class)
@@ -75,6 +81,8 @@ public class ChecksumPatchRequestHandlerTest {
         when(servletRequest.getHeader(HttpHeader.UPLOAD_CHECKSUM)).thenReturn(null);
 
         handler.process(HttpMethod.PATCH, servletRequest, null, uploadStorageService, null);
+
+        verify(servletRequest, never()).getCalculatedChecksum(any(ChecksumAlgorithm.class));
     }
 
     @Test(expected = ChecksumAlgorithmNotSupportedException.class)

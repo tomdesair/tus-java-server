@@ -2,6 +2,10 @@ package me.desair.tus.server.checksum.validation;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.fail;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -26,7 +30,7 @@ public class ChecksumAlgorithmValidatorTest {
 
     @Before
     public void setUp() {
-        servletRequest = new MockHttpServletRequest();
+        servletRequest = spy(new MockHttpServletRequest());
         validator = new ChecksumAlgorithmValidator();
     }
 
@@ -47,13 +51,19 @@ public class ChecksumAlgorithmValidatorTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 1234567890");
 
         validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+
+        verify(servletRequest, times(1)).getHeader(HttpHeader.UPLOAD_CHECKSUM);
     }
 
     @Test
     public void testNoHeader() throws Exception {
         //servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, null);
 
-        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
     }
 
     @Test(expected = ChecksumAlgorithmNotSupportedException.class)

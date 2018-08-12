@@ -2,6 +2,7 @@ package me.desair.tus.server.creation.validation;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.fail;
 import static org.mockito.Mockito.when;
 
 import me.desair.tus.server.HttpHeader;
@@ -48,7 +49,11 @@ public class UploadLengthValidatorTest {
         when(uploadStorageService.getMaxUploadSize()).thenReturn(0L);
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }
@@ -58,7 +63,11 @@ public class UploadLengthValidatorTest {
         when(uploadStorageService.getMaxUploadSize()).thenReturn(400L);
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }
@@ -68,7 +77,11 @@ public class UploadLengthValidatorTest {
         when(uploadStorageService.getMaxUploadSize()).thenReturn(300L);
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }
@@ -78,7 +91,11 @@ public class UploadLengthValidatorTest {
         when(uploadStorageService.getMaxUploadSize()).thenReturn(300L);
         //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }

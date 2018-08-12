@@ -1,5 +1,7 @@
 package me.desair.tus.server.checksum;
 
+import static org.junit.Assert.fail;
+
 import me.desair.tus.server.AbstractTusExtensionIntegrationTest;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -53,7 +55,11 @@ public class ITChecksumExtension extends AbstractTusExtensionIntegrationTest {
         servletRequest.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
         servletRequest.setContent(content.getBytes());
 
-        executeCall(HttpMethod.PATCH, true);
+        try {
+            executeCall(HttpMethod.PATCH, true);
+        } catch (Exception ex) {
+            fail();
+        }
     }
 
     @Test
@@ -100,6 +106,10 @@ public class ITChecksumExtension extends AbstractTusExtensionIntegrationTest {
 
         servletRequest.setContent(content.getBytes());
 
-        executeCall(HttpMethod.PATCH, true);
+        try {
+            executeCall(HttpMethod.PATCH, true);
+        } catch (Exception ex) {
+            fail();
+        }
     }
 }

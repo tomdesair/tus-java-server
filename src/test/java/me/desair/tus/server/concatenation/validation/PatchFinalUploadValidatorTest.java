@@ -2,6 +2,7 @@ package me.desair.tus.server.concatenation.validation;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.fail;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.when;
@@ -66,22 +67,32 @@ public class PatchFinalUploadValidatorTest {
         when(uploadStorageService.getUploadInfo(eq(info2.getId().toString()), anyString())).thenReturn(info2);
         when(uploadStorageService.getUploadInfo(eq(info3.getId().toString()), anyString())).thenReturn(info3);
 
-        //When we validate the request
-        servletRequest.setRequestURI(info1.getId().toString());
-        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        //When we validate the requests
+        try {
+            servletRequest.setRequestURI(info1.getId().toString());
+            validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
 
-        servletRequest.setRequestURI(info2.getId().toString());
-        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+            servletRequest.setRequestURI(info2.getId().toString());
+            validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
 
-        servletRequest.setRequestURI(info3.getId().toString());
-        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+            servletRequest.setRequestURI(info3.getId().toString());
+            validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
+
+        //No exception is thrown
     }
 
     @Test
     public void testValidNotFound() throws Exception {
-        //When we validate the request
-        servletRequest.setRequestURI("/upload/test");
-        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        try {
+            //When we validate the request
+            servletRequest.setRequestURI("/upload/test");
+            validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
     }
 
     @Test(expected = PatchOnFinalUploadNotAllowedException.class)
