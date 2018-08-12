@@ -65,7 +65,11 @@ public class NoUploadLengthOnFinalValidatorTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "10L");
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, null, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }
@@ -76,7 +80,11 @@ public class NoUploadLengthOnFinalValidatorTest {
         //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "10L");
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, null, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }

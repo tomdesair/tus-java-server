@@ -44,7 +44,11 @@ public class ContentLengthValidatorTest {
         servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 10L);
 
         //When we validate the request
-        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }
@@ -143,7 +147,11 @@ public class ContentLengthValidatorTest {
         //servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 3L);
 
         //When we validate the request
-        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }
@@ -155,7 +163,11 @@ public class ContentLengthValidatorTest {
         servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 3L);
 
         //When we validate the request
-        validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }

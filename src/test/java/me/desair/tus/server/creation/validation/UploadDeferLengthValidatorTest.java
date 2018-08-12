@@ -105,7 +105,11 @@ public class UploadDeferLengthValidatorTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "final;1234 5678");
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, null, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }

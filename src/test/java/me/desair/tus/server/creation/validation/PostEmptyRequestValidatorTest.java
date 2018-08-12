@@ -41,7 +41,11 @@ public class PostEmptyRequestValidatorTest {
         //servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 3L);
 
         //When we validate the request
-        validator.validate(HttpMethod.POST, servletRequest, null, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, null, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }

@@ -2,6 +2,7 @@ package me.desair.tus.server.creation.validation;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.fail;
 import static org.mockito.Mockito.when;
 
 import me.desair.tus.server.HttpMethod;
@@ -47,7 +48,11 @@ public class PostURIValidatorTest {
         servletRequest.setRequestURI("/test/upload");
         when(uploadStorageService.getUploadURI()).thenReturn("/test/upload");
 
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
 
         //No Exception is thrown
     }

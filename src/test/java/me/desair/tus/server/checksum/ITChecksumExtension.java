@@ -1,6 +1,9 @@
 package me.desair.tus.server.checksum;
 
 import static org.junit.Assert.fail;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import me.desair.tus.server.AbstractTusExtensionIntegrationTest;
 import me.desair.tus.server.HttpHeader;
@@ -16,7 +19,7 @@ public class ITChecksumExtension extends AbstractTusExtensionIntegrationTest {
 
     @Before
     public void setUp() throws Exception {
-        servletRequest = new MockHttpServletRequest();
+        servletRequest = spy(new MockHttpServletRequest());
         servletResponse = new MockHttpServletResponse();
         tusFeature = new ChecksumExtension();
         uploadInfo = null;
@@ -70,6 +73,8 @@ public class ITChecksumExtension extends AbstractTusExtensionIntegrationTest {
         servletRequest.setContent(content.getBytes());
 
         executeCall(HttpMethod.PATCH, true);
+
+        verify(servletRequest, atLeastOnce()).getHeader(HttpHeader.UPLOAD_CHECKSUM);
     }
 
     @Test(expected = UploadChecksumMismatchException.class)

@@ -2,6 +2,7 @@ package me.desair.tus.server.core.validation;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.fail;
 
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.UnsupportedMethodException;
@@ -26,7 +27,11 @@ public class HttpMethodValidatorTest {
 
     @Test
     public void validateValid() throws Exception {
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
     }
 
     @Test(expected = UnsupportedMethodException.class)
