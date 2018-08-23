@@ -68,7 +68,7 @@ public class TusFileUploadService {
     }
 
     public TusFileUploadService withUploadURI(String uploadURI) {
-        Validate.notBlank(uploadURI, "The upload URI cannot be blank");
+        Validate.notBlank(uploadURI, "The upload URI pattern cannot be blank");
         this.idFactory.setUploadURI(uploadURI);
         return this;
     }
