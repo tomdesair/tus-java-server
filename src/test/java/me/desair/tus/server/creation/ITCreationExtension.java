@@ -31,6 +31,9 @@ import org.springframework.mock.web.MockHttpServletResponse;
 public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
     private static final String UPLOAD_URI = "/test/upload";
+
+    //It's important to return relative UPLOAD URLs in the Location header in order to support HTTPS proxies
+    //that sit in front of the web app
     private static final String UPLOAD_URL = UPLOAD_URI + "/";
 
     private UUID id;
