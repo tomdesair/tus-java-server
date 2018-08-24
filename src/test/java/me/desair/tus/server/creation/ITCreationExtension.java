@@ -31,7 +31,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
     private static final String UPLOAD_URI = "/test/upload";
-    private static final String UPLOAD_URL = "http://localhost:80/test/upload/";
+    private static final String UPLOAD_URL = UPLOAD_URI + "/";
 
     private UUID id;
 

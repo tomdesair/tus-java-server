@@ -39,7 +39,8 @@ public class CreationPostRequestHandler extends AbstractRequestHandler {
         info = uploadStorageService.create(info, ownerKey);
 
         //We've already validated that the current request URL matches our upload URL so we can safely use it.
-        String url = servletRequest.getRequestURL().append("/").append(info.getId()).toString();
+        String uploadURI = servletRequest.getRequestURI();
+        String url = uploadURI + (StringUtils.endsWith(uploadURI, "/") ? "" : "/") + info.getId();
         servletResponse.setHeader(HttpHeader.LOCATION, url);
         servletResponse.setStatus(HttpServletResponse.SC_CREATED);
 
