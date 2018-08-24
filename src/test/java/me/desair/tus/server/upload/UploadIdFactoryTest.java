@@ -35,6 +35,21 @@ public class UploadIdFactoryTest {
         assertThat(idFactory.getUploadURI(), is("/test/upload/"));
     }
 
+    @Test(expected = IllegalArgumentException.class)
+    public void setUploadURIBlank() throws Exception {
+        idFactory.setUploadURI(" ");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void setUploadURINoStartingSlash() throws Exception {
+        idFactory.setUploadURI("test/upload/");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void setUploadURIEndsWithDollar() throws Exception {
+        idFactory.setUploadURI("/test/upload$");
+    }
+
     @Test
     public void readUploadId() throws Exception {
         idFactory.setUploadURI("/test/upload");

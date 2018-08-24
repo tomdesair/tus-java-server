@@ -67,18 +67,39 @@ public class TusFileUploadService {
         addTusExtension(new ConcatenationExtension());
     }
 
+    /**
+     * Set the URI under which the main tus upload endpoint is hosted.
+     * Optionally, this URI may contain regex parameters in order to support endpoints that contain
+     * URL parameters, for example /users/[0-9]+/files/upload
+     *
+     * @param uploadURI The URI of the main tus upload endpoint
+     * @return The current service
+     */
     public TusFileUploadService withUploadURI(String uploadURI) {
-        Validate.notBlank(uploadURI, "The upload URI pattern cannot be blank");
         this.idFactory.setUploadURI(uploadURI);
         return this;
     }
 
+    /**
+     * Specify the maximum number of bytes that can be uploaded per upload.
+     * If you don't call this method, the maximum number of bytes is Long.MAX_VALUE.
+     *
+     * @param maxUploadSize The maximum upload length that is allowed
+     * @return The current service
+     */
     public TusFileUploadService withMaxUploadSize(Long maxUploadSize) {
         Validate.exclusiveBetween(0, Long.MAX_VALUE, maxUploadSize, "The max upload size must be bigger than 0");
         this.uploadStorageService.setMaxUploadSize(maxUploadSize);
         return this;
     }
 
+    /**
+     * Provide a custom {@link UploadStorageService} implementation that should be used to store uploaded bytes and
+     * metadata ({@link UploadInfo}).
+     *
+     * @param uploadStorageService The custom {@link UploadStorageService} implementation
+     * @return The current service
+     */
     public TusFileUploadService withUploadStorageService(UploadStorageService uploadStorageService) {
         Validate.notNull(uploadStorageService, "The UploadStorageService cannot be null");
         //Copy over any previous configuration
@@ -91,6 +112,14 @@ public class TusFileUploadService {
         return this;
     }
 
+    /**
+     * Provide a custom {@link UploadLockingService} implementation that should be used when processing uploads.
+     * The upload locking service is responsible for locking an upload that is being processed so that it cannot
+     * be corrupted by simultaneous or delayed requests.
+     *
+     * @param uploadLockingService The {@link UploadLockingService} implementation to use
+     * @return The current service
+     */
     public TusFileUploadService withUploadLockingService(UploadLockingService uploadLockingService) {
         Validate.notNull(uploadLockingService, "The UploadStorageService cannot be null");
         uploadLockingService.setIdFactory(this.idFactory);
@@ -100,6 +129,13 @@ public class TusFileUploadService {
         return this;
     }
 
+    /**
+     * If you're using the default filesystem-based storage service, you can use this method to
+     * specify the path where to store the uploaded bytes and upload information.
+     *
+     * @param storagePath The file system path where uploads can be stored (temporarily)
+     * @return The current service
+     */
     public TusFileUploadService withStoragePath(String storagePath) {
         Validate.notBlank(storagePath, "The storage path cannot be blank");
         withUploadStorageService(new DiskStorageService(idFactory, storagePath));
@@ -133,16 +169,36 @@ public class TusFileUploadService {
         return this;
     }
 
+    /**
+     * You can set the number of milliseconds after which an upload is considered as expired and available for cleanup.
+     *
+     * @param expirationPeriod The number of milliseconds after which an upload expires and can be removed
+     * @return The current service
+     */
     public TusFileUploadService withUploadExpirationPeriod(Long expirationPeriod) {
         uploadStorageService.setUploadExpirationPeriod(expirationPeriod);
         return this;
     }
 
+    /**
+     * Enable the unofficial `download` extension that also allows you to download uploaded bytes.
+     * By default this feature is disabled.
+     *
+     * @return The current service
+     */
     public TusFileUploadService withDownloadFeature() {
         addTusExtension(new DownloadExtension());
         return this;
     }
 
+    /**
+     * Add a custom (application-specific) extension that implements the `me.desair.tus.server.TusExtension` interface.
+     * For example you can add your own extension that checks authentication and authorization policies within your
+     * application for the user doing the upload.
+     *
+     * @param feature The custom extension implementation
+     * @return The current service
+     */
     public TusFileUploadService addTusExtension(TusExtension feature) {
         Validate.notNull(feature, "A custom feature cannot be null");
         enabledFeatures.put(feature.getName(), feature);
@@ -150,31 +206,65 @@ public class TusFileUploadService {
         return this;
     }
 
-    public TusFileUploadService disableTusExtension(String featureName) {
-        Validate.notNull(featureName, "The feature name cannot be null");
+    /**
+     * Disable the TusExtension for which the getName() method matches the provided string. The default extensions
+     * have names "creation", "checksum", "expiration", "concatenation", "termination" and "download".
+     * You cannot disable the "core" feature.
+     *
+     * @param extensionName The name of the extension to disable
+     * @return The current service
+     */
+    public TusFileUploadService disableTusExtension(String extensionName) {
+        Validate.notNull(extensionName, "The extension name cannot be null");
+        Validate.isTrue(!StringUtils.equals("core", extensionName), "The core protocol cannot be disabled");
 
-        if (StringUtils.equals("core", featureName)) {
-            throw new IllegalArgumentException("The core protocol cannot be disabled");
-        }
-
-        enabledFeatures.remove(featureName);
+        enabledFeatures.remove(extensionName);
         updateSupportedHttpMethods();
         return this;
     }
 
+    /**
+     * Get all HTTP methods that are supported by this TusUploadService based on the enabled and/or disabled
+     * tus extensions
+     *
+     * @return The set of enabled HTTP methods
+     */
     public Set<HttpMethod> getSupportedHttpMethods() {
         return EnumSet.copyOf(supportedHttpMethods);
     }
 
+    /**
+     * Get the set of enabled Tus extensions
+     * @return The set of active extensions
+     */
     public Set<String> getEnabledFeatures() {
         return new LinkedHashSet<>(enabledFeatures.keySet());
     }
 
+    /**
+     * Process a tus upload request.
+     * Use this method to process any request made to the main and sub tus upload endpoints. This corresponds to
+     * the path specified in the withUploadURI() method and any sub-path of that URI.
+     *
+     * @param servletRequest The {@link HttpServletRequest} of the request
+     * @param servletResponse The {@link HttpServletResponse} of the request
+     * @throws IOException When saving bytes or information of this requests fails
+     */
     public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse)
             throws IOException {
         process(servletRequest, servletResponse, null);
     }
 
+    /**
+     * Process a tus upload request that belongs to a specific owner.
+     * Use this method to process any request made to the main and sub tus upload endpoints. This corresponds to
+     * the path specified in the withUploadURI() method and any sub-path of that URI.
+     *
+     * @param servletRequest The {@link HttpServletRequest} of the request
+     * @param servletResponse The {@link HttpServletResponse} of the request
+     * @param ownerKey A unique identifier of the owner (group) of this upload
+     * @throws IOException When saving bytes or information of this requests fails
+     */
     public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse,
                         String ownerKey) throws IOException {
         Validate.notNull(servletRequest, "The HTTP Servlet request cannot be null");

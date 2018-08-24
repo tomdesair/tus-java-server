@@ -1157,20 +1157,20 @@ public class ITTusFileUploadService {
     }
 
     @Test
-    public void testChunkedDecodingDisabled() throws Exception {
+    public void testChunkedDecodingDisabledAndRegexUploadURI() throws Exception {
         String chunkedContent = "1B;test=value\r\nThis upload looks chunked, \r\n"
                 + "D\r\nbut it's not!\r\n"
                 + "\r\n0\r\n";
 
         //Create service without chunked decoding
         tusFileUploadService = new TusFileUploadService()
-                .withUploadURI(UPLOAD_URI)
+                .withUploadURI("/users/[0-9]+/files/upload")
                 .withStoragePath(storagePath.toAbsolutePath().toString())
                 .withDownloadFeature();
 
         //Create upload
         servletRequest.setMethod("POST");
-        servletRequest.setRequestURI(UPLOAD_URI);
+        servletRequest.setRequestURI("/users/98765/files/upload");
         servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "67");
         servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
@@ -1183,8 +1183,7 @@ public class ITTusFileUploadService {
         assertResponseHeaderNull(HttpHeader.UPLOAD_EXPIRES);
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
-        String location = UPLOAD_URI +
-                StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+        String location = servletResponse.getHeader(HttpHeader.LOCATION);
 
         //Upload content
         reset();

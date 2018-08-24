@@ -38,7 +38,7 @@ Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-
 ### 1. Setup
 The first step is to create a `TusFileUploadService` object using its constructor. You can make this object available as a (Spring bean) singleton or create a new instance for each request. After creating the object, you can configure it using the following methods:
 
-* `withUploadURI(String)`: Set the relative URL under which the tus upload endpoint will be made available, for example `/files/upload`.
+* `withUploadURI(String)`: Set the relative URL under which the main tus upload endpoint will be made available, for example `/files/upload`. Optionally, this URI may contain regex parameters in order to support endpoints that contain URL parameters, for example `/users/[0-9]+/files/upload`.
 * `withMaxUploadSize(Long)`: Specify the maximum number of bytes that can be uploaded per upload. If you don't call this method, the maximum number of bytes is `Long.MAX_VALUE`.
 * `withStoragePath(String)`: If you're using the default filesystem-based storage service, you can use this method to specify the path where to store the uploaded bytes and upload information.
 * `withChunkedTransferDecoding`: You can enable or disable the decoding of chunked HTTP requests by this library. Enable this feature in case the web container in which this service is running does not decode chunked transfers itself. By default, chunked decoding via this library is disabled (as modern frameworks tend to already do this for you).
