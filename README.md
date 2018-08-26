@@ -38,9 +38,9 @@ Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-
 ### 1. Setup
 The first step is to create a `TusFileUploadService` object using its constructor. You can make this object available as a (Spring bean) singleton or create a new instance for each request. After creating the object, you can configure it using the following methods:
 
-* `withUploadURI(String)`: Set the relative URL under which the tus upload endpoint will be made available, for example `/files/upload`.
+* `withUploadURI(String)`: Set the relative URL under which the main tus upload endpoint will be made available, for example `/files/upload`. Optionally, this URI may contain regex parameters in order to support endpoints that contain URL parameters, for example `/users/[0-9]+/files/upload`.
 * `withMaxUploadSize(Long)`: Specify the maximum number of bytes that can be uploaded per upload. If you don't call this method, the maximum number of bytes is `Long.MAX_VALUE`.
-* `withStoragePath(String)`: If you're using the default filesystem-based storage service, you can use this method to specify the path where to store the uploaded bytes and upload information.
+* `withStoragePath(String)`: If you're using the default file system-based storage service, you can use this method to specify the path where to store the uploaded bytes and upload information.
 * `withChunkedTransferDecoding`: You can enable or disable the decoding of chunked HTTP requests by this library. Enable this feature in case the web container in which this service is running does not decode chunked transfers itself. By default, chunked decoding via this library is disabled (as modern frameworks tend to already do this for you).
 * `withThreadLocalCache(Boolean)`: Optionally you can enable (or disable) an in-memory (thread local) cache of upload request data to reduce load on the storage backend and potentially increase performance when processing upload requests.
 * `withUploadExpirationPeriod(Long)`: You can set the number of milliseconds after which an upload is considered as expired and available for cleanup.
@@ -49,7 +49,7 @@ The first step is to create a `TusFileUploadService` object using its constructo
 * `disableTusExtension(String)`: Disable the `TusExtension` for which the `getName()` method matches the provided string. The default extensions have names "creation", "checksum", "expiration", "concatenation", "termination" and "download". You cannot disable the "core" feature.
 
 
-For now this library only provides filesystem-based storage and locking options. You can however provide your own implementation of a `UploadStorageService` and `UploadLockingService` using the methods `withUploadStorageService(UploadStorageService)` and `withUploadLockingService(UploadLockingService)` in order to support different types of upload storage.
+For now this library only provides file system-based storage and locking options. You can however provide your own implementation of a `UploadStorageService` and `UploadLockingService` using the methods `withUploadStorageService(UploadStorageService)` and `withUploadLockingService(UploadLockingService)` in order to support different types of upload storage.
 
 ### 2. Processing an upload
 To process an upload request you have to pass the current `javax.servlet.http.HttpServletRequest` and `javax.servlet.http.HttpServletResponse` objects to the `me.desair.tus.server.TusFileUploadService.process()` method. Typical places were you can do this are inside Servlets, Filters or REST API Controllers (see [examples](#quick-start-and-examples)).

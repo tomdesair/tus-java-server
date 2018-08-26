@@ -5,6 +5,7 @@ import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.mockito.Matchers.notNull;
 import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -47,6 +48,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
         id =  UUID.randomUUID();
         servletRequest.setRequestURI(UPLOAD_URI);
+        reset(uploadStorageService);
         when(uploadStorageService.getUploadURI()).thenReturn(UPLOAD_URI);
         when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
             @Override
@@ -197,6 +199,67 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
         //Create upload
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 9);
         servletRequest.setRequestURI(UPLOAD_URL + id.toString());
+
+        executeCall(HttpMethod.POST, false);
+    }
+
+    @Test
+    public void testPostWithValidRegexURI() throws Exception {
+        reset(uploadStorageService);
+        when(uploadStorageService.getUploadURI()).thenReturn("/submission/([a-z0-9]+)/files/upload");
+        when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
+            @Override
+            public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
+                UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
+                upload.setId(id);
+
+                when(uploadStorageService.getUploadInfo("/submission/0ae5f8vv4s8c/files/upload/" + id.toString(),
+                        invocation.getArgumentAt(1, String.class))).thenReturn(upload);
+                return upload;
+            }
+        });
+
+
+        //Create upload
+        servletRequest.setRequestURI("/submission/0ae5f8vv4s8c/files/upload");
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 9);
+        servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "submission metadata");
+
+        executeCall(HttpMethod.POST, false);
+
+        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), anyString());
+        assertResponseHeader(HttpHeader.LOCATION, "/submission/0ae5f8vv4s8c/files/upload/" + id.toString());
+        assertResponseStatus(HttpServletResponse.SC_CREATED);
+
+        //Check data with head request
+        servletRequest.setRequestURI("/submission/0ae5f8vv4s8c/files/upload/" + id.toString());
+        servletResponse = new MockHttpServletResponse();
+        executeCall(HttpMethod.HEAD, false);
+
+        assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_METADATA), is("submission metadata"));
+        assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_DEFER_LENGTH), is(nullValue()));
+    }
+
+    @Test(expected = PostOnInvalidRequestURIException.class)
+    public void testPostWithInvalidRegexURI() throws Exception {
+        reset(uploadStorageService);
+        when(uploadStorageService.getUploadURI()).thenReturn("/submission/([a-z0-9]+)/files/upload");
+        when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
+            @Override
+            public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
+                UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
+                upload.setId(id);
+
+                when(uploadStorageService.getUploadInfo("/submission/0ae5f8vv4s8c/files/upload/" + id.toString(),
+                        invocation.getArgumentAt(1, String.class))).thenReturn(upload);
+                return upload;
+            }
+        });
+
+        //Create upload
+        servletRequest.setRequestURI("/submission/a+b/files/upload");
+        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 9);
+        servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "submission metadata");
 
         executeCall(HttpMethod.POST, false);
     }
