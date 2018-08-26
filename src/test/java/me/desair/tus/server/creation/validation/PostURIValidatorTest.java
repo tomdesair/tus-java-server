@@ -66,4 +66,38 @@ public class PostURIValidatorTest {
 
         //Expect PostOnInvalidRequestURIException
     }
+
+    @Test
+    public void validateMatchingRegexUrl() throws Exception {
+        servletRequest.setRequestURI("/users/1234/files/upload");
+        when(uploadStorageService.getUploadURI()).thenReturn("/users/[0-9]+/files/upload");
+
+        try {
+            validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+        } catch (Exception ex) {
+            fail();
+        }
+
+        //No Exception is thrown
+    }
+
+    @Test(expected = PostOnInvalidRequestURIException.class)
+    public void validateInvalidRegexUrl() throws Exception {
+        servletRequest.setRequestURI("/users/abc123/files/upload");
+        when(uploadStorageService.getUploadURI()).thenReturn("/users/[0-9]+/files/upload");
+
+        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+
+        //Expect PostOnInvalidRequestURIException
+    }
+
+    @Test(expected = PostOnInvalidRequestURIException.class)
+    public void validateInvalidRegexUrlPatchUrl() throws Exception {
+        servletRequest.setRequestURI("/users/1234/files/upload/7669c72a-3f2a-451f-a3b9-9210e7a4c02f");
+        when(uploadStorageService.getUploadURI()).thenReturn("/users/[0-9]+/files/upload");
+
+        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+
+        //Expect PostOnInvalidRequestURIException
+    }
 }

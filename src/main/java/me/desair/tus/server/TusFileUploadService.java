@@ -130,7 +130,7 @@ public class TusFileUploadService {
     }
 
     /**
-     * If you're using the default filesystem-based storage service, you can use this method to
+     * If you're using the default file system-based storage service, you can use this method to
      * specify the path where to store the uploaded bytes and upload information.
      *
      * @param storagePath The file system path where uploads can be stored (temporarily)
@@ -192,9 +192,9 @@ public class TusFileUploadService {
     }
 
     /**
-     * Add a custom (application-specific) extension that implements the `me.desair.tus.server.TusExtension` interface.
-     * For example you can add your own extension that checks authentication and authorization policies within your
-     * application for the user doing the upload.
+     * Add a custom (application-specific) extension that implements the {@link me.desair.tus.server.TusExtension}
+     * interface. For example you can add your own extension that checks authentication and authorization policies
+     * within your application for the user doing the upload.
      *
      * @param feature The custom extension implementation
      * @return The current service
