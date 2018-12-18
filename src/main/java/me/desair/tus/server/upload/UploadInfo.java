@@ -9,8 +9,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
 
-import javax.xml.bind.DatatypeConverter;
-
+import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
@@ -254,7 +253,7 @@ public class UploadInfo implements Serializable {
         if (encodedValue == null) {
             return null;
         } else {
-            return new String(DatatypeConverter.parseBase64Binary(encodedValue), Charset.forName("UTF-8"));
+            return new String(Base64.decodeBase64(encodedValue), Charset.forName("UTF-8"));
         }
     }
 }

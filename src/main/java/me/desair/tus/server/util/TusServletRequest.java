@@ -15,13 +15,14 @@ import java.util.TreeSet;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletRequestWrapper;
-import javax.xml.bind.DatatypeConverter;
+
+import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.io.input.CountingInputStream;
+import org.apache.commons.lang3.StringUtils;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.TusExtension;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
-import org.apache.commons.io.input.CountingInputStream;
-import org.apache.commons.lang3.StringUtils;
 
 public class TusServletRequest extends HttpServletRequestWrapper {
 
@@ -106,7 +107,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
     public String getCalculatedChecksum(ChecksumAlgorithm algorithm) {
         MessageDigest messageDigest = getMessageDigest(algorithm);
         return messageDigest == null ? null :
-                DatatypeConverter.printBase64Binary(messageDigest.digest());
+                Base64.encodeBase64String(messageDigest.digest());
     }
 
     /**
