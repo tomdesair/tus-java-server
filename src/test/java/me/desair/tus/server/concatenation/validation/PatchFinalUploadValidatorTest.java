@@ -3,8 +3,8 @@ package me.desair.tus.server.concatenation.validation;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.fail;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.when;
 
 import java.util.UUID;
@@ -18,10 +18,10 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 
-@RunWith(MockitoJUnitRunner.class)
+@RunWith(MockitoJUnitRunner.Silent.class)
 public class PatchFinalUploadValidatorTest {
 
     private PatchFinalUploadValidator validator;
@@ -63,9 +63,12 @@ public class PatchFinalUploadValidatorTest {
         info3.setId(UUID.randomUUID());
         info3.setUploadType(null);
 
-        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()), anyString())).thenReturn(info1);
-        when(uploadStorageService.getUploadInfo(eq(info2.getId().toString()), anyString())).thenReturn(info2);
-        when(uploadStorageService.getUploadInfo(eq(info3.getId().toString()), anyString())).thenReturn(info3);
+        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
+                nullable(String.class))).thenReturn(info1);
+        when(uploadStorageService.getUploadInfo(eq(info2.getId().toString()),
+                nullable(String.class))).thenReturn(info2);
+        when(uploadStorageService.getUploadInfo(eq(info3.getId().toString()),
+                nullable(String.class))).thenReturn(info3);
 
         //When we validate the requests
         try {
@@ -101,7 +104,8 @@ public class PatchFinalUploadValidatorTest {
         info1.setId(UUID.randomUUID());
         info1.setUploadType(UploadType.CONCATENATED);
 
-        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()), anyString())).thenReturn(info1);
+        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
+                nullable(String.class))).thenReturn(info1);
 
         //When we validate the request
         servletRequest.setRequestURI(info1.getId().toString());

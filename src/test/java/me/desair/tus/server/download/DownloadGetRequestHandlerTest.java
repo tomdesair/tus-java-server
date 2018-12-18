@@ -2,8 +2,8 @@ package me.desair.tus.server.download;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -25,11 +25,11 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-@RunWith(MockitoJUnitRunner.class)
+@RunWith(MockitoJUnitRunner.Silent.class)
 public class DownloadGetRequestHandlerTest {
 
     private DownloadGetRequestHandler handler;
@@ -69,7 +69,7 @@ public class DownloadGetRequestHandlerTest {
         info.setOffset(10L);
         info.setLength(10L);
         info.setEncodedMetadata("name dGVzdC5qcGc=,type aW1hZ2UvanBlZw==");
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 
         handler.process(HttpMethod.GET, new TusServletRequest(servletRequest),
                 new TusServletResponse(servletResponse), uploadStorageService, null);
@@ -94,7 +94,7 @@ public class DownloadGetRequestHandlerTest {
         info.setId(id);
         info.setOffset(10L);
         info.setLength(10L);
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 
         handler.process(HttpMethod.GET, new TusServletRequest(servletRequest),
                 new TusServletResponse(servletResponse), uploadStorageService, null);
@@ -117,7 +117,7 @@ public class DownloadGetRequestHandlerTest {
         info.setOffset(8L);
         info.setLength(10L);
         info.setEncodedMetadata("name dGVzdC5qcGc=,type aW1hZ2UvanBlZw==");
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 
         handler.process(HttpMethod.GET, new TusServletRequest(servletRequest),
                 new TusServletResponse(servletResponse), uploadStorageService, null);
@@ -125,7 +125,7 @@ public class DownloadGetRequestHandlerTest {
 
     @Test(expected = UploadInProgressException.class)
     public void testWithUnknownUpload() throws Exception {
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(null);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(null);
 
         handler.process(HttpMethod.GET, new TusServletRequest(servletRequest),
                 new TusServletResponse(servletResponse), uploadStorageService, null);

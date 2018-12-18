@@ -6,7 +6,7 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 
@@ -28,10 +28,10 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.invocation.InvocationOnMock;
-import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.junit.MockitoJUnitRunner;
 import org.mockito.stubbing.Answer;
 
-@RunWith(MockitoJUnitRunner.class)
+@RunWith(MockitoJUnitRunner.Silent.class)
 public class DiskLockingServiceTest {
 
     public static final String UPLOAD_URL = "/upload/test";
@@ -58,7 +58,7 @@ public class DiskLockingServiceTest {
         reset(idFactory);
         when(idFactory.getUploadURI()).thenReturn(UPLOAD_URL);
         when(idFactory.createId()).thenReturn(UUID.randomUUID());
-        when(idFactory.readUploadId(anyString())).then(new Answer<UUID>() {
+        when(idFactory.readUploadId(nullable(String.class))).then(new Answer<UUID>() {
             @Override
             public UUID answer(InvocationOnMock invocation) throws Throwable {
                 return UUID.fromString(StringUtils.substringAfter(invocation.getArguments()[0].toString(),
@@ -98,7 +98,7 @@ public class DiskLockingServiceTest {
     @Test
     public void lockUploadNotExists() throws Exception {
         reset(idFactory);
-        when(idFactory.readUploadId(anyString())).thenReturn(null);
+        when(idFactory.readUploadId(nullable(String.class))).thenReturn(null);
 
         UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
 
