@@ -6,7 +6,8 @@ jdk:
 - oraclejdk9
 - openjdk8
 # https://docs.travis-ci.com/user/reference/trusty/#jvm-clojure-groovy-java-scala-images
-# Oracle JDK 10 is not provided because it reached End of Life in October 2018.
+# - Oracle JDK 10 is not provided because it reached End of Life in October 2018.
+# - JDK 7 is not listed as the Sonar plugin requires Java 8. However, all JDKs compile with target version 7.
 
 addons:
   sonarcloud:

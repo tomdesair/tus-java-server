@@ -5,7 +5,7 @@ import static org.junit.Assert.fail;
 import static org.mockito.Mockito.anyBoolean;
 import static org.mockito.Mockito.anyLong;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
@@ -17,12 +17,8 @@ import java.util.UUID;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.springframework.test.util.ReflectionTestUtils;
-
 
 public class FileBasedLockTest {
-
-    private DiskStorageService storageService;
 
     private static Path storagePath;
 
@@ -92,10 +88,6 @@ public class FileBasedLockTest {
     }
 
     private FileChannel createFileChannelMock() throws IOException {
-        FileChannel channel = mock(FileChannel.class);
-
-        ReflectionTestUtils.setField(channel, "closeLock", new Object());
-        ReflectionTestUtils.setField(channel, "open", true);
-        return channel;
+        return spy(FileChannel.class);
     }
 }
