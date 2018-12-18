@@ -3,8 +3,8 @@ package me.desair.tus.server.creation;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Matchers.notNull;
-import static org.mockito.Mockito.anyString;
+import static org.mockito.ArgumentMatchers.notNull;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -50,14 +50,14 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
         servletRequest.setRequestURI(UPLOAD_URI);
         reset(uploadStorageService);
         when(uploadStorageService.getUploadURI()).thenReturn(UPLOAD_URI);
-        when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
+        when(uploadStorageService.create(Matchers.any(UploadInfo.class), nullable(String.class))).then(new Answer<UploadInfo>() {
             @Override
             public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
-                UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
+                UploadInfo upload = invocation.getArgument(0);
                 upload.setId(id);
 
                 when(uploadStorageService.getUploadInfo(UPLOAD_URL + id.toString(),
-                        invocation.getArgumentAt(1, String.class))).thenReturn(upload);
+                        (String) invocation.getArgument(1))).thenReturn(upload);
                 return upload;
             }
         });
@@ -81,7 +81,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
         executeCall(HttpMethod.POST, false);
 
-        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), anyString());
+        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), nullable(String.class));
         assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
@@ -108,7 +108,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
         executeCall(HttpMethod.POST, false);
 
-        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), anyString());
+        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), nullable(String.class));
         assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
@@ -151,7 +151,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
         executeCall(HttpMethod.POST, false);
 
-        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), anyString());
+        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), nullable(String.class));
         assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
@@ -172,7 +172,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 90);
         executeCall(HttpMethod.POST, false);
 
-        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), anyString());
+        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), nullable(String.class));
         assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
@@ -207,14 +207,14 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
     public void testPostWithValidRegexURI() throws Exception {
         reset(uploadStorageService);
         when(uploadStorageService.getUploadURI()).thenReturn("/submission/([a-z0-9]+)/files/upload");
-        when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
+        when(uploadStorageService.create(Matchers.any(UploadInfo.class), nullable(String.class))).then(new Answer<UploadInfo>() {
             @Override
             public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
-                UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
+                UploadInfo upload = invocation.getArgument(0);
                 upload.setId(id);
 
                 when(uploadStorageService.getUploadInfo("/submission/0ae5f8vv4s8c/files/upload/" + id.toString(),
-                        invocation.getArgumentAt(1, String.class))).thenReturn(upload);
+                        (String) invocation.getArgument(1))).thenReturn(upload);
                 return upload;
             }
         });
@@ -227,7 +227,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
         executeCall(HttpMethod.POST, false);
 
-        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), anyString());
+        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class), nullable(String.class));
         assertResponseHeader(HttpHeader.LOCATION, "/submission/0ae5f8vv4s8c/files/upload/" + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
@@ -244,14 +244,14 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
     public void testPostWithInvalidRegexURI() throws Exception {
         reset(uploadStorageService);
         when(uploadStorageService.getUploadURI()).thenReturn("/submission/([a-z0-9]+)/files/upload");
-        when(uploadStorageService.create(Matchers.any(UploadInfo.class), anyString())).then(new Answer<UploadInfo>() {
+        when(uploadStorageService.create(Matchers.any(UploadInfo.class), nullable(String.class))).then(new Answer<UploadInfo>() {
             @Override
             public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
-                UploadInfo upload = invocation.getArgumentAt(0, UploadInfo.class);
+                UploadInfo upload = invocation.getArgument(0);
                 upload.setId(id);
 
                 when(uploadStorageService.getUploadInfo("/submission/0ae5f8vv4s8c/files/upload/" + id.toString(),
-                        invocation.getArgumentAt(1, String.class))).thenReturn(upload);
+                        (String) invocation.getArgument(1))).thenReturn(upload);
                 return upload;
             }
         });

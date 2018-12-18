@@ -3,8 +3,8 @@ package me.desair.tus.server;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
@@ -22,13 +22,13 @@ import me.desair.tus.server.util.TusServletResponse;
 import org.apache.commons.io.IOUtils;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.junit.MockitoJUnitRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-@RunWith(MockitoJUnitRunner.class)
+@RunWith(MockitoJUnitRunner.Silent.class)
 public abstract class AbstractTusExtensionIntegrationTest {
 
     private static final Logger log = LoggerFactory.getLogger(AbstractTusExtensionIntegrationTest.class);
@@ -48,7 +48,7 @@ public abstract class AbstractTusExtensionIntegrationTest {
         uploadInfo = new UploadInfo();
         uploadInfo.setOffset(offset);
         uploadInfo.setLength(length);
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(uploadInfo);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(uploadInfo);
         when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class))).thenReturn(uploadInfo);
     }
 

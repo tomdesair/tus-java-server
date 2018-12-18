@@ -3,7 +3,7 @@ package me.desair.tus.server.core;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.when;
 
 import javax.servlet.http.HttpServletResponse;
@@ -19,11 +19,11 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-@RunWith(MockitoJUnitRunner.class)
+@RunWith(MockitoJUnitRunner.Silent.class)
 public class CoreHeadRequestHandlerTest {
 
     private CoreHeadRequestHandler handler;
@@ -47,7 +47,7 @@ public class CoreHeadRequestHandlerTest {
         UploadInfo info = new UploadInfo();
         info.setOffset(2L);
         info.setLength(10L);
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 
         handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest),
                 new TusServletResponse(servletResponse), uploadStorageService, null);
@@ -64,7 +64,7 @@ public class CoreHeadRequestHandlerTest {
         info.setOffset(2L);
         info.setLength(10L);
         info.setUploadType(UploadType.CONCATENATED);
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 
         handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest),
                 new TusServletResponse(servletResponse), uploadStorageService, null);
@@ -79,7 +79,7 @@ public class CoreHeadRequestHandlerTest {
     public void processWithoutLength() throws Exception {
         UploadInfo info = new UploadInfo();
         info.setOffset(0L);
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 
         handler.process(HttpMethod.HEAD, new TusServletRequest(servletRequest),
                 new TusServletResponse(servletResponse), uploadStorageService, null);

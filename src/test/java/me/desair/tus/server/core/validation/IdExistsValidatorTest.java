@@ -3,7 +3,7 @@ package me.desair.tus.server.core.validation;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.fail;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.when;
 
 import me.desair.tus.server.HttpMethod;
@@ -14,10 +14,10 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 
-@RunWith(MockitoJUnitRunner.class)
+@RunWith(MockitoJUnitRunner.Silent.class)
 public class IdExistsValidatorTest {
 
     private IdExistsValidator validator;
@@ -38,7 +38,7 @@ public class IdExistsValidatorTest {
         UploadInfo info = new UploadInfo();
         info.setOffset(0L);
         info.setLength(10L);
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 
         //When we validate the request
         try {
@@ -52,7 +52,7 @@ public class IdExistsValidatorTest {
 
     @Test(expected = UploadNotFoundException.class)
     public void validateInvalid() throws Exception {
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(null);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(null);
 
         //When we validate the request
         validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);

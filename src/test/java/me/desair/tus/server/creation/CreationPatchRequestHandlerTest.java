@@ -2,7 +2,7 @@ package me.desair.tus.server.creation;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -25,11 +25,11 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-@RunWith(MockitoJUnitRunner.class)
+@RunWith(MockitoJUnitRunner.Silent.class)
 public class CreationPatchRequestHandlerTest {
 
     private CreationPatchRequestHandler handler;
@@ -66,7 +66,7 @@ public class CreationPatchRequestHandlerTest {
         UploadInfo info = new UploadInfo();
         info.setOffset(2L);
         info.setLength(10L);
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
 
@@ -81,7 +81,7 @@ public class CreationPatchRequestHandlerTest {
         UploadInfo info = new UploadInfo();
         info.setOffset(2L);
         info.setLength(10L);
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 
         //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
 
@@ -96,7 +96,7 @@ public class CreationPatchRequestHandlerTest {
         UploadInfo info = new UploadInfo();
         info.setOffset(2L);
         info.setLength(null);
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
 
@@ -112,7 +112,7 @@ public class CreationPatchRequestHandlerTest {
         UploadInfo info = new UploadInfo();
         info.setOffset(2L);
         info.setLength(null);
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 
         //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
 
@@ -124,7 +124,7 @@ public class CreationPatchRequestHandlerTest {
 
     @Test
     public void processNotFound() throws Exception {
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(null);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(null);
 
         handler.process(HttpMethod.PATCH, new TusServletRequest(servletRequest),
                 new TusServletResponse(servletResponse), uploadStorageService, null);
@@ -135,7 +135,7 @@ public class CreationPatchRequestHandlerTest {
         UploadInfo info = new UploadInfo();
         info.setId(UUID.randomUUID());
         info.setOffset(10L);
-        when(uploadStorageService.getUploadInfo(anyString(), anyString())).thenReturn(info);
+        when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
 

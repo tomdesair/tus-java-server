@@ -5,7 +5,6 @@ jdk:
 - oraclejdk11
 - oraclejdk9
 - openjdk8
-- openjdk7
 # https://docs.travis-ci.com/user/reference/trusty/#jvm-clojure-groovy-java-scala-images
 # Oracle JDK 10 is not provided because it reached End of Life in October 2018.
 

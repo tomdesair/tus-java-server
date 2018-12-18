@@ -17,7 +17,7 @@ import java.util.UUID;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.mockito.internal.util.reflection.Whitebox;
+import org.springframework.test.util.ReflectionTestUtils;
 
 
 public class FileBasedLockTest {
@@ -94,8 +94,8 @@ public class FileBasedLockTest {
     private FileChannel createFileChannelMock() throws IOException {
         FileChannel channel = mock(FileChannel.class);
 
-        Whitebox.setInternalState(channel, "closeLock", new Object());
-        Whitebox.setInternalState(channel, "open", true);
+        ReflectionTestUtils.setField(channel, "closeLock", new Object());
+        ReflectionTestUtils.setField(channel, "open", true);
         return channel;
     }
 }

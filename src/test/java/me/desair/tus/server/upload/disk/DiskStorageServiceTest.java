@@ -7,9 +7,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
@@ -41,10 +41,10 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.invocation.InvocationOnMock;
-import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.junit.MockitoJUnitRunner;
 import org.mockito.stubbing.Answer;
 
-@RunWith(MockitoJUnitRunner.class)
+@RunWith(MockitoJUnitRunner.Silent.class)
 public class DiskStorageServiceTest {
 
     public static final String UPLOAD_URL = "/upload/test";
@@ -74,7 +74,7 @@ public class DiskStorageServiceTest {
         reset(idFactory);
         when(idFactory.getUploadURI()).thenReturn(UPLOAD_URL);
         when(idFactory.createId()).thenReturn(UUID.randomUUID());
-        when(idFactory.readUploadId(anyString())).then(new Answer<UUID>() {
+        when(idFactory.readUploadId(nullable(String.class))).then(new Answer<UUID>() {
             @Override
             public UUID answer(InvocationOnMock invocation) throws Throwable {
                 return UUID.fromString(StringUtils.substringAfter(invocation.getArguments()[0].toString(),
