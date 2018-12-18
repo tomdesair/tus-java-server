@@ -19,7 +19,7 @@ import me.desair.tus.server.util.TusServletRequest;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.Matchers;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
@@ -59,7 +59,8 @@ public class ChecksumPatchRequestHandlerTest {
     @Test
     public void testValidHeaderAndChecksum() throws Exception {
         when(servletRequest.getHeader(HttpHeader.UPLOAD_CHECKSUM)).thenReturn("sha1 1234567890");
-        when(servletRequest.getCalculatedChecksum(Matchers.any(ChecksumAlgorithm.class))).thenReturn("1234567890");
+        when(servletRequest.getCalculatedChecksum(ArgumentMatchers.any(ChecksumAlgorithm.class)))
+                .thenReturn("1234567890");
         when(servletRequest.hasCalculatedChecksum()).thenReturn(true);
 
         handler.process(HttpMethod.PATCH, servletRequest, null, uploadStorageService, null);
@@ -70,7 +71,8 @@ public class ChecksumPatchRequestHandlerTest {
     @Test(expected = UploadChecksumMismatchException.class)
     public void testValidHeaderAndInvalidChecksum() throws Exception {
         when(servletRequest.getHeader(HttpHeader.UPLOAD_CHECKSUM)).thenReturn("sha1 1234567890");
-        when(servletRequest.getCalculatedChecksum(Matchers.any(ChecksumAlgorithm.class))).thenReturn("0123456789");
+        when(servletRequest.getCalculatedChecksum(ArgumentMatchers.any(ChecksumAlgorithm.class)))
+                .thenReturn("0123456789");
         when(servletRequest.hasCalculatedChecksum()).thenReturn(true);
 
         handler.process(HttpMethod.PATCH, servletRequest, null, uploadStorageService, null);

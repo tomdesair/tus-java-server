@@ -71,7 +71,8 @@ public class ConcatenationPostRequestHandlerTest {
         UploadInfo info1 = new UploadInfo();
         info1.setId(UUID.randomUUID());
 
-        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()), nullable(String.class))).thenReturn(info1);
+        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
+                nullable(String.class))).thenReturn(info1);
         response.setHeader(HttpHeader.LOCATION, info1.getId().toString());
 
         handler.process(HttpMethod.POST, new TusServletRequest(servletRequest), response, uploadStorageService, null);
@@ -90,7 +91,8 @@ public class ConcatenationPostRequestHandlerTest {
         UploadInfo info1 = new UploadInfo();
         info1.setId(UUID.randomUUID());
 
-        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()), nullable(String.class))).thenReturn(info1);
+        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
+                nullable(String.class))).thenReturn(info1);
         response.setHeader(HttpHeader.LOCATION, info1.getId().toString());
         servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "partial");
 
@@ -110,7 +112,8 @@ public class ConcatenationPostRequestHandlerTest {
         UploadInfo info1 = new UploadInfo();
         info1.setId(UUID.randomUUID());
 
-        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()), nullable(String.class))).thenReturn(info1);
+        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
+                nullable(String.class))).thenReturn(info1);
         response.setHeader(HttpHeader.LOCATION, info1.getId().toString());
         servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "final; 123 456");
 

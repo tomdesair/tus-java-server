@@ -63,9 +63,12 @@ public class PatchFinalUploadValidatorTest {
         info3.setId(UUID.randomUUID());
         info3.setUploadType(null);
 
-        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()), nullable(String.class))).thenReturn(info1);
-        when(uploadStorageService.getUploadInfo(eq(info2.getId().toString()), nullable(String.class))).thenReturn(info2);
-        when(uploadStorageService.getUploadInfo(eq(info3.getId().toString()), nullable(String.class))).thenReturn(info3);
+        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
+                nullable(String.class))).thenReturn(info1);
+        when(uploadStorageService.getUploadInfo(eq(info2.getId().toString()),
+                nullable(String.class))).thenReturn(info2);
+        when(uploadStorageService.getUploadInfo(eq(info3.getId().toString()),
+                nullable(String.class))).thenReturn(info3);
 
         //When we validate the requests
         try {
@@ -101,7 +104,8 @@ public class PatchFinalUploadValidatorTest {
         info1.setId(UUID.randomUUID());
         info1.setUploadType(UploadType.CONCATENATED);
 
-        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()), nullable(String.class))).thenReturn(info1);
+        when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
+                nullable(String.class))).thenReturn(info1);
 
         //When we validate the request
         servletRequest.setRequestURI(info1.getId().toString());
