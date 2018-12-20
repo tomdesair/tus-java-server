@@ -11,7 +11,7 @@ You can add the latest stable version of this library to your application using 
     <dependency>
       <groupId>me.desair.tus</groupId>
       <artifactId>tus-java-server</artifactId>
-      <version>1.0.0-1.2</version>
+      <version>1.0.0-1.3</version>
     </dependency>
 
 The main entry point of the library is the `me.desair.tus.server.TusFileUploadService.process(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)` method. You can call this method inside a `javax.servlet.http.HttpServlet`, a `javax.servlet.Filter` or any REST API controller of a framework that gives you access to `HttpServletRequest` and `HttpServletResponse` objects. In the following list, you can find some example implementations:
