@@ -74,7 +74,8 @@ public class ThreadLocalCachedStorageAndLockingService implements UploadLockingS
     @Override
     public void setIdFactory(UploadIdFactory idFactory) {
         this.idFactory = idFactory;
-        storageServiceDelegate.setIdFactory(idFactory);
+        this.storageServiceDelegate.setIdFactory(idFactory);
+        this.lockingServiceDelegate.setIdFactory(idFactory);
     }
 
     @Override
