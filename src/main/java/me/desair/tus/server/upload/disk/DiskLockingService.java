@@ -30,8 +30,12 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
 
     private UploadIdFactory idFactory;
 
-    public DiskLockingService(UploadIdFactory idFactory, String storagePath) {
+    public DiskLockingService(String storagePath) {
         super(storagePath + File.separator + LOCK_SUB_DIRECTORY);
+    }
+
+    public DiskLockingService(UploadIdFactory idFactory, String storagePath) {
+        this(storagePath);
         Validate.notNull(idFactory, "The IdFactory cannot be null");
         this.idFactory = idFactory;
     }
@@ -92,6 +96,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
 
     @Override
     public void setIdFactory(UploadIdFactory idFactory) {
+        Validate.notNull(idFactory, "The IdFactory cannot be null");
         this.idFactory = idFactory;
     }
 

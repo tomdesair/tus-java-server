@@ -9,13 +9,13 @@ import static org.junit.Assert.assertThat;
 import org.junit.Before;
 import org.junit.Test;
 
-public class UploadIdFactoryTest {
+public class UUIDUploadIdFactoryTest {
 
     private UploadIdFactory idFactory;
 
     @Before
     public void setUp() {
-        idFactory = new UploadIdFactory();
+        idFactory = new UUIDUploadIdFactory();
     }
 
     @Test(expected = NullPointerException.class)

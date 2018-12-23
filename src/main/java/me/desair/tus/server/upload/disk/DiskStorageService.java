@@ -51,15 +51,20 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     private UploadIdFactory idFactory;
     private UploadConcatenationService uploadConcatenationService;
 
-    public DiskStorageService(UploadIdFactory idFactory, String storagePath) {
+    public DiskStorageService(String storagePath) {
         super(storagePath + File.separator + UPLOAD_SUB_DIRECTORY);
+        setUploadConcatenationService(new VirtualConcatenationService(this));
+    }
+
+    public DiskStorageService(UploadIdFactory idFactory, String storagePath) {
+        this(storagePath);
         Validate.notNull(idFactory, "The IdFactory cannot be null");
         this.idFactory = idFactory;
-        setUploadConcatenationService(new VirtualConcatenationService(this));
     }
 
     @Override
     public void setIdFactory(UploadIdFactory idFactory) {
+        Validate.notNull(idFactory, "The IdFactory cannot be null");
         this.idFactory = idFactory;
     }
 

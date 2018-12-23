@@ -4,7 +4,8 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 
 import javax.servlet.http.HttpServletResponse;
-import me.desair.tus.server.upload.UploadIdFactory;
+
+import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.cache.ThreadLocalCachedStorageAndLockingService;
@@ -21,15 +22,16 @@ public class ITTusFileUploadServiceCached extends ITTusFileUploadService {
     @Before
     public void setUp() {
         super.setUp();
-        tusFileUploadService = tusFileUploadService.withThreadLocalCache(true);
+        tusFileUploadService = tusFileUploadService
+                .withThreadLocalCache(true)
+                .withUploadIdFactory(new TimeBasedUploadIdFactory());
     }
 
     @Test
     public void testProcessUploadDoubleCached() throws Exception {
-        UploadIdFactory idFactory = new UploadIdFactory();
         String path = storagePath.toAbsolutePath().toString();
-        UploadStorageService uploadStorageService = new DiskStorageService(idFactory, path);
-        UploadLockingService uploadLockingService = new DiskLockingService(idFactory, path);
+        UploadStorageService uploadStorageService = new DiskStorageService(path);
+        UploadLockingService uploadLockingService = new DiskLockingService(path);
 
         ThreadLocalCachedStorageAndLockingService service2 =
                 new ThreadLocalCachedStorageAndLockingService(

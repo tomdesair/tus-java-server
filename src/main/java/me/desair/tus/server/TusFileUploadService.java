@@ -17,6 +17,7 @@ import me.desair.tus.server.download.DownloadExtension;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.expiration.ExpirationExtension;
 import me.desair.tus.server.termination.TerminationExtension;
+import me.desair.tus.server.upload.UUIDUploadIdFactory;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
@@ -44,7 +45,7 @@ public class TusFileUploadService {
 
     private UploadStorageService uploadStorageService;
     private UploadLockingService uploadLockingService;
-    private UploadIdFactory idFactory = new UploadIdFactory();
+    private UploadIdFactory idFactory = new UUIDUploadIdFactory();
     private final LinkedHashMap<String, TusExtension> enabledFeatures = new LinkedHashMap<>();
     private final Set<HttpMethod> supportedHttpMethods = EnumSet.noneOf(HttpMethod.class);
     private boolean isThreadLocalCacheEnabled = false;
@@ -94,6 +95,24 @@ public class TusFileUploadService {
     }
 
     /**
+     * Provide a custom {@link UploadIdFactory} implementation that should be used to generate identifiers for
+     * the different uploads. Example implementation are {@link me.desair.tus.server.upload.UUIDUploadIdFactory} and
+     * {@link me.desair.tus.server.upload.TimeBasedUploadIdFactory}.
+     *
+     * @param uploadIdFactory The custom {@link UploadIdFactory} implementation
+     * @return The current service
+     */
+    public TusFileUploadService withUploadIdFactory(UploadIdFactory uploadIdFactory) {
+        Validate.notNull(uploadIdFactory, "The UploadIdFactory cannot be null");
+        String previousUploadURI = this.idFactory.getUploadURI();
+        this.idFactory = uploadIdFactory;
+        this.idFactory.setUploadURI(previousUploadURI);
+        this.uploadStorageService.setIdFactory(this.idFactory);
+        this.uploadLockingService.setIdFactory(this.idFactory);
+        return this;
+    }
+
+    /**
      * Provide a custom {@link UploadStorageService} implementation that should be used to store uploaded bytes and
      * metadata ({@link UploadInfo}).
      *
@@ -138,8 +157,8 @@ public class TusFileUploadService {
      */
     public TusFileUploadService withStoragePath(String storagePath) {
         Validate.notBlank(storagePath, "The storage path cannot be blank");
-        withUploadStorageService(new DiskStorageService(idFactory, storagePath));
-        withUploadLockingService(new DiskLockingService(idFactory, storagePath));
+        withUploadStorageService(new DiskStorageService(storagePath));
+        withUploadLockingService(new DiskLockingService(storagePath));
         prepareCacheIfEnabled();
         return this;
     }
@@ -461,4 +480,5 @@ public class TusFileUploadService {
             this.uploadLockingService = service;
         }
     }
+
 }

@@ -1,17 +1,15 @@
 package me.desair.tus.server.upload;
 
-import java.util.UUID;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Validate;
 
 /**
- * Factory to create unique upload IDs. This factory can also parse the upload identifier
+ * Interface for a factory that can create unique upload IDs. This factory can also parse the upload identifier
  * from a given upload URL.
  */
-public class UploadIdFactory {
+public abstract class UploadIdFactory {
 
     private String uploadURI = "/";
     private Pattern uploadUriPattern = null;
@@ -32,31 +30,6 @@ public class UploadIdFactory {
     }
 
     /**
-     * Read the upload identifier from the given URL.
-     * <p/>
-     * Clients will send requests to upload URLs or provided URLs of completed uploads. This method is able to
-     * parse those URLs and provide the user with the corresponding upload ID.
-     *
-     * @param url The URL provided by the client
-     * @return The corresponding Upload identifier
-     */
-    public UploadId readUploadId(String url) {
-        Matcher uploadUriMatcher = getUploadUriPattern().matcher(StringUtils.trimToEmpty(url));
-        String pathId = uploadUriMatcher.replaceFirst("");
-        UUID id = null;
-
-        if (StringUtils.isNotBlank(pathId)) {
-            try {
-                id = UUID.fromString(pathId);
-            } catch (IllegalArgumentException ex) {
-                id = null;
-            }
-        }
-
-        return id == null ? null : new UploadId(id.toString());
-    }
-
-    /**
      * Return the URI of the main tus upload endpoint. Note that this value possibly contains regex parameters.
      * @return The URI of the main tus upload endpoint.
      */
@@ -65,14 +38,27 @@ public class UploadIdFactory {
     }
 
     /**
+     * Read the upload identifier from the given URL.
+     * <p/>
+     * Clients will send requests to upload URLs or provided URLs of completed uploads. This method is able to
+     * parse those URLs and provide the user with the corresponding upload ID.
+     *
+     * @param url The URL provided by the client
+     * @return The corresponding Upload identifier
+     */
+    public abstract UploadId readUploadId(String url);
+
+    /**
      * Create a new unique upload ID
      * @return A new unique upload ID
      */
-    public synchronized UploadId createId() {
-        return new UploadId(UUID.randomUUID().toString());
-    }
+    public abstract UploadId createId();
 
-    private Pattern getUploadUriPattern() {
+    /**
+     * Build and retrieve the Upload URI regex pattern
+     * @return A (cached) Pattern to match upload URI's
+     */
+    protected Pattern getUploadUriPattern() {
         if (uploadUriPattern == null) {
             //We will extract the upload ID's by removing the upload URI from the start of the request URI
             uploadUriPattern = Pattern.compile("^.*"
