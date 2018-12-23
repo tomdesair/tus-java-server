@@ -40,7 +40,7 @@ public class UploadIdFactory {
      * @param url The URL provided by the client
      * @return The corresponding Upload identifier
      */
-    public UUID readUploadId(String url) {
+    public UploadId readUploadId(String url) {
         Matcher uploadUriMatcher = getUploadUriPattern().matcher(StringUtils.trimToEmpty(url));
         String pathId = uploadUriMatcher.replaceFirst("");
         UUID id = null;
@@ -53,7 +53,7 @@ public class UploadIdFactory {
             }
         }
 
-        return id;
+        return id == null ? null : new UploadId(id.toString());
     }
 
     /**
@@ -68,8 +68,8 @@ public class UploadIdFactory {
      * Create a new unique upload ID
      * @return A new unique upload ID
      */
-    public synchronized UUID createId() {
-        return UUID.randomUUID();
+    public synchronized UploadId createId() {
+        return new UploadId(UUID.randomUUID().toString());
     }
 
     private Pattern getUploadUriPattern() {

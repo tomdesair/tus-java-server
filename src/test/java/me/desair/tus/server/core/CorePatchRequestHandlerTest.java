@@ -18,6 +18,7 @@ import javax.servlet.http.HttpServletResponse;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
@@ -64,7 +65,7 @@ public class CorePatchRequestHandlerTest {
     @Test
     public void processInProgress() throws Exception {
         UploadInfo info = new UploadInfo();
-        info.setId(UUID.randomUUID());
+        info.setId(new UploadId(UUID.randomUUID().toString()));
         info.setOffset(2L);
         info.setLength(10L);
         when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
@@ -88,7 +89,7 @@ public class CorePatchRequestHandlerTest {
     @Test
     public void processFinished() throws Exception {
         UploadInfo info = new UploadInfo();
-        info.setId(UUID.randomUUID());
+        info.setId(new UploadId(UUID.randomUUID().toString()));
         info.setOffset(10L);
         info.setLength(10L);
         when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
@@ -117,7 +118,7 @@ public class CorePatchRequestHandlerTest {
     @Test
     public void processAppendNotFound() throws Exception {
         UploadInfo info = new UploadInfo();
-        info.setId(UUID.randomUUID());
+        info.setId(new UploadId(UUID.randomUUID().toString()));
         info.setOffset(10L);
         info.setLength(8L);
         when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);

@@ -14,6 +14,7 @@ import java.util.UUID;
 import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
@@ -70,7 +71,7 @@ public class TerminationDeleteRequestHandlerTest {
 
     @Test
     public void testWithExistingUpload() throws Exception {
-        final UUID id = UUID.randomUUID();
+        final UploadId id = new UploadId(UUID.randomUUID().toString());
 
         UploadInfo info = new UploadInfo();
         info.setId(id);

@@ -20,6 +20,7 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.InvalidUploadLengthException;
 import me.desair.tus.server.exception.MaxUploadLengthExceededException;
 import me.desair.tus.server.exception.PostOnInvalidRequestURIException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import org.junit.Before;
 import org.junit.Test;
@@ -37,7 +38,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
     //that sit in front of the web app
     private static final String UPLOAD_URL = UPLOAD_URI + "/";
 
-    private UUID id;
+    private UploadId id;
 
     @Before
     public void setUp() throws Exception {
@@ -46,7 +47,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
         tusFeature = new CreationExtension();
         uploadInfo = null;
 
-        id =  UUID.randomUUID();
+        id = new UploadId(UUID.randomUUID().toString());
         servletRequest.setRequestURI(UPLOAD_URI);
         reset(uploadStorageService);
         when(uploadStorageService.getUploadURI()).thenReturn(UPLOAD_URI);

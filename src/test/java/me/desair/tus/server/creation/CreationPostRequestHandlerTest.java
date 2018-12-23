@@ -15,6 +15,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
@@ -71,7 +72,7 @@ public class CreationPostRequestHandlerTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
         servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "encoded-metadata");
 
-        final UUID id = UUID.randomUUID();
+        final UploadId id = new UploadId(UUID.randomUUID().toString());
         when(uploadStorageService.create(ArgumentMatchers.any(UploadInfo.class), nullable(String.class))).then(
                 new Answer<UploadInfo>() {
                     @Override
@@ -101,7 +102,7 @@ public class CreationPostRequestHandlerTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
         //servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, null);
 
-        final UUID id = UUID.randomUUID();
+        final UploadId id = new UploadId(UUID.randomUUID().toString());
         when(uploadStorageService.create(ArgumentMatchers.any(UploadInfo.class), nullable(String.class))).then(
                 new Answer<UploadInfo>() {
                     @Override
@@ -131,7 +132,7 @@ public class CreationPostRequestHandlerTest {
         //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, null);
         servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "encoded-metadata");
 
-        final UUID id = UUID.randomUUID();
+        final UploadId id = new UploadId(UUID.randomUUID().toString());
         when(uploadStorageService.create(ArgumentMatchers.any(UploadInfo.class), nullable(String.class))).then(
                 new Answer<UploadInfo>() {
                     @Override
@@ -161,7 +162,7 @@ public class CreationPostRequestHandlerTest {
         //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, null);
         //servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, null);
 
-        final UUID id = UUID.randomUUID();
+        final UploadId id = new UploadId(UUID.randomUUID().toString());
         when(uploadStorageService.create(ArgumentMatchers.any(UploadInfo.class), nullable(String.class))).then(
                 new Answer<UploadInfo>() {
                     @Override

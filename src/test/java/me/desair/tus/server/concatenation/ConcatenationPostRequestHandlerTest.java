@@ -15,6 +15,7 @@ import java.util.UUID;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.UploadType;
@@ -69,7 +70,7 @@ public class ConcatenationPostRequestHandlerTest {
         TusServletResponse response = new TusServletResponse(this.servletResponse);
 
         UploadInfo info1 = new UploadInfo();
-        info1.setId(UUID.randomUUID());
+        info1.setId(new UploadId(UUID.randomUUID().toString()));
 
         when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
                 nullable(String.class))).thenReturn(info1);
@@ -89,7 +90,7 @@ public class ConcatenationPostRequestHandlerTest {
         TusServletResponse response = new TusServletResponse(this.servletResponse);
 
         UploadInfo info1 = new UploadInfo();
-        info1.setId(UUID.randomUUID());
+        info1.setId(new UploadId(UUID.randomUUID().toString()));
 
         when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
                 nullable(String.class))).thenReturn(info1);
@@ -110,7 +111,7 @@ public class ConcatenationPostRequestHandlerTest {
         TusServletResponse response = new TusServletResponse(this.servletResponse);
 
         UploadInfo info1 = new UploadInfo();
-        info1.setId(UUID.randomUUID());
+        info1.setId(new UploadId(UUID.randomUUID().toString()));
 
         when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
                 nullable(String.class))).thenReturn(info1);

@@ -7,7 +7,6 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.UUID;
 
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
@@ -24,7 +23,7 @@ public class UploadInfo implements Serializable {
     private Long offset;
     private String encodedMetadata;
     private Long length;
-    private UUID id;
+    private UploadId id;
     private String ownerKey;
     private Long expirationTimestamp;
     private List<String> concatenationParts;
@@ -103,11 +102,11 @@ public class UploadInfo implements Serializable {
         return length == null || !offset.equals(length);
     }
 
-    public void setId(UUID id) {
+    public void setId(UploadId id) {
         this.id = id;
     }
 
-    public UUID getId() {
+    public UploadId getId() {
         return id;
     }
 

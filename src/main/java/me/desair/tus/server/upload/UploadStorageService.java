@@ -3,7 +3,6 @@ package me.desair.tus.server.upload;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.UUID;
 
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
@@ -28,7 +27,7 @@ public interface UploadStorageService {
      * @return The matching upload info
      * @throws IOException When the service is not able to retrieve the upload information
      */
-    UploadInfo getUploadInfo(UUID id) throws IOException;
+    UploadInfo getUploadInfo(UploadId id) throws IOException;
 
     /**
      * The URI which is configured as the upload endpoint
@@ -88,7 +87,7 @@ public interface UploadStorageService {
      * @throws IOException When retrieving the bytes from the storage layer fails
      * @throws UploadNotFoundException When the proved id is not linked to an upload
      */
-    InputStream getUploadedBytes(UUID id) throws IOException, UploadNotFoundException;
+    InputStream getUploadedBytes(UploadId id) throws IOException, UploadNotFoundException;
 
     /**
      * Copy the uploaded bytes to the given output stream

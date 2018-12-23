@@ -17,11 +17,11 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.UUID;
 
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -84,7 +84,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public UploadInfo getUploadInfo(UUID id) throws IOException {
+    public UploadInfo getUploadInfo(UploadId id) throws IOException {
         try {
             Path infoPath = getInfoPath(id);
             return Utils.readSerializable(infoPath, UploadInfo.class);
@@ -100,7 +100,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
     @Override
     public UploadInfo create(UploadInfo info, String ownerKey) throws IOException {
-        UUID id = createNewId();
+        UploadId id = createNewId();
 
         createUploadDirectory(id);
 
@@ -228,7 +228,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     public InputStream getUploadedBytes(String uploadURI, String ownerKey)
             throws IOException, UploadNotFoundException {
 
-        UUID id = idFactory.readUploadId(uploadURI);
+        UploadId id = idFactory.readUploadId(uploadURI);
 
         UploadInfo uploadInfo = getUploadInfo(id);
         if (uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
@@ -239,7 +239,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public InputStream getUploadedBytes(UUID id) throws IOException, UploadNotFoundException {
+    public InputStream getUploadedBytes(UploadId id) throws IOException, UploadNotFoundException {
         InputStream inputStream = null;
         UploadInfo uploadInfo = getUploadInfo(id);
         if (UploadType.CONCATENATED.equals(uploadInfo.getUploadType()) && uploadConcatenationService != null) {
@@ -305,19 +305,19 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         return uploads;
     }
 
-    private Path getBytesPath(UUID id) throws UploadNotFoundException {
+    private Path getBytesPath(UploadId id) throws UploadNotFoundException {
         return getPathInUploadDir(id, DATA_FILE);
     }
 
-    private Path getInfoPath(UUID id) throws UploadNotFoundException {
+    private Path getInfoPath(UploadId id) throws UploadNotFoundException {
         return getPathInUploadDir(id, INFO_FILE);
     }
 
-    private Path createUploadDirectory(UUID id) throws IOException {
+    private Path createUploadDirectory(UploadId id) throws IOException {
         return Files.createDirectories(getPathInStorageDirectory(id));
     }
 
-    private Path getPathInUploadDir(UUID id, String fileName) throws UploadNotFoundException {
+    private Path getPathInUploadDir(UploadId id, String fileName) throws UploadNotFoundException {
         //Get the upload directory
         Path uploadDir = getPathInStorageDirectory(id);
         if (uploadDir != null && Files.exists(uploadDir)) {
@@ -327,8 +327,8 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         }
     }
 
-    private synchronized UUID createNewId() throws IOException {
-        UUID id;
+    private synchronized UploadId createNewId() throws IOException {
+        UploadId id;
         do {
             id = idFactory.createId();
             //For extra safety, double check that this ID is not in use yet

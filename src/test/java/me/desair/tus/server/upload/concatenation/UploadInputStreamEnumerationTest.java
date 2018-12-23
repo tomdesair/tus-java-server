@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.UUID;
 
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.io.IOUtils;
@@ -28,13 +29,13 @@ public class UploadInputStreamEnumerationTest {
     @Test
     public void hasMoreElements() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(UUID.randomUUID());
+        info1.setId(new UploadId(UUID.randomUUID().toString()));
 
         UploadInfo info2 = new UploadInfo();
-        info2.setId(UUID.randomUUID());
+        info2.setId(new UploadId(UUID.randomUUID().toString()));
 
         UploadInfo info3 = new UploadInfo();
-        info3.setId(UUID.randomUUID());
+        info3.setId(new UploadId(UUID.randomUUID().toString()));
 
         when(uploadStorageService.getUploadedBytes(info1.getId()))
                 .thenReturn(IOUtils.toInputStream("Upload 1", StandardCharsets.UTF_8));
@@ -58,13 +59,13 @@ public class UploadInputStreamEnumerationTest {
     @Test
     public void hasMoreElementsException() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(UUID.randomUUID());
+        info1.setId(new UploadId(UUID.randomUUID().toString()));
 
         UploadInfo info2 = new UploadInfo();
-        info2.setId(UUID.randomUUID());
+        info2.setId(new UploadId(UUID.randomUUID().toString()));
 
         UploadInfo info3 = new UploadInfo();
-        info3.setId(UUID.randomUUID());
+        info3.setId(new UploadId(UUID.randomUUID().toString()));
 
         when(uploadStorageService.getUploadedBytes(info1.getId()))
                 .thenReturn(IOUtils.toInputStream("Upload 1", StandardCharsets.UTF_8));
@@ -86,13 +87,13 @@ public class UploadInputStreamEnumerationTest {
     @Test
     public void hasMoreElementsNotFound() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(UUID.randomUUID());
+        info1.setId(new UploadId(UUID.randomUUID().toString()));
 
         UploadInfo info2 = new UploadInfo();
-        info2.setId(UUID.randomUUID());
+        info2.setId(new UploadId(UUID.randomUUID().toString()));
 
         UploadInfo info3 = new UploadInfo();
-        info3.setId(UUID.randomUUID());
+        info3.setId(new UploadId(UUID.randomUUID().toString()));
 
         when(uploadStorageService.getUploadedBytes(info1.getId()))
                 .thenReturn(IOUtils.toInputStream("Upload 1", StandardCharsets.UTF_8));
@@ -114,10 +115,10 @@ public class UploadInputStreamEnumerationTest {
     @Test
     public void hasMoreElementsNullElement() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(UUID.randomUUID());
+        info1.setId(new UploadId(UUID.randomUUID().toString()));
 
         UploadInfo info3 = new UploadInfo();
-        info3.setId(UUID.randomUUID());
+        info3.setId(new UploadId(UUID.randomUUID().toString()));
 
         when(uploadStorageService.getUploadedBytes(info1.getId()))
                 .thenReturn(IOUtils.toInputStream("Upload 1", StandardCharsets.UTF_8));

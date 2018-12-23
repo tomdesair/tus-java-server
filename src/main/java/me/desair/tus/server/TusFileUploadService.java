@@ -108,7 +108,7 @@ public class TusFileUploadService {
         uploadStorageService.setIdFactory(this.idFactory);
         //Update the upload storage service
         this.uploadStorageService = uploadStorageService;
-        prepareCacheIfEnable();
+        prepareCacheIfEnabled();
         return this;
     }
 
@@ -125,7 +125,7 @@ public class TusFileUploadService {
         uploadLockingService.setIdFactory(this.idFactory);
         //Update the upload storage service
         this.uploadLockingService = uploadLockingService;
-        prepareCacheIfEnable();
+        prepareCacheIfEnabled();
         return this;
     }
 
@@ -140,7 +140,7 @@ public class TusFileUploadService {
         Validate.notBlank(storagePath, "The storage path cannot be blank");
         withUploadStorageService(new DiskStorageService(idFactory, storagePath));
         withUploadLockingService(new DiskLockingService(idFactory, storagePath));
-        prepareCacheIfEnable();
+        prepareCacheIfEnabled();
         return this;
     }
 
@@ -152,7 +152,7 @@ public class TusFileUploadService {
      */
     public TusFileUploadService withThreadLocalCache(boolean isEnabled) {
         this.isThreadLocalCacheEnabled = isEnabled;
-        prepareCacheIfEnable();
+        prepareCacheIfEnabled();
         return this;
     }
 
@@ -450,7 +450,7 @@ public class TusFileUploadService {
         }
     }
 
-    private void prepareCacheIfEnable() {
+    private void prepareCacheIfEnabled() {
         if (isThreadLocalCacheEnabled && uploadStorageService != null && uploadLockingService != null) {
             ThreadLocalCachedStorageAndLockingService service =
                     new ThreadLocalCachedStorageAndLockingService(

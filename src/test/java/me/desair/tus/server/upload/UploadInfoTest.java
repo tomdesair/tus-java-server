@@ -119,37 +119,37 @@ public class UploadInfoTest {
         info1.setLength(10L);
         info1.setOffset(5L);
         info1.setEncodedMetadata("Encoded-Metadata");
-        info1.setId(UUID.fromString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
+        info1.setId(new UploadId("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
 
         UploadInfo info2 = new UploadInfo();
         info2.setLength(10L);
         info2.setOffset(5L);
         info2.setEncodedMetadata("Encoded-Metadata");
-        info2.setId(UUID.fromString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
+        info2.setId(new UploadId("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
 
         UploadInfo info3 = new UploadInfo();
         info3.setLength(9L);
         info3.setOffset(5L);
         info3.setEncodedMetadata("Encoded-Metadata");
-        info3.setId(UUID.fromString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
+        info3.setId(new UploadId("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
 
         UploadInfo info4 = new UploadInfo();
         info4.setLength(10L);
         info4.setOffset(6L);
         info4.setEncodedMetadata("Encoded-Metadata");
-        info4.setId(UUID.fromString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
+        info4.setId(new UploadId("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
 
         UploadInfo info5 = new UploadInfo();
         info5.setLength(10L);
         info5.setOffset(5L);
         info5.setEncodedMetadata("Encoded-Metadatas");
-        info5.setId(UUID.fromString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
+        info5.setId(new UploadId("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
 
         UploadInfo info6 = new UploadInfo();
         info6.setLength(10L);
         info6.setOffset(5L);
         info6.setEncodedMetadata("Encoded-Metadata");
-        info6.setId(UUID.fromString("1911e8a4-6939-490c-c58b-a5d70f8d91fb"));
+        info6.setId(new UploadId("1911e8a4-6939-490c-c58b-a5d70f8d91fb"));
 
         assertTrue(info1.equals(info1));
         assertTrue(info1.equals(info2));
@@ -167,13 +167,13 @@ public class UploadInfoTest {
         info1.setLength(10L);
         info1.setOffset(5L);
         info1.setEncodedMetadata("Encoded-Metadata");
-        info1.setId(UUID.fromString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
+        info1.setId(new UploadId("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
 
         UploadInfo info2 = new UploadInfo();
         info2.setLength(10L);
         info2.setOffset(5L);
         info2.setEncodedMetadata("Encoded-Metadata");
-        info2.setId(UUID.fromString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
+        info2.setId(new UploadId("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
 
         assertTrue(info1.hashCode() == info2.hashCode());
     }
@@ -190,7 +190,7 @@ public class UploadInfoTest {
     @Test
     public void testGetNameAndTypeWithoutMetadata() throws Exception {
         UploadInfo info = new UploadInfo();
-        final UUID id = UUID.randomUUID();
+        final UploadId id = new UploadId(UUID.randomUUID().toString());
         info.setId(id);
 
         assertThat(info.getFileName(), is(id.toString()));
