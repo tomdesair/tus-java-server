@@ -44,13 +44,18 @@ public class TusFileUploadService {
 
     private UploadStorageService uploadStorageService;
     private UploadLockingService uploadLockingService;
-    private UploadIdFactory idFactory = new UploadIdFactory();
+    private final UploadIdFactory idFactory;
     private final LinkedHashMap<String, TusExtension> enabledFeatures = new LinkedHashMap<>();
     private final Set<HttpMethod> supportedHttpMethods = EnumSet.noneOf(HttpMethod.class);
     private boolean isThreadLocalCacheEnabled = false;
     private boolean isChunkedTransferDecodingEnabled = false;
 
     public TusFileUploadService() {
+        this(new UploadIdFactory());
+    }
+
+    public TusFileUploadService(UploadIdFactory uploadIdFactory) {
+        this.idFactory = uploadIdFactory;
         String storagePath = FileUtils.getTempDirectoryPath() + File.separator + "tus";
         this.uploadStorageService = new DiskStorageService(idFactory, storagePath);
         this.uploadLockingService = new DiskLockingService(idFactory, storagePath);
