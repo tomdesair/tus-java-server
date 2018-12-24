@@ -199,7 +199,7 @@ public class ITTusFileUploadService {
                     hasEntry("filename", "world_domination_plan.pdf")
                 )
         );
-        assertThat(info.getCreatorIpAddresses(), is("192.168.1.1, 10.0.2.1, 123.231.12.4"));
+        assertThat(info.getCreatorIpAddresses(), is("10.0.2.1, 123.231.12.4, 192.168.1.1"));
 
         //Try retrieving the uploaded bytes without owner key
         try {
@@ -377,7 +377,7 @@ public class ITTusFileUploadService {
                 hasEntry("filename", "world_domination_plan.pdf")
                 )
         );
-        assertThat(info.getCreatorIpAddresses(), is("192.168.1.1, 10.0.2.1, 123.231.12.4"));
+        assertThat(info.getCreatorIpAddresses(), is("10.0.2.1, 123.231.12.4, 192.168.1.1"));
 
         //Make sure cleanup does not interfere with this test
         tusFileUploadService.cleanup();
@@ -436,7 +436,7 @@ public class ITTusFileUploadService {
                 hasEntry("filename", "world_domination_plan.pdf")
                 )
         );
-        assertThat(info.getCreatorIpAddresses(), is("192.168.1.1, 10.0.2.1, 123.231.12.4"));
+        assertThat(info.getCreatorIpAddresses(), is("10.0.2.1, 123.231.12.4, 192.168.1.1"));
 
         //Get uploaded bytes from service
         try (InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
@@ -498,7 +498,7 @@ public class ITTusFileUploadService {
                 hasEntry("filename", "world_domination_plan.pdf")
                 )
         );
-        assertThat(info.getCreatorIpAddresses(), is("192.168.1.1, 10.0.2.1, 123.231.12.4"));
+        assertThat(info.getCreatorIpAddresses(), is("10.0.2.1, 123.231.12.4, 192.168.1.1"));
 
         //Make sure cleanup does not interfere with this test
         tusFileUploadService.cleanup();
@@ -939,7 +939,7 @@ public class ITTusFileUploadService {
                 hasEntry("filename", "world_domination_map_concatenated.pdf")
                 )
         );
-        assertThat(info.getCreatorIpAddresses(), is("192.168.1.1, 10.0.2.1, 123.231.12.4"));
+        assertThat(info.getCreatorIpAddresses(), is("10.0.2.1, 123.231.12.4, 192.168.1.1"));
 
         //Download the upload
         reset();

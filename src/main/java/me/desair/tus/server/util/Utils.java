@@ -60,7 +60,7 @@ public class Utils {
         String ipAddresses = servletRequest.getRemoteAddr();
         String xforwardedForHeader = getHeader(servletRequest, HttpHeader.X_FORWARDED_FOR);
         if (xforwardedForHeader.length() > 0) {
-            ipAddresses = ipAddresses + ", " + xforwardedForHeader;
+            ipAddresses = xforwardedForHeader + ", " + ipAddresses;
         }
         return ipAddresses;
     }

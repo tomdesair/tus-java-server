@@ -63,6 +63,11 @@ public class CreationPostRequestHandler extends AbstractRequestHandler {
             info.setEncodedMetadata(metadata);
         }
 
+        if (log.isInfoEnabled()) {
+            log.info("Created upload with ID {} at {} for ip address {}", info.getId().getOriginalValue(),
+                    info.getCreationTimestamp(), info.getCreatorIpAddresses());
+        }
+
         return info;
     }
 }
