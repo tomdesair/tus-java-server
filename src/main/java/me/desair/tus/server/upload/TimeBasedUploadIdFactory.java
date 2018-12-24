@@ -1,7 +1,5 @@
 package me.desair.tus.server.upload;
 
-import java.util.regex.Matcher;
-
 import org.apache.commons.lang3.StringUtils;
 
 /**
@@ -12,20 +10,18 @@ import org.apache.commons.lang3.StringUtils;
 public class TimeBasedUploadIdFactory extends UploadIdFactory {
 
     @Override
-    public UploadId readUploadId(String url) {
-        Matcher uploadUriMatcher = getUploadUriPattern().matcher(StringUtils.trimToEmpty(url));
-        String pathId = uploadUriMatcher.replaceFirst("");
+    protected String getIdValueIfValid(String extractedUrlId) {
         Long id = null;
 
-        if (StringUtils.isNotBlank(pathId)) {
+        if (StringUtils.isNotBlank(extractedUrlId)) {
             try {
-                id = Long.parseLong(pathId);
+                id = Long.parseLong(extractedUrlId);
             } catch (NumberFormatException ex) {
                 id = null;
             }
         }
 
-        return id == null ? null : new UploadId(id.toString());
+        return id == null ? null : extractedUrlId;
     }
 
     @Override

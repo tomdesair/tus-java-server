@@ -1,9 +1,6 @@
 package me.desair.tus.server.upload;
 
 import java.util.UUID;
-import java.util.regex.Matcher;
-
-import org.apache.commons.lang3.StringUtils;
 
 /**
  * Factory to create unique upload IDs. This factory can also parse the upload identifier
@@ -12,20 +9,15 @@ import org.apache.commons.lang3.StringUtils;
 public class UUIDUploadIdFactory extends UploadIdFactory {
 
     @Override
-    public UploadId readUploadId(String url) {
-        Matcher uploadUriMatcher = getUploadUriPattern().matcher(StringUtils.trimToEmpty(url));
-        String pathId = uploadUriMatcher.replaceFirst("");
+    protected String getIdValueIfValid(String extractedUrlId) {
         UUID id = null;
-
-        if (StringUtils.isNotBlank(pathId)) {
-            try {
-                id = UUID.fromString(pathId);
-            } catch (IllegalArgumentException ex) {
-                id = null;
-            }
+        try {
+            id = UUID.fromString(extractedUrlId);
+        } catch (IllegalArgumentException ex) {
+            id = null;
         }
 
-        return id == null ? null : new UploadId(id.toString());
+        return (id == null ? null : id.toString());
     }
 
     @Override

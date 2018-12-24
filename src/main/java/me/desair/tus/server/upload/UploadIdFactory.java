@@ -1,5 +1,6 @@
 package me.desair.tus.server.upload;
 
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
@@ -46,13 +47,31 @@ public abstract class UploadIdFactory {
      * @param url The URL provided by the client
      * @return The corresponding Upload identifier
      */
-    public abstract UploadId readUploadId(String url);
+    public UploadId readUploadId(String url) {
+        Matcher uploadUriMatcher = getUploadUriPattern().matcher(StringUtils.trimToEmpty(url));
+        String pathId = uploadUriMatcher.replaceFirst("");
+
+        String idValue = null;
+        if (StringUtils.isNotBlank(pathId)) {
+            idValue = getIdValueIfValid(pathId);
+        }
+
+        return idValue == null ? null : new UploadId(idValue);
+    }
 
     /**
      * Create a new unique upload ID
      * @return A new unique upload ID
      */
     public abstract UploadId createId();
+
+    /**
+     * Transform the extracted path ID value to a value to use for the upload ID object.
+     * If the extracted value is not valid, null is returned
+     * @param extractedUrlId The ID extracted from the URL
+     * @return Value to use in the UploadId object, null if the extracted URL value was not valid
+     */
+    protected abstract String getIdValueIfValid(String extractedUrlId);
 
     /**
      * Build and retrieve the Upload URI regex pattern
