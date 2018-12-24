@@ -51,7 +51,7 @@ public class CreationPostRequestHandler extends AbstractRequestHandler {
     }
 
     private UploadInfo buildUploadInfo(HttpServletRequest servletRequest) {
-        UploadInfo info = new UploadInfo();
+        UploadInfo info = new UploadInfo(servletRequest);
 
         Long length = Utils.getLongHeader(servletRequest, HttpHeader.UPLOAD_LENGTH);
         if (length != null) {

@@ -92,6 +92,12 @@ public class HttpHeader {
      */
     public static final String TUS_CHECKSUM_ALGORITHM = "Tus-Checksum-Algorithm";
 
+    /**
+     * The X-Forwarded-For (XFF) HTTP header field is a common method for identifying the originating IP address of a
+     * client connecting to a web server through an HTTP proxy or load balancer.
+     */
+    public static final String X_FORWARDED_FOR = "X-Forwarded-For";
+
     private HttpHeader() {
         //This is an utility class to hold constants
     }

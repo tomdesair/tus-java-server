@@ -216,8 +216,12 @@ public class UploadInfoTest {
         assertFalse(info2.isExpired());
 
         final Stack<Long> dateStack = new Stack<>();
+        //Current time stamp to check expiration
         dateStack.push(DateFormatUtils.ISO_8601_EXTENDED_DATETIME_FORMAT.parse("2018-01-23T10:43:11").getTime());
+        //Current time stamp to calculate expiration
         dateStack.push(DateFormatUtils.ISO_8601_EXTENDED_DATETIME_FORMAT.parse("2018-01-20T10:43:11").getTime());
+        //Creation time stamp
+        dateStack.push(DateFormatUtils.ISO_8601_EXTENDED_DATETIME_FORMAT.parse("2018-01-20T10:40:39").getTime());
 
         UploadInfo info3 = new UploadInfo() {
             @Override

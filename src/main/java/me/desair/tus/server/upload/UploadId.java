@@ -20,27 +20,37 @@ public class UploadId implements Serializable {
     private static final Logger log = LoggerFactory.getLogger(UploadId.class);
 
     private String urlSafeValue;
+    private String originalValue;
 
     /**
      * Create a new {@link UploadId} instance based on the provided value.
-     * @param value The value to use for constructing the ID
+     * @param inputValue The value to use for constructing the ID
      */
-    public UploadId(String value) {
-        Validate.notBlank(value, "The upload ID value cannot be blank");
+    public UploadId(String inputValue) {
+        Validate.notBlank(inputValue, "The upload ID value cannot be blank");
+        this.originalValue = inputValue;
 
         URLCodec codec = new URLCodec();
         //Check if value is not encoded already
         try {
-            if (value.equals(codec.decode(value, UPLOAD_ID_CHARSET))) {
-                this.urlSafeValue = codec.encode(value, "UTF-8");
+            if (inputValue.equals(codec.decode(inputValue, UPLOAD_ID_CHARSET))) {
+                this.urlSafeValue = codec.encode(inputValue, "UTF-8");
             } else {
                 //value is already encoded, use as is
-                this.urlSafeValue = value;
+                this.urlSafeValue = inputValue;
             }
         } catch (DecoderException | UnsupportedEncodingException e) {
             log.warn("Unable to URL encode upload ID value", e);
-            this.urlSafeValue = value;
+            this.urlSafeValue = inputValue;
         }
+    }
+
+    /**
+     * The original input value that was provided when constructing this upload ID
+     * @return The original value
+     */
+    public String getOriginalValue() {
+        return this.originalValue;
     }
 
     @Override

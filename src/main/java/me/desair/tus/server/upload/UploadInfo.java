@@ -8,6 +8,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
+import javax.servlet.http.HttpServletRequest;
+
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.EqualsBuilder;
@@ -25,14 +28,23 @@ public class UploadInfo implements Serializable {
     private Long length;
     private UploadId id;
     private String ownerKey;
+    private Long creationTimestamp;
+    private String creatorIpAddresses;
+
     private Long expirationTimestamp;
     private List<String> concatenationParts;
     private String uploadConcatHeaderValue;
 
     public UploadInfo() {
+        creationTimestamp = getCurrentTime();
         offset = 0L;
         encodedMetadata = null;
         length = null;
+    }
+
+    public UploadInfo(HttpServletRequest servletRequest) {
+        this();
+        creatorIpAddresses = Utils.buildRemoteIpList(servletRequest);
     }
 
     public Long getOffset() {
@@ -124,6 +136,24 @@ public class UploadInfo implements Serializable {
 
     public void updateExpiration(long expirationPeriod) {
         expirationTimestamp = getCurrentTime() + expirationPeriod;
+    }
+
+    /**
+     * The timestamp this upload was created in number of milliseconds since January 1, 1970, 00:00:00 GMT
+     * @return Creation timestamp of this upload object
+     */
+    public Long getCreationTimestamp() {
+        return creationTimestamp;
+    }
+
+    /** TODO UNIT TEST
+     * Get the ip-addresses that were involved when this upload was created.
+     * The returned value is a comma-separated list based on the remote address of the request and the
+     * X-Forwareded-For header. The list is constructed as "client, proxy1, proxy2".
+     * @return A comma-separated list of ip-addresses
+     */
+    public String getCreatorIpAddresses() {
+        return creatorIpAddresses;
     }
 
     public UploadType getUploadType() {

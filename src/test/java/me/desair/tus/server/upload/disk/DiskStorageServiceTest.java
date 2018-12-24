@@ -128,7 +128,7 @@ public class DiskStorageServiceTest {
         info.setLength(10L);
         info.setEncodedMetadata("Encoded Metadata");
 
-        info = storageService.create(info, null);
+        info = storageService.create(info, "John");
 
         assertTrue(Files.exists(getUploadInfoPath(info.getId())));
 
@@ -139,6 +139,9 @@ public class DiskStorageServiceTest {
         assertThat(readInfo.getOffset(), is(0L));
         assertThat(readInfo.getLength(), is(10L));
         assertThat(readInfo.getEncodedMetadata(), is("Encoded Metadata"));
+        assertThat(readInfo.getCreationTimestamp(), is(info.getCreationTimestamp()));
+        assertThat(readInfo.getUploadType(), is(info.getUploadType()));
+        assertThat(readInfo.getOwnerKey(), is(info.getOwnerKey()));
     }
 
     @Test
