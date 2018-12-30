@@ -50,10 +50,10 @@ public class PartialUploadsExistValidatorTest {
     @Test
     public void testValid() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(new UploadId(UUID.randomUUID().toString()));
+        info1.setId(new UploadId(UUID.randomUUID()));
 
         UploadInfo info2 = new UploadInfo();
-        info2.setId(new UploadId(UUID.randomUUID().toString()));
+        info2.setId(new UploadId(UUID.randomUUID()));
 
         when(uploadStorageService.getUploadInfo(info1.getId().toString(), null)).thenReturn(info1);
         when(uploadStorageService.getUploadInfo(info2.getId().toString(), null)).thenReturn(info2);
@@ -69,7 +69,7 @@ public class PartialUploadsExistValidatorTest {
     @Test(expected = InvalidPartialUploadIdException.class)
     public void testInvalidUploadNotFound() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(new UploadId(UUID.randomUUID().toString()));
+        info1.setId(new UploadId(UUID.randomUUID()));
 
         when(uploadStorageService.getUploadInfo(info1.getId())).thenReturn(info1);
 
@@ -83,7 +83,7 @@ public class PartialUploadsExistValidatorTest {
     @Test(expected = InvalidPartialUploadIdException.class)
     public void testInvalidId() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(new UploadId(UUID.randomUUID().toString()));
+        info1.setId(new UploadId(UUID.randomUUID()));
 
         when(uploadStorageService.getUploadInfo(info1.getId().toString(), null)).thenReturn(info1);
 

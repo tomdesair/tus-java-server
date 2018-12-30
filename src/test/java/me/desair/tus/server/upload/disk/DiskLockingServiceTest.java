@@ -58,7 +58,7 @@ public class DiskLockingServiceTest {
     public void setUp() {
         reset(idFactory);
         when(idFactory.getUploadURI()).thenReturn(UPLOAD_URL);
-        when(idFactory.createId()).thenReturn(new UploadId(UUID.randomUUID().toString()));
+        when(idFactory.createId()).thenReturn(new UploadId(UUID.randomUUID()));
         when(idFactory.readUploadId(nullable(String.class))).then(new Answer<UploadId>() {
             @Override
             public UploadId answer(InvocationOnMock invocation) throws Throwable {

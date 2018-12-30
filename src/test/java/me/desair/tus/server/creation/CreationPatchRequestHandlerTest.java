@@ -134,7 +134,7 @@ public class CreationPatchRequestHandlerTest {
     @Test
     public void processAppendNotFound() throws Exception {
         UploadInfo info = new UploadInfo();
-        info.setId(new UploadId(UUID.randomUUID().toString()));
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setOffset(10L);
         when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 

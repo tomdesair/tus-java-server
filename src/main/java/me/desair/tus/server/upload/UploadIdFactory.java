@@ -1,5 +1,6 @@
 package me.desair.tus.server.upload;
 
+import java.io.Serializable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -51,7 +52,7 @@ public abstract class UploadIdFactory {
         Matcher uploadUriMatcher = getUploadUriPattern().matcher(StringUtils.trimToEmpty(url));
         String pathId = uploadUriMatcher.replaceFirst("");
 
-        String idValue = null;
+        Serializable idValue = null;
         if (StringUtils.isNotBlank(pathId)) {
             idValue = getIdValueIfValid(pathId);
         }
@@ -71,7 +72,7 @@ public abstract class UploadIdFactory {
      * @param extractedUrlId The ID extracted from the URL
      * @return Value to use in the UploadId object, null if the extracted URL value was not valid
      */
-    protected abstract String getIdValueIfValid(String extractedUrlId);
+    protected abstract Serializable getIdValueIfValid(String extractedUrlId);
 
     /**
      * Build and retrieve the Upload URI regex pattern

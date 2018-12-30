@@ -47,7 +47,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
         tusFeature = new CreationExtension();
         uploadInfo = null;
 
-        id = new UploadId(UUID.randomUUID().toString());
+        id = new UploadId(UUID.randomUUID());
         servletRequest.setRequestURI(UPLOAD_URI);
         reset(uploadStorageService);
         when(uploadStorageService.getUploadURI()).thenReturn(UPLOAD_URI);

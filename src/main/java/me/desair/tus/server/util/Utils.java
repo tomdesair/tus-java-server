@@ -124,9 +124,13 @@ public class Utils {
         return lockFile(channel, true);
     }
 
-    public static void sleep(long sleepTime) {
+    /**
+     * Sleep the specified number of milliseconds
+     * @param sleepTimeMillis The time to sleep in milliseconds
+     */
+    public static void sleep(long sleepTimeMillis) {
         try {
-            Thread.sleep(sleepTime);
+            Thread.sleep(sleepTimeMillis);
         } catch (InterruptedException e) {
             log.warn("Sleep was interrupted");
             // Restore interrupted state...

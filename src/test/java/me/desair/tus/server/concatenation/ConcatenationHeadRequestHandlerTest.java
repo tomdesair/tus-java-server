@@ -67,7 +67,7 @@ public class ConcatenationHeadRequestHandlerTest {
     @Test
     public void testRegularUpload() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(new UploadId(UUID.randomUUID().toString()));
+        info1.setId(new UploadId(UUID.randomUUID()));
         info1.setUploadConcatHeaderValue("Impossible");
         info1.setUploadType(UploadType.REGULAR);
 
@@ -84,7 +84,7 @@ public class ConcatenationHeadRequestHandlerTest {
     @Test
     public void testPartialUpload() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(new UploadId(UUID.randomUUID().toString()));
+        info1.setId(new UploadId(UUID.randomUUID()));
         info1.setUploadConcatHeaderValue("partial");
         info1.setUploadType(UploadType.PARTIAL);
 
@@ -101,7 +101,7 @@ public class ConcatenationHeadRequestHandlerTest {
     @Test
     public void testConcatenatedUploadWithLength() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(new UploadId(UUID.randomUUID().toString()));
+        info1.setId(new UploadId(UUID.randomUUID()));
         info1.setUploadConcatHeaderValue("final; 123 456");
         info1.setLength(10L);
         info1.setOffset(10L);
@@ -124,7 +124,7 @@ public class ConcatenationHeadRequestHandlerTest {
     @Test
     public void testConcatenatedUploadWithoutLength() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(new UploadId(UUID.randomUUID().toString()));
+        info1.setId(new UploadId(UUID.randomUUID()));
         info1.setUploadConcatHeaderValue("final; 123 456");
         info1.setLength(10L);
         info1.setOffset(8L);

@@ -3,6 +3,9 @@ package me.desair.tus.server.upload;
 import static me.desair.tus.server.util.MapMatcher.hasSize;
 import static org.hamcrest.CoreMatchers.allOf;
 import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.collection.IsMapContaining.hasEntry;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
@@ -12,8 +15,11 @@ import java.text.ParseException;
 import java.util.Stack;
 import java.util.UUID;
 
+import me.desair.tus.server.HttpHeader;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.time.DateFormatUtils;
 import org.junit.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 public class UploadInfoTest {
 
@@ -190,7 +196,7 @@ public class UploadInfoTest {
     @Test
     public void testGetNameAndTypeWithoutMetadata() throws Exception {
         UploadInfo info = new UploadInfo();
-        final UploadId id = new UploadId(UUID.randomUUID().toString());
+        final UploadId id = new UploadId(UUID.randomUUID());
         info.setId(id);
 
         assertThat(info.getFileName(), is(id.toString()));
@@ -233,4 +239,37 @@ public class UploadInfoTest {
         assertTrue(info3.isExpired());
     }
 
+    @Test
+    public void testGetCreationTimestamp() throws Exception {
+        UploadInfo info = new UploadInfo();
+        Utils.sleep(10);
+
+        assertThat(info.getCreationTimestamp(), greaterThan(System.currentTimeMillis() - 500L));
+        assertThat(info.getCreationTimestamp(), lessThan(System.currentTimeMillis()));
+    }
+
+    @Test
+    public void testGetCreatorIpAddressesNull() throws Exception {
+        UploadInfo info = new UploadInfo();
+        assertThat(info.getCreatorIpAddresses(), nullValue());
+    }
+
+    @Test
+    public void testGetCreatorIpAddressesWithoutXForwardedFor() throws Exception {
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+        servletRequest.setRemoteAddr("10.11.12.13");
+
+        UploadInfo info = new UploadInfo(servletRequest);
+        assertThat(info.getCreatorIpAddresses(), is("10.11.12.13"));
+    }
+
+    @Test
+    public void testGetCreatorIpAddressesWithXForwardedFor() throws Exception {
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+        servletRequest.setRemoteAddr("10.11.12.13");
+        servletRequest.addHeader(HttpHeader.X_FORWARDED_FOR, "24.23.22.21, 192.168.1.1");
+
+        UploadInfo info = new UploadInfo(servletRequest);
+        assertThat(info.getCreatorIpAddresses(), is("24.23.22.21, 192.168.1.1, 10.11.12.13"));
+    }
 }

@@ -40,7 +40,7 @@ public class ExpiredUploadFilterTest {
     @Test
     public void accept() throws Exception {
         UploadInfo info = createExpiredUploadInfo();
-        info.setId(new UploadId(UUID.randomUUID().toString()));
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setOffset(2L);
         info.setLength(10L);
         info.updateExpiration(100L);
@@ -62,7 +62,7 @@ public class ExpiredUploadFilterTest {
     @Test
     public void acceptCompletedUpload() throws Exception {
         UploadInfo info = createExpiredUploadInfo();
-        info.setId(new UploadId(UUID.randomUUID().toString()));
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setOffset(10L);
         info.setLength(10L);
         info.updateExpiration(100L);
@@ -77,7 +77,7 @@ public class ExpiredUploadFilterTest {
     @Test
     public void acceptInProgressButNotExpired() throws Exception {
         UploadInfo info = new UploadInfo();
-        info.setId(new UploadId(UUID.randomUUID().toString()));
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setOffset(2L);
         info.setLength(10L);
         info.updateExpiration(172800000L);
@@ -91,7 +91,7 @@ public class ExpiredUploadFilterTest {
     @Test
     public void acceptLocked() throws Exception {
         UploadInfo info = createExpiredUploadInfo();
-        info.setId(new UploadId(UUID.randomUUID().toString()));
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setOffset(8L);
         info.setLength(10L);
         info.updateExpiration(100L);
@@ -105,7 +105,7 @@ public class ExpiredUploadFilterTest {
     @Test
     public void acceptException() throws Exception {
         UploadInfo info = createExpiredUploadInfo();
-        info.setId(new UploadId(UUID.randomUUID().toString()));
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setOffset(8L);
         info.setLength(10L);
         info.updateExpiration(100L);

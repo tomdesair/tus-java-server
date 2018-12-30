@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory;
 
 /**
  * The unique identifier of an upload process in the tus protocol
- * TODO UNIT TEST
  */
 public class UploadId implements Serializable {
 
@@ -20,21 +19,22 @@ public class UploadId implements Serializable {
     private static final Logger log = LoggerFactory.getLogger(UploadId.class);
 
     private String urlSafeValue;
-    private String originalValue;
+    private Serializable originalObject;
 
     /**
-     * Create a new {@link UploadId} instance based on the provided value.
-     * @param inputValue The value to use for constructing the ID
+     * Create a new {@link UploadId} instance based on the provided object using it's toString method.
+     * @param inputObject The object to use for constructing the ID
      */
-    public UploadId(String inputValue) {
+    public UploadId(Serializable inputObject) {
+        String inputValue = (inputObject == null ? null : inputObject.toString());
         Validate.notBlank(inputValue, "The upload ID value cannot be blank");
-        this.originalValue = inputValue;
 
+        this.originalObject = inputObject;
         URLCodec codec = new URLCodec();
         //Check if value is not encoded already
         try {
             if (inputValue.equals(codec.decode(inputValue, UPLOAD_ID_CHARSET))) {
-                this.urlSafeValue = codec.encode(inputValue, "UTF-8");
+                this.urlSafeValue = codec.encode(inputValue, UPLOAD_ID_CHARSET);
             } else {
                 //value is already encoded, use as is
                 this.urlSafeValue = inputValue;
@@ -46,11 +46,11 @@ public class UploadId implements Serializable {
     }
 
     /**
-     * The original input value that was provided when constructing this upload ID
-     * @return The original value
+     * The original input object that was provided when constructing this upload ID
+     * @return The original object used to create this ID
      */
-    public String getOriginalValue() {
-        return this.originalValue;
+    public Serializable getOriginalObject() {
+        return this.originalObject;
     }
 
     @Override
@@ -68,11 +68,13 @@ public class UploadId implements Serializable {
         }
 
         UploadId uploadId = (UploadId) o;
+        //Upload IDs with the same URL-safe value should be considered equal
         return Objects.equals(urlSafeValue, uploadId.urlSafeValue);
     }
 
     @Override
     public int hashCode() {
+        //Upload IDs with the same URL-safe value should be considered equal
         return Objects.hash(urlSafeValue);
     }
 }

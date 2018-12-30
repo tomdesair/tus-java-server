@@ -70,7 +70,7 @@ public class ConcatenationPostRequestHandlerTest {
         TusServletResponse response = new TusServletResponse(this.servletResponse);
 
         UploadInfo info1 = new UploadInfo();
-        info1.setId(new UploadId(UUID.randomUUID().toString()));
+        info1.setId(new UploadId(UUID.randomUUID()));
 
         when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
                 nullable(String.class))).thenReturn(info1);
@@ -90,7 +90,7 @@ public class ConcatenationPostRequestHandlerTest {
         TusServletResponse response = new TusServletResponse(this.servletResponse);
 
         UploadInfo info1 = new UploadInfo();
-        info1.setId(new UploadId(UUID.randomUUID().toString()));
+        info1.setId(new UploadId(UUID.randomUUID()));
 
         when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
                 nullable(String.class))).thenReturn(info1);
@@ -111,7 +111,7 @@ public class ConcatenationPostRequestHandlerTest {
         TusServletResponse response = new TusServletResponse(this.servletResponse);
 
         UploadInfo info1 = new UploadInfo();
-        info1.setId(new UploadId(UUID.randomUUID().toString()));
+        info1.setId(new UploadId(UUID.randomUUID()));
 
         when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
                 nullable(String.class))).thenReturn(info1);

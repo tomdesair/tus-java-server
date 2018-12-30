@@ -72,7 +72,7 @@ public class CreationPostRequestHandlerTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
         servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "encoded-metadata");
 
-        final UploadId id = new UploadId(UUID.randomUUID().toString());
+        final UploadId id = new UploadId(UUID.randomUUID());
         when(uploadStorageService.create(ArgumentMatchers.any(UploadInfo.class), nullable(String.class))).then(
                 new Answer<UploadInfo>() {
                     @Override
@@ -102,7 +102,7 @@ public class CreationPostRequestHandlerTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 10L);
         //servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, null);
 
-        final UploadId id = new UploadId(UUID.randomUUID().toString());
+        final UploadId id = new UploadId(UUID.randomUUID());
         when(uploadStorageService.create(ArgumentMatchers.any(UploadInfo.class), nullable(String.class))).then(
                 new Answer<UploadInfo>() {
                     @Override
@@ -132,7 +132,7 @@ public class CreationPostRequestHandlerTest {
         //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, null);
         servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "encoded-metadata");
 
-        final UploadId id = new UploadId(UUID.randomUUID().toString());
+        final UploadId id = new UploadId(UUID.randomUUID());
         when(uploadStorageService.create(ArgumentMatchers.any(UploadInfo.class), nullable(String.class))).then(
                 new Answer<UploadInfo>() {
                     @Override
@@ -162,7 +162,7 @@ public class CreationPostRequestHandlerTest {
         //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, null);
         //servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, null);
 
-        final UploadId id = new UploadId(UUID.randomUUID().toString());
+        final UploadId id = new UploadId(UUID.randomUUID());
         when(uploadStorageService.create(ArgumentMatchers.any(UploadInfo.class), nullable(String.class))).then(
                 new Answer<UploadInfo>() {
                     @Override

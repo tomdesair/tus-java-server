@@ -146,7 +146,7 @@ public class UploadInfo implements Serializable {
         return creationTimestamp;
     }
 
-    /** TODO UNIT TEST
+    /**
      * Get the ip-addresses that were involved when this upload was created.
      * The returned value is a comma-separated list based on the remote address of the request and the
      * X-Forwareded-For header. The list is constructed as "client, proxy1, proxy2".

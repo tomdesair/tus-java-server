@@ -74,7 +74,7 @@ public class DiskStorageServiceTest {
     public void setUp() {
         reset(idFactory);
         when(idFactory.getUploadURI()).thenReturn(UPLOAD_URL);
-        when(idFactory.createId()).thenReturn(new UploadId(UUID.randomUUID().toString()));
+        when(idFactory.createId()).thenReturn(new UploadId(UUID.randomUUID()));
         when(idFactory.readUploadId(nullable(String.class))).then(new Answer<UploadId>() {
             @Override
             public UploadId answer(InvocationOnMock invocation) throws Throwable {
@@ -146,7 +146,7 @@ public class DiskStorageServiceTest {
 
     @Test
     public void getUploadInfoByFakeId() throws Exception {
-        UploadInfo readInfo = storageService.getUploadInfo(new UploadId(UUID.randomUUID().toString()));
+        UploadInfo readInfo = storageService.getUploadInfo(new UploadId(UUID.randomUUID()));
         assertThat(readInfo, is(nullValue()));
     }
 
@@ -304,7 +304,7 @@ public class DiskStorageServiceTest {
 
         //Create our fake upload
         UploadInfo info = new UploadInfo();
-        info.setId(new UploadId(UUID.randomUUID().toString()));
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setLength((long) (content.getBytes().length));
 
         //Write the content of the upload
