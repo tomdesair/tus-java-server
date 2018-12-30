@@ -43,6 +43,9 @@ public class ITTusFileUploadServiceCached extends ITTusFileUploadService {
         tusFileUploadService.withUploadStorageService(service2);
         tusFileUploadService.withUploadLockingService(service2);
 
+        assertThat(service2.getUploadURI(), is(UPLOAD_URI));
+        assertThat(uploadStorageService.getUploadURI(), is(UPLOAD_URI));
+
         testConcatenationCompleted();
     }
 

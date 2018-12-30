@@ -178,11 +178,8 @@
                 <configuration>
                     <!-- Sets the VM argument line used when unit tests are run. -->
                     <argLine>${surefireArgLine}</argLine>
-                    <!-- Disable SLF4j logging on Maven builds -->
-                    <systemPropertyVariables>
-                        <org.slf4j.simpleLogger.defaultLogLevel>off</org.slf4j.simpleLogger.defaultLogLevel>
-                        <org.slf4j.simpleLogger.showDateTime>true</org.slf4j.simpleLogger.showDateTime>
-                    </systemPropertyVariables>
+                    <!-- Sonar test count workaround -->
+                    <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
                 </configuration>
             </plugin>
 
@@ -202,11 +199,6 @@
                     <argLine>${failsafeArgLine}</argLine>
                     <!-- Sonar test count workaround -->
                     <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
-                    <!-- Disable SLF4j logging on Maven builds -->
-                    <systemPropertyVariables>
-                        <org.slf4j.simpleLogger.defaultLogLevel>off</org.slf4j.simpleLogger.defaultLogLevel>
-                        <org.slf4j.simpleLogger.showDateTime>true</org.slf4j.simpleLogger.showDateTime>
-                    </systemPropertyVariables>
                 </configuration>
                 <executions>
                     <execution>
