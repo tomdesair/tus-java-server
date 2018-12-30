@@ -2,6 +2,7 @@ package me.desair.tus.server.upload;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 
 import java.util.UUID;
 
@@ -26,12 +27,12 @@ public class UploadIdTest {
 
     @Test(expected = NullPointerException.class)
     public void testNullConstructor() {
-        UploadId uploadId = new UploadId(null);
+        new UploadId(null);
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testBlankConstructor() {
-        UploadId uploadId = new UploadId(" \t");
+        new UploadId(" \t");
     }
 
     @Test
@@ -68,7 +69,7 @@ public class UploadIdTest {
         assertEquals(id1, id2);
         assertEquals(id2, id3);
         assertEquals(id1, id1);
-        assertFalse(id1.equals(null));
+        assertNotEquals(id1, null);
         assertFalse(id1.equals(UUID.randomUUID()));
     }
 
