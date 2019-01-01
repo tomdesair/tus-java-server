@@ -31,7 +31,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
     @Override
     public void merge(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
         if (uploadInfo != null && uploadInfo.isUploadInProgress()
-                && uploadInfo.getConcatenationParts() != null) {
+                && uploadInfo.getConcatenationPartIds() != null) {
 
             Long expirationPeriod = uploadStorageService.getUploadExpirationPeriod();
 
@@ -70,7 +70,7 @@ public class VirtualConcatenationService implements UploadConcatenationService {
 
     @Override
     public List<UploadInfo> getPartialUploads(UploadInfo info) throws IOException, UploadNotFoundException {
-        List<String> concatenationParts = info.getConcatenationParts();
+        List<String> concatenationParts = info.getConcatenationPartIds();
 
         if (concatenationParts == null || concatenationParts.isEmpty()) {
             return Collections.emptyList();

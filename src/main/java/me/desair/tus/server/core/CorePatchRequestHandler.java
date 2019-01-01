@@ -56,9 +56,9 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
             servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, Objects.toString(uploadInfo.getOffset()));
             servletResponse.setStatus(HttpServletResponse.SC_NO_CONTENT);
 
-            if (!uploadInfo.isUploadInProgress() && log.isInfoEnabled()) {
+            if (!uploadInfo.isUploadInProgress()) {
                 log.info("Upload with ID {} at location {} finished successfully",
-                        uploadInfo.getId().getOriginalObject(), servletRequest.getRequestURI());
+                        uploadInfo.getId(), servletRequest.getRequestURI());
             }
         } else {
             log.error("The patch request handler could not find the upload for URL " + servletRequest.getRequestURI()

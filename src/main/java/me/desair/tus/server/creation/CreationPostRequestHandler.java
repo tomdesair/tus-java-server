@@ -47,10 +47,8 @@ public class CreationPostRequestHandler extends AbstractRequestHandler {
         servletResponse.setHeader(HttpHeader.LOCATION, url);
         servletResponse.setStatus(HttpServletResponse.SC_CREATED);
 
-        if (log.isInfoEnabled()) {
-            log.info("Created upload with ID {} at {} for ip address {} with location {}",
-                    info.getId().getOriginalObject(), info.getCreationTimestamp(), info.getCreatorIpAddresses(), url);
-        }
+        log.info("Created upload with ID {} at {} for ip address {} with location {}",
+                info.getId(), info.getCreationTimestamp(), info.getCreatorIpAddresses(), url);
     }
 
     private UploadInfo buildUploadInfo(HttpServletRequest servletRequest) {
