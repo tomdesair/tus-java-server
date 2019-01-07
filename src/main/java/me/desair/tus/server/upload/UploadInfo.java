@@ -1,7 +1,6 @@
 package me.desair.tus.server.upload;
 
 import java.io.Serializable;
-import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
@@ -11,6 +10,7 @@ import java.util.TreeMap;
 import javax.servlet.http.HttpServletRequest;
 
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.codec.Charsets;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.EqualsBuilder;
@@ -358,7 +358,6 @@ public class UploadInfo implements Serializable {
                 .append(getLength(), that.getLength())
                 .append(getId(), that.getId())
                 .append(getOwnerKey(), that.getOwnerKey())
-                .append(getCreationTimestamp(), that.getCreationTimestamp())
                 .append(getCreatorIpAddresses(), that.getCreatorIpAddresses())
                 .append(getExpirationTimestamp(), that.getExpirationTimestamp())
                 .append(getConcatenationPartIds(), that.getConcatenationPartIds())
@@ -375,7 +374,6 @@ public class UploadInfo implements Serializable {
                 .append(getLength())
                 .append(getId())
                 .append(getOwnerKey())
-                .append(getCreationTimestamp())
                 .append(getCreatorIpAddresses())
                 .append(getExpirationTimestamp())
                 .append(getConcatenationPartIds())
@@ -402,7 +400,7 @@ public class UploadInfo implements Serializable {
         if (encodedValue == null) {
             return null;
         } else {
-            return new String(Base64.decodeBase64(encodedValue), Charset.forName("UTF-8"));
+            return new String(Base64.decodeBase64(encodedValue), Charsets.UTF_8);
         }
     }
 }
