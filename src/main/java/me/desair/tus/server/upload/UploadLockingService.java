@@ -1,7 +1,6 @@
 package me.desair.tus.server.upload;
 
 import java.io.IOException;
-import java.util.UUID;
 
 import me.desair.tus.server.exception.TusException;
 
@@ -29,7 +28,7 @@ public interface UploadLockingService {
      * @param id The ID of the upload to check
      * @return True if the upload is locked, false otherwise
      */
-    boolean isLocked(UUID id);
+    boolean isLocked(UploadId id);
 
     /**
      * Set an instance if IdFactory to be used for creating identities and extracting them from uploadURIs

@@ -4,8 +4,8 @@ import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Path;
 import java.util.Objects;
-import java.util.UUID;
 
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import org.slf4j.Logger;
@@ -28,9 +28,9 @@ public class ExpiredUploadFilter implements DirectoryStream.Filter<Path> {
 
     @Override
     public boolean accept(Path upload) throws IOException {
-        UUID id = null;
+        UploadId id = null;
         try {
-            id = UUID.fromString(upload.getFileName().toString());
+            id = new UploadId(upload.getFileName().toString());
             UploadInfo info = diskStorageService.getUploadInfo(id);
 
             if (info != null && info.isExpired() && !uploadLockingService.isLocked(id)) {

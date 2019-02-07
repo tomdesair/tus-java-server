@@ -27,6 +27,7 @@ import java.util.UUID;
 
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -73,11 +74,11 @@ public class DiskStorageServiceTest {
     public void setUp() {
         reset(idFactory);
         when(idFactory.getUploadURI()).thenReturn(UPLOAD_URL);
-        when(idFactory.createId()).thenReturn(UUID.randomUUID());
-        when(idFactory.readUploadId(nullable(String.class))).then(new Answer<UUID>() {
+        when(idFactory.createId()).thenReturn(new UploadId(UUID.randomUUID()));
+        when(idFactory.readUploadId(nullable(String.class))).then(new Answer<UploadId>() {
             @Override
-            public UUID answer(InvocationOnMock invocation) throws Throwable {
-                return UUID.fromString(StringUtils.substringAfter(invocation.getArguments()[0].toString(),
+            public UploadId answer(InvocationOnMock invocation) throws Throwable {
+                return new UploadId(StringUtils.substringAfter(invocation.getArguments()[0].toString(),
                         UPLOAD_URL + "/"));
             }
         });
@@ -127,7 +128,7 @@ public class DiskStorageServiceTest {
         info.setLength(10L);
         info.setEncodedMetadata("Encoded Metadata");
 
-        info = storageService.create(info, null);
+        info = storageService.create(info, "John");
 
         assertTrue(Files.exists(getUploadInfoPath(info.getId())));
 
@@ -138,11 +139,14 @@ public class DiskStorageServiceTest {
         assertThat(readInfo.getOffset(), is(0L));
         assertThat(readInfo.getLength(), is(10L));
         assertThat(readInfo.getEncodedMetadata(), is("Encoded Metadata"));
+        assertThat(readInfo.getCreationTimestamp(), is(info.getCreationTimestamp()));
+        assertThat(readInfo.getUploadType(), is(info.getUploadType()));
+        assertThat(readInfo.getOwnerKey(), is(info.getOwnerKey()));
     }
 
     @Test
     public void getUploadInfoByFakeId() throws Exception {
-        UploadInfo readInfo = storageService.getUploadInfo(UUID.randomUUID());
+        UploadInfo readInfo = storageService.getUploadInfo(new UploadId(UUID.randomUUID()));
         assertThat(readInfo, is(nullValue()));
     }
 
@@ -300,7 +304,7 @@ public class DiskStorageServiceTest {
 
         //Create our fake upload
         UploadInfo info = new UploadInfo();
-        info.setId(UUID.randomUUID());
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setLength((long) (content.getBytes().length));
 
         //Write the content of the upload
@@ -472,7 +476,7 @@ public class DiskStorageServiceTest {
 
     @Test
     public void cleanupExpiredUploads() throws Exception {
-        when(uploadLockingService.isLocked(any(UUID.class))).thenReturn(false);
+        when(uploadLockingService.isLocked(any(UploadId.class))).thenReturn(false);
 
         String content = "This is the content of my upload";
 
@@ -491,15 +495,15 @@ public class DiskStorageServiceTest {
         assertFalse(Files.exists(getStoragePath(info.getId())));
     }
 
-    private Path getUploadInfoPath(UUID id) {
+    private Path getUploadInfoPath(UploadId id) {
         return getStoragePath(id).resolve("info");
     }
 
-    private Path getUploadDataPath(UUID id) {
+    private Path getUploadDataPath(UploadId id) {
         return getStoragePath(id).resolve("data");
     }
 
-    private Path getStoragePath(UUID id) {
+    private Path getStoragePath(UploadId id) {
         return storagePath.resolve("uploads").resolve(id.toString());
     }
 }

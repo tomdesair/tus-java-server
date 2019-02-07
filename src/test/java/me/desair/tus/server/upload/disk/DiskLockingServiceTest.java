@@ -17,6 +17,7 @@ import java.nio.file.Paths;
 import java.nio.file.attribute.FileTime;
 import java.util.UUID;
 
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
 import org.apache.commons.io.FileUtils;
@@ -57,11 +58,11 @@ public class DiskLockingServiceTest {
     public void setUp() {
         reset(idFactory);
         when(idFactory.getUploadURI()).thenReturn(UPLOAD_URL);
-        when(idFactory.createId()).thenReturn(UUID.randomUUID());
-        when(idFactory.readUploadId(nullable(String.class))).then(new Answer<UUID>() {
+        when(idFactory.createId()).thenReturn(new UploadId(UUID.randomUUID()));
+        when(idFactory.readUploadId(nullable(String.class))).then(new Answer<UploadId>() {
             @Override
-            public UUID answer(InvocationOnMock invocation) throws Throwable {
-                return UUID.fromString(StringUtils.substringAfter(invocation.getArguments()[0].toString(),
+            public UploadId answer(InvocationOnMock invocation) throws Throwable {
+                return new UploadId(StringUtils.substringAfter(invocation.getArguments()[0].toString(),
                         UPLOAD_URL + "/"));
             }
         });
@@ -82,7 +83,7 @@ public class DiskLockingServiceTest {
     public void isLockedTrue() throws Exception {
         UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
 
-        assertThat(lockingService.isLocked(UUID.fromString("000003f1-a850-49de-af03-997272d834c9")), is(true));
+        assertThat(lockingService.isLocked(new UploadId("000003f1-a850-49de-af03-997272d834c9")), is(true));
 
         uploadLock.release();
     }
@@ -92,7 +93,7 @@ public class DiskLockingServiceTest {
         UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
         uploadLock.release();
 
-        assertThat(lockingService.isLocked(UUID.fromString("000003f1-a850-49de-af03-997272d834c9")), is(false));
+        assertThat(lockingService.isLocked(new UploadId("000003f1-a850-49de-af03-997272d834c9")), is(false));
     }
 
     @Test

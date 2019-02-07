@@ -47,11 +47,12 @@ public class CreationPostRequestHandler extends AbstractRequestHandler {
         servletResponse.setHeader(HttpHeader.LOCATION, url);
         servletResponse.setStatus(HttpServletResponse.SC_CREATED);
 
-        log.debug("Create upload location {}", url);
+        log.info("Created upload with ID {} at {} for ip address {} with location {}",
+                info.getId(), info.getCreationTimestamp(), info.getCreatorIpAddresses(), url);
     }
 
     private UploadInfo buildUploadInfo(HttpServletRequest servletRequest) {
-        UploadInfo info = new UploadInfo();
+        UploadInfo info = new UploadInfo(servletRequest);
 
         Long length = Utils.getLongHeader(servletRequest, HttpHeader.UPLOAD_LENGTH);
         if (length != null) {

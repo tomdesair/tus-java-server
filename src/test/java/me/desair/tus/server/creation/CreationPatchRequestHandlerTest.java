@@ -17,6 +17,7 @@ import javax.servlet.http.HttpServletResponse;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
@@ -133,7 +134,7 @@ public class CreationPatchRequestHandlerTest {
     @Test
     public void processAppendNotFound() throws Exception {
         UploadInfo info = new UploadInfo();
-        info.setId(UUID.randomUUID());
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setOffset(10L);
         when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class))).thenReturn(info);
 

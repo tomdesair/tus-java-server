@@ -6,10 +6,10 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
-import java.util.UUID;
 
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -30,8 +30,12 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
 
     private UploadIdFactory idFactory;
 
-    public DiskLockingService(UploadIdFactory idFactory, String storagePath) {
+    public DiskLockingService(String storagePath) {
         super(storagePath + File.separator + LOCK_SUB_DIRECTORY);
+    }
+
+    public DiskLockingService(UploadIdFactory idFactory, String storagePath) {
+        this(storagePath);
         Validate.notNull(idFactory, "The IdFactory cannot be null");
         this.idFactory = idFactory;
     }
@@ -39,7 +43,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     @Override
     public UploadLock lockUploadByUri(String requestURI) throws TusException, IOException {
 
-        UUID id = idFactory.readUploadId(requestURI);
+        UploadId id = idFactory.readUploadId(requestURI);
 
         UploadLock lock = null;
 
@@ -58,7 +62,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
 
                 FileTime lastModifiedTime = Files.getLastModifiedTime(path);
                 if (lastModifiedTime.toMillis() < System.currentTimeMillis() - 10000L) {
-                    UUID id = UUID.fromString(path.getFileName().toString());
+                    UploadId id = new UploadId(path.getFileName().toString());
 
                     if (!isLocked(id)) {
                         Files.deleteIfExists(path);
@@ -70,7 +74,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     }
 
     @Override
-    public boolean isLocked(UUID id) {
+    public boolean isLocked(UploadId id) {
         boolean locked = false;
         Path lockPath = getLockPath(id);
 
@@ -92,10 +96,11 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
 
     @Override
     public void setIdFactory(UploadIdFactory idFactory) {
+        Validate.notNull(idFactory, "The IdFactory cannot be null");
         this.idFactory = idFactory;
     }
 
-    private Path getLockPath(UUID id) {
+    private Path getLockPath(UploadId id) {
         return getPathInStorageDirectory(id);
     }
 

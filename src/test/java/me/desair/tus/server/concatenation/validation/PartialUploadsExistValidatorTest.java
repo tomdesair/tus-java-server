@@ -9,6 +9,7 @@ import java.util.UUID;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.InvalidPartialUploadIdException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.junit.Before;
@@ -49,10 +50,10 @@ public class PartialUploadsExistValidatorTest {
     @Test
     public void testValid() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(UUID.randomUUID());
+        info1.setId(new UploadId(UUID.randomUUID()));
 
         UploadInfo info2 = new UploadInfo();
-        info2.setId(UUID.randomUUID());
+        info2.setId(new UploadId(UUID.randomUUID()));
 
         when(uploadStorageService.getUploadInfo(info1.getId().toString(), null)).thenReturn(info1);
         when(uploadStorageService.getUploadInfo(info2.getId().toString(), null)).thenReturn(info2);
@@ -68,7 +69,7 @@ public class PartialUploadsExistValidatorTest {
     @Test(expected = InvalidPartialUploadIdException.class)
     public void testInvalidUploadNotFound() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(UUID.randomUUID());
+        info1.setId(new UploadId(UUID.randomUUID()));
 
         when(uploadStorageService.getUploadInfo(info1.getId())).thenReturn(info1);
 
@@ -82,7 +83,7 @@ public class PartialUploadsExistValidatorTest {
     @Test(expected = InvalidPartialUploadIdException.class)
     public void testInvalidId() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(UUID.randomUUID());
+        info1.setId(new UploadId(UUID.randomUUID()));
 
         when(uploadStorageService.getUploadInfo(info1.getId().toString(), null)).thenReturn(info1);
 

@@ -44,7 +44,7 @@ public class ConcatenationPostRequestHandler extends AbstractRequestHandler {
                 //reset the length, just to be sure
                 uploadInfo.setLength(null);
                 uploadInfo.setUploadType(UploadType.CONCATENATED);
-                uploadInfo.setConcatenationParts(Utils.parseConcatenationIDsFromHeader(uploadConcatValue));
+                uploadInfo.setConcatenationPartIds(Utils.parseConcatenationIDsFromHeader(uploadConcatValue));
 
                 uploadStorageService.getUploadConcatenationService().merge(uploadInfo);
 

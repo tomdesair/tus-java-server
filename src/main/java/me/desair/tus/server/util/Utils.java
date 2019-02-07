@@ -21,6 +21,7 @@ import java.util.List;
 
 import javax.servlet.http.HttpServletRequest;
 
+import me.desair.tus.server.HttpHeader;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,6 +49,20 @@ public class Utils {
         } catch (NumberFormatException ex) {
             return null;
         }
+    }
+
+    /**
+     * Build a comma-separated list based on the remote address of the request and the
+     * X-Forwareded-For header. The list is constructed as "client, proxy1, proxy2".
+     * @return A comma-separated list of ip-addresses
+     */
+    public static String buildRemoteIpList(HttpServletRequest servletRequest) {
+        String ipAddresses = servletRequest.getRemoteAddr();
+        String xforwardedForHeader = getHeader(servletRequest, HttpHeader.X_FORWARDED_FOR);
+        if (xforwardedForHeader.length() > 0) {
+            ipAddresses = xforwardedForHeader + ", " + ipAddresses;
+        }
+        return ipAddresses;
     }
 
     public static List<String> parseConcatenationIDsFromHeader(String uploadConcatValue) {
@@ -109,9 +124,13 @@ public class Utils {
         return lockFile(channel, true);
     }
 
-    public static void sleep(long sleepTime) {
+    /**
+     * Sleep the specified number of milliseconds
+     * @param sleepTimeMillis The time to sleep in milliseconds
+     */
+    public static void sleep(long sleepTimeMillis) {
         try {
-            Thread.sleep(sleepTime);
+            Thread.sleep(sleepTimeMillis);
         } catch (InterruptedException e) {
             log.warn("Sleep was interrupted");
             // Restore interrupted state...
@@ -134,4 +153,5 @@ public class Utils {
 
         return lock;
     }
+
 }

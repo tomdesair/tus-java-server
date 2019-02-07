@@ -11,6 +11,7 @@ import java.util.UUID;
 
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.PatchOnFinalUploadNotAllowedException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.UploadType;
@@ -52,15 +53,15 @@ public class PatchFinalUploadValidatorTest {
     @Test
     public void testValid() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(UUID.randomUUID());
+        info1.setId(new UploadId(UUID.randomUUID()));
         info1.setUploadType(UploadType.REGULAR);
 
         UploadInfo info2 = new UploadInfo();
-        info2.setId(UUID.randomUUID());
+        info2.setId(new UploadId(UUID.randomUUID()));
         info2.setUploadType(UploadType.PARTIAL);
 
         UploadInfo info3 = new UploadInfo();
-        info3.setId(UUID.randomUUID());
+        info3.setId(new UploadId(UUID.randomUUID()));
         info3.setUploadType(null);
 
         when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),
@@ -101,7 +102,7 @@ public class PatchFinalUploadValidatorTest {
     @Test(expected = PatchOnFinalUploadNotAllowedException.class)
     public void testInvalidFinal() throws Exception {
         UploadInfo info1 = new UploadInfo();
-        info1.setId(UUID.randomUUID());
+        info1.setId(new UploadId(UUID.randomUUID()));
         info1.setUploadType(UploadType.CONCATENATED);
 
         when(uploadStorageService.getUploadInfo(eq(info1.getId().toString()),

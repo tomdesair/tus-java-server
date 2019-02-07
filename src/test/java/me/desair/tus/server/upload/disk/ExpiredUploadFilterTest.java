@@ -11,6 +11,7 @@ import java.nio.file.Paths;
 import java.text.ParseException;
 import java.util.UUID;
 
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import org.apache.commons.lang3.time.DateFormatUtils;
@@ -39,7 +40,7 @@ public class ExpiredUploadFilterTest {
     @Test
     public void accept() throws Exception {
         UploadInfo info = createExpiredUploadInfo();
-        info.setId(UUID.randomUUID());
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setOffset(2L);
         info.setLength(10L);
         info.updateExpiration(100L);
@@ -52,8 +53,8 @@ public class ExpiredUploadFilterTest {
 
     @Test
     public void acceptNotFound() throws Exception {
-        when(diskStorageService.getUploadInfo(any(UUID.class))).thenReturn(null);
-        when(uploadLockingService.isLocked(any(UUID.class))).thenReturn(false);
+        when(diskStorageService.getUploadInfo(any(UploadId.class))).thenReturn(null);
+        when(uploadLockingService.isLocked(any(UploadId.class))).thenReturn(false);
 
         assertFalse(uploadFilter.accept(Paths.get(UUID.randomUUID().toString())));
     }
@@ -61,7 +62,7 @@ public class ExpiredUploadFilterTest {
     @Test
     public void acceptCompletedUpload() throws Exception {
         UploadInfo info = createExpiredUploadInfo();
-        info.setId(UUID.randomUUID());
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setOffset(10L);
         info.setLength(10L);
         info.updateExpiration(100L);
@@ -76,7 +77,7 @@ public class ExpiredUploadFilterTest {
     @Test
     public void acceptInProgressButNotExpired() throws Exception {
         UploadInfo info = new UploadInfo();
-        info.setId(UUID.randomUUID());
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setOffset(2L);
         info.setLength(10L);
         info.updateExpiration(172800000L);
@@ -90,7 +91,7 @@ public class ExpiredUploadFilterTest {
     @Test
     public void acceptLocked() throws Exception {
         UploadInfo info = createExpiredUploadInfo();
-        info.setId(UUID.randomUUID());
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setOffset(8L);
         info.setLength(10L);
         info.updateExpiration(100L);
@@ -104,7 +105,7 @@ public class ExpiredUploadFilterTest {
     @Test
     public void acceptException() throws Exception {
         UploadInfo info = createExpiredUploadInfo();
-        info.setId(UUID.randomUUID());
+        info.setId(new UploadId(UUID.randomUUID()));
         info.setOffset(8L);
         info.setLength(10L);
         info.updateExpiration(100L);

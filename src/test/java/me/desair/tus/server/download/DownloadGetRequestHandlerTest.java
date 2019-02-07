@@ -17,6 +17,7 @@ import javax.servlet.http.HttpServletResponse;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.UploadInProgressException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
@@ -62,7 +63,7 @@ public class DownloadGetRequestHandlerTest {
 
     @Test
     public void testWithCompletedUploadWithMetadata() throws Exception {
-        final UUID id = UUID.randomUUID();
+        final UploadId id = new UploadId(UUID.randomUUID());
 
         UploadInfo info = new UploadInfo();
         info.setId(id);
@@ -88,7 +89,7 @@ public class DownloadGetRequestHandlerTest {
 
     @Test
     public void testWithCompletedUploadWithoutMetadata() throws Exception {
-        final UUID id = UUID.randomUUID();
+        final UploadId id = new UploadId(UUID.randomUUID());
 
         UploadInfo info = new UploadInfo();
         info.setId(id);
@@ -110,7 +111,7 @@ public class DownloadGetRequestHandlerTest {
 
     @Test(expected = UploadInProgressException.class)
     public void testWithInProgressUpload() throws Exception {
-        final UUID id = UUID.randomUUID();
+        final UploadId id = new UploadId(UUID.randomUUID());
 
         UploadInfo info = new UploadInfo();
         info.setId(id);
