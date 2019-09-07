@@ -3,7 +3,7 @@ sudo: false # faster builds
 
 jdk:
 - oraclejdk11
-- oraclejdk9
+- openjdk9
 - openjdk8
 # https://docs.travis-ci.com/user/languages/java/#testing-against-multiple-jdks
 # - Oracle JDK 10 is not provided because it reached End of Life in October 2018.
