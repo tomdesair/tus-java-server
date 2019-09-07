@@ -33,7 +33,7 @@ public class UploadId implements Serializable {
         URLCodec codec = new URLCodec();
         //Check if value is not encoded already
         try {
-            if (inputValue.equals(codec.decode(inputValue, UPLOAD_ID_CHARSET))) {
+            if (inputValue != null && inputValue.equals(codec.decode(inputValue, UPLOAD_ID_CHARSET))) {
                 this.urlSafeValue = codec.encode(inputValue, UPLOAD_ID_CHARSET);
             } else {
                 //value is already encoded, use as is
