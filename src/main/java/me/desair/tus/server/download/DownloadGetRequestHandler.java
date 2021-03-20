@@ -1,6 +1,8 @@
 package me.desair.tus.server.download;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 import javax.servlet.http.HttpServletResponse;
@@ -20,7 +22,7 @@ import me.desair.tus.server.util.TusServletResponse;
  */
 public class DownloadGetRequestHandler extends AbstractRequestHandler {
 
-    private static final String CONTENT_DISPOSITION_FORMAT = "attachment;filename=\"%s\"";
+    private static final String CONTENT_DISPOSITION_FORMAT = "attachment; filename=\"%s\"; filename*=UTF-8''%s";
 
     @Override
     public boolean supports(HttpMethod method) {
@@ -41,7 +43,8 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
             servletResponse.setHeader(HttpHeader.CONTENT_LENGTH, Objects.toString(info.getLength()));
 
             servletResponse.setHeader(HttpHeader.CONTENT_DISPOSITION,
-                    String.format(CONTENT_DISPOSITION_FORMAT, info.getFileName()));
+                    String.format(CONTENT_DISPOSITION_FORMAT, info.getFileName(),
+                            URLEncoder.encode(info.getFileName(), StandardCharsets.UTF_8.toString()).replace("+","%20")));
 
             servletResponse.setHeader(HttpHeader.CONTENT_TYPE, info.getFileMimeType());
 
