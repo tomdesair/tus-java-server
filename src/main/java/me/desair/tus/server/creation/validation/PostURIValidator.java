@@ -26,8 +26,8 @@ public class PostURIValidator implements RequestValidator {
         Matcher uploadUriMatcher = getUploadUriPattern(uploadStorageService).matcher(request.getRequestURI());
 
         if (!uploadUriMatcher.matches()) {
-            throw new PostOnInvalidRequestURIException("POST requests have to be send to "
-                    + uploadStorageService.getUploadURI());
+            throw new PostOnInvalidRequestURIException("POST requests have to be sent to '"
+                    + uploadStorageService.getUploadURI() + "'. ");
         }
     }
 
