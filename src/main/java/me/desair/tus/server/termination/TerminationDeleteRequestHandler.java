@@ -1,7 +1,6 @@
 package me.desair.tus.server.termination;
 
 import java.io.IOException;
-
 import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpMethod;

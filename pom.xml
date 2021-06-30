@@ -86,7 +86,7 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.2</version>
+                <version>0.8.7</version>
                 <executions>
                     <!--
                         Prepares the property pointing to the JaCoCo runtime agent which
@@ -233,6 +233,7 @@
         <profile>
             <id>run-sonar</id>
             <activation>
+                <jdk>[11, ]</jdk>
                 <property>
                     <name>env.SONAR_TOKEN</name>
                 </property>
@@ -245,7 +246,7 @@
                     <plugin>
                         <groupId>org.sonarsource.scanner.maven</groupId>
                         <artifactId>sonar-maven-plugin</artifactId>
-                        <version>3.5.0.1254</version>
+                        <version>3.9.0.2155</version>
                         <executions>
                             <execution>
                                 <id>sonar-code-analysis</id>
@@ -311,7 +312,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-checkstyle-plugin</artifactId>
-                        <version>3.0.0</version>
+                        <version>3.1.2</version>
                         <executions>
                             <execution>
                                 <id>verify-style</id>
@@ -331,11 +332,10 @@
                             <includeTestSourceDirectory>true</includeTestSourceDirectory>
                         </configuration>
                         <dependencies>
-                            <!-- Override dependencies to use checkstyle 8.5 (aligned with Codacy)-->
                             <dependency>
                                 <groupId>com.puppycrawl.tools</groupId>
                                 <artifactId>checkstyle</artifactId>
-                                <version>8.29</version>
+                                <version>8.44</version>
                             </dependency>
                         </dependencies>
                     </plugin>

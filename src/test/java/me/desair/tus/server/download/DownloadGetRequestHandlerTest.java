@@ -11,7 +11,6 @@ import static org.mockito.Mockito.when;
 
 import java.io.OutputStream;
 import java.util.UUID;
-
 import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpHeader;
@@ -111,8 +110,7 @@ public class DownloadGetRequestHandlerTest {
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_OK));
         assertThat(servletResponse.getHeader(HttpHeader.CONTENT_LENGTH), is("10"));
         assertThat(servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
-                is("attachment; filename=\"" + id.toString() + "\""
-                        + "; filename*=UTF-8''"+id.toString()));
+                is("attachment; filename=\"" + id.toString() + "\"; filename*=UTF-8''" + id.toString()));
         assertThat(servletResponse.getHeader(HttpHeader.CONTENT_TYPE), is("application/octet-stream"));
     }
 

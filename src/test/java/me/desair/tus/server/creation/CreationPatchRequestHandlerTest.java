@@ -11,7 +11,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.UUID;
-
 import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpHeader;

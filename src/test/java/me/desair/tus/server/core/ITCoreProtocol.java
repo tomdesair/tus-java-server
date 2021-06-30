@@ -8,7 +8,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.InputStream;
-
 import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.AbstractTusExtensionIntegrationTest;

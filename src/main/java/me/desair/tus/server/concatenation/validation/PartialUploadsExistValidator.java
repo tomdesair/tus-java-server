@@ -1,7 +1,6 @@
 package me.desair.tus.server.concatenation.validation;
 
 import java.io.IOException;
-
 import javax.servlet.http.HttpServletRequest;
 
 import me.desair.tus.server.HttpHeader;

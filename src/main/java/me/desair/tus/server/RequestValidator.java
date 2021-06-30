@@ -1,7 +1,6 @@
 package me.desair.tus.server;
 
 import java.io.IOException;
-
 import javax.servlet.http.HttpServletRequest;
 
 import me.desair.tus.server.exception.TusException;

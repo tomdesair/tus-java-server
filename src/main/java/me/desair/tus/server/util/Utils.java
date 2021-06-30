@@ -18,7 +18,6 @@ import java.nio.channels.FileLock;
 import java.nio.file.Path;
 import java.util.LinkedList;
 import java.util.List;
-
 import javax.servlet.http.HttpServletRequest;
 
 import me.desair.tus.server.HttpHeader;

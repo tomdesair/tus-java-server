@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
-
 import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpHeader;
@@ -44,7 +43,8 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
 
             servletResponse.setHeader(HttpHeader.CONTENT_DISPOSITION,
                     String.format(CONTENT_DISPOSITION_FORMAT, info.getFileName(),
-                            URLEncoder.encode(info.getFileName(), StandardCharsets.UTF_8.toString()).replace("+","%20")));
+                            URLEncoder.encode(info.getFileName(),
+                            StandardCharsets.UTF_8.toString()).replace("+","%20")));
 
             servletResponse.setHeader(HttpHeader.CONTENT_TYPE, info.getFileMimeType());
 
