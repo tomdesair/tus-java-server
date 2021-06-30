@@ -80,11 +80,17 @@ public class DownloadGetRequestHandlerTest {
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_OK));
         assertThat(servletResponse.getHeader(HttpHeader.CONTENT_LENGTH), is("10"));
         assertThat(servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
-                is("attachment;filename=\"test.jpg\""));
+                is("attachment; filename=\"test.jpg\"; filename*=UTF-8''test.jpg"));
         assertThat(servletResponse.getHeader(HttpHeader.CONTENT_TYPE),
                 is("image/jpeg"));
         assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_METADATA),
                 is("name dGVzdC5qcGc=,type aW1hZ2UvanBlZw=="));
+
+        info.setEncodedMetadata("name TmHDr3ZlIGZpbGUudHh0,type dGV4dC9wbGFpbg==");
+        handler.process(HttpMethod.GET, new TusServletRequest(servletRequest),
+                new TusServletResponse(servletResponse), uploadStorageService, null);
+        assertThat(servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
+                is("attachment; filename=\"Naïve file.txt\"; filename*=UTF-8''Na%C3%AFve%20file.txt"));
     }
 
     @Test
@@ -105,7 +111,8 @@ public class DownloadGetRequestHandlerTest {
         assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_OK));
         assertThat(servletResponse.getHeader(HttpHeader.CONTENT_LENGTH), is("10"));
         assertThat(servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
-                is("attachment;filename=\"" + id.toString() + "\""));
+                is("attachment; filename=\"" + id.toString() + "\""
+                        + "; filename*=UTF-8''"+id.toString()));
         assertThat(servletResponse.getHeader(HttpHeader.CONTENT_TYPE), is("application/octet-stream"));
     }
 
