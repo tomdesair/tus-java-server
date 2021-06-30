@@ -86,7 +86,7 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.2</version>
+                <version>0.8.7</version>
                 <executions>
                     <!--
                         Prepares the property pointing to the JaCoCo runtime agent which
@@ -312,7 +312,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-checkstyle-plugin</artifactId>
-                        <version>3.0.0</version>
+                        <version>3.1.2</version>
                         <executions>
                             <execution>
                                 <id>verify-style</id>
@@ -331,14 +331,6 @@
                             <!-- Enable checks on all test source files -->
                             <includeTestSourceDirectory>true</includeTestSourceDirectory>
                         </configuration>
-                        <dependencies>
-                            <!-- Override dependencies to use checkstyle 8.5 (aligned with Codacy)-->
-                            <dependency>
-                                <groupId>com.puppycrawl.tools</groupId>
-                                <artifactId>checkstyle</artifactId>
-                                <version>8.29</version>
-                            </dependency>
-                        </dependencies>
                     </plugin>
                 </plugins>
             </build>
