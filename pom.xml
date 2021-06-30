@@ -331,6 +331,13 @@
                             <!-- Enable checks on all test source files -->
                             <includeTestSourceDirectory>true</includeTestSourceDirectory>
                         </configuration>
+                        <dependencies>
+                            <dependency>
+                                <groupId>com.puppycrawl.tools</groupId>
+                                <artifactId>checkstyle</artifactId>
+                                <version>8.44</version>
+                            </dependency>
+                        </dependencies>
                     </plugin>
                 </plugins>
             </build>
