@@ -233,6 +233,7 @@
         <profile>
             <id>run-sonar</id>
             <activation>
+                <jdk>[11, ]</jdk>
                 <property>
                     <name>env.SONAR_TOKEN</name>
                 </property>
