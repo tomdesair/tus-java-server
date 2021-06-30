@@ -2,13 +2,11 @@ language: java
 sudo: false # faster builds
 
 jdk:
-- openjdk12
-- oraclejdk11
-- openjdk9
+# Latest
+- openjdk16
+# LTS versions
+- openjdk11
 - openjdk8
-# https://docs.travis-ci.com/user/languages/java/#testing-against-multiple-jdks
-# - Oracle JDK 10 is not provided because it reached End of Life in October 2018.
-# - JDK 7 is not listed as the Sonar plugin requires Java 8. However, all JDKs compile with target version 7.
 
 addons:
   sonarcloud:
