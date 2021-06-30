@@ -3,7 +3,6 @@ package me.desair.tus.server.util;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
-
 import javax.servlet.http.HttpServletRequest;
 
 import me.desair.tus.server.HttpMethod;

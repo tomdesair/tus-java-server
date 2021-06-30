@@ -1,7 +1,6 @@
 package me.desair.tus.server.core;
 
 import java.util.Objects;
-
 import javax.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.HttpHeader;
