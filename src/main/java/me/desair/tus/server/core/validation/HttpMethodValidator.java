@@ -1,6 +1,6 @@
 package me.desair.tus.server.core.validation;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;

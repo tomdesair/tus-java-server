@@ -3,15 +3,14 @@ package me.desair.tus.server.creation;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.ArgumentMatchers.notNull;
-import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.UUID;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.AbstractTusExtensionIntegrationTest;
 import me.desair.tus.server.HttpHeader;
@@ -82,7 +81,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
         executeCall(HttpMethod.POST, false);
 
-        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class),
+        verify(uploadStorageService, times(1)).create(any(UploadInfo.class),
                 nullable(String.class));
         assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
@@ -110,7 +109,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
         executeCall(HttpMethod.POST, false);
 
-        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class),
+        verify(uploadStorageService, times(1)).create(any(UploadInfo.class),
                 nullable(String.class));
         assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
@@ -154,7 +153,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
         executeCall(HttpMethod.POST, false);
 
-        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class),
+        verify(uploadStorageService, times(1)).create(any(UploadInfo.class),
                 nullable(String.class));
         assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
@@ -176,7 +175,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
         servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 90);
         executeCall(HttpMethod.POST, false);
 
-        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class),
+        verify(uploadStorageService, times(1)).create(any(UploadInfo.class),
                 nullable(String.class));
         assertResponseHeader(HttpHeader.LOCATION, UPLOAD_URL + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
@@ -232,7 +231,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
 
         executeCall(HttpMethod.POST, false);
 
-        verify(uploadStorageService, times(1)).create(notNull(UploadInfo.class),
+        verify(uploadStorageService, times(1)).create(any(UploadInfo.class),
                 nullable(String.class));
         assertResponseHeader(HttpHeader.LOCATION, "/submission/0ae5f8vv4s8c/files/upload/" + id.toString());
         assertResponseStatus(HttpServletResponse.SC_CREATED);
