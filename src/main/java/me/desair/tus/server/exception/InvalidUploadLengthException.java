@@ -1,6 +1,6 @@
 package me.desair.tus.server.exception;
 
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * Exception thrown when no valid Upload-Length or Upload-Defer-Length header is found

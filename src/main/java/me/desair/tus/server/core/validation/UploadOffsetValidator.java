@@ -2,7 +2,7 @@ package me.desair.tus.server.core.validation;
 
 import java.io.IOException;
 import java.util.Objects;
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;

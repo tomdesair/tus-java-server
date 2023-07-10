@@ -1,6 +1,6 @@
 package me.desair.tus.server.exception;
 
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponse;
 
 /** Exception thrown when receiving a request with a tus protocol version we do not support
  * <p/>

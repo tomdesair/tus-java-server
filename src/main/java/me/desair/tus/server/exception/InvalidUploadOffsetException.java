@@ -1,6 +1,6 @@
 package me.desair.tus.server.exception;
 
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponse;
 
 public class InvalidUploadOffsetException extends TusException {
     public InvalidUploadOffsetException(String message) {

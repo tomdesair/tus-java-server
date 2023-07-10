@@ -6,8 +6,14 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import java.util.TimeZone;
+import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.time.FastDateFormat;
 import org.apache.commons.lang3.time.TimeZones;
@@ -19,6 +25,8 @@ public class TusServletResponseTest {
 
     private static final FastDateFormat DATE_FORMAT = FastDateFormat.getInstance("yyyy-MM-dd HH:mm:ss",
             TimeZone.getTimeZone(TimeZones.GMT_ID), Locale.US);
+
+    private static final DateFormat mockDateFormat = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US);
 
     private TusServletResponse tusServletResponse;
     private MockHttpServletResponse servletResponse;
@@ -36,7 +44,14 @@ public class TusServletResponseTest {
 
         assertThat(tusServletResponse.getHeader("TEST"),
                 is("" + DATE_FORMAT.parse("2018-01-03 22:38:14").getTime()));
-        assertThat(servletResponse.getHeaders("TEST"),
+        List<String> responseDateHeaders = servletResponse.getHeaders("TEST").stream().map(s -> {
+            try {
+                return "" + mockDateFormat.parse(s).getTime();
+            } catch (ParseException e) {
+                return "" + new Date().getTime();
+            }
+        }).collect(Collectors.toList());
+        assertThat(responseDateHeaders,
                 contains("" + DATE_FORMAT.parse("2018-01-03 22:38:14").getTime()));
     }
 
@@ -47,7 +62,14 @@ public class TusServletResponseTest {
 
         assertThat(tusServletResponse.getHeader("TEST"),
                 is("" + DATE_FORMAT.parse("2018-01-03 22:34:12").getTime()));
-        assertThat(servletResponse.getHeaders("TEST"), containsInAnyOrder(
+        List<String> responseDateHeaders = servletResponse.getHeaders("TEST").stream().map(s -> {
+            try {
+                return "" + mockDateFormat.parse(s).getTime();
+            } catch (ParseException e) {
+                return "" + new Date().getTime();
+            }
+        }).collect(Collectors.toList());
+        assertThat(responseDateHeaders, containsInAnyOrder(
                 "" + DATE_FORMAT.parse("2018-01-03 22:34:12").getTime(),
                 "" + DATE_FORMAT.parse("2018-01-03 22:38:14").getTime()));
     }

@@ -2,7 +2,7 @@ package me.desair.tus.server;
 
 import java.io.IOException;
 import java.util.Collection;
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;

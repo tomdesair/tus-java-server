@@ -18,9 +18,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.UUID;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponse;
 
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadInfo;
@@ -39,6 +42,8 @@ public class ITTusFileUploadService {
 
     protected static final String UPLOAD_URI = "/test/upload";
     protected static final String OWNER_KEY = "JOHN_DOE";
+
+    private static final DateFormat mockDateFormat = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US);
 
     protected MockHttpServletRequest servletRequest;
     protected MockHttpServletResponse servletResponse;
@@ -465,7 +470,9 @@ public class ITTusFileUploadService {
         assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseStatus(HttpServletResponse.SC_CREATED);
 
-        Long expirationTimestampBefore = Long.parseLong(servletResponse.getHeader(HttpHeader.UPLOAD_EXPIRES));
+        Long expirationTimestampBefore =
+                Long.parseLong(String.valueOf(
+                        mockDateFormat.parse(servletResponse.getHeader(HttpHeader.UPLOAD_EXPIRES)).getTime()));
 
         String location = UPLOAD_URI +
                 StringUtils.substringAfter(servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
@@ -664,7 +671,9 @@ public class ITTusFileUploadService {
         assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
         assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "41");
 
-        Long expirationTimestampBefore = Long.parseLong(servletResponse.getHeader(HttpHeader.UPLOAD_EXPIRES));
+        Long expirationTimestampBefore =
+                Long.parseLong(String.valueOf(
+                        mockDateFormat.parse(servletResponse.getHeader(HttpHeader.UPLOAD_EXPIRES)).getTime()));
 
         //Make sure cleanup does not interfere with this test
         tusFileUploadService.cleanup();

@@ -1,22 +1,24 @@
 [![Build Status](https://travis-ci.com/tomdesair/tus-java-server.svg?branch=master)](https://travis-ci.com/github/tomdesair/tus-java-server) [![Test Coverage](https://coveralls.io/repos/github/tomdesair/tus-java-server/badge.svg)](https://coveralls.io/github/tomdesair/tus-java-server) [![Codacy Badge](https://api.codacy.com/project/badge/Grade/d57e97c51d76419498fa69dd25e2bcee)](https://www.codacy.com/app/tom.desair/tus-java-server?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=tomdesair/tus-java-server&amp;utm_campaign=Badge_Grade) [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=bugs)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=vulnerabilities)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Duplicated Lines](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=duplicated_lines_density)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server)
 
 # tus-java-server
-This library can be used to enable resumable (and potentially asynchronous) file uploads in any Java web application. This allows the users of your application to upload large files over slow and unreliable internet connections. The ability to pause or resume a file upload (after a connection loss or reset) is achieved by implementing the open file upload protocol tus (https://tus.io/). This library implements the server-side of the tus v1.0.0 protocol with [all optional extensions](#tus-protocol-extensions). 
+This library can be used to enable resumable (and potentially asynchronous) file uploads in any Java web application. This allows the users of your application to upload large files over slow and unreliable internet connections. The ability to pause or resume a file upload (after a connection loss or reset) is achieved by implementing the open file upload protocol tus (https://tus.io/). This library implements the server-side of the tus v1.0.0 protocol with [all optional extensions](#tus-protocol-extensions).
 
-The Javadoc of this library can be found at https://tus.desair.me/. The following Java versions are supported: 7, 8, 9, 10 and 11.
+The Javadoc of this library can be found at https://tus.desair.me/. The following Java versions are supported: 8,
+9, 10, 11 and 17.
 
 ## Quick Start and Examples
-The tus-java-server library only depends on Java Servlet API 3.1 and some Apache Commons utility libraries. This means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on the file system of the application server (and currently this is the only option, see [configuration section](#usage-and-configuration)).
+The tus-java-server library only depends on Jakarta Servlet API 6.0 and some Apache Commons utility libraries. This
+means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on the file system of the application server (and currently this is the only option, see [configuration section](#usage-and-configuration)).
 
 You can add the latest stable version of this library to your application using Maven by adding the following dependency:
 
     <dependency>
       <groupId>me.desair.tus</groupId>
       <artifactId>tus-java-server</artifactId>
-      <version>1.0.0-2.0</version>
+      <version>1.0.0-3.0-SNAPSHOT</version>
     </dependency>
 
-The main entry point of the library is the `me.desair.tus.server.TusFileUploadService.process(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)` method. You can call this method inside a `javax.servlet.http.HttpServlet`, a `javax.servlet.Filter` or any REST API controller of a framework that gives you access to `HttpServletRequest` and `HttpServletResponse` objects. In the following list, you can find some example implementations:
+The main entry point of the library is the `me.desair.tus.server.TusFileUploadService.process(jakarta.servlet.http.HttpServletRequest, jakarta.servlet.http.HttpServletResponse)` method. You can call this method inside a `jakarta.servlet.http.HttpServlet`, a `jakarta.servlet.Filter` or any REST API controller of a framework that gives you access to `HttpServletRequest` and `HttpServletResponse` objects. In the following list, you can find some example implementations:
 
 * [Detailed blog post by Ralph](https://golb.hplar.ch/2019/06/upload-with-tus.html) on how to use this library in [Spring Boot in combination with the Tus JavaScript client](https://github.com/ralscha/blog2019/tree/master/uploadtus).
 * [Resumable and asynchronous file upload using Uppy with form submission in Dropwizard (Jetty)](https://github.com/tomdesair/tus-java-server-dropwizard-demo)
@@ -56,7 +58,7 @@ The first step is to create a `TusFileUploadService` object using its constructo
 For now this library only provides filesystem based storage and locking options. You can however provide your own implementation of a `UploadStorageService` and `UploadLockingService` using the methods `withUploadStorageService(UploadStorageService)` and `withUploadLockingService(UploadLockingService)` in order to support different types of upload storage.
 
 ### 2. Processing an upload
-To process an upload request you have to pass the current `javax.servlet.http.HttpServletRequest` and `javax.servlet.http.HttpServletResponse` objects to the `me.desair.tus.server.TusFileUploadService.process()` method. Typical places were you can do this are inside Servlets, Filters or REST API Controllers (see [examples](#quick-start-and-examples)).
+To process an upload request you have to pass the current `jakarta.servlet.http.HttpServletRequest` and `jakarta.servlet.http.HttpServletResponse` objects to the `me.desair.tus.server.TusFileUploadService.process()` method. Typical places were you can do this are inside Servlets, Filters or REST API Controllers (see [examples](#quick-start-and-examples)).
 
 Optionally you can also pass a `String ownerKey` parameter. The `ownerKey` can be used to have a hard separation between uploads of different users, groups or tenants in a multi-tenant setup. Examples of `ownerKey` values are user ID's, group names, client ID's...
 
@@ -66,7 +68,7 @@ Once the upload has been completed by the user, the business logic layer of your
 Using the `me.desair.tus.server.TusFileUploadService.getUploadInfo(String uploadURL)` method you can retrieve metadata about a specific upload process. This includes metadata provided by the client as well as metadata kept by the library like creation timestamp, creator ip-address list, upload length... The method `UploadInfo.getId()` will return the unique identifier of this upload encapsulated in an `UploadId` instance. The original (custom generated) identifier object of this upload can be retrieved using `UploadId.getOriginalObject()`. A URL safe string representation of the identifier is returned by `UploadId.toString()`. It is highly recommended to consult the [JavaDoc of both classes](https://tus.desair.me/).
 
 ### 4. Upload cleanup
-After having processed the uploaded bytes on the server backend (e.g. copy them to their final persistent location), it's important to cleanup the (temporary) uploaded bytes. This can be done by calling the `me.desair.tus.server.TusFileUploadService.deleteUpload(String uploadURI)` method. This will remove the uploaded bytes and any associated upload information from the storage backend. Alternatively, a client can also remove an (in-progress) upload using the [termination extension](https://tus.io/protocols/resumable-upload.html#termination). 
+After having processed the uploaded bytes on the server backend (e.g. copy them to their final persistent location), it's important to cleanup the (temporary) uploaded bytes. This can be done by calling the `me.desair.tus.server.TusFileUploadService.deleteUpload(String uploadURI)` method. This will remove the uploaded bytes and any associated upload information from the storage backend. Alternatively, a client can also remove an (in-progress) upload using the [termination extension](https://tus.io/protocols/resumable-upload.html#termination).
 
 Next to removing uploads after they have been completed and processed by the backend, it is also recommended to schedule a regular maintenance task to clean up any expired uploads or locks. Cleaning up expired uploads and locks can be achieved using the `me.desair.tus.server.TusFileUploadService.cleanup()` method.
 
@@ -74,7 +76,7 @@ Next to removing uploads after they have been completed and processed by the bac
 This tus protocol implementation has been [tested](https://github.com/tomdesair/tus-java-server-spring-demo) with the [Uppy file upload client](https://uppy.io/). This repository also contains [many automated integration tests](https://github.com/tomdesair/tus-java-server/blob/master/src/test/java/me/desair/tus/server/ITTusFileUploadService.java) that validate the tus protocol server implementation using plain HTTP requests. So in theory this means we're compatible with any tus 1.0.0 compliant client.
 
 ## Versioning
-This artifact is versioned as `A.B.C-X.Y` where `A.B.C` is the version of the implemented tus protocol (currently 1.0.0) and `X.Y` is the version of this library. 
+This artifact is versioned as `A.B.C-X.Y` where `A.B.C` is the version of the implemented tus protocol (currently 1.0.0) and `X.Y` is the version of this library.
 
 ## Contributing
 This library comes without any warranty and is released under a [MIT license](https://github.com/tomdesair/tus-java-server/blob/master/LICENSE). If you encounter any bugs or if you have an idea for a useful improvement you are welcome to [open a new issue](https://github.com/tomdesair/tus-java-server/issues) or to [create a pull request](https://github.com/tomdesair/tus-java-server/pulls) with the proposed implementation. Please note that any contributed code needs to be accompanied by automated unit and/or integration tests and comply with the [defined code-style](https://github.com/tomdesair/tus-java-server/blob/master/checkstyle.xml).
