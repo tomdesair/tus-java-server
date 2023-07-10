@@ -19,94 +19,93 @@ import org.springframework.mock.web.MockHttpServletRequest;
 @RunWith(MockitoJUnitRunner.Silent.class)
 public class UploadLengthValidatorTest {
 
-    private UploadLengthValidator validator;
+  private UploadLengthValidator validator;
 
-    private MockHttpServletRequest servletRequest;
+  private MockHttpServletRequest servletRequest;
 
-    @Mock
-    private UploadStorageService uploadStorageService;
+  @Mock private UploadStorageService uploadStorageService;
 
-    @Before
-    public void setUp() {
-        servletRequest = new MockHttpServletRequest();
-        validator = new UploadLengthValidator();
+  @Before
+  public void setUp() {
+    servletRequest = new MockHttpServletRequest();
+    validator = new UploadLengthValidator();
+  }
+
+  @Test
+  public void supports() throws Exception {
+    assertThat(validator.supports(HttpMethod.GET), is(false));
+    assertThat(validator.supports(HttpMethod.POST), is(true));
+    assertThat(validator.supports(HttpMethod.PUT), is(false));
+    assertThat(validator.supports(HttpMethod.DELETE), is(false));
+    assertThat(validator.supports(HttpMethod.HEAD), is(false));
+    assertThat(validator.supports(HttpMethod.OPTIONS), is(false));
+    assertThat(validator.supports(HttpMethod.PATCH), is(false));
+    assertThat(validator.supports(null), is(false));
+  }
+
+  @Test
+  public void validateNoMaxUploadLength() throws Exception {
+    when(uploadStorageService.getMaxUploadSize()).thenReturn(0L);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
+
+    try {
+      validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+    } catch (Exception ex) {
+      fail();
     }
 
-    @Test
-    public void supports() throws Exception {
-        assertThat(validator.supports(HttpMethod.GET), is(false));
-        assertThat(validator.supports(HttpMethod.POST), is(true));
-        assertThat(validator.supports(HttpMethod.PUT), is(false));
-        assertThat(validator.supports(HttpMethod.DELETE), is(false));
-        assertThat(validator.supports(HttpMethod.HEAD), is(false));
-        assertThat(validator.supports(HttpMethod.OPTIONS), is(false));
-        assertThat(validator.supports(HttpMethod.PATCH), is(false));
-        assertThat(validator.supports(null), is(false));
+    // No Exception is thrown
+  }
+
+  @Test
+  public void validateBelowMaxUploadLength() throws Exception {
+    when(uploadStorageService.getMaxUploadSize()).thenReturn(400L);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
+
+    try {
+      validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+    } catch (Exception ex) {
+      fail();
     }
 
-    @Test
-    public void validateNoMaxUploadLength() throws Exception {
-        when(uploadStorageService.getMaxUploadSize()).thenReturn(0L);
-        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
+    // No Exception is thrown
+  }
 
-        try {
-            validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
-        } catch (Exception ex) {
-            fail();
-        }
+  @Test
+  public void validateEqualMaxUploadLength() throws Exception {
+    when(uploadStorageService.getMaxUploadSize()).thenReturn(300L);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
-        //No Exception is thrown
+    try {
+      validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+    } catch (Exception ex) {
+      fail();
     }
 
-    @Test
-    public void validateBelowMaxUploadLength() throws Exception {
-        when(uploadStorageService.getMaxUploadSize()).thenReturn(400L);
-        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
+    // No Exception is thrown
+  }
 
-        try {
-            validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
-        } catch (Exception ex) {
-            fail();
-        }
+  @Test
+  public void validateNoUploadLength() throws Exception {
+    when(uploadStorageService.getMaxUploadSize()).thenReturn(300L);
+    // servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
-        //No Exception is thrown
+    try {
+      validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+    } catch (Exception ex) {
+      fail();
     }
 
-    @Test
-    public void validateEqualMaxUploadLength() throws Exception {
-        when(uploadStorageService.getMaxUploadSize()).thenReturn(300L);
-        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
+    // No Exception is thrown
+  }
 
-        try {
-            validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
-        } catch (Exception ex) {
-            fail();
-        }
+  @Test(expected = MaxUploadLengthExceededException.class)
+  public void validateAboveMaxUploadLength() throws Exception {
+    when(uploadStorageService.getMaxUploadSize()).thenReturn(200L);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
 
-        //No Exception is thrown
-    }
+    validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
 
-    @Test
-    public void validateNoUploadLength() throws Exception {
-        when(uploadStorageService.getMaxUploadSize()).thenReturn(300L);
-        //servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
-
-        try {
-            validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
-        } catch (Exception ex) {
-            fail();
-        }
-
-        //No Exception is thrown
-    }
-
-    @Test(expected = MaxUploadLengthExceededException.class)
-    public void validateAboveMaxUploadLength() throws Exception {
-        when(uploadStorageService.getMaxUploadSize()).thenReturn(200L);
-        servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
-
-        validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
-
-        //Expect a MaxUploadLengthExceededException
-    }
+    // Expect a MaxUploadLengthExceededException
+  }
 }
