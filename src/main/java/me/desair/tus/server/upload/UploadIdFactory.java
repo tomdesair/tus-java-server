@@ -85,8 +85,7 @@ public abstract class UploadIdFactory {
   protected Pattern getUploadUriPattern() {
     if (uploadUriPattern == null) {
       // We will extract the upload ID's by removing the upload URI from the start of the
-      // request
-      // URI
+      // request URI
       uploadUriPattern =
           Pattern.compile("^.*" + uploadURI + (StringUtils.endsWith(uploadURI, "/") ? "" : "/?"));
     }

@@ -93,4 +93,9 @@ To reformat your code run:
 mvn -P codestyle com.spotify.fmt:fmt-maven-plugin:format
 ```
 
-See the [Google Java Style Github page](https://github.com/google/google-java-format) on recommendations on how to configure this in your IDE.
+See the [Google Java Style Github page](https://github.com/google/google-java-format) on recommendations on how to configure this in your IDE. Or if you have Python 3, you can also use [pre-commit](https://pre-commit.com) to make your live easier:
+
+```
+pip install pre-commit
+pre-commit install
+```
