@@ -1,0 +1,16 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v2.3.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-xml
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+  - repo: https://github.com/dustinsand/pre-commit-jvm
+    rev: v0.8.0
+    hooks:
+      - id: google-java-formatter-jdk11
+        args: [--replace, --set-exit-if-changed]

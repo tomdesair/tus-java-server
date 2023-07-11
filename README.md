@@ -3,8 +3,7 @@
 # tus-java-server
 This library can be used to enable resumable (and potentially asynchronous) file uploads in any Java web application. This allows the users of your application to upload large files over slow and unreliable internet connections. The ability to pause or resume a file upload (after a connection loss or reset) is achieved by implementing the open file upload protocol tus (https://tus.io/). This library implements the server-side of the tus v1.0.0 protocol with [all optional extensions](#tus-protocol-extensions).
 
-The Javadoc of this library can be found at https://tus.desair.me/. The following Java versions are supported: 8,
-9, 10, 11 and 17.
+The Javadoc of this library can be found at https://tus.desair.me/. The following Java LTS versions are supported: 8, 11 and 17.
 
 ## Quick Start and Examples
 The tus-java-server library only depends on Jakarta Servlet API 6.0 and some Apache Commons utility libraries. This
@@ -79,4 +78,24 @@ This tus protocol implementation has been [tested](https://github.com/tomdesair/
 This artifact is versioned as `A.B.C-X.Y` where `A.B.C` is the version of the implemented tus protocol (currently 1.0.0) and `X.Y` is the version of this library.
 
 ## Contributing
-This library comes without any warranty and is released under a [MIT license](https://github.com/tomdesair/tus-java-server/blob/master/LICENSE). If you encounter any bugs or if you have an idea for a useful improvement you are welcome to [open a new issue](https://github.com/tomdesair/tus-java-server/issues) or to [create a pull request](https://github.com/tomdesair/tus-java-server/pulls) with the proposed implementation. Please note that any contributed code needs to be accompanied by automated unit and/or integration tests and comply with the [defined code-style](https://github.com/tomdesair/tus-java-server/blob/master/checkstyle.xml).
+This library comes without any warranty and is released under a [MIT license](https://github.com/tomdesair/tus-java-server/blob/master/LICENSE). If you encounter any bugs or if you have an idea for a useful improvement you are welcome to [open a new issue](https://github.com/tomdesair/tus-java-server/issues) or to [create a pull request](https://github.com/tomdesair/tus-java-server/pulls) with the proposed implementation. Please note that any contributed code needs to be accompanied by automated unit and/or integration tests and comply with the [defined code-style](#code-style).
+
+### Code Style
+All pull requests should have the correct formatting according to [Google Java Style](https://github.com/google/google-java-format) code formatting. To verify if the code style is correct run:
+
+```
+mvn -P codestyle com.spotify.fmt:fmt-maven-plugin:check
+```
+
+To reformat your code run:
+
+```
+mvn -P codestyle com.spotify.fmt:fmt-maven-plugin:format
+```
+
+See the [Google Java Style Github page](https://github.com/google/google-java-format) on recommendations on how to configure this in your IDE. Or if you have Python 3, you can also use [pre-commit](https://pre-commit.com) to make your live easier:
+
+```
+pip install pre-commit
+pre-commit install
+```
