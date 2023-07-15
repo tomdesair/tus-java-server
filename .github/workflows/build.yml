@@ -43,4 +43,4 @@ jobs:
           base-path: src/main/java
 
           # *file* is optional, but good to have. By default coveralls will try to find the report automatically.
-          files: target/coverage-reports/jacoco-it/jacoco.xml target/coverage-reports/jacoco-ut/jacoco.xml
+          files: target/site/jacoco-it/jacoco.xml target/site/jacoco-ut/jacoco.xml
