@@ -17,12 +17,12 @@ import me.desair.tus.server.download.DownloadExtension;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.expiration.ExpirationExtension;
 import me.desair.tus.server.termination.TerminationExtension;
-import me.desair.tus.server.upload.UUIDUploadIdFactory;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.upload.cache.ThreadLocalCachedStorageAndLockingService;
 import me.desair.tus.server.upload.disk.DiskLockingService;
 import me.desair.tus.server.upload.disk.DiskStorageService;
@@ -43,7 +43,7 @@ public class TusFileUploadService {
 
   private UploadStorageService uploadStorageService;
   private UploadLockingService uploadLockingService;
-  private UploadIdFactory idFactory = new UUIDUploadIdFactory();
+  private UploadIdFactory idFactory = new UuidUploadIdFactory();
   private final LinkedHashMap<String, TusExtension> enabledFeatures = new LinkedHashMap<>();
   private final Set<HttpMethod> supportedHttpMethods = EnumSet.noneOf(HttpMethod.class);
   private boolean isThreadLocalCacheEnabled = false;
@@ -71,11 +71,11 @@ public class TusFileUploadService {
    * contain regex parameters in order to support endpoints that contain URL parameters, for example
    * /users/[0-9]+/files/upload
    *
-   * @param uploadURI The URI of the main tus upload endpoint
+   * @param uploadUri The URI of the main tus upload endpoint
    * @return The current service
    */
-  public TusFileUploadService withUploadURI(String uploadURI) {
-    this.idFactory.setUploadURI(uploadURI);
+  public TusFileUploadService withUploadUri(String uploadUri) {
+    this.idFactory.setUploadUri(uploadUri);
     return this;
   }
 
@@ -96,7 +96,7 @@ public class TusFileUploadService {
   /**
    * Provide a custom {@link UploadIdFactory} implementation that should be used to generate
    * identifiers for the different uploads. Example implementation are {@link
-   * me.desair.tus.server.upload.UUIDUploadIdFactory} and {@link
+   * me.desair.tus.server.upload.UuidUploadIdFactory} and {@link
    * me.desair.tus.server.upload.TimeBasedUploadIdFactory}.
    *
    * @param uploadIdFactory The custom {@link UploadIdFactory} implementation
@@ -104,9 +104,9 @@ public class TusFileUploadService {
    */
   public TusFileUploadService withUploadIdFactory(UploadIdFactory uploadIdFactory) {
     Validate.notNull(uploadIdFactory, "The UploadIdFactory cannot be null");
-    String previousUploadURI = this.idFactory.getUploadURI();
+    String previousUploadURI = this.idFactory.getUploadUri();
     this.idFactory = uploadIdFactory;
-    this.idFactory.setUploadURI(previousUploadURI);
+    this.idFactory.setUploadUri(previousUploadURI);
     this.uploadStorageService.setIdFactory(this.idFactory);
     this.uploadLockingService.setIdFactory(this.idFactory);
     return this;
@@ -250,7 +250,7 @@ public class TusFileUploadService {
 
   /**
    * Get all HTTP methods that are supported by this TusUploadService based on the enabled and/or
-   * disabled tus extensions
+   * disabled tus extensions.
    *
    * @return The set of enabled HTTP methods
    */
@@ -259,7 +259,7 @@ public class TusFileUploadService {
   }
 
   /**
-   * Get the set of enabled Tus extensions
+   * Get the set of enabled Tus extensions.
    *
    * @return The set of active extensions
    */
@@ -269,7 +269,7 @@ public class TusFileUploadService {
 
   /**
    * Process a tus upload request. Use this method to process any request made to the main and sub
-   * tus upload endpoints. This corresponds to the path specified in the withUploadURI() method and
+   * tus upload endpoints. This corresponds to the path specified in the withUploadUri() method and
    * any sub-path of that URI.
    *
    * @param servletRequest The {@link HttpServletRequest} of the request
@@ -284,7 +284,7 @@ public class TusFileUploadService {
   /**
    * Process a tus upload request that belongs to a specific owner. Use this method to process any
    * request made to the main and sub tus upload endpoints. This corresponds to the path specified
-   * in the withUploadURI() method and any sub-path of that URI.
+   * in the withUploadUri() method and any sub-path of that URI.
    *
    * @param servletRequest The {@link HttpServletRequest} of the request
    * @param servletResponse The {@link HttpServletResponse} of the request
@@ -316,61 +316,61 @@ public class TusFileUploadService {
   }
 
   /**
-   * Method to retrieve the bytes that were uploaded to a specific upload URI
+   * Method to retrieve the bytes that were uploaded to a specific upload URI.
    *
-   * @param uploadURI The URI of the upload
+   * @param uploadUri The URI of the upload
    * @return An {@link InputStream} that will stream the uploaded bytes
    * @throws IOException When the retreiving the uploaded bytes fails
    * @throws TusException When the upload is still in progress or cannot be found
    */
-  public InputStream getUploadedBytes(String uploadURI) throws IOException, TusException {
-    return getUploadedBytes(uploadURI, null);
+  public InputStream getUploadedBytes(String uploadUri) throws IOException, TusException {
+    return getUploadedBytes(uploadUri, null);
   }
 
   /**
-   * Method to retrieve the bytes that were uploaded to a specific upload URI
+   * Method to retrieve the bytes that were uploaded to a specific upload URI.
    *
-   * @param uploadURI The URI of the upload
+   * @param uploadUri The URI of the upload
    * @param ownerKey The key of the owner of this upload
    * @return An {@link InputStream} that will stream the uploaded bytes
    * @throws IOException When the retreiving the uploaded bytes fails
    * @throws TusException When the upload is still in progress or cannot be found
    */
-  public InputStream getUploadedBytes(String uploadURI, String ownerKey)
+  public InputStream getUploadedBytes(String uploadUri, String ownerKey)
       throws IOException, TusException {
 
-    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
+    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadUri)) {
 
-      return uploadStorageService.getUploadedBytes(uploadURI, ownerKey);
+      return uploadStorageService.getUploadedBytes(uploadUri, ownerKey);
     }
   }
 
   /**
-   * Get the information on the upload corresponding to the given upload URI
+   * Get the information on the upload corresponding to the given upload URI.
    *
-   * @param uploadURI The URI of the upload
+   * @param uploadUri The URI of the upload
    * @return Information on the upload
    * @throws IOException When retrieving the upload information fails
    * @throws TusException When the upload is still in progress or cannot be found
    */
-  public UploadInfo getUploadInfo(String uploadURI) throws IOException, TusException {
-    return getUploadInfo(uploadURI, null);
+  public UploadInfo getUploadInfo(String uploadUri) throws IOException, TusException {
+    return getUploadInfo(uploadUri, null);
   }
 
   /**
-   * Get the information on the upload corresponding to the given upload URI
+   * Get the information on the upload corresponding to the given upload URI.
    *
-   * @param uploadURI The URI of the upload
+   * @param uploadUri The URI of the upload
    * @param ownerKey The key of the owner of this upload
    * @return Information on the upload
    * @throws IOException When retrieving the upload information fails
    * @throws TusException When the upload is still in progress or cannot be found
    */
-  public UploadInfo getUploadInfo(String uploadURI, String ownerKey)
+  public UploadInfo getUploadInfo(String uploadUri, String ownerKey)
       throws IOException, TusException {
-    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
+    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadUri)) {
 
-      return uploadStorageService.getUploadInfo(uploadURI, ownerKey);
+      return uploadStorageService.getUploadInfo(uploadUri, ownerKey);
     }
   }
 
@@ -378,22 +378,22 @@ public class TusFileUploadService {
    * Method to delete an upload associated with the given upload URL. Invoke this method if you no
    * longer need the upload.
    *
-   * @param uploadURI The upload URI
+   * @param uploadUri The upload URI
    */
-  public void deleteUpload(String uploadURI) throws IOException, TusException {
-    deleteUpload(uploadURI, null);
+  public void deleteUpload(String uploadUri) throws IOException, TusException {
+    deleteUpload(uploadUri, null);
   }
 
   /**
    * Method to delete an upload associated with the given upload URL. Invoke this method if you no
    * longer need the upload.
    *
-   * @param uploadURI The upload URI
+   * @param uploadUri The upload URI
    * @param ownerKey The key of the owner of this upload
    */
-  public void deleteUpload(String uploadURI, String ownerKey) throws IOException, TusException {
-    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadURI)) {
-      UploadInfo uploadInfo = uploadStorageService.getUploadInfo(uploadURI, ownerKey);
+  public void deleteUpload(String uploadUri, String ownerKey) throws IOException, TusException {
+    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadUri)) {
+      UploadInfo uploadInfo = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
       if (uploadInfo != null) {
         uploadStorageService.terminateUpload(uploadInfo);
       }

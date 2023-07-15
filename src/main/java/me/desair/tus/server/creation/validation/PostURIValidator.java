@@ -13,7 +13,7 @@ import me.desair.tus.server.upload.UploadStorageService;
  * The Client MUST send a POST request against a known upload creation URL to request a new upload
  * resource.
  */
-public class PostURIValidator implements RequestValidator {
+public class PostUriValidator implements RequestValidator {
 
   private Pattern uploadUriPattern = null;
 
@@ -30,7 +30,7 @@ public class PostURIValidator implements RequestValidator {
 
     if (!uploadUriMatcher.matches()) {
       throw new PostOnInvalidRequestURIException(
-          "POST requests have to be sent to '" + uploadStorageService.getUploadURI() + "'. ");
+          "POST requests have to be sent to '" + uploadStorageService.getUploadUri() + "'. ");
     }
   }
 
@@ -42,7 +42,7 @@ public class PostURIValidator implements RequestValidator {
   private Pattern getUploadUriPattern(UploadStorageService uploadStorageService) {
     if (uploadUriPattern == null) {
       // A POST request should match the full URI
-      uploadUriPattern = Pattern.compile("^" + uploadStorageService.getUploadURI() + "$");
+      uploadUriPattern = Pattern.compile("^" + uploadStorageService.getUploadUri() + "$");
     }
     return uploadUriPattern;
   }

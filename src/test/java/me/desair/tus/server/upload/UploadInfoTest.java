@@ -4,11 +4,13 @@ import static me.desair.tus.server.util.MapMatcher.hasSize;
 import static org.hamcrest.CoreMatchers.allOf;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.collection.IsMapContaining.hasEntry;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.text.ParseException;
@@ -20,6 +22,7 @@ import org.apache.commons.lang3.time.DateFormatUtils;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
+/** Test cases for the UploadInfo class. */
 public class UploadInfoTest {
 
   @Test
@@ -157,14 +160,14 @@ public class UploadInfoTest {
     info6.setEncodedMetadata("Encoded-Metadata");
     info6.setId(new UploadId("1911e8a4-6939-490c-c58b-a5d70f8d91fb"));
 
-    assertTrue(info1.equals(info1));
-    assertTrue(info1.equals(info2));
-    assertFalse(info1.equals(null));
-    assertFalse(info1.equals(new Object()));
-    assertFalse(info1.equals(info3));
-    assertFalse(info1.equals(info4));
-    assertFalse(info1.equals(info5));
-    assertFalse(info1.equals(info6));
+    assertEquals(info1, info1);
+    assertEquals(info1, info2);
+    assertNotEquals(info1, null);
+    assertNotEquals(info1, new Object());
+    assertNotEquals(info1, info3);
+    assertNotEquals(info1, info4);
+    assertNotEquals(info1, info5);
+    assertNotEquals(info1, info6);
   }
 
   @Test
@@ -181,7 +184,7 @@ public class UploadInfoTest {
     info2.setEncodedMetadata("Encoded-Metadata");
     info2.setId(new UploadId("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
 
-    assertTrue(info1.hashCode() == info2.hashCode());
+    assertEquals(info1.hashCode(), info2.hashCode());
   }
 
   @Test
@@ -262,7 +265,7 @@ public class UploadInfoTest {
   }
 
   @Test
-  public void testGetCreatorIpAddressesWithoutXForwardedFor() throws Exception {
+  public void testGetCreatorIpAddressesWithoutXforwardedFor() throws Exception {
     MockHttpServletRequest servletRequest = new MockHttpServletRequest();
     servletRequest.setRemoteAddr("10.11.12.13");
 
@@ -271,7 +274,7 @@ public class UploadInfoTest {
   }
 
   @Test
-  public void testGetCreatorIpAddressesWithXForwardedFor() throws Exception {
+  public void testGetCreatorIpAddressesWithXforwardedFor() throws Exception {
     MockHttpServletRequest servletRequest = new MockHttpServletRequest();
     servletRequest.setRemoteAddr("10.11.12.13");
     servletRequest.addHeader(HttpHeader.X_FORWARDED_FOR, "24.23.22.21, 192.168.1.1");

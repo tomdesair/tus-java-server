@@ -1,10 +1,11 @@
 package me.desair.tus.server.upload.disk;
 
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -70,7 +71,7 @@ public class DiskStorageServiceTest {
   @Before
   public void setUp() {
     reset(idFactory);
-    when(idFactory.getUploadURI()).thenReturn(UPLOAD_URL);
+    when(idFactory.getUploadUri()).thenReturn(UPLOAD_URL);
     when(idFactory.createId()).thenReturn(new UploadId(UUID.randomUUID()));
     when(idFactory.readUploadId(nullable(String.class)))
         .then(
@@ -102,8 +103,8 @@ public class DiskStorageServiceTest {
   }
 
   @Test
-  public void getUploadURI() throws Exception {
-    assertThat(storageService.getUploadURI(), is(UPLOAD_URL));
+  public void getUploadUri() throws Exception {
+    assertThat(storageService.getUploadUri(), is(UPLOAD_URL));
   }
 
   @Test
@@ -134,7 +135,7 @@ public class DiskStorageServiceTest {
 
     UploadInfo readInfo = storageService.getUploadInfo(info.getId());
 
-    assertTrue(readInfo != info);
+    assertNotSame(readInfo, info);
     assertThat(readInfo.getId(), is(info.getId()));
     assertThat(readInfo.getOffset(), is(0L));
     assertThat(readInfo.getLength(), is(10L));
@@ -162,7 +163,7 @@ public class DiskStorageServiceTest {
 
     UploadInfo readInfo = storageService.getUploadInfo(UPLOAD_URL + "/" + info.getId(), null);
 
-    assertTrue(readInfo != info);
+    assertNotSame(readInfo, info);
     assertThat(readInfo.getId(), is(info.getId()));
     assertThat(readInfo.getOffset(), is(0L));
     assertThat(readInfo.getLength(), is(10L));
@@ -181,7 +182,7 @@ public class DiskStorageServiceTest {
 
     UploadInfo readInfo = storageService.getUploadInfo(UPLOAD_URL + "/" + info.getId(), "foo");
 
-    assertTrue(readInfo != info);
+    assertNotSame(readInfo, info);
     assertThat(readInfo.getId(), is(info.getId()));
     assertThat(readInfo.getOffset(), is(0L));
     assertThat(readInfo.getLength(), is(10L));
@@ -211,8 +212,8 @@ public class DiskStorageServiceTest {
 
     UploadInfo readInfo = storageService.getUploadInfo(info1.getId());
 
-    assertTrue(readInfo != info1);
-    assertTrue(readInfo != info2);
+    assertNotSame(readInfo, info1);
+    assertNotSame(readInfo, info2);
     assertThat(info2.getId(), is(info1.getId()));
     assertThat(readInfo.getId(), is(info1.getId()));
     assertThat(readInfo.getOffset(), is(8L));

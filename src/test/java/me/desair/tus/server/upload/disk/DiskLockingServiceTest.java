@@ -55,7 +55,7 @@ public class DiskLockingServiceTest {
   @Before
   public void setUp() {
     reset(idFactory);
-    when(idFactory.getUploadURI()).thenReturn(UPLOAD_URL);
+    when(idFactory.getUploadUri()).thenReturn(UPLOAD_URL);
     when(idFactory.createId()).thenReturn(new UploadId(UUID.randomUUID()));
     when(idFactory.readUploadId(nullable(String.class)))
         .then(

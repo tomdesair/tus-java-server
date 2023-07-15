@@ -7,7 +7,7 @@ import java.util.UUID;
  * Factory to create unique upload IDs. This factory can also parse the upload identifier from a
  * given upload URL.
  */
-public class UUIDUploadIdFactory extends UploadIdFactory {
+public class UuidUploadIdFactory extends UploadIdFactory {
 
   @Override
   protected Serializable getIdValueIfValid(String extractedUrlId) {

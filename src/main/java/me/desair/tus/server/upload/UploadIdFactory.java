@@ -12,7 +12,7 @@ import org.apache.commons.lang3.Validate;
  */
 public abstract class UploadIdFactory {
 
-  private String uploadURI = "/";
+  private String uploadUri = "/";
   private Pattern uploadUriPattern = null;
 
   /**
@@ -20,13 +20,13 @@ public abstract class UploadIdFactory {
    * contain regex parameters in order to support endpoints that contain URL parameters, for example
    * /users/[0-9]+/files/upload
    *
-   * @param uploadURI The URI of the main tus upload endpoint
+   * @param uploadUri The URI of the main tus upload endpoint
    */
-  public void setUploadURI(String uploadURI) {
-    Validate.notBlank(uploadURI, "The upload URI pattern cannot be blank");
-    Validate.isTrue(StringUtils.startsWith(uploadURI, "/"), "The upload URI should start with /");
-    Validate.isTrue(!StringUtils.endsWith(uploadURI, "$"), "The upload URI should not end with $");
-    this.uploadURI = uploadURI;
+  public void setUploadUri(String uploadUri) {
+    Validate.notBlank(uploadUri, "The upload URI pattern cannot be blank");
+    Validate.isTrue(StringUtils.startsWith(uploadUri, "/"), "The upload URI should start with /");
+    Validate.isTrue(!StringUtils.endsWith(uploadUri, "$"), "The upload URI should not end with $");
+    this.uploadUri = uploadUri;
     this.uploadUriPattern = null;
   }
 
@@ -36,8 +36,8 @@ public abstract class UploadIdFactory {
    *
    * @return The URI of the main tus upload endpoint.
    */
-  public String getUploadURI() {
-    return uploadURI;
+  public String getUploadUri() {
+    return uploadUri;
   }
 
   /**
@@ -62,7 +62,7 @@ public abstract class UploadIdFactory {
   }
 
   /**
-   * Create a new unique upload ID
+   * Create a new unique upload ID.
    *
    * @return A new unique upload ID
    */
@@ -78,7 +78,7 @@ public abstract class UploadIdFactory {
   protected abstract Serializable getIdValueIfValid(String extractedUrlId);
 
   /**
-   * Build and retrieve the Upload URI regex pattern
+   * Build and retrieve the Upload URI regex pattern.
    *
    * @return A (cached) Pattern to match upload URI's
    */
@@ -87,7 +87,7 @@ public abstract class UploadIdFactory {
       // We will extract the upload ID's by removing the upload URI from the start of the
       // request URI
       uploadUriPattern =
-          Pattern.compile("^.*" + uploadURI + (StringUtils.endsWith(uploadURI, "/") ? "" : "/?"));
+          Pattern.compile("^.*" + uploadUri + (StringUtils.endsWith(uploadUri, "/") ? "" : "/?"));
     }
     return uploadUriPattern;
   }

@@ -15,6 +15,7 @@ import org.apache.commons.io.IOUtils;
 import org.junit.Before;
 import org.junit.Test;
 
+/** Test cases for the HttpChunkedEncodingInputStream class. */
 public class HttpChunkedEncodingInputStreamTest {
 
   Map<String, List<String>> trailerHeaders;
@@ -262,7 +263,14 @@ public class HttpChunkedEncodingInputStreamTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void testNullInputstream() throws IOException {
-    InputStream in = new HttpChunkedEncodingInputStream(null);
+    InputStream in = null;
+    try {
+      in = new HttpChunkedEncodingInputStream(null);
+    } finally {
+      if (in != null) {
+        in.close();
+      }
+    }
   }
 
   @Test(expected = IOException.class)

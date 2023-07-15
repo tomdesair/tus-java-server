@@ -1,12 +1,12 @@
 package me.desair.tus.server.upload;
 
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasToString;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
-import static org.junit.Assert.assertThat;
 
 import me.desair.tus.server.util.Utils;
 import org.junit.Before;
@@ -22,47 +22,47 @@ public class TimeBasedUploadIdFactoryTest {
   }
 
   @Test(expected = NullPointerException.class)
-  public void setUploadURINull() throws Exception {
-    idFactory.setUploadURI(null);
+  public void setUploadUriNull() throws Exception {
+    idFactory.setUploadUri(null);
   }
 
   @Test
-  public void setUploadURINoTrailingSlash() throws Exception {
-    idFactory.setUploadURI("/test/upload");
-    assertThat(idFactory.getUploadURI(), is("/test/upload"));
+  public void setUploadUriNoTrailingSlash() throws Exception {
+    idFactory.setUploadUri("/test/upload");
+    assertThat(idFactory.getUploadUri(), is("/test/upload"));
   }
 
   @Test
-  public void setUploadURIWithTrailingSlash() throws Exception {
-    idFactory.setUploadURI("/test/upload/");
-    assertThat(idFactory.getUploadURI(), is("/test/upload/"));
+  public void setUploadUriWithTrailingSlash() throws Exception {
+    idFactory.setUploadUri("/test/upload/");
+    assertThat(idFactory.getUploadUri(), is("/test/upload/"));
   }
 
   @Test(expected = IllegalArgumentException.class)
-  public void setUploadURIBlank() throws Exception {
-    idFactory.setUploadURI(" ");
+  public void setUploadUriBlank() throws Exception {
+    idFactory.setUploadUri(" ");
   }
 
   @Test(expected = IllegalArgumentException.class)
-  public void setUploadURINoStartingSlash() throws Exception {
-    idFactory.setUploadURI("test/upload/");
+  public void setUploadUriNoStartingSlash() throws Exception {
+    idFactory.setUploadUri("test/upload/");
   }
 
   @Test(expected = IllegalArgumentException.class)
-  public void setUploadURIEndsWithDollar() throws Exception {
-    idFactory.setUploadURI("/test/upload$");
+  public void setUploadUriEndsWithDollar() throws Exception {
+    idFactory.setUploadUri("/test/upload$");
   }
 
   @Test
   public void readUploadId() throws Exception {
-    idFactory.setUploadURI("/test/upload");
+    idFactory.setUploadUri("/test/upload");
 
     assertThat(idFactory.readUploadId("/test/upload/1546152320043"), hasToString("1546152320043"));
   }
 
   @Test
   public void readUploadIdRegex() throws Exception {
-    idFactory.setUploadURI("/users/[0-9]+/files/upload");
+    idFactory.setUploadUri("/users/[0-9]+/files/upload");
 
     assertThat(
         idFactory.readUploadId("/users/1337/files/upload/1546152320043"),
@@ -71,14 +71,14 @@ public class TimeBasedUploadIdFactoryTest {
 
   @Test
   public void readUploadIdTrailingSlash() throws Exception {
-    idFactory.setUploadURI("/test/upload/");
+    idFactory.setUploadUri("/test/upload/");
 
     assertThat(idFactory.readUploadId("/test/upload/1546152320043"), hasToString("1546152320043"));
   }
 
   @Test
   public void readUploadIdRegexTrailingSlash() throws Exception {
-    idFactory.setUploadURI("/users/[0-9]+/files/upload/");
+    idFactory.setUploadUri("/users/[0-9]+/files/upload/");
 
     assertThat(
         idFactory.readUploadId("/users/123456789/files/upload/1546152320043"),
@@ -86,15 +86,15 @@ public class TimeBasedUploadIdFactoryTest {
   }
 
   @Test
-  public void readUploadIdNoUUID() throws Exception {
-    idFactory.setUploadURI("/test/upload");
+  public void readUploadIdNoUuid() throws Exception {
+    idFactory.setUploadUri("/test/upload");
 
     assertThat(idFactory.readUploadId("/test/upload/not-a-time-value"), is(nullValue()));
   }
 
   @Test
   public void readUploadIdRegexNoMatch() throws Exception {
-    idFactory.setUploadURI("/users/[0-9]+/files/upload");
+    idFactory.setUploadUri("/users/[0-9]+/files/upload");
 
     assertThat(idFactory.readUploadId("/users/files/upload/1546152320043"), is(nullValue()));
   }

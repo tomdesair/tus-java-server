@@ -16,9 +16,9 @@ import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 @RunWith(MockitoJUnitRunner.Silent.class)
-public class PostURIValidatorTest {
+public class PostUriValidatorTest {
 
-  private PostURIValidator validator;
+  private PostUriValidator validator;
 
   private MockHttpServletRequest servletRequest;
 
@@ -27,7 +27,7 @@ public class PostURIValidatorTest {
   @Before
   public void setUp() {
     servletRequest = new MockHttpServletRequest();
-    validator = new PostURIValidator();
+    validator = new PostUriValidator();
   }
 
   @Test
@@ -45,7 +45,7 @@ public class PostURIValidatorTest {
   @Test
   public void validateMatchingUrl() throws Exception {
     servletRequest.setRequestURI("/test/upload");
-    when(uploadStorageService.getUploadURI()).thenReturn("/test/upload");
+    when(uploadStorageService.getUploadUri()).thenReturn("/test/upload");
 
     try {
       validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
@@ -59,7 +59,7 @@ public class PostURIValidatorTest {
   @Test(expected = PostOnInvalidRequestURIException.class)
   public void validateInvalidUrl() throws Exception {
     servletRequest.setRequestURI("/test/upload/12");
-    when(uploadStorageService.getUploadURI()).thenReturn("/test/upload");
+    when(uploadStorageService.getUploadUri()).thenReturn("/test/upload");
 
     validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
 
@@ -69,7 +69,7 @@ public class PostURIValidatorTest {
   @Test
   public void validateMatchingRegexUrl() throws Exception {
     servletRequest.setRequestURI("/users/1234/files/upload");
-    when(uploadStorageService.getUploadURI()).thenReturn("/users/[0-9]+/files/upload");
+    when(uploadStorageService.getUploadUri()).thenReturn("/users/[0-9]+/files/upload");
 
     try {
       validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
@@ -83,7 +83,7 @@ public class PostURIValidatorTest {
   @Test(expected = PostOnInvalidRequestURIException.class)
   public void validateInvalidRegexUrl() throws Exception {
     servletRequest.setRequestURI("/users/abc123/files/upload");
-    when(uploadStorageService.getUploadURI()).thenReturn("/users/[0-9]+/files/upload");
+    when(uploadStorageService.getUploadUri()).thenReturn("/users/[0-9]+/files/upload");
 
     validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
 
@@ -93,7 +93,7 @@ public class PostURIValidatorTest {
   @Test(expected = PostOnInvalidRequestURIException.class)
   public void validateInvalidRegexUrlPatchUrl() throws Exception {
     servletRequest.setRequestURI("/users/1234/files/upload/7669c72a-3f2a-451f-a3b9-9210e7a4c02f");
-    when(uploadStorageService.getUploadURI()).thenReturn("/users/[0-9]+/files/upload");
+    when(uploadStorageService.getUploadUri()).thenReturn("/users/[0-9]+/files/upload");
 
     validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
 

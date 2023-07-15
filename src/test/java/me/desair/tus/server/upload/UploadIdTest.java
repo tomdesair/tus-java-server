@@ -1,16 +1,16 @@
 package me.desair.tus.server.upload;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 
 import java.util.UUID;
 import org.junit.Test;
 
+/** Test class for the UploadId class. */
 public class UploadIdTest {
 
   @Test
-  public void getOriginalObjectUUID() {
+  public void getOriginalObjectUuid() {
     UUID id = UUID.randomUUID();
     UploadId uploadId = new UploadId(id);
     assertEquals(id.toString(), uploadId.toString());
@@ -69,7 +69,7 @@ public class UploadIdTest {
     assertEquals(id2, id3);
     assertEquals(id1, id1);
     assertNotEquals(id1, null);
-    assertFalse(id1.equals(UUID.randomUUID()));
+    assertNotEquals(id1, UUID.randomUUID());
   }
 
   @Test

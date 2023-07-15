@@ -3,7 +3,8 @@ package me.desair.tus.server.creation;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -49,7 +50,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
     id = new UploadId(UUID.randomUUID());
     servletRequest.setRequestURI(UPLOAD_URI);
     reset(uploadStorageService);
-    when(uploadStorageService.getUploadURI()).thenReturn(UPLOAD_URI);
+    when(uploadStorageService.getUploadUri()).thenReturn(UPLOAD_URI);
     when(uploadStorageService.create(
             ArgumentMatchers.any(UploadInfo.class), nullable(String.class)))
         .then(
@@ -211,7 +212,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
   @Test
   public void testPostWithValidRegexURI() throws Exception {
     reset(uploadStorageService);
-    when(uploadStorageService.getUploadURI()).thenReturn("/submission/([a-z0-9]+)/files/upload");
+    when(uploadStorageService.getUploadUri()).thenReturn("/submission/([a-z0-9]+)/files/upload");
     when(uploadStorageService.create(
             ArgumentMatchers.any(UploadInfo.class), nullable(String.class)))
         .then(
@@ -253,7 +254,7 @@ public class ITCreationExtension extends AbstractTusExtensionIntegrationTest {
   @Test(expected = PostOnInvalidRequestURIException.class)
   public void testPostWithInvalidRegexURI() throws Exception {
     reset(uploadStorageService);
-    when(uploadStorageService.getUploadURI()).thenReturn("/submission/([a-z0-9]+)/files/upload");
+    when(uploadStorageService.getUploadUri()).thenReturn("/submission/([a-z0-9]+)/files/upload");
     when(uploadStorageService.create(
             ArgumentMatchers.any(UploadInfo.class), nullable(String.class)))
         .then(

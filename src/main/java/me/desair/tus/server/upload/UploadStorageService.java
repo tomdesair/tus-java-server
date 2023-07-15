@@ -11,7 +11,7 @@ import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 public interface UploadStorageService {
 
   /**
-   * Method to retrieve the upload info by its upload URL
+   * Method to retrieve the upload info by its upload URL.
    *
    * @param uploadUrl The URL corresponding to this upload. This parameter can be null.
    * @param ownerKey A key representing the owner of the upload
@@ -20,7 +20,7 @@ public interface UploadStorageService {
   UploadInfo getUploadInfo(String uploadUrl, String ownerKey) throws IOException;
 
   /**
-   * Method to retrieve the upload info by its ID
+   * Method to retrieve the upload info by its ID.
    *
    * @param id The ID of the upload
    * @return The matching upload info
@@ -29,11 +29,11 @@ public interface UploadStorageService {
   UploadInfo getUploadInfo(UploadId id) throws IOException;
 
   /**
-   * The URI which is configured as the upload endpoint
+   * The URI which is configured as the upload endpoint.
    *
    * @return The URI
    */
-  String getUploadURI();
+  String getUploadUri();
 
   /**
    * Append the bytes in the give {@link InputStream} to the upload with the given ID starting at
@@ -47,21 +47,21 @@ public interface UploadStorageService {
   UploadInfo append(UploadInfo upload, InputStream inputStream) throws IOException, TusException;
 
   /**
-   * Limit the maximum upload size to the given value
+   * Limit the maximum upload size to the given value.
    *
    * @param maxUploadSize The maximum upload limit to set
    */
   void setMaxUploadSize(Long maxUploadSize);
 
   /**
-   * Get the maximum upload size configured on this storage service
+   * Get the maximum upload size configured on this storage service.
    *
    * @return The maximum upload size or zero if no maximum
    */
   long getMaxUploadSize();
 
   /**
-   * Create an upload location with the given upload information
+   * Create an upload location with the given upload information.
    *
    * @param info The Upload information to use to create the new upload
    * @param ownerKey A key representing the owner of the upload
@@ -78,17 +78,17 @@ public interface UploadStorageService {
   void update(UploadInfo uploadInfo) throws IOException, UploadNotFoundException;
 
   /**
-   * Get the uploaded bytes corresponding to the given upload URL as a stream
+   * Get the uploaded bytes corresponding to the given upload URL as a stream.
    *
-   * @param uploadURI The URI
+   * @param uploadUri The URI
    * @param ownerKey The owner key of this upload
    * @return an {@link OutputStream} containing the bytes of the upload
    */
-  InputStream getUploadedBytes(String uploadURI, String ownerKey)
+  InputStream getUploadedBytes(String uploadUri, String ownerKey)
       throws IOException, UploadNotFoundException;
 
   /**
-   * Get the uploaded bytes corresponding to the given upload ID as a stream
+   * Get the uploaded bytes corresponding to the given upload ID as a stream.
    *
    * @param id the ID of the upload
    * @return an {@link OutputStream} containing the bytes of the upload
@@ -98,7 +98,7 @@ public interface UploadStorageService {
   InputStream getUploadedBytes(UploadId id) throws IOException, UploadNotFoundException;
 
   /**
-   * Copy the uploaded bytes to the given output stream
+   * Copy the uploaded bytes to the given output stream.
    *
    * @param info The upload of which we should copy the bytes
    * @param outputStream The output stream where we have to copy the bytes to
@@ -107,7 +107,7 @@ public interface UploadStorageService {
       throws UploadNotFoundException, IOException;
 
   /**
-   * Clean up any upload data that is expired according to the configured expiration time
+   * Clean up any upload data that is expired according to the configured expiration time.
    *
    * @param uploadLockingService An {@link UploadLockingService} that can be used to check and lock
    *     uploads
@@ -115,7 +115,7 @@ public interface UploadStorageService {
   void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException;
 
   /**
-   * Remove the given last amount of bytes from the uploaded data
+   * Remove the given last amount of bytes from the uploaded data.
    *
    * @param uploadInfo Upload of which to remove the bytes
    * @param byteCount The number of bytes to remove at the end
@@ -131,28 +131,28 @@ public interface UploadStorageService {
   void terminateUpload(UploadInfo uploadInfo) throws UploadNotFoundException, IOException;
 
   /**
-   * Get the expiration period of an upload in milliseconds
+   * Get the expiration period of an upload in milliseconds.
    *
    * @return The number of milliseconds before an upload expires, or null if it cannot expire
    */
   Long getUploadExpirationPeriod();
 
   /**
-   * Set the expiration period after which an in-progress upload expires
+   * Set the expiration period after which an in-progress upload expires.
    *
    * @param uploadExpirationPeriod The period in milliseconds
    */
   void setUploadExpirationPeriod(Long uploadExpirationPeriod);
 
   /**
-   * Set the {@link UploadConcatenationService} that this upload storage service should use
+   * Set the {@link UploadConcatenationService} that this upload storage service should use.
    *
    * @param concatenationService The UploadConcatenationService implementation to use
    */
   void setUploadConcatenationService(UploadConcatenationService concatenationService);
 
   /**
-   * Return the {@link UploadConcatenationService} implementation that this upload service is using
+   * Return the {@link UploadConcatenationService} implementation that this upload service is using.
    *
    * @return The UploadConcatenationService that is being used
    */
@@ -160,7 +160,7 @@ public interface UploadStorageService {
 
   /**
    * Set an instance if IdFactory to be used for creating identities and extracting them from
-   * uploadURIs
+   * uploadUris.
    *
    * @param idFactory The {@link UploadIdFactory} to use within this storage service
    */

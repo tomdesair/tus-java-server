@@ -32,7 +32,7 @@ public class FileBasedLockTest {
     UUID test = UUID.randomUUID();
     FileBasedLock lock =
         new FileBasedLock("/test/upload/" + test.toString(), storagePath.resolve(test.toString()));
-    lock.release();
+    lock.close();
     assertFalse(Files.exists(storagePath.resolve(test.toString())));
   }
 
@@ -42,6 +42,7 @@ public class FileBasedLockTest {
     Path path = storagePath.resolve(test.toString());
     try (FileBasedLock lock1 = new FileBasedLock("/test/upload/" + test.toString(), path)) {
       FileBasedLock lock2 = new FileBasedLock("/test/upload/" + test.toString(), path);
+      lock2.close();
     }
   }
 
@@ -59,6 +60,7 @@ public class FileBasedLockTest {
               return channel;
             }
           };
+      lock2.close();
     }
   }
 
@@ -67,15 +69,15 @@ public class FileBasedLockTest {
     UUID test = UUID.randomUUID();
     Path path = storagePath.resolve(test.toString());
     FileBasedLock lock = new FileBasedLock("/test/upload/" + test.toString(), path);
-    lock.release();
+    lock.close();
     assertFalse(Files.exists(path));
     lock = new FileBasedLock("/test/upload/" + test.toString(), path);
-    lock.release();
+    lock.close();
     assertFalse(Files.exists(path));
   }
 
   @Test(expected = IOException.class)
-  public void testLockIOException() throws UploadAlreadyLockedException, IOException {
+  public void testLockIoException() throws UploadAlreadyLockedException, IOException {
     // Create directory on place where lock file will be
     UUID test = UUID.randomUUID();
     Path path = storagePath.resolve(test.toString());
@@ -86,6 +88,7 @@ public class FileBasedLockTest {
     }
 
     FileBasedLock lock = new FileBasedLock("/test/upload/" + test.toString(), path);
+    lock.close();
   }
 
   private FileChannel createFileChannelMock() throws IOException {

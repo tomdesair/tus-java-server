@@ -34,7 +34,7 @@ import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Implementation of {@link UploadStorageService} that implements storage on disk */
+/** Implementation of {@link UploadStorageService} that implements storage on disk. */
 public class DiskStorageService extends AbstractDiskBasedService implements UploadStorageService {
 
   private static final Logger log = LoggerFactory.getLogger(DiskStorageService.class);
@@ -96,8 +96,8 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   }
 
   @Override
-  public String getUploadURI() {
-    return idFactory.getUploadURI();
+  public String getUploadUri() {
+    return idFactory.getUploadUri();
   }
 
   @Override
@@ -229,10 +229,10 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   }
 
   @Override
-  public InputStream getUploadedBytes(String uploadURI, String ownerKey)
+  public InputStream getUploadedBytes(String uploadUri, String ownerKey)
       throws IOException, UploadNotFoundException {
 
-    UploadId id = idFactory.readUploadId(uploadURI);
+    UploadId id = idFactory.readUploadId(uploadUri);
 
     UploadInfo uploadInfo = getUploadInfo(id);
     if (uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
@@ -268,22 +268,23 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
     List<UploadInfo> uploads = getUploads(info);
 
-    WritableByteChannel outputChannel = Channels.newChannel(outputStream);
+    try (WritableByteChannel outputChannel = Channels.newChannel(outputStream)) {
 
-    for (UploadInfo upload : uploads) {
-      if (upload == null) {
-        log.warn("We cannot copy the bytes of an upload that does not exist");
+      for (UploadInfo upload : uploads) {
+        if (upload == null) {
+          log.warn("We cannot copy the bytes of an upload that does not exist");
 
-      } else if (upload.isUploadInProgress()) {
-        log.warn(
-            "We cannot copy the bytes of upload {} because it is still in progress",
-            upload.getId());
+        } else if (upload.isUploadInProgress()) {
+          log.warn(
+              "We cannot copy the bytes of upload {} because it is still in progress",
+              upload.getId());
 
-      } else {
-        Path bytesPath = getBytesPath(upload.getId());
-        try (FileChannel file = FileChannel.open(bytesPath, READ)) {
-          // Efficiently copy the bytes to the output stream
-          file.transferTo(0, upload.getLength(), outputChannel);
+        } else {
+          Path bytesPath = getBytesPath(upload.getId());
+          try (FileChannel file = FileChannel.open(bytesPath, READ)) {
+            // Efficiently copy the bytes to the output stream
+            file.transferTo(0, upload.getLength(), outputChannel);
+          }
         }
       }
     }

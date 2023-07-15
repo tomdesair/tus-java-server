@@ -7,7 +7,7 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.creation.validation.PostEmptyRequestValidator;
-import me.desair.tus.server.creation.validation.PostURIValidator;
+import me.desair.tus.server.creation.validation.PostUriValidator;
 import me.desair.tus.server.creation.validation.UploadDeferLengthValidator;
 import me.desair.tus.server.creation.validation.UploadLengthValidator;
 import me.desair.tus.server.util.AbstractTusExtension;
@@ -30,7 +30,7 @@ public class CreationExtension extends AbstractTusExtension {
 
   @Override
   protected void initValidators(List<RequestValidator> requestValidators) {
-    requestValidators.add(new PostURIValidator());
+    requestValidators.add(new PostUriValidator());
     requestValidators.add(new PostEmptyRequestValidator());
     requestValidators.add(new UploadDeferLengthValidator());
     requestValidators.add(new UploadLengthValidator());

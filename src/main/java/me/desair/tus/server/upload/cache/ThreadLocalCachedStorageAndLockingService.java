@@ -29,6 +29,7 @@ public class ThreadLocalCachedStorageAndLockingService
   private final UploadStorageService storageServiceDelegate;
   private UploadIdFactory idFactory;
 
+  /** Constructor of ThreadLocalCachedStorageAndLockingService. */
   public ThreadLocalCachedStorageAndLockingService(
       UploadStorageService storageServiceDelegate, UploadLockingService lockingServiceDelegate) {
     if (storageServiceDelegate.getClass() == ThreadLocalCachedStorageAndLockingService.class) {
@@ -82,8 +83,8 @@ public class ThreadLocalCachedStorageAndLockingService
   }
 
   @Override
-  public String getUploadURI() {
-    return storageServiceDelegate.getUploadURI();
+  public String getUploadUri() {
+    return storageServiceDelegate.getUploadUri();
   }
 
   @Override
@@ -112,9 +113,9 @@ public class ThreadLocalCachedStorageAndLockingService
   }
 
   @Override
-  public InputStream getUploadedBytes(String uploadURI, String ownerKey)
+  public InputStream getUploadedBytes(String uploadUri, String ownerKey)
       throws IOException, UploadNotFoundException {
-    return storageServiceDelegate.getUploadedBytes(uploadURI, ownerKey);
+    return storageServiceDelegate.getUploadedBytes(uploadUri, ownerKey);
   }
 
   @Override
@@ -173,8 +174,8 @@ public class ThreadLocalCachedStorageAndLockingService
   }
 
   @Override
-  public UploadLock lockUploadByUri(String requestURI) throws TusException, IOException {
-    UploadLock uploadLock = lockingServiceDelegate.lockUploadByUri(requestURI);
+  public UploadLock lockUploadByUri(String requestUri) throws TusException, IOException {
+    UploadLock uploadLock = lockingServiceDelegate.lockUploadByUri(requestUri);
     return new CachedLock(uploadLock);
   }
 

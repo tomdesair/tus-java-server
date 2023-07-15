@@ -44,12 +44,12 @@ public class CreationPostRequestHandler extends AbstractRequestHandler {
     // We've already validated that the current request URL matches our upload URL so we can
     // safely
     // use it.
-    String uploadURI = servletRequest.getRequestURI();
+    String uploadUri = servletRequest.getRequestURI();
 
     // It's important to return relative UPLOAD URLs in the Location header in order to support
     // HTTPS proxies
     // that sit in front of the web app
-    String url = uploadURI + (StringUtils.endsWith(uploadURI, "/") ? "" : "/") + info.getId();
+    String url = uploadUri + (StringUtils.endsWith(uploadUri, "/") ? "" : "/") + info.getId();
     servletResponse.setHeader(HttpHeader.LOCATION, url);
     servletResponse.setStatus(HttpServletResponse.SC_CREATED);
 
