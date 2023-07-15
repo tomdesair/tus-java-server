@@ -6,7 +6,7 @@
 # separate terms of service, privacy policy, and support
 # documentation.
 
-name: Java Codestyle with Maven
+name: Google Java Codestyle
 
 on:
   push:
@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  codestyle:
+  check-codestyle:
     runs-on: ubuntu-latest
 
     steps:
