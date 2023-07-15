@@ -1,10 +1,11 @@
-<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="http://maven.apache.org/POM/4.0.0"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>me.desair.tus</groupId>
     <artifactId>tus-java-server</artifactId>
-    <version>1.0.0-2.1-SNAPSHOT</version>
+    <version>1.0.0-2.1</version>
     <packaging>jar</packaging>
 
     <name>${project.groupId}:${project.artifactId}</name>
@@ -255,7 +256,8 @@
                                     <goal>sonar</goal>
                                 </goals>
                                 <configuration>
-                                    <sonar.jacoco.reportPaths>${project.build.directory}/coverage-reports/jacoco-it.exec,${project.build.directory}/coverage-reports/jacoco-ut.exec</sonar.jacoco.reportPaths>
+                                    <sonar.jacoco.reportPaths>
+                                        ${project.build.directory}/coverage-reports/jacoco-it.exec,${project.build.directory}/coverage-reports/jacoco-ut.exec</sonar.jacoco.reportPaths>
                                 </configuration>
                             </execution>
                         </executions>
@@ -294,8 +296,10 @@
                                 <configuration>
                                     <failOnServiceError>false</failOnServiceError>
                                     <jacocoReports>
-                                        <jacocoReport>${project.reporting.outputDirectory}/jacoco-ut/jacoco.xml</jacocoReport>
-                                        <jacocoReport>${project.reporting.outputDirectory}/jacoco-it/jacoco.xml</jacocoReport>
+                                        <jacocoReport>
+                                            ${project.reporting.outputDirectory}/jacoco-ut/jacoco.xml</jacocoReport>
+                                        <jacocoReport>
+                                            ${project.reporting.outputDirectory}/jacoco-it/jacoco.xml</jacocoReport>
                                     </jacocoReports>
                                 </configuration>
                             </execution>
@@ -316,7 +320,8 @@
                         <executions>
                             <execution>
                                 <id>verify-style</id>
-                                <!-- Bind to verify so it runs after package & unit tests, but before install -->
+                                <!-- Bind to verify so it runs after package & unit tests, but
+                                before install -->
                                 <phase>verify</phase>
                                 <goals>
                                     <goal>check</goal>
