@@ -249,17 +249,13 @@
         </profile>
 
         <profile>
-            <id>run-sonar</id>
-            <activation>
-                <jdk>[11, ]</jdk>
-                <property>
-                    <name>env.SONAR_TOKEN</name>
-                </property>
-            </activation>
+            <id>sonarcloud</id>
             <properties>
                 <sonar.host.url>https://sonarcloud.io</sonar.host.url>
                 <sonar.organization>tomdesair-github</sonar.organization>
                 <sonar.projectKey>me.desair.tus:tus-java-server</sonar.projectKey>
+                <sonar.coverage.jacoco.xmlReportPaths>
+                    ${project.reporting.outputDirectory}/jacoco-it/jacoco.xml,${project.reporting.outputDirectory}/jacoco-ut/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
             </properties>
             <build>
                 <plugins>
@@ -274,10 +270,6 @@
                                 <goals>
                                     <goal>sonar</goal>
                                 </goals>
-                                <configuration>
-                                    <sonar.coverage.jacoco.xmlReportPaths>
-                                        ${project.reporting.outputDirectory}/jacoco-it/jacoco.xml,${project.reporting.outputDirectory}/jacoco-ut/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
-                                </configuration>
                             </execution>
                         </executions>
                     </plugin>
