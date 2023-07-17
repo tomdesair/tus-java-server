@@ -26,6 +26,7 @@
             <groupId>jakarta.servlet</groupId>
             <artifactId>jakarta.servlet-api</artifactId>
             <version>6.0.0</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -223,8 +224,7 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.10.1</version>
                 <configuration>
-                    <!--                    <source>17</source>-->
-                    <!--                    <target>17</target>-->
+                    <source>17</source>
                     <encoding>UTF-8</encoding>
                 </configuration>
             </plugin>
@@ -258,13 +258,15 @@
             </activation>
             <properties>
                 <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+                <sonar.organization>tomdesair-github</sonar.organization>
+                <sonar.projectKey>me.desair.tus:tus-java-server</sonar.projectKey>
             </properties>
             <build>
                 <plugins>
                     <plugin>
                         <groupId>org.sonarsource.scanner.maven</groupId>
                         <artifactId>sonar-maven-plugin</artifactId>
-                        <version>3.9.0.2155</version>
+                        <version>3.9.1.2184</version>
                         <executions>
                             <execution>
                                 <id>sonar-code-analysis</id>
@@ -273,8 +275,8 @@
                                     <goal>sonar</goal>
                                 </goals>
                                 <configuration>
-                                    <sonar.jacoco.reportPaths>
-                                        ${project.build.directory}/coverage-reports/jacoco-it.exec,${project.build.directory}/coverage-reports/jacoco-ut.exec</sonar.jacoco.reportPaths>
+                                    <sonar.coverage.jacoco.xmlReportPaths>
+                                        ${project.reporting.outputDirectory}/jacoco-it/jacoco.xml,${project.reporting.outputDirectory}/jacoco-ut/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
                                 </configuration>
                             </execution>
                         </executions>
