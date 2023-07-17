@@ -11,7 +11,7 @@ import org.apache.commons.lang3.StringUtils;
 
 /**
  * {@link HttpServletResponseWrapper} to capture header values set on the current {@link
- * HttpServletResponse}
+ * HttpServletResponse}.
  */
 public class TusServletResponse extends HttpServletResponseWrapper {
 
@@ -75,12 +75,7 @@ public class TusServletResponse extends HttpServletResponseWrapper {
   }
 
   private void recordHeader(String name, String value) {
-    List<String> values = headers.get(name);
-    if (values == null) {
-      values = new LinkedList<>();
-      headers.put(name, values);
-    }
-
+    List<String> values = headers.computeIfAbsent(name, k -> new LinkedList<>());
     values.add(value);
   }
 
