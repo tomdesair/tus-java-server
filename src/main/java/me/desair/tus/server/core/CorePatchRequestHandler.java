@@ -69,9 +69,9 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
       }
     } else {
       log.error(
-          "The patch request handler could not find the upload for URL "
-              + servletRequest.getRequestURI()
-              + ". This means something is really wrong the request validators!");
+          "The patch request handler could not find the upload for URL {0}. "
+              + "This means something is really wrong the request validators!",
+          servletRequest.getRequestURI());
       servletResponse.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
     }
   }
