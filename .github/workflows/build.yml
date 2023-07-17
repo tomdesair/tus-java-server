@@ -14,6 +14,8 @@ on:
     paths: ["**.java", ".github/workflows/build.yml", "pom.xml"]
   pull_request:
     branches: ["master"]
+  schedule:
+    - cron: "30 5 11 * *"
   workflow_dispatch:
 
 jobs:
