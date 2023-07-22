@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
  * Transparently coalesces chunks of a HTTP stream that uses Transfer-Encoding chunked.
  * This {@link InputStream} wrapper also supports collecting Trailer header values that are
  * sent at the end of the stream.
- * <p/>
+ * <br>
  * Based on org.apache.commons.httpclient.ChunkedInputStream
  */
 public class HttpChunkedEncodingInputStream extends InputStream {
@@ -48,7 +48,7 @@ public class HttpChunkedEncodingInputStream extends InputStream {
     /**
      * Wrap the given input stream and store any trailing headers in the provided map.
      * @param in the raw input stream
-     * @param trailerHeaders Map to store any trailer header values. Can be <tt>null</tt>.
+     * @param trailerHeaders Map to store any trailer header values. Can be <b>null</b>.
      */
     public HttpChunkedEncodingInputStream(
             InputStream in, Map<String, List<String>> trailerHeaders) {

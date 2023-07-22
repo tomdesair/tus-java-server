@@ -87,7 +87,6 @@ public class UploadInfo implements Serializable {
      * Set the encoded Tus metadata string as it was provided by the Tus client at creation of the upload.
      * The encoded metadata string consists of one or more comma-separated key-value pairs where the key is
      * ASCII encoded and the value Base64 encoded. See https://tus.io/protocols/resumable-upload.html#upload-metadata
-     * @return The encoded metadata string as received from the client
      */
     public void setEncodedMetadata(String encodedMetadata) {
         this.encodedMetadata = encodedMetadata;
@@ -296,7 +295,7 @@ public class UploadInfo implements Serializable {
     /**
      * Try to guess the filename of the uploaded data. If we cannot guess the name
      * we fall back to the ID.
-     * <p/>
+     * <br>
      * NOTE: This is only a guess, there are no guarantees that the return value is correct
      *
      * @return A potential file name
@@ -314,7 +313,7 @@ public class UploadInfo implements Serializable {
 
     /**
      * Try to guess the mime-type of the uploaded data.
-     * <p/>
+     * <br>
      * NOTE: This is only a guess, there are no guarantees that the return value is correct
      *
      * @return A potential file name

@@ -12,7 +12,7 @@ import me.desair.tus.server.util.AbstractTusExtension;
 /**
  * This extension defines a way for the Client to terminate completed and unfinished
  * uploads allowing the Server to free up used resources.
- * <p/>
+ * <br>
  * If this extension is supported by the Server, it MUST be announced by adding "termination"
  * to the Tus-Extension header.
  */

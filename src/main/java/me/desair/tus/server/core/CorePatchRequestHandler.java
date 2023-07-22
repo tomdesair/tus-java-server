@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory;
 /**
  * The Server SHOULD accept PATCH requests against any upload URL and apply the bytes contained in the message at
  * the given offset specified by the Upload-Offset header.
- * <p/>
+ * <br>
  * The Server MUST acknowledge successful PATCH requests with the 204 No Content status. It MUST include the
  * Upload-Offset header containing the new offset. The new offset MUST be the sum of the offset before the PATCH
  * request and the number of bytes received and processed or stored during the current PATCH request.

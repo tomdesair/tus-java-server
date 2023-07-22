@@ -21,7 +21,7 @@ import org.slf4j.LoggerFactory;
  * Upload locking implementation using the file system file locking mechanism.
  * File locking can also apply to shared network drives. This way the framework supports clustering as long as
  * the upload storage directory is mounted as a shared (network) drive.
- * <p/>
+ * <br>
  * File locks are also automatically released on application (JVM) shutdown. This means the file locking is not
  * persistent and prevents cleanup and stale lock issues.
  */

@@ -3,7 +3,7 @@
 # tus-java-server
 This library can be used to enable resumable (and potentially asynchronous) file uploads in any Java web application. This allows the users of your application to upload large files over slow and unreliable internet connections. The ability to pause or resume a file upload (after a connection loss or reset) is achieved by implementing the open file upload protocol tus (https://tus.io/). This library implements the server-side of the tus v1.0.0 protocol with [all optional extensions](#tus-protocol-extensions). 
 
-The Javadoc of this library can be found at https://tus.desair.me/. The following Java versions are supported: 7, 8, 9, 10 and 11.
+The Javadoc of this library can be found at https://tus.desair.me/. The following Java versions are supported: 8, 9, 10 and 11.
 
 ## Quick Start and Examples
 The tus-java-server library only depends on Java Servlet API 3.1 and some Apache Commons utility libraries. This means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on the file system of the application server (and currently this is the only option, see [configuration section](#usage-and-configuration)).
