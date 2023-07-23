@@ -13,13 +13,11 @@ import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 
 /**
- * A HEAD request is used to determine the offset at which the upload should be continued.
- *
- * <p>The Server MUST always include the Upload-Offset header in the response for a HEAD request,
- * even if the offset is 0, or the upload is already considered completed. If the size of the upload
- * is known, the Server MUST include the Upload-Length header in the response.
- *
- * <p>The Server MUST prevent the client and/or proxies from caching the response by adding the
+ * A HEAD request is used to determine the offset at which the upload should be continued. <br>
+ * The Server MUST always include the Upload-Offset header in the response for a HEAD request, even
+ * if the offset is 0, or the upload is already considered completed. If the size of the upload is
+ * known, the Server MUST include the Upload-Length header in the response. <br>
+ * The Server MUST prevent the client and/or proxies from caching the response by adding the
  * Cache-Control: no-store header to the response.
  */
 public class CoreHeadRequestHandler extends AbstractRequestHandler {

@@ -21,7 +21,7 @@ public interface UploadLockingService {
   /**
    * Clean up any stale locks that are still present.
    *
-   * @throws TusException When cleaning a stale lock fails
+   * @throws IOException When cleaning a stale lock fails
    */
   void cleanupStaleLocks() throws IOException;
 

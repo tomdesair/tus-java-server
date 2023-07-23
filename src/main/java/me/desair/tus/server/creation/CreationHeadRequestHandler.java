@@ -11,13 +11,11 @@ import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 
 /**
- * A HEAD request can be used to retrieve the metadata that was supplied at creation.
- *
- * <p>If an upload contains additional metadata, responses to HEAD requests MUST include the
- * Upload-Metadata header and its value as specified by the Client during the creation.
- *
- * <p>As long as the length of the upload is not known, the Server MUST set Upload-Defer-Length: 1
- * in all responses to HEAD requests.
+ * A HEAD request can be used to retrieve the metadata that was supplied at creation. <br>
+ * If an upload contains additional metadata, responses to HEAD requests MUST include the
+ * Upload-Metadata header and its value as specified by the Client during the creation. <br>
+ * As long as the length of the upload is not known, the Server MUST set Upload-Defer-Length: 1 in
+ * all responses to HEAD requests.
  */
 public class CreationHeadRequestHandler extends AbstractRequestHandler {
 

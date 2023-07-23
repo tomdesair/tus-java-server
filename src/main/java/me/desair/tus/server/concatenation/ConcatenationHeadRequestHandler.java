@@ -16,9 +16,8 @@ import me.desair.tus.server.util.TusServletResponse;
  * The response to a HEAD request for a upload SHOULD NOT contain the Upload-Offset header unless
  * the concatenation has been successfully finished. After successful concatenation, the
  * Upload-Offset and Upload-Length MUST be set and their values MUST be equal. The value of the
- * Upload-Offset header before concatenation is not defined for a upload.
- *
- * <p>The response to a HEAD request for a partial upload MUST contain the Upload-Offset header.
+ * Upload-Offset header before concatenation is not defined for a upload. <br>
+ * The response to a HEAD request for a partial upload MUST contain the Upload-Offset header.
  * Response to HEAD request against partial or upload MUST include the Upload-Concat header and its
  * value as received in the upload creation request.
  */

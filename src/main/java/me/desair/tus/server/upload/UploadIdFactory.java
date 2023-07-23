@@ -41,10 +41,9 @@ public abstract class UploadIdFactory {
   }
 
   /**
-   * Read the upload identifier from the given URL.
-   *
-   * <p>Clients will send requests to upload URLs or provided URLs of completed uploads. This method
-   * is able to parse those URLs and provide the user with the corresponding upload ID.
+   * Read the upload identifier from the given URL. <br>
+   * Clients will send requests to upload URLs or provided URLs of completed uploads. This method is
+   * able to parse those URLs and provide the user with the corresponding upload ID.
    *
    * @param url The URL provided by the client
    * @return The corresponding Upload identifier
