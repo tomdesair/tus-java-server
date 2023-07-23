@@ -17,7 +17,6 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
@@ -35,318 +34,325 @@ import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Implementation of {@link UploadStorageService} that implements storage on disk
- */
+/** Implementation of {@link UploadStorageService} that implements storage on disk. */
 public class DiskStorageService extends AbstractDiskBasedService implements UploadStorageService {
 
-    private static final Logger log = LoggerFactory.getLogger(DiskStorageService.class);
+  private static final Logger log = LoggerFactory.getLogger(DiskStorageService.class);
 
-    private static final String UPLOAD_SUB_DIRECTORY = "uploads";
-    private static final String INFO_FILE = "info";
-    private static final String DATA_FILE = "data";
+  private static final String UPLOAD_SUB_DIRECTORY = "uploads";
+  private static final String INFO_FILE = "info";
+  private static final String DATA_FILE = "data";
 
-    private Long maxUploadSize = null;
-    private Long uploadExpirationPeriod = null;
-    private UploadIdFactory idFactory;
-    private UploadConcatenationService uploadConcatenationService;
+  private Long maxUploadSize = null;
+  private Long uploadExpirationPeriod = null;
+  private UploadIdFactory idFactory;
+  private UploadConcatenationService uploadConcatenationService;
 
-    public DiskStorageService(String storagePath) {
-        super(storagePath + File.separator + UPLOAD_SUB_DIRECTORY);
-        setUploadConcatenationService(new VirtualConcatenationService(this));
+  public DiskStorageService(String storagePath) {
+    super(storagePath + File.separator + UPLOAD_SUB_DIRECTORY);
+    setUploadConcatenationService(new VirtualConcatenationService(this));
+  }
+
+  public DiskStorageService(UploadIdFactory idFactory, String storagePath) {
+    this(storagePath);
+    Validate.notNull(idFactory, "The IdFactory cannot be null");
+    this.idFactory = idFactory;
+  }
+
+  @Override
+  public void setIdFactory(UploadIdFactory idFactory) {
+    Validate.notNull(idFactory, "The IdFactory cannot be null");
+    this.idFactory = idFactory;
+  }
+
+  @Override
+  public void setMaxUploadSize(Long maxUploadSize) {
+    this.maxUploadSize = (maxUploadSize != null && maxUploadSize > 0 ? maxUploadSize : 0);
+  }
+
+  @Override
+  public long getMaxUploadSize() {
+    return maxUploadSize == null ? 0 : maxUploadSize;
+  }
+
+  @Override
+  public UploadInfo getUploadInfo(String uploadUrl, String ownerKey) throws IOException {
+    UploadInfo uploadInfo = getUploadInfo(idFactory.readUploadId(uploadUrl));
+    if (uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
+      return null;
+    } else {
+      return uploadInfo;
     }
+  }
 
-    public DiskStorageService(UploadIdFactory idFactory, String storagePath) {
-        this(storagePath);
-        Validate.notNull(idFactory, "The IdFactory cannot be null");
-        this.idFactory = idFactory;
+  @Override
+  public UploadInfo getUploadInfo(UploadId id) throws IOException {
+    try {
+      Path infoPath = getInfoPath(id);
+      return Utils.readSerializable(infoPath, UploadInfo.class);
+    } catch (UploadNotFoundException e) {
+      return null;
     }
+  }
 
-    @Override
-    public void setIdFactory(UploadIdFactory idFactory) {
-        Validate.notNull(idFactory, "The IdFactory cannot be null");
-        this.idFactory = idFactory;
+  @Override
+  public String getUploadUri() {
+    return idFactory.getUploadUri();
+  }
+
+  @Override
+  public UploadInfo create(UploadInfo info, String ownerKey) throws IOException {
+    UploadId id = createNewId();
+
+    createUploadDirectory(id);
+
+    try {
+      Path bytesPath = getBytesPath(id);
+
+      // Create an empty file to storage the bytes of this upload
+      Files.createFile(bytesPath);
+
+      // Set starting values
+      info.setId(id);
+      info.setOffset(0L);
+      info.setOwnerKey(ownerKey);
+
+      update(info);
+
+      return info;
+    } catch (UploadNotFoundException e) {
+      // Normally this cannot happen
+      log.error("Unable to create UploadInfo because of an upload not found exception", e);
+      return null;
     }
+  }
 
-    @Override
-    public void setMaxUploadSize(Long maxUploadSize) {
-        this.maxUploadSize = (maxUploadSize != null && maxUploadSize > 0 ? maxUploadSize : 0);
-    }
+  @Override
+  public void update(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
+    Path infoPath = getInfoPath(uploadInfo.getId());
+    Utils.writeSerializable(uploadInfo, infoPath);
+  }
 
-    @Override
-    public long getMaxUploadSize() {
-        return maxUploadSize == null ? 0 : maxUploadSize;
-    }
+  @Override
+  public UploadInfo append(UploadInfo info, InputStream inputStream)
+      throws IOException, TusException {
+    if (info != null) {
+      Path bytesPath = getBytesPath(info.getId());
 
-    @Override
-    public UploadInfo getUploadInfo(String uploadUrl, String ownerKey) throws IOException {
-        UploadInfo uploadInfo = getUploadInfo(idFactory.readUploadId(uploadUrl));
-        if (uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
-            return null;
-        } else {
-            return uploadInfo;
-        }
-    }
+      long max = getMaxUploadSize() > 0 ? getMaxUploadSize() : Long.MAX_VALUE;
+      long transferred = 0;
+      Long offset = info.getOffset();
+      long newOffset = offset;
 
-    @Override
-    public UploadInfo getUploadInfo(UploadId id) throws IOException {
+      try (ReadableByteChannel uploadedBytes = Channels.newChannel(inputStream);
+          FileChannel file = FileChannel.open(bytesPath, WRITE)) {
+
         try {
-            Path infoPath = getInfoPath(id);
-            return Utils.readSerializable(infoPath, UploadInfo.class);
-        } catch (UploadNotFoundException e) {
-            return null;
-        }
-    }
+          // Lock will be released when the channel closes
+          file.lock();
 
-    @Override
-    public String getUploadURI() {
-        return idFactory.getUploadURI();
-    }
+          // Validate that the given offset is at the end of the file
+          if (!offset.equals(file.size())) {
+            throw new InvalidUploadOffsetException(
+                "The upload offset does not correspond to the written"
+                    + " bytes. You can only append to the end of an upload");
+          }
 
-    @Override
-    public UploadInfo create(UploadInfo info, String ownerKey) throws IOException {
-        UploadId id = createNewId();
+          // write all bytes in the channel up to the configured maximum
+          transferred = file.transferFrom(uploadedBytes, offset, max - offset);
+          file.force(true);
+          newOffset = offset + transferred;
 
-        createUploadDirectory(id);
-
-        try {
-            Path bytesPath = getBytesPath(id);
-
-            //Create an empty file to storage the bytes of this upload
-            Files.createFile(bytesPath);
-
-            //Set starting values
-            info.setId(id);
-            info.setOffset(0L);
-            info.setOwnerKey(ownerKey);
-
-            update(info);
-
-            return info;
-        } catch (UploadNotFoundException e) {
-            //Normally this cannot happen
-            log.error("Unable to create UploadInfo because of an upload not found exception", e);
-            return null;
-        }
-    }
-
-    @Override
-    public void update(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
-        Path infoPath = getInfoPath(uploadInfo.getId());
-        Utils.writeSerializable(uploadInfo, infoPath);
-    }
-
-    @Override
-    public UploadInfo append(UploadInfo info, InputStream inputStream) throws IOException, TusException {
-        if (info != null) {
-            Path bytesPath = getBytesPath(info.getId());
-
-            long max = getMaxUploadSize() > 0 ? getMaxUploadSize() : Long.MAX_VALUE;
-            long transferred = 0;
-            Long offset = info.getOffset();
-            long newOffset = offset;
-
-            try (ReadableByteChannel uploadedBytes = Channels.newChannel(inputStream);
-                FileChannel file = FileChannel.open(bytesPath, WRITE)) {
-
-                try {
-                    //Lock will be released when the channel closes
-                    file.lock();
-
-                    //Validate that the given offset is at the end of the file
-                    if (!offset.equals(file.size())) {
-                        throw new InvalidUploadOffsetException("The upload offset does not correspond to the written"
-                                + " bytes. You can only append to the end of an upload");
-                    }
-
-                    //write all bytes in the channel up to the configured maximum
-                    transferred = file.transferFrom(uploadedBytes, offset, max - offset);
-                    file.force(true);
-                    newOffset = offset + transferred;
-
-                } catch (Exception ex) {
-                    //An error occurred, try to write as much data as possible
-                    newOffset = writeAsMuchAsPossible(file);
-                    throw ex;
-                }
-
-            } finally {
-                info.setOffset(newOffset);
-                update(info);
-            }
+        } catch (Exception ex) {
+          // An error occurred, try to write as much data as possible
+          newOffset = writeAsMuchAsPossible(file);
+          throw ex;
         }
 
-        return info;
+      } finally {
+        info.setOffset(newOffset);
+        update(info);
+      }
     }
 
-    @Override
-    public void removeLastNumberOfBytes(UploadInfo info, long byteCount)
-            throws UploadNotFoundException, IOException {
+    return info;
+  }
 
-        if (info != null && byteCount > 0) {
-            Path bytesPath = getBytesPath(info.getId());
+  @Override
+  public void removeLastNumberOfBytes(UploadInfo info, long byteCount)
+      throws UploadNotFoundException, IOException {
 
-            try (FileChannel file = FileChannel.open(bytesPath, WRITE)) {
+    if (info != null && byteCount > 0) {
+      Path bytesPath = getBytesPath(info.getId());
 
-                //Lock will be released when the channel closes
-                file.lock();
+      try (FileChannel file = FileChannel.open(bytesPath, WRITE)) {
 
-                file.truncate(file.size() - byteCount);
-                file.force(true);
+        // Lock will be released when the channel closes
+        file.lock();
 
-                info.setOffset(file.size());
-                update(info);
-            }
-        }
+        file.truncate(file.size() - byteCount);
+        file.force(true);
+
+        info.setOffset(file.size());
+        update(info);
+      }
+    }
+  }
+
+  @Override
+  public void terminateUpload(UploadInfo info) throws UploadNotFoundException, IOException {
+    if (info != null) {
+      Path uploadPath = getPathInStorageDirectory(info.getId());
+      FileUtils.deleteDirectory(uploadPath.toFile());
+    }
+  }
+
+  @Override
+  public Long getUploadExpirationPeriod() {
+    return uploadExpirationPeriod;
+  }
+
+  @Override
+  public void setUploadExpirationPeriod(Long uploadExpirationPeriod) {
+    this.uploadExpirationPeriod = uploadExpirationPeriod;
+  }
+
+  @Override
+  public void setUploadConcatenationService(UploadConcatenationService concatenationService) {
+    Validate.notNull(concatenationService);
+    this.uploadConcatenationService = concatenationService;
+  }
+
+  @Override
+  public UploadConcatenationService getUploadConcatenationService() {
+    return uploadConcatenationService;
+  }
+
+  @Override
+  public InputStream getUploadedBytes(String uploadUri, String ownerKey)
+      throws IOException, UploadNotFoundException {
+
+    UploadId id = idFactory.readUploadId(uploadUri);
+
+    UploadInfo uploadInfo = getUploadInfo(id);
+    if (uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
+      throw new UploadNotFoundException(
+          "The upload with id " + id + " could not be found for owner " + ownerKey);
+    } else {
+      return getUploadedBytes(id);
+    }
+  }
+
+  @Override
+  public InputStream getUploadedBytes(UploadId id) throws IOException, UploadNotFoundException {
+    InputStream inputStream = null;
+    UploadInfo uploadInfo = getUploadInfo(id);
+    if (UploadType.CONCATENATED.equals(uploadInfo.getUploadType())
+        && uploadConcatenationService != null) {
+      inputStream = uploadConcatenationService.getConcatenatedBytes(uploadInfo);
+
+    } else {
+      Path bytesPath = getBytesPath(id);
+      // If bytesPath is not null, we know this is a valid Upload URI
+      if (bytesPath != null) {
+        inputStream = Channels.newInputStream(FileChannel.open(bytesPath, READ));
+      }
     }
 
-    @Override
-    public void terminateUpload(UploadInfo info) throws UploadNotFoundException, IOException {
-        if (info != null) {
-            Path uploadPath = getPathInStorageDirectory(info.getId());
-            FileUtils.deleteDirectory(uploadPath.toFile());
-        }
-    }
+    return inputStream;
+  }
 
-    @Override
-    public Long getUploadExpirationPeriod() {
-        return uploadExpirationPeriod;
-    }
+  @Override
+  public void copyUploadTo(UploadInfo info, OutputStream outputStream)
+      throws UploadNotFoundException, IOException {
 
-    @Override
-    public void setUploadExpirationPeriod(Long uploadExpirationPeriod) {
-        this.uploadExpirationPeriod = uploadExpirationPeriod;
-    }
+    List<UploadInfo> uploads = getUploads(info);
 
-    @Override
-    public void setUploadConcatenationService(UploadConcatenationService concatenationService) {
-        Validate.notNull(concatenationService);
-        this.uploadConcatenationService = concatenationService;
-    }
+    try (WritableByteChannel outputChannel = Channels.newChannel(outputStream)) {
 
-    @Override
-    public UploadConcatenationService getUploadConcatenationService() {
-        return uploadConcatenationService;
-    }
+      for (UploadInfo upload : uploads) {
+        if (upload == null) {
+          log.warn("We cannot copy the bytes of an upload that does not exist");
 
-    @Override
-    public InputStream getUploadedBytes(String uploadURI, String ownerKey)
-            throws IOException, UploadNotFoundException {
-
-        UploadId id = idFactory.readUploadId(uploadURI);
-
-        UploadInfo uploadInfo = getUploadInfo(id);
-        if (uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
-            throw new UploadNotFoundException("The upload with id " + id + " could not be found for owner " + ownerKey);
-        } else {
-            return getUploadedBytes(id);
-        }
-    }
-
-    @Override
-    public InputStream getUploadedBytes(UploadId id) throws IOException, UploadNotFoundException {
-        InputStream inputStream = null;
-        UploadInfo uploadInfo = getUploadInfo(id);
-        if (UploadType.CONCATENATED.equals(uploadInfo.getUploadType()) && uploadConcatenationService != null) {
-            inputStream = uploadConcatenationService.getConcatenatedBytes(uploadInfo);
+        } else if (upload.isUploadInProgress()) {
+          log.warn(
+              "We cannot copy the bytes of upload {} because it is still in progress",
+              upload.getId());
 
         } else {
-            Path bytesPath = getBytesPath(id);
-            //If bytesPath is not null, we know this is a valid Upload URI
-            if (bytesPath != null) {
-                inputStream = Channels.newInputStream(FileChannel.open(bytesPath, READ));
-            }
+          Path bytesPath = getBytesPath(upload.getId());
+          try (FileChannel file = FileChannel.open(bytesPath, READ)) {
+            // Efficiently copy the bytes to the output stream
+            file.transferTo(0, upload.getLength(), outputChannel);
+          }
         }
-
-        return inputStream;
+      }
     }
+  }
 
-    @Override
-    public void copyUploadTo(UploadInfo info, OutputStream outputStream)
-            throws UploadNotFoundException, IOException {
+  @Override
+  public void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException {
+    try (DirectoryStream<Path> expiredUploadsStream =
+        Files.newDirectoryStream(
+            getStoragePath(), new ExpiredUploadFilter(this, uploadLockingService))) {
 
-        List<UploadInfo> uploads = getUploads(info);
-
-        WritableByteChannel outputChannel = Channels.newChannel(outputStream);
-
-        for (UploadInfo upload : uploads) {
-            if (upload == null) {
-                log.warn("We cannot copy the bytes of an upload that does not exist");
-
-            } else if (upload.isUploadInProgress()) {
-                log.warn("We cannot copy the bytes of upload {} because it is still in progress", upload.getId());
-
-            } else {
-                Path bytesPath = getBytesPath(upload.getId());
-                try (FileChannel file = FileChannel.open(bytesPath, READ)) {
-                    //Efficiently copy the bytes to the output stream
-                    file.transferTo(0, upload.getLength(), outputChannel);
-                }
-            }
-        }
+      for (Path path : expiredUploadsStream) {
+        FileUtils.deleteDirectory(path.toFile());
+      }
     }
+  }
 
-    @Override
-    public void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException {
-        try (DirectoryStream<Path> expiredUploadsStream = Files.newDirectoryStream(getStoragePath(),
-                new ExpiredUploadFilter(this, uploadLockingService))) {
+  private List<UploadInfo> getUploads(UploadInfo info) throws IOException, UploadNotFoundException {
+    List<UploadInfo> uploads;
 
-            for (Path path : expiredUploadsStream) {
-                FileUtils.deleteDirectory(path.toFile());
-            }
-        }
+    if (info != null
+        && UploadType.CONCATENATED.equals(info.getUploadType())
+        && uploadConcatenationService != null) {
+      uploadConcatenationService.merge(info);
+      uploads = uploadConcatenationService.getPartialUploads(info);
+    } else {
+      uploads = Collections.singletonList(info);
     }
+    return uploads;
+  }
 
-    private List<UploadInfo> getUploads(UploadInfo info) throws IOException, UploadNotFoundException {
-        List<UploadInfo> uploads;
+  private Path getBytesPath(UploadId id) throws UploadNotFoundException {
+    return getPathInUploadDir(id, DATA_FILE);
+  }
 
-        if (info != null && UploadType.CONCATENATED.equals(info.getUploadType())
-                && uploadConcatenationService != null) {
-            uploadConcatenationService.merge(info);
-            uploads = uploadConcatenationService.getPartialUploads(info);
-        } else {
-            uploads = Collections.singletonList(info);
-        }
-        return uploads;
+  private Path getInfoPath(UploadId id) throws UploadNotFoundException {
+    return getPathInUploadDir(id, INFO_FILE);
+  }
+
+  private Path createUploadDirectory(UploadId id) throws IOException {
+    return Files.createDirectories(getPathInStorageDirectory(id));
+  }
+
+  private Path getPathInUploadDir(UploadId id, String fileName) throws UploadNotFoundException {
+    // Get the upload directory
+    Path uploadDir = getPathInStorageDirectory(id);
+    if (uploadDir != null && Files.exists(uploadDir)) {
+      return uploadDir.resolve(fileName);
+    } else {
+      throw new UploadNotFoundException("The upload for id " + id + " was not found.");
     }
+  }
 
-    private Path getBytesPath(UploadId id) throws UploadNotFoundException {
-        return getPathInUploadDir(id, DATA_FILE);
-    }
+  private synchronized UploadId createNewId() throws IOException {
+    UploadId id;
+    do {
+      id = idFactory.createId();
+      // For extra safety, double check that this ID is not in use yet
+    } while (getUploadInfo(id) != null);
+    return id;
+  }
 
-    private Path getInfoPath(UploadId id) throws UploadNotFoundException {
-        return getPathInUploadDir(id, INFO_FILE);
+  private long writeAsMuchAsPossible(FileChannel file) throws IOException {
+    long offset = 0;
+    if (file != null) {
+      file.force(true);
+      offset = file.size();
     }
-
-    private Path createUploadDirectory(UploadId id) throws IOException {
-        return Files.createDirectories(getPathInStorageDirectory(id));
-    }
-
-    private Path getPathInUploadDir(UploadId id, String fileName) throws UploadNotFoundException {
-        //Get the upload directory
-        Path uploadDir = getPathInStorageDirectory(id);
-        if (uploadDir != null && Files.exists(uploadDir)) {
-            return uploadDir.resolve(fileName);
-        } else {
-            throw new UploadNotFoundException("The upload for id " + id + " was not found.");
-        }
-    }
-
-    private synchronized UploadId createNewId() throws IOException {
-        UploadId id;
-        do {
-            id = idFactory.createId();
-            //For extra safety, double check that this ID is not in use yet
-        } while (getUploadInfo(id) != null);
-        return id;
-    }
-
-    private long writeAsMuchAsPossible(FileChannel file) throws IOException {
-        long offset = 0;
-        if (file != null) {
-            file.force(true);
-            offset = file.size();
-        }
-        return offset;
-    }
+    return offset;
+  }
 }

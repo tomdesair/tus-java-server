@@ -16,7 +16,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.FileTime;
 import java.util.UUID;
-
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
@@ -35,108 +34,115 @@ import org.mockito.stubbing.Answer;
 @RunWith(MockitoJUnitRunner.Silent.class)
 public class DiskLockingServiceTest {
 
-    public static final String UPLOAD_URL = "/upload/test";
-    private DiskLockingService lockingService;
+  public static final String UPLOAD_URL = "/upload/test";
+  private DiskLockingService lockingService;
 
-    @Mock
-    private UploadIdFactory idFactory;
+  @Mock private UploadIdFactory idFactory;
 
-    private static Path storagePath;
+  private static Path storagePath;
 
-    @BeforeClass
-    public static void setupDataFolder() throws IOException {
-        storagePath = Paths.get("target", "tus", "data").toAbsolutePath();
-        Files.createDirectories(storagePath);
-    }
+  @BeforeClass
+  public static void setupDataFolder() throws IOException {
+    storagePath = Paths.get("target", "tus", "data").toAbsolutePath();
+    Files.createDirectories(storagePath);
+  }
 
-    @AfterClass
-    public static void destroyDataFolder() throws IOException {
-        FileUtils.deleteDirectory(storagePath.toFile());
-    }
+  @AfterClass
+  public static void destroyDataFolder() throws IOException {
+    FileUtils.deleteDirectory(storagePath.toFile());
+  }
 
-    @Before
-    public void setUp() {
-        reset(idFactory);
-        when(idFactory.getUploadURI()).thenReturn(UPLOAD_URL);
-        when(idFactory.createId()).thenReturn(new UploadId(UUID.randomUUID()));
-        when(idFactory.readUploadId(nullable(String.class))).then(new Answer<UploadId>() {
-            @Override
-            public UploadId answer(InvocationOnMock invocation) throws Throwable {
-                return new UploadId(StringUtils.substringAfter(invocation.getArguments()[0].toString(),
-                        UPLOAD_URL + "/"));
-            }
-        });
+  @Before
+  public void setUp() {
+    reset(idFactory);
+    when(idFactory.getUploadUri()).thenReturn(UPLOAD_URL);
+    when(idFactory.createId()).thenReturn(new UploadId(UUID.randomUUID()));
+    when(idFactory.readUploadId(nullable(String.class)))
+        .then(
+            new Answer<UploadId>() {
+              @Override
+              public UploadId answer(InvocationOnMock invocation) throws Throwable {
+                return new UploadId(
+                    StringUtils.substringAfter(
+                        invocation.getArguments()[0].toString(), UPLOAD_URL + "/"));
+              }
+            });
 
-        lockingService = new DiskLockingService(idFactory, storagePath.toString());
-    }
+    lockingService = new DiskLockingService(idFactory, storagePath.toString());
+  }
 
-    @Test
-    public void lockUploadByUri() throws Exception {
-        UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
+  @Test
+  public void lockUploadByUri() throws Exception {
+    UploadLock uploadLock =
+        lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
 
-        assertThat(uploadLock, not(nullValue()));
+    assertThat(uploadLock, not(nullValue()));
 
-        uploadLock.release();
-    }
+    uploadLock.release();
+  }
 
-    @Test
-    public void isLockedTrue() throws Exception {
-        UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
+  @Test
+  public void isLockedTrue() throws Exception {
+    UploadLock uploadLock =
+        lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
 
-        assertThat(lockingService.isLocked(new UploadId("000003f1-a850-49de-af03-997272d834c9")), is(true));
+    assertThat(
+        lockingService.isLocked(new UploadId("000003f1-a850-49de-af03-997272d834c9")), is(true));
 
-        uploadLock.release();
-    }
+    uploadLock.release();
+  }
 
-    @Test
-    public void isLockedFalse() throws Exception {
-        UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
-        uploadLock.release();
+  @Test
+  public void isLockedFalse() throws Exception {
+    UploadLock uploadLock =
+        lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
+    uploadLock.release();
 
-        assertThat(lockingService.isLocked(new UploadId("000003f1-a850-49de-af03-997272d834c9")), is(false));
-    }
+    assertThat(
+        lockingService.isLocked(new UploadId("000003f1-a850-49de-af03-997272d834c9")), is(false));
+  }
 
-    @Test
-    public void lockUploadNotExists() throws Exception {
-        reset(idFactory);
-        when(idFactory.readUploadId(nullable(String.class))).thenReturn(null);
+  @Test
+  public void lockUploadNotExists() throws Exception {
+    reset(idFactory);
+    when(idFactory.readUploadId(nullable(String.class))).thenReturn(null);
 
-        UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
+    UploadLock uploadLock =
+        lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
 
-        assertThat(uploadLock, nullValue());
-    }
+    assertThat(uploadLock, nullValue());
+  }
 
-    @Test
-    public void cleanupStaleLocks() throws Exception {
-        Path locksPath = storagePath.resolve("locks");
+  @Test
+  public void cleanupStaleLocks() throws Exception {
+    Path locksPath = storagePath.resolve("locks");
 
-        String activeLock = "000003f1-a850-49de-af03-997272d834c9";
-        UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/" + activeLock);
+    String activeLock = "000003f1-a850-49de-af03-997272d834c9";
+    UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/" + activeLock);
 
-        assertThat(uploadLock, not(nullValue()));
+    assertThat(uploadLock, not(nullValue()));
 
-        String staleLock = UUID.randomUUID().toString();
-        Files.createFile(locksPath.resolve(staleLock));
+    String staleLock = UUID.randomUUID().toString();
+    Files.createFile(locksPath.resolve(staleLock));
 
-        String recentLock = UUID.randomUUID().toString();
-        Files.createFile(locksPath.resolve(recentLock));
+    String recentLock = UUID.randomUUID().toString();
+    Files.createFile(locksPath.resolve(recentLock));
 
-        Files.setLastModifiedTime(locksPath.resolve(staleLock),
-                FileTime.fromMillis(System.currentTimeMillis() - 20000));
-        Files.setLastModifiedTime(locksPath.resolve(activeLock),
-                FileTime.fromMillis(System.currentTimeMillis() - 20000));
+    Files.setLastModifiedTime(
+        locksPath.resolve(staleLock), FileTime.fromMillis(System.currentTimeMillis() - 20000));
+    Files.setLastModifiedTime(
+        locksPath.resolve(activeLock), FileTime.fromMillis(System.currentTimeMillis() - 20000));
 
-        assertTrue(Files.exists(locksPath.resolve(staleLock)));
-        assertTrue(Files.exists(locksPath.resolve(activeLock)));
-        assertTrue(Files.exists(locksPath.resolve(recentLock)));
+    assertTrue(Files.exists(locksPath.resolve(staleLock)));
+    assertTrue(Files.exists(locksPath.resolve(activeLock)));
+    assertTrue(Files.exists(locksPath.resolve(recentLock)));
 
-        lockingService.cleanupStaleLocks();
+    lockingService.cleanupStaleLocks();
 
-        assertFalse(Files.exists(locksPath.resolve(staleLock)));
-        assertTrue(Files.exists(locksPath.resolve(activeLock)));
-        assertTrue(Files.exists(locksPath.resolve(recentLock)));
+    assertFalse(Files.exists(locksPath.resolve(staleLock)));
+    assertTrue(Files.exists(locksPath.resolve(activeLock)));
+    assertTrue(Files.exists(locksPath.resolve(recentLock)));
 
-        uploadLock.release();
-    }
-
+    uploadLock.release();
+  }
 }

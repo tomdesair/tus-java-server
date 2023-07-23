@@ -14,40 +14,40 @@ import org.springframework.mock.web.MockHttpServletRequest;
 
 public class HttpMethodValidatorTest {
 
-    private MockHttpServletRequest servletRequest;
-    private HttpMethodValidator validator;
-    private UploadStorageService uploadStorageService;
-    private UploadIdFactory idFactory;
+  private MockHttpServletRequest servletRequest;
+  private HttpMethodValidator validator;
+  private UploadStorageService uploadStorageService;
+  private UploadIdFactory idFactory;
 
-    @Before
-    public void setUp() {
-        servletRequest = new MockHttpServletRequest();
-        validator = new HttpMethodValidator();
-    }
+  @Before
+  public void setUp() {
+    servletRequest = new MockHttpServletRequest();
+    validator = new HttpMethodValidator();
+  }
 
-    @Test
-    public void validateValid() throws Exception {
-        try {
-            validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
-        } catch (Exception ex) {
-            fail();
-        }
+  @Test
+  public void validateValid() throws Exception {
+    try {
+      validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+    } catch (Exception ex) {
+      fail();
     }
+  }
 
-    @Test(expected = UnsupportedMethodException.class)
-    public void validateInvalid() throws Exception {
-        validator.validate(null, servletRequest, uploadStorageService, null);
-    }
+  @Test(expected = UnsupportedMethodException.class)
+  public void validateInvalid() throws Exception {
+    validator.validate(null, servletRequest, uploadStorageService, null);
+  }
 
-    @Test
-    public void supports() throws Exception {
-        assertThat(validator.supports(HttpMethod.GET), is(true));
-        assertThat(validator.supports(HttpMethod.POST), is(true));
-        assertThat(validator.supports(HttpMethod.PUT), is(true));
-        assertThat(validator.supports(HttpMethod.DELETE), is(true));
-        assertThat(validator.supports(HttpMethod.HEAD), is(true));
-        assertThat(validator.supports(HttpMethod.OPTIONS), is(true));
-        assertThat(validator.supports(HttpMethod.PATCH), is(true));
-        assertThat(validator.supports(null), is(true));
-    }
+  @Test
+  public void supports() throws Exception {
+    assertThat(validator.supports(HttpMethod.GET), is(true));
+    assertThat(validator.supports(HttpMethod.POST), is(true));
+    assertThat(validator.supports(HttpMethod.PUT), is(true));
+    assertThat(validator.supports(HttpMethod.DELETE), is(true));
+    assertThat(validator.supports(HttpMethod.HEAD), is(true));
+    assertThat(validator.supports(HttpMethod.OPTIONS), is(true));
+    assertThat(validator.supports(HttpMethod.PATCH), is(true));
+    assertThat(validator.supports(null), is(true));
+  }
 }
