@@ -36,12 +36,12 @@
         <dependency>
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
-            <version>[2.7, 2.99)</version>
+            <version>[2.6, 2.99)</version>
         </dependency>
         <dependency>
             <groupId>commons-codec</groupId>
             <artifactId>commons-codec</artifactId>
-            <version>[1.13, 1.99)</version>
+            <version>[1.11, 1.99)</version>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -405,7 +405,7 @@
         <connection>scm:git:https://github.com/tomdesair/tus-java-server.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/tomdesair/tus-java-server.git</developerConnection>
         <url>https://github.com/tomdesair/tus-java-server/tree/master</url>
-      <tag>HEAD</tag>
-  </scm>
+        <tag>HEAD</tag>
+    </scm>
 
 </project>
