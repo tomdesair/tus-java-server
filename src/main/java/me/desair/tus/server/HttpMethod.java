@@ -23,6 +23,7 @@ public enum HttpMethod {
   TRACE,
   PATCH;
 
+  /** Get the {@link HttpMethod} instance that matches the provided name. */
   public static HttpMethod forName(String name) {
     for (HttpMethod method : HttpMethod.values()) {
       if (StringUtils.equalsIgnoreCase(method.name(), name)) {
@@ -33,6 +34,10 @@ public enum HttpMethod {
     return null;
   }
 
+  /**
+   * Get the {@link HttpMethod} instance of this request if it is present in the provided
+   * supportedHttpMethods set.
+   */
   public static HttpMethod getMethodIfSupported(
       HttpServletRequest request, Set<HttpMethod> supportedHttpMethods) {
     Validate.notNull(request, "The HttpServletRequest cannot be null");

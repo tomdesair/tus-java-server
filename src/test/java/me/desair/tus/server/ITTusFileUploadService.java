@@ -38,6 +38,7 @@ import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+/** Test cases for the {@link TusFileUploadService}. */
 public class ITTusFileUploadService {
 
   protected static final String UPLOAD_URI = "/test/upload";
@@ -1241,7 +1242,7 @@ public class ITTusFileUploadService {
   }
 
   @Test
-  public void testChunkedDecodingDisabledAndRegexUploadURI() throws Exception {
+  public void testChunkedDecodingDisabledAndRegexUploadUri() throws Exception {
     String chunkedContent =
         "1B;test=value\r\nThis upload looks chunked, \r\n" + "D\r\nbut it's not!\r\n" + "\r\n0\r\n";
 

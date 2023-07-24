@@ -2,13 +2,13 @@ package me.desair.tus.server.upload;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.codec.Charsets;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.EqualsBuilder;
@@ -36,7 +36,7 @@ public class UploadInfo implements Serializable {
   private List<String> concatenationPartIds;
   private String uploadConcatHeaderValue;
 
-  /** Default constructor to use if an upload is created without HTTP request */
+  /** Default constructor to use if an upload is created without HTTP request. */
   public UploadInfo() {
     creationTimestamp = getCurrentTime();
     offset = 0L;
@@ -45,7 +45,7 @@ public class UploadInfo implements Serializable {
   }
 
   /**
-   * Constructor to use if the upload is created using an HTTP request (which is usually the case)
+   * Constructor to use if the upload is created using an HTTP request (which is usually the case).
    *
    * @param servletRequest The HTTP request that creates the new upload
    */
@@ -131,7 +131,7 @@ public class UploadInfo implements Serializable {
   }
 
   /**
-   * Did the client provide any metadata when creating this upload?
+   * Check if the client provided any metadata when creating this upload.
    *
    * @return True if metadata is present, false otherwise
    */
@@ -160,7 +160,7 @@ public class UploadInfo implements Serializable {
   }
 
   /**
-   * Did the client already provide a total upload length?
+   * Check if the client already provided a total upload length.
    *
    * @return True if the total upload length is known, false otherwise
    */
@@ -170,7 +170,7 @@ public class UploadInfo implements Serializable {
 
   /**
    * An upload is still in progress: - as long as we did not receive information on the total length
-   * (see {@link UploadInfo#getLength()}) - the total length does not match the current offset
+   * (see {@link UploadInfo#getLength()}) - the total length does not match the current offset.
    *
    * @return true if the upload is still in progress, false otherwise
    */
@@ -180,7 +180,7 @@ public class UploadInfo implements Serializable {
 
   /**
    * Set the unique identifier of this upload process The unique identifier is represented by a
-   * {@link UploadId} instance
+   * {@link UploadId} instance.
    *
    * @param id The unique identifier to use
    */
@@ -190,7 +190,7 @@ public class UploadInfo implements Serializable {
 
   /**
    * Get the unique identifier of this upload process The unique identifier is represented by a
-   * {@link UploadId} instance
+   * {@link UploadId} instance.
    *
    * @return The unique upload identifier of this upload
    */
@@ -222,7 +222,7 @@ public class UploadInfo implements Serializable {
 
   /**
    * Indicates the timestamp after which the upload expires in milliseconds since January 1, 1970,
-   * 00:00:00 GMT
+   * 00:00:00 GMT.
    *
    * @return The expiration timestamp in milliseconds
    */
@@ -241,7 +241,7 @@ public class UploadInfo implements Serializable {
 
   /**
    * The timestamp this upload was created in number of milliseconds since January 1, 1970, 00:00:00
-   * GMT
+   * GMT.
    *
    * @return Creation timestamp of this upload object
    */
@@ -301,7 +301,7 @@ public class UploadInfo implements Serializable {
   }
 
   /**
-   * Set the original value of the "Upload-Concat" HTTP header that was provided by the client
+   * Set the original value of the "Upload-Concat" HTTP header that was provided by the client.
    *
    * @param uploadConcatHeaderValue The original value of the "Upload-Concat" HTTP header
    */
@@ -310,7 +310,7 @@ public class UploadInfo implements Serializable {
   }
 
   /**
-   * Get the original value of the "Upload-Concat" HTTP header that was provided by the client
+   * Get the original value of the "Upload-Concat" HTTP header that was provided by the client.
    *
    * @return The original value of the "Upload-Concat" HTTP header
    */
@@ -354,7 +354,7 @@ public class UploadInfo implements Serializable {
   }
 
   /**
-   * Check if this upload is expired
+   * Check if this upload is expired.
    *
    * @return True if the upload is expired, false otherwise
    */
@@ -404,7 +404,7 @@ public class UploadInfo implements Serializable {
         .toHashCode();
   }
 
-  /** Get the current time in the number of milliseconds since January 1, 1970, 00:00:00 GMT */
+  /** Get the current time in the number of milliseconds since January 1, 1970, 00:00:00 GMT. */
   protected long getCurrentTime() {
     return new Date().getTime();
   }
@@ -421,7 +421,7 @@ public class UploadInfo implements Serializable {
     if (encodedValue == null) {
       return null;
     } else {
-      return new String(Base64.decodeBase64(encodedValue), Charsets.UTF_8);
+      return new String(Base64.decodeBase64(encodedValue), StandardCharsets.UTF_8);
     }
   }
 }

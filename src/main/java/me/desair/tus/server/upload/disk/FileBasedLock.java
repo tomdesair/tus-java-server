@@ -31,6 +31,7 @@ public class FileBasedLock implements UploadLock {
   private FileChannel fileChannel = null;
   protected Path lockPath;
 
+  /** Constructor. */
   public FileBasedLock(String uploadUri, Path lockPath)
       throws UploadAlreadyLockedException, IOException {
     Validate.notBlank(uploadUri, "The upload URI cannot be blank");

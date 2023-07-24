@@ -23,6 +23,7 @@ import org.apache.commons.lang3.StringUtils;
  */
 public class TusResumableValidator implements RequestValidator {
 
+  /** Validate tus protocol version. */
   public void validate(
       HttpMethod method,
       HttpServletRequest request,

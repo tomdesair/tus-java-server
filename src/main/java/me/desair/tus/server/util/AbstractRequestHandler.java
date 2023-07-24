@@ -4,7 +4,7 @@ import me.desair.tus.server.RequestHandler;
 
 /**
  * Abstract {@link me.desair.tus.server.RequestHandler} implementation that contains the common
- * functionality
+ * functionality.
  */
 public abstract class AbstractRequestHandler implements RequestHandler {
 

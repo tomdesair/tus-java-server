@@ -8,18 +8,18 @@ import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 
-/** Interface that represents an extension in the tus protocol */
+/** Interface that represents an extension in the tus protocol. */
 public interface TusExtension {
 
   /**
-   * The name of the Tus extension that can be used to disable or enable the extension
+   * The name of the Tus extension that can be used to disable or enable the extension.
    *
    * @return The name of the extension
    */
   String getName();
 
   /**
-   * Validate the given request
+   * Validate the given request.
    *
    * @param method The HTTP method of this request (taking into account overrides)
    * @param servletRequest The HTTP request
@@ -36,7 +36,7 @@ public interface TusExtension {
       throws TusException, IOException;
 
   /**
-   * Process the given request
+   * Process the given request.
    *
    * @param method The HTTP method of this request (taking into account overrides)
    * @param servletRequest The HTTP request
@@ -75,7 +75,7 @@ public interface TusExtension {
       throws IOException, TusException;
 
   /**
-   * The minimal list of HTTP methods that this extension needs to function properly
+   * The minimal list of HTTP methods that this extension needs to function properly.
    *
    * @return The list of HTTP methods required by this extension
    */

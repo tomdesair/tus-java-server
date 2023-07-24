@@ -15,7 +15,7 @@ import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 
-/** Send the uploaded bytes of finished uploads */
+/** Send the uploaded bytes of finished uploads. */
 public class DownloadGetRequestHandler extends AbstractRequestHandler {
 
   private static final String CONTENT_DISPOSITION_FORMAT =

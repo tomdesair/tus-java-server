@@ -6,18 +6,17 @@ import static org.junit.Assert.fail;
 
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.UnsupportedMethodException;
-import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
+/** Test cases for the {@link HttpMethodValidator}. */
 public class HttpMethodValidatorTest {
 
   private MockHttpServletRequest servletRequest;
   private HttpMethodValidator validator;
   private UploadStorageService uploadStorageService;
-  private UploadIdFactory idFactory;
 
   @Before
   public void setUp() {

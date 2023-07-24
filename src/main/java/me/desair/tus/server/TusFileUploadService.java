@@ -49,6 +49,7 @@ public class TusFileUploadService {
   private boolean isThreadLocalCacheEnabled = false;
   private boolean isChunkedTransferDecodingEnabled = false;
 
+  /** Constructor. */
   public TusFileUploadService() {
     String storagePath = FileUtils.getTempDirectoryPath() + File.separator + "tus";
     this.uploadStorageService = new DiskStorageService(idFactory, storagePath);
@@ -104,9 +105,9 @@ public class TusFileUploadService {
    */
   public TusFileUploadService withUploadIdFactory(UploadIdFactory uploadIdFactory) {
     Validate.notNull(uploadIdFactory, "The UploadIdFactory cannot be null");
-    String previousUploadURI = this.idFactory.getUploadUri();
+    String previousUploadUri = this.idFactory.getUploadUri();
     this.idFactory = uploadIdFactory;
-    this.idFactory.setUploadUri(previousUploadURI);
+    this.idFactory.setUploadUri(previousUploadUri);
     this.uploadStorageService.setIdFactory(this.idFactory);
     this.uploadLockingService.setIdFactory(this.idFactory);
     return this;
