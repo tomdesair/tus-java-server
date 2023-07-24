@@ -176,13 +176,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>2.22.2</version>
-                <dependencies>
-                    <dependency>
-                        <groupId>org.ow2.asm</groupId>
-                        <artifactId>asm</artifactId>
-                        <version>6.2.1</version>
-                    </dependency>
-                </dependencies>
                 <configuration>
                     <!-- Sets the VM argument line used when unit tests are run. -->
                     <argLine>${surefireArgLine}</argLine>
@@ -195,13 +188,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <version>2.22.2</version>
-                <dependencies>
-                    <dependency>
-                        <groupId>org.ow2.asm</groupId>
-                        <artifactId>asm</artifactId>
-                        <version>6.2.1</version>
-                    </dependency>
-                </dependencies>
                 <configuration>
                     <!-- Sets the VM argument line used when integration tests are run. -->
                     <argLine>${failsafeArgLine}</argLine>
@@ -334,6 +320,7 @@
                         <executions>
                             <execution>
                                 <id>attach-sources</id>
+                                <phase>install</phase>
                                 <goals>
                                     <goal>jar-no-fork</goal>
                                 </goals>
@@ -348,6 +335,7 @@
                         <executions>
                             <execution>
                                 <id>attach-javadocs</id>
+                                <phase>install</phase>
                                 <goals>
                                     <goal>aggregate-jar</goal>
                                 </goals>
