@@ -721,7 +721,8 @@ public class DiskStorageServiceTest {
     Path nonExistentPath = Paths.get("target", "tus", "non-existent-" + UUID.randomUUID());
     assertFalse(Files.exists(nonExistentPath));
 
-    DiskStorageService newStorageService = new DiskStorageService(idFactory, nonExistentPath.toString());
+    DiskStorageService newStorageService =
+        new DiskStorageService(idFactory, nonExistentPath.toString());
 
     // This should not throw an exception even if the directory does not exist
     newStorageService.cleanupExpiredUploads(uploadLockingService);
