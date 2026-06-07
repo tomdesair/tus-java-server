@@ -22,11 +22,11 @@ jobs:
   mvn-install:
     strategy:
       matrix:
-        java: [17]
+        java: [21, 25]
         os: [ubuntu-latest, windows-latest]
         include:
           - os: ubuntu-latest
-            java: 17
+            java: 25
             upload-dependency-graph: true
             run-sonarcloud: true
             run-coveralls: true
