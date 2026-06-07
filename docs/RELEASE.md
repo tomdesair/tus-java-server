@@ -8,19 +8,20 @@ To perform a release, ensure you have the following installed and configured loc
 
 1. **Java 17+**: Ensure the JDK is installed and the `JAVA_HOME` environment variable is set.
 2. **Maven (`mvn`)**: Ensure Apache Maven is installed (3.3.x or higher).
-3. **Sonatype Jira Account**: You must have a Sonatype account and be authorized to deploy to the `me.desair.tus` group ID on OSSRH.
+3. **Sonatype Jira Account**: You must have a Sonatype account and be authorized to deploy to the `me.desair.tus` group ID on Maven Central.
 4. **GitHub Access**: Write access to the [tomdesair/tus-java-server](https://github.com/tomdesair/tus-java-server) repository.
-5. **GPG Key**: A personal GPG code signing key generated, published to a key server (e.g., `hkps://keyserver.ubuntu.com`), and configured locally.
+5. **GPG Key**: A personal GPG code signing key generated, published to a key server (e.g., `hkps://keyserver.ubuntu.com`), and configured locally. More info can be found here: https://central.sonatype.org/publish/requirements/gpg/
 6. **Maven Settings (`settings.xml`)**:
-   Configure your Sonatype credentials and GPG profile in your `~/.m2/settings.xml` file:
+   Generate your Sonatype Central Portal Token via the instructions at https://central.sonatype.org/publish/generate-portal-token/
+   Then configure your Sonatype credentials and GPG profile in your `~/.m2/settings.xml` file:
 
    ```xml
    <settings>
      <servers>
        <server>
-         <id>ossrh</id>
-         <username>YourSonatypeUsername</username>
-         <password>YourSonatypePassword</password>
+         <id>central</id>
+         <username>YourSonatypeTokenUsername</username>
+         <password>YourSonatypeTokenPassword</password>
        </server>
      </servers>
      <profiles>
@@ -47,6 +48,7 @@ Below are the step-by-step instructions to release a new version.
 Before cutting a release, make sure the project builds properly and that you can successfully deploy a SNAPSHOT version.
 
 ```bash
+export GPG_TTY=$(tty)
 mvn clean install
 mvn clean deploy -P release
 ```
@@ -101,7 +103,7 @@ Once the release is prepared and tagged in Git, build the tagged release and upl
 mvn release:perform -P release
 ```
 
-- **`mvn release:perform -P release`**: This command checks out the newly pushed release tag into the `target/checkout` directory, builds the project, generates Javadocs and Source JARs, signs the artifacts with GPG, and deploys them to the Sonatype Staging repository (`ossrh`).
+- **`mvn release:perform -P release`**: This command checks out the newly pushed release tag into the `target/checkout` directory, builds the project, generates Javadocs and Source JARs, signs the artifacts with GPG, and deploys them to the Maven Central Staging repository (`central`).
 
 ### 5. Final Cleanup
 
