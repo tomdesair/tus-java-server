@@ -271,6 +271,53 @@ public class ITTusFileUploadService {
   }
 
   @Test
+  public void testProcessZeroByteUpload() throws Exception {
+    // Create upload
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 0);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseHeaderNotBlank(HttpHeader.UPLOAD_EXPIRES);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+
+    String location =
+        UPLOAD_URI
+            + StringUtils.substringAfter(
+                servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+    // Get upload info from service
+    UploadInfo info = tusFileUploadService.getUploadInfo(location, OWNER_KEY);
+    assertFalse(info.isUploadInProgress());
+    assertThat(info.getLength(), is(0L));
+    assertThat(info.getOffset(), is(0L));
+
+    // Get uploaded bytes from service
+    try (InputStream uploadedBytes = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
+      assertThat(IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8), is(""));
+    }
+
+    // Make sure cleanup does not interfere with this test
+    tusFileUploadService.cleanup();
+
+    // Download the upload
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(location);
+
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertThat(servletResponse.getContentAsString(), is(""));
+  }
+
+  @Test
   public void testTerminateViaHttpRequest() throws Exception {
     String uploadContent = "This is my terminated test upload";
 
