@@ -156,7 +156,7 @@ public class UploadInfo implements Serializable {
    * @param length The number of bytes that the client specified he will upload
    */
   public void setLength(Long length) {
-    this.length = (length != null && length > 0 ? length : null);
+    this.length = (length != null && length >= 0 ? length : null);
   }
 
   /**
