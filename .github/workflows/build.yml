@@ -22,11 +22,11 @@ jobs:
   mvn-install:
     strategy:
       matrix:
-        java: [17]
+        java: [21, 25]
         os: [ubuntu-latest, windows-latest]
         include:
           - os: ubuntu-latest
-            java: 17
+            java: 25
             upload-dependency-graph: true
             run-sonarcloud: true
             run-coveralls: true
@@ -35,9 +35,9 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: ${{ matrix.java }}
           distribution: "temurin"
