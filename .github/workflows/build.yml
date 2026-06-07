@@ -22,7 +22,7 @@ jobs:
   mvn-install:
     strategy:
       matrix:
-        java: [21, 25]
+        java: [17, 21, 25]
         os: [ubuntu-latest, windows-latest]
         include:
           - os: ubuntu-latest
