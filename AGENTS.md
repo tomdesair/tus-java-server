@@ -28,3 +28,6 @@ Completed parent uploads are indexed by checksum under the `<storagePath>/checks
 - Index lookup includes a self-cleaning check: if the index points to an upload that is null or whose data file is missing (e.g., due to expiration), the index file is deleted on the fly, keeping the file system clean without needing a separate index sweeper.
 - Child uploads (duplicates) are never indexed.
 - On parent termination, the parent's index entry is explicitly deleted.
+
+## Release Process & Changelog Guidelines
+When adding new features or preparing a release, the `CHANGELOG.md` file must be updated to describe the new functionality added in this version. Use a release version header (e.g., `## [1.0.0-3.2]`) instead of `## [Unreleased]`. Derive this next release version from the SNAPSHOT version declared in the `pom.xml` file by removing the `-SNAPSHOT` suffix.
