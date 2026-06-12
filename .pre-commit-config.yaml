@@ -9,8 +9,11 @@ repos:
       - id: check-yaml
       - id: end-of-file-fixer
       - id: trailing-whitespace
-  - repo: https://github.com/dustinsand/pre-commit-jvm
-    rev: v0.8.0
+  - repo: local
     hooks:
-      - id: google-java-formatter-jdk11
-        args: [--replace, --set-exit-if-changed]
+      - id: maven-fmt
+        name: Maven Java Formatter
+        entry: mvn -P codestyle com.spotify.fmt:fmt-maven-plugin:format
+        language: system
+        files: \.java$
+        pass_filenames: false
