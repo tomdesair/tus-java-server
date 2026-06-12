@@ -11,12 +11,14 @@ import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
@@ -47,6 +49,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   private Long uploadExpirationPeriod = null;
   private UploadIdFactory idFactory;
   private UploadConcatenationService uploadConcatenationService;
+  private boolean isUploadDeduplicationEnabled = false;
 
   public DiskStorageService(String storagePath) {
     super(storagePath + File.separator + UPLOAD_SUB_DIRECTORY);
@@ -76,6 +79,52 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   }
 
   @Override
+  public void setUploadDeduplicationEnabled(boolean enabled) {
+    this.isUploadDeduplicationEnabled = enabled;
+  }
+
+  @Override
+  public boolean isUploadDeduplicationEnabled() {
+    return this.isUploadDeduplicationEnabled;
+  }
+
+  @Override
+  public UploadInfo getUploadInfoByChecksum(String checksum, ChecksumAlgorithm algorithm)
+      throws IOException {
+    if (checksum == null || algorithm == null) {
+      return null;
+    }
+    Path checksumFile =
+        getStoragePath()
+            .getParent()
+            .resolve("checksums")
+            .resolve(algorithm.toString())
+            .resolve(checksum);
+    if (Files.exists(checksumFile)) {
+      String uploadIdStr =
+          new String(Files.readAllBytes(checksumFile), StandardCharsets.UTF_8).trim();
+      UploadId id = new UploadId(uploadIdStr);
+      UploadInfo info = getUploadInfo(id);
+      if (info == null) {
+        Files.deleteIfExists(checksumFile);
+        return null;
+      }
+      Path bytesPath = null;
+      try {
+        bytesPath = getPathInUploadDir(id, DATA_FILE);
+      } catch (UploadNotFoundException e) {
+        // file doesn't exist
+      }
+      if (bytesPath == null || !Files.exists(bytesPath)) {
+        Files.deleteIfExists(checksumFile);
+        return null;
+      }
+      return info;
+    }
+    return null;
+  }
+
+  @Override
   public UploadInfo getUploadInfo(String uploadUrl, String ownerKey) throws IOException {
     UploadInfo uploadInfo = getUploadInfo(idFactory.readUploadId(uploadUrl));
     if (uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
@@ -89,6 +138,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   public UploadInfo getUploadInfo(UploadId id) throws IOException {
     try {
       Path infoPath = getInfoPath(id);
+      if (infoPath == null || !Files.exists(infoPath)) {
+        return null;
+      }
       return Utils.readSerializable(infoPath, UploadInfo.class);
     } catch (UploadNotFoundException e) {
       return null;
@@ -129,8 +181,64 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
   @Override
   public void update(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
-    Path infoPath = getInfoPath(uploadInfo.getId());
-    Utils.writeSerializable(uploadInfo, infoPath);
+    if (uploadInfo != null) {
+      if (uploadInfo.getDuplicatesUploadId() != null) {
+        // Delete the child's own data file if it exists
+        try {
+          Path childDataPath = getPathInUploadDir(uploadInfo.getId(), DATA_FILE);
+          Files.deleteIfExists(childDataPath);
+        } catch (UploadNotFoundException e) {
+          // It doesn't exist yet, which is fine
+        }
+
+        // Retrieve the parent UploadInfo
+        UploadId parentId = uploadInfo.getDuplicatesUploadId();
+        UploadInfo parentInfo = getUploadInfo(parentId);
+        if (parentInfo != null) {
+          Path parentBytesPath = null;
+          try {
+            parentBytesPath = getPathInUploadDir(parentId, DATA_FILE);
+          } catch (UploadNotFoundException e) {
+            // Parent file is not found
+          }
+
+          if (parentBytesPath != null && Files.exists(parentBytesPath)) {
+            // Ensure parent's expiration timestamp is >= child's expiration timestamp
+            Long childExpire = uploadInfo.getExpirationTimestamp();
+            Long parentExpire = parentInfo.getExpirationTimestamp();
+            if (childExpire == null) {
+              if (parentExpire != null) {
+                parentInfo.setExpirationTimestamp(null);
+                Path parentInfoPath = getInfoPath(parentId);
+                Utils.writeSerializable(parentInfo, parentInfoPath);
+              }
+            } else {
+              if (parentExpire != null && parentExpire < childExpire) {
+                parentInfo.setExpirationTimestamp(childExpire);
+                Path parentInfoPath = getInfoPath(parentId);
+                Utils.writeSerializable(parentInfo, parentInfoPath);
+              }
+            }
+          }
+        }
+      } else if (isUploadDeduplicationEnabled()
+          && !uploadInfo.isUploadInProgress()
+          && uploadInfo.getChecksum() != null
+          && uploadInfo.getChecksumAlgorithm() != null) {
+        // Index the checksum
+        Path checksumFile =
+            getStoragePath()
+                .getParent()
+                .resolve("checksums")
+                .resolve(uploadInfo.getChecksumAlgorithm().toString())
+                .resolve(uploadInfo.getChecksum());
+        Files.createDirectories(checksumFile.getParent());
+        Files.write(checksumFile, uploadInfo.getId().toString().getBytes(StandardCharsets.UTF_8));
+      }
+
+      Path infoPath = getInfoPath(uploadInfo.getId());
+      Utils.writeSerializable(uploadInfo, infoPath);
+    }
   }
 
   @Override
@@ -202,6 +310,17 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   @Override
   public void terminateUpload(UploadInfo info) throws UploadNotFoundException, IOException {
     if (info != null) {
+      if (info.getDuplicatesUploadId() == null
+          && info.getChecksum() != null
+          && info.getChecksumAlgorithm() != null) {
+        Path checksumFile =
+            getStoragePath()
+                .getParent()
+                .resolve("checksums")
+                .resolve(info.getChecksumAlgorithm().toString())
+                .resolve(info.getChecksum());
+        Files.deleteIfExists(checksumFile);
+      }
       Path uploadPath = getPathInStorageDirectory(info.getId());
       FileUtils.deleteDirectory(uploadPath.toFile());
     }
@@ -247,6 +366,14 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   public InputStream getUploadedBytes(UploadId id) throws IOException, UploadNotFoundException {
     InputStream inputStream = null;
     UploadInfo uploadInfo = getUploadInfo(id);
+    if (uploadInfo == null) {
+      throw new UploadNotFoundException("The upload with id " + id + " was not found.");
+    }
+
+    if (uploadInfo.getDuplicatesUploadId() != null) {
+      return getUploadedBytes(uploadInfo.getDuplicatesUploadId());
+    }
+
     if (UploadType.CONCATENATED.equals(uploadInfo.getUploadType())
         && uploadConcatenationService != null) {
       inputStream = uploadConcatenationService.getConcatenatedBytes(uploadInfo);
@@ -255,6 +382,10 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
       Path bytesPath = getBytesPath(id);
       // If bytesPath is not null, we know this is a valid Upload URI
       if (bytesPath != null) {
+        if (!Files.exists(bytesPath)) {
+          throw new UploadNotFoundException(
+              "The upload bytes for id " + id + " could not be found.");
+        }
         inputStream = Channels.newInputStream(FileChannel.open(bytesPath, READ));
       }
     }
@@ -280,7 +411,15 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
               upload.getId());
 
         } else {
-          Path bytesPath = getBytesPath(upload.getId());
+          UploadId readId =
+              upload.getDuplicatesUploadId() != null
+                  ? upload.getDuplicatesUploadId()
+                  : upload.getId();
+          Path bytesPath = getBytesPath(readId);
+          if (!Files.exists(bytesPath)) {
+            throw new UploadNotFoundException(
+                "The upload bytes for id " + readId + " could not be found.");
+          }
           try (FileChannel file = FileChannel.open(bytesPath, READ)) {
             // Efficiently copy the bytes to the output stream
             file.transferTo(0, upload.getLength(), outputChannel);

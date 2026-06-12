@@ -3,6 +3,7 @@ package me.desair.tus.server.upload;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
@@ -165,4 +166,34 @@ public interface UploadStorageService {
    * @param idFactory The {@link UploadIdFactory} to use within this storage service
    */
   void setIdFactory(UploadIdFactory idFactory);
+
+  /**
+   * Set whether duplicate file processing based on checksum is enabled.
+   *
+   * @param enabled True if enabled, false otherwise
+   */
+  default void setUploadDeduplicationEnabled(boolean enabled) {
+    // No-op for backward compatibility
+  }
+
+  /**
+   * Check if duplicate file processing based on checksum is enabled.
+   *
+   * @return True if enabled, false otherwise
+   */
+  default boolean isUploadDeduplicationEnabled() {
+    return false;
+  }
+
+  /**
+   * Look up an existing completed upload based on a checksum value and algorithm.
+   *
+   * @param checksum The checksum value to search for
+   * @param algorithm The checksum algorithm used
+   * @return The UploadInfo of the existing completed upload, or null if not found
+   */
+  default UploadInfo getUploadInfoByChecksum(String checksum, ChecksumAlgorithm algorithm)
+      throws IOException {
+    return null;
+  }
 }

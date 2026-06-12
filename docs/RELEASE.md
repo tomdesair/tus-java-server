@@ -117,10 +117,12 @@ mvn release:clean
 
 Finally, log into Sonatype Nexus to verify and officially publish the staged artifacts to Maven Central:
 
-1. Log in to [https://oss.sonatype.org/](https://oss.sonatype.org/).
-2. Click **Staging Repositories** in the left sidebar.
-3. Find your staging repository (it should be named something like `medesairtus-XXXX`).
-4. Select the repository and inspect the artifacts in the bottom pane. Verify the POM versions and the presence of `.jar`, `-javadoc.jar`, `-sources.jar`, and their `.asc` signatures.
-5. If everything looks correct, click the **Close** button in the top menu to run automated Sonatype validations.
+1. Go to [https://central.sonatype.com/publishing/deployments](https://central.sonatype.com/publishing/deployments)
+3. Find the deployment based on the ID that was printed during the release process. It should have status `Validated`.
+4. Open the `Component Files` section. Verify the POM versions and the presence of `.jar`, `-javadoc.jar`, `-sources.jar`, and their `.asc` signatures.
+5. If everything looks correct, click the **Publish** button in the top menu to publish the release to world.
+6. The status of the deployment will go to `Publishing` and it will take a few minutes before it completes.
+
+
 6. Once successfully closed, click the **Release** button to publish the artifacts to Maven Central. *(Note: It may take a few hours for the artifacts to sync and appear on search.maven.org).*
 7. If anything went wrong during your verification, click **Drop** instead, fix the issue in the codebase, and restart the release process.

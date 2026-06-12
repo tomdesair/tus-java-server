@@ -72,7 +72,14 @@ public class DiskStorageServiceTest {
   public void setUp() {
     reset(idFactory);
     when(idFactory.getUploadUri()).thenReturn(UPLOAD_URL);
-    when(idFactory.createId()).thenReturn(new UploadId(UUID.randomUUID()));
+    when(idFactory.createId())
+        .then(
+            new Answer<UploadId>() {
+              @Override
+              public UploadId answer(InvocationOnMock invocation) throws Throwable {
+                return new UploadId(UUID.randomUUID());
+              }
+            });
     when(idFactory.readUploadId(nullable(String.class)))
         .then(
             new Answer<UploadId>() {
@@ -504,6 +511,135 @@ public class DiskStorageServiceTest {
 
     assertFalse(Files.exists(getUploadInfoPath(info.getId())));
     assertFalse(Files.exists(getStoragePath(info.getId())));
+  }
+
+  @Test
+  public void testDeduplicationEnabled() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    assertTrue(storageService.isUploadDeduplicationEnabled());
+  }
+
+  @Test
+  public void testDeduplicationDisabledByDefault() throws Exception {
+    assertFalse(storageService.isUploadDeduplicationEnabled());
+  }
+
+  @Test
+  public void testDeduplicationAndParentChildExpiration() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+
+    // 1. Create parent upload
+    UploadInfo parent = new UploadInfo();
+    parent.setLength(100L);
+    parent.setOffset(100L);
+    parent.setChecksum("parentchecksumvalue");
+    parent.setChecksumAlgorithm(me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+    parent = storageService.create(parent, null);
+    // Write dummy data so getBytesPath checks succeed
+    Files.write(getUploadDataPath(parent.getId()), new byte[100]);
+    parent.setOffset(100L);
+    parent.updateExpiration(3600_000L); // 1 hour expiration
+    storageService.update(parent);
+
+    // Verify index lookup finds it
+    UploadInfo resolvedParent =
+        storageService.getUploadInfoByChecksum(
+            "parentchecksumvalue", me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+    assertThat(resolvedParent, is(notNullValue()));
+    assertThat(resolvedParent.getId(), is(parent.getId()));
+
+    // 2. Create child upload (duplicate)
+    UploadInfo child = new UploadInfo();
+    child.setLength(100L);
+    child.setOffset(100L);
+    child = storageService.create(child, null);
+
+    // Set duplicatesUploadId
+    child.setDuplicatesUploadId(parent.getId());
+    child.setOffset(100L);
+    child.updateExpiration(7200_000L); // 2 hours expiration (longer than parent)
+    storageService.update(child);
+
+    // Parent should be automatically updated to match child's expiration
+    parent = storageService.getUploadInfo(parent.getId());
+    assertThat(parent.getExpirationTimestamp(), is(child.getExpirationTimestamp()));
+
+    // Child should have no physical data file
+    assertFalse(Files.exists(getUploadDataPath(child.getId())));
+
+    // Check downloading child downloads parent's data
+    try (InputStream is = storageService.getUploadedBytes(child.getId())) {
+      byte[] bytes = IOUtils.toByteArray(is);
+      assertThat(bytes.length, is(100));
+    }
+
+    // Check copyUploadTo
+    try (ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+      storageService.copyUploadTo(child, bos);
+      assertThat(bos.toByteArray().length, is(100));
+    }
+
+    // Test parent termination removes parent index
+    storageService.terminateUpload(parent);
+    resolvedParent =
+        storageService.getUploadInfoByChecksum(
+            "parentchecksumvalue", me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+    assertThat(resolvedParent, is(nullValue()));
+  }
+
+  @Test
+  public void testDanglingDeduplicationIndexSelfCleaning() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+
+    UploadInfo parent = new UploadInfo();
+    parent.setLength(100L);
+    parent.setOffset(100L);
+    parent.setChecksum("danglingchecksum");
+    parent.setChecksumAlgorithm(me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+    parent = storageService.create(parent, null);
+    Files.write(getUploadDataPath(parent.getId()), new byte[100]);
+    parent.setOffset(100L);
+    storageService.update(parent);
+
+    // Verify indexed
+    UploadInfo resolvedParent =
+        storageService.getUploadInfoByChecksum(
+            "danglingchecksum", me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+    assertThat(resolvedParent, is(notNullValue()));
+
+    // Manually delete parent info on disk to simulate expiration/deletion
+    Files.delete(getUploadInfoPath(parent.getId()));
+
+    // Lookup should clean the index and return null
+    resolvedParent =
+        storageService.getUploadInfoByChecksum(
+            "danglingchecksum", me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+    assertThat(resolvedParent, is(nullValue()));
+  }
+
+  @Test(expected = UploadNotFoundException.class)
+  public void testGetUploadedBytesChildWhenParentDeleted() throws Exception {
+    // 1. Create parent and child
+    UploadInfo parent = new UploadInfo();
+    parent.setLength(100L);
+    parent.setOffset(100L);
+    parent = storageService.create(parent, null);
+    Files.write(getUploadDataPath(parent.getId()), new byte[100]);
+    parent.setOffset(100L);
+
+    UploadInfo child = new UploadInfo();
+    child.setLength(100L);
+    child.setOffset(100L);
+    child = storageService.create(child, null);
+    child.setDuplicatesUploadId(parent.getId());
+    child.setOffset(100L);
+    storageService.update(child);
+
+    // 2. Delete parent
+    storageService.terminateUpload(parent);
+
+    // 3. Attempt to download child, should throw UploadNotFoundException
+    storageService.getUploadedBytes(child.getId());
   }
 
   private Path getUploadInfoPath(UploadId id) {

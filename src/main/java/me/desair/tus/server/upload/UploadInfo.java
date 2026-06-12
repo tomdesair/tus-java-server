@@ -8,6 +8,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
@@ -20,6 +21,7 @@ import org.apache.commons.lang3.builder.HashCodeBuilder;
  */
 public class UploadInfo implements Serializable {
 
+  private static final long serialVersionUID = -8751200491586638308L;
   private static final String APPLICATION_OCTET_STREAM = "application/octet-stream";
   private static List<String> fileNameKeys = Arrays.asList("filename", "name");
   private static List<String> mimeTypeKeys = Arrays.asList("mimetype", "filetype", "type");
@@ -35,6 +37,9 @@ public class UploadInfo implements Serializable {
   private Long expirationTimestamp;
   private List<String> concatenationPartIds;
   private String uploadConcatHeaderValue;
+  private UploadId duplicatesUploadId;
+  private String checksum;
+  private ChecksumAlgorithm checksumAlgorithm;
 
   /** Default constructor to use if an upload is created without HTTP request. */
   public UploadInfo() {
@@ -231,6 +236,16 @@ public class UploadInfo implements Serializable {
   }
 
   /**
+   * Set the expiration timestamp after which the upload expires in milliseconds since January 1,
+   * 1970, 00:00:00 GMT.
+   *
+   * @param expirationTimestamp The expiration timestamp in milliseconds
+   */
+  public void setExpirationTimestamp(Long expirationTimestamp) {
+    this.expirationTimestamp = expirationTimestamp;
+  }
+
+  /**
    * Calculate the expiration timestamp based on the provided expiration period.
    *
    * @param expirationPeriod The period the upload should remain valid
@@ -362,6 +377,30 @@ public class UploadInfo implements Serializable {
     return expirationTimestamp != null && expirationTimestamp < getCurrentTime();
   }
 
+  public UploadId getDuplicatesUploadId() {
+    return duplicatesUploadId;
+  }
+
+  public void setDuplicatesUploadId(UploadId duplicatesUploadId) {
+    this.duplicatesUploadId = duplicatesUploadId;
+  }
+
+  public String getChecksum() {
+    return checksum;
+  }
+
+  public void setChecksum(String checksum) {
+    this.checksum = checksum;
+  }
+
+  public ChecksumAlgorithm getChecksumAlgorithm() {
+    return checksumAlgorithm;
+  }
+
+  public void setChecksumAlgorithm(ChecksumAlgorithm checksumAlgorithm) {
+    this.checksumAlgorithm = checksumAlgorithm;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -385,6 +424,9 @@ public class UploadInfo implements Serializable {
         .append(getExpirationTimestamp(), that.getExpirationTimestamp())
         .append(getConcatenationPartIds(), that.getConcatenationPartIds())
         .append(getUploadConcatHeaderValue(), that.getUploadConcatHeaderValue())
+        .append(getDuplicatesUploadId(), that.getDuplicatesUploadId())
+        .append(getChecksum(), that.getChecksum())
+        .append(getChecksumAlgorithm(), that.getChecksumAlgorithm())
         .isEquals();
   }
 
@@ -401,6 +443,9 @@ public class UploadInfo implements Serializable {
         .append(getExpirationTimestamp())
         .append(getConcatenationPartIds())
         .append(getUploadConcatHeaderValue())
+        .append(getDuplicatesUploadId())
+        .append(getChecksum())
+        .append(getChecksumAlgorithm())
         .toHashCode();
   }
 
