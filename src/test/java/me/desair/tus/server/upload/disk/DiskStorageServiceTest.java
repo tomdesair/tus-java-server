@@ -642,6 +642,67 @@ public class DiskStorageServiceTest {
     storageService.getUploadedBytes(child.getId());
   }
 
+  @Test
+  public void testGetUploadInfoByChecksumNull() throws Exception {
+    assertThat(
+        storageService.getUploadInfoByChecksum(
+            null, me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256),
+        is(nullValue()));
+    assertThat(storageService.getUploadInfoByChecksum("somechecksum", null), is(nullValue()));
+  }
+
+  @Test
+  public void testGetUploadInfoByChecksumMissingDataFile() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+
+    UploadInfo parent = new UploadInfo();
+    parent.setLength(100L);
+    parent.setOffset(100L);
+    parent.setChecksum("missingdatafilechecksum");
+    parent.setChecksumAlgorithm(me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+    parent = storageService.create(parent, null);
+    parent.setOffset(100L);
+    storageService.update(parent);
+
+    // Delete the data file but keep the info file
+    Files.delete(getUploadDataPath(parent.getId()));
+
+    // This should clean the index because the data file is missing
+    UploadInfo resolvedParent =
+        storageService.getUploadInfoByChecksum(
+            "missingdatafilechecksum", me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+    assertThat(resolvedParent, is(nullValue()));
+  }
+
+  @Test
+  public void testDeduplicationParentNullExpirationUpdate() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+
+    // Create parent with expiration
+    UploadInfo parent = new UploadInfo();
+    parent.setLength(100L);
+    parent.setOffset(100L);
+    parent = storageService.create(parent, null);
+    Files.write(getUploadDataPath(parent.getId()), new byte[100]);
+    parent.setOffset(100L);
+    parent.updateExpiration(3600_000L); // 1 hour expiration
+    storageService.update(parent);
+
+    // Create child with null expiration
+    UploadInfo child = new UploadInfo();
+    child.setLength(100L);
+    child.setOffset(100L);
+    child = storageService.create(child, null);
+    child.setDuplicatesUploadId(parent.getId());
+    child.setOffset(100L);
+    child.setExpirationTimestamp(null);
+    storageService.update(child);
+
+    // Parent expiration should be nullified to match child
+    parent = storageService.getUploadInfo(parent.getId());
+    assertThat(parent.getExpirationTimestamp(), is(nullValue()));
+  }
+
   private Path getUploadInfoPath(UploadId id) {
     return getStoragePath(id).resolve("info");
   }
