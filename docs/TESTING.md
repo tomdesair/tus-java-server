@@ -130,3 +130,10 @@ This will:
 2. Execute the python checking script (`scripts/check-coverage.py`) which parses the report.
 3. Print a detailed list of uncovered (`❌`) and partially covered (`⚠️`) lines for each file.
 4. Fail the build with exit code 1 if the overall line coverage is below the threshold, or succeed if it meets or exceeds it.
+
+### Check coverage of only new/modified lines (compared to master)
+You can also use this feature to verify that any new code added in your branch is fully covered compared to another branch (such as `master`):
+```bash
+mvn verify -Pcheck-coverage -Djacoco.compare.branch=master
+```
+If there are any modified or added lines in your branch (located under `src/main/java`) that are not covered by unit tests, the build will output a detailed report listing only those lines and fail.

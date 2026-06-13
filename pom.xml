@@ -18,6 +18,7 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <jacoco.coverage.limit>95</jacoco.coverage.limit>
+        <jacoco.compare.branch></jacoco.compare.branch>
     </properties>
 
     <dependencies>
@@ -373,6 +374,8 @@
                                         <argument>${project.reporting.outputDirectory}/jacoco-ut/jacoco.xml</argument>
                                         <argument>--limit</argument>
                                         <argument>${jacoco.coverage.limit}</argument>
+                                        <argument>--compare-branch</argument>
+                                        <argument>${jacoco.compare.branch}</argument>
                                     </arguments>
                                 </configuration>
                             </execution>
