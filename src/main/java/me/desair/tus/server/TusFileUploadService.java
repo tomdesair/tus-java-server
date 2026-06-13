@@ -216,6 +216,17 @@ public class TusFileUploadService {
   }
 
   /**
+   * Enable or disable duplicate file processing based on checksum hash.
+   *
+   * @param isEnabled True if duplicate file processing should be enabled, false otherwise
+   * @return The current service
+   */
+  public TusFileUploadService withUploadDeduplication(boolean isEnabled) {
+    this.uploadStorageService.setUploadDeduplicationEnabled(isEnabled);
+    return this;
+  }
+
+  /**
    * Add a custom (application-specific) extension that implements the {@link
    * me.desair.tus.server.TusExtension} interface. For example you can add your own extension that
    * checks authentication and authorization policies within your application for the user doing the

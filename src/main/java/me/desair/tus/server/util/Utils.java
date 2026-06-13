@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.util.LinkedList;
 import java.util.List;
 import me.desair.tus.server.HttpHeader;
+import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -149,5 +150,44 @@ public class Utils {
     } while (lock == null && i < LOCK_FILE_RETRY_COUNT);
 
     return lock;
+  }
+
+  /** Helper class to store parsed checksum header information. */
+  public static class ChecksumInfo {
+    private final ChecksumAlgorithm algorithm;
+    private final String value;
+
+    public ChecksumInfo(ChecksumAlgorithm algorithm, String value) {
+      this.algorithm = algorithm;
+      this.value = value;
+    }
+
+    public ChecksumAlgorithm getAlgorithm() {
+      return algorithm;
+    }
+
+    public String getValue() {
+      return value;
+    }
+  }
+
+  /**
+   * Parse the Upload-Checksum header from the HTTP request.
+   *
+   * @param request The HttpServletRequest
+   * @return ChecksumInfo if header is present and valid, null otherwise
+   */
+  public static ChecksumInfo parseUploadChecksumHeader(HttpServletRequest request) {
+    String uploadChecksumHeader = request.getHeader(HttpHeader.UPLOAD_CHECKSUM);
+    if (StringUtils.isNotBlank(uploadChecksumHeader)) {
+      ChecksumAlgorithm algorithm = ChecksumAlgorithm.forUploadChecksumHeader(uploadChecksumHeader);
+      String checksumValue =
+          StringUtils.substringAfter(
+              uploadChecksumHeader, ChecksumAlgorithm.CHECKSUM_VALUE_SEPARATOR);
+      if (algorithm != null && StringUtils.isNotBlank(checksumValue)) {
+        return new ChecksumInfo(algorithm, checksumValue);
+      }
+    }
+    return null;
   }
 }

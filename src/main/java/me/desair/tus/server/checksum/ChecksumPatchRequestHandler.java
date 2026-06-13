@@ -1,17 +1,17 @@
 package me.desair.tus.server.checksum;
 
-import static me.desair.tus.server.checksum.ChecksumAlgorithm.CHECKSUM_VALUE_SEPARATOR;
-
 import java.io.IOException;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.checksum.validation.ChecksumAlgorithmValidator;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadChecksumMismatchException;
+import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
 
 public class ChecksumPatchRequestHandler extends AbstractRequestHandler {
@@ -41,25 +41,34 @@ public class ChecksumPatchRequestHandler extends AbstractRequestHandler {
       new ChecksumAlgorithmValidator()
           .validate(method, servletRequest, uploadStorageService, ownerKey);
 
-      // Everything is valid, check if the checksum matches
-      String expectedValue =
-          StringUtils.substringAfter(uploadChecksumHeader, CHECKSUM_VALUE_SEPARATOR);
+      Utils.ChecksumInfo checksumInfo = Utils.parseUploadChecksumHeader(servletRequest);
+      if (checksumInfo != null) {
+        String expectedValue = checksumInfo.getValue();
+        ChecksumAlgorithm checksumAlgorithm = checksumInfo.getAlgorithm();
+        String calculatedValue = servletRequest.getCalculatedChecksum(checksumAlgorithm);
 
-      ChecksumAlgorithm checksumAlgorithm =
-          ChecksumAlgorithm.forUploadChecksumHeader(uploadChecksumHeader);
-      String calculatedValue = servletRequest.getCalculatedChecksum(checksumAlgorithm);
-
-      if (!StringUtils.equals(expectedValue, calculatedValue)) {
-        // throw an exception if the checksum is invalid. This will also trigger the removal
-        // of any
-        // bytes that were already saved
-        throw new UploadChecksumMismatchException(
-            "Expected checksum "
-                + expectedValue
-                + " but was "
-                + calculatedValue
-                + " with algorithm "
-                + checksumAlgorithm);
+        if (!StringUtils.equals(expectedValue, calculatedValue)) {
+          // throw an exception if the checksum is invalid. This will also trigger the removal
+          // of any
+          // bytes that were already saved
+          throw new UploadChecksumMismatchException(
+              "Expected checksum "
+                  + expectedValue
+                  + " but was "
+                  + calculatedValue
+                  + " with algorithm "
+                  + checksumAlgorithm);
+        } else if (uploadStorageService.isUploadDeduplicationEnabled()) {
+          UploadInfo uploadInfo =
+              uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
+          if (uploadInfo != null
+              && !uploadInfo.isUploadInProgress()
+              && uploadInfo.getDuplicatesUploadId() == null) {
+            uploadInfo.setChecksum(expectedValue);
+            uploadInfo.setChecksumAlgorithm(checksumAlgorithm);
+            uploadStorageService.update(uploadInfo);
+          }
+        }
       }
     }
   }

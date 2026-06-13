@@ -12,6 +12,7 @@ import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
+import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,6 +52,20 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
       try {
         uploadInfo =
             uploadStorageService.append(uploadInfo, servletRequest.getContentInputStream());
+
+        if (uploadStorageService.isUploadDeduplicationEnabled()
+            && servletRequest.hasCalculatedChecksum()) {
+          Utils.ChecksumInfo checksumInfo = Utils.parseUploadChecksumHeader(servletRequest);
+          if (checksumInfo != null) {
+            UploadInfo duplicateInfo =
+                uploadStorageService.getUploadInfoByChecksum(
+                    checksumInfo.getValue(), checksumInfo.getAlgorithm());
+            if (duplicateInfo != null) {
+              uploadInfo.setDuplicatesUploadId(duplicateInfo.getId());
+              uploadStorageService.update(uploadInfo);
+            }
+          }
+        }
       } catch (UploadNotFoundException e) {
         found = false;
       }

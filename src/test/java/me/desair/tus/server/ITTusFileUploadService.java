@@ -1473,6 +1473,120 @@ public class ITTusFileUploadService {
     assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
   }
 
+  @Test
+  public void testFileDeduplicationEndToEnd() throws Exception {
+    // Enable deduplication feature
+    tusFileUploadService.withUploadDeduplication(true);
+
+    String uploadContent = "Deduplication integration test content";
+
+    // 1. First upload (Parent)
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, uploadContent.getBytes().length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String parentLocation =
+        UPLOAD_URI
+            + StringUtils.substringAfter(
+                servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(parentLocation);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, uploadContent.getBytes().length);
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 nQPKHXKplOdf9DApoZdrdm0viw4=");
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(uploadContent.getBytes());
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+    // 2. Second upload (Child/Duplicate)
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, uploadContent.getBytes().length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String childLocation =
+        UPLOAD_URI
+            + StringUtils.substringAfter(
+                servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(childLocation);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, uploadContent.getBytes().length);
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 nQPKHXKplOdf9DApoZdrdm0viw4=");
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(uploadContent.getBytes());
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+    // 3. Verify deduplication succeeded
+    UploadInfo parentInfo = tusFileUploadService.getUploadInfo(parentLocation, OWNER_KEY);
+    UploadInfo childInfo = tusFileUploadService.getUploadInfo(childLocation, OWNER_KEY);
+
+    assertThat(childInfo.getDuplicatesUploadId(), is(parentInfo.getId()));
+
+    // Verify child upload physical data file does NOT exist
+    Path childDataPath =
+        storagePath.resolve("uploads").resolve(childInfo.getId().toString()).resolve("data");
+    assertFalse(Files.exists(childDataPath));
+
+    // Verify parent upload physical data file DOES exist
+    Path parentDataPath =
+        storagePath.resolve("uploads").resolve(parentInfo.getId().toString()).resolve("data");
+    assertTrue(Files.exists(parentDataPath));
+
+    // Verify child download retrieves parent's content
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(childLocation);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertThat(servletResponse.getContentAsString(), is(uploadContent));
+
+    // Manipulate parent file directly on disk
+    String manipulatedContent = "manipulated content on disk";
+    Files.write(
+        parentDataPath, manipulatedContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+    // Verify parent download retrieves the manipulated content
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(parentLocation);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertThat(servletResponse.getContentAsString(), is(manipulatedContent));
+
+    // Verify child download retrieves the same manipulated content
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(childLocation);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertThat(servletResponse.getContentAsString(), is(manipulatedContent));
+
+    // 4. Delete parent upload
+    tusFileUploadService.deleteUpload(parentLocation, OWNER_KEY);
+
+    // 5. Attempt child download: should return 404 Not Found since parent is deleted
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(childLocation);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
+  }
+
   protected void assertResponseHeader(final String header, final String value) {
     assertThat(servletResponse.getHeader(header), is(value));
   }

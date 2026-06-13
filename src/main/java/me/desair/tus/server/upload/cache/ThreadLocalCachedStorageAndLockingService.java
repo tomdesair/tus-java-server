@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.util.Objects;
+import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
@@ -171,6 +172,22 @@ public class ThreadLocalCachedStorageAndLockingService
   @Override
   public UploadConcatenationService getUploadConcatenationService() {
     return storageServiceDelegate.getUploadConcatenationService();
+  }
+
+  @Override
+  public void setUploadDeduplicationEnabled(boolean enabled) {
+    storageServiceDelegate.setUploadDeduplicationEnabled(enabled);
+  }
+
+  @Override
+  public boolean isUploadDeduplicationEnabled() {
+    return storageServiceDelegate.isUploadDeduplicationEnabled();
+  }
+
+  @Override
+  public UploadInfo getUploadInfoByChecksum(String checksum, ChecksumAlgorithm algorithm)
+      throws IOException {
+    return storageServiceDelegate.getUploadInfoByChecksum(checksum, algorithm);
   }
 
   @Override
