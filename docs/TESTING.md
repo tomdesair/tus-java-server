@@ -38,7 +38,7 @@ To clean up any files and folders created during testing, delete the temp direct
 
 - **On macOS/Linux**:
   ```bash
-  rm -rf /tmp/tus
+  rm -rf $TMPDIR/tus
   ```
   *(or check your system's `$TMPDIR` / `${java.io.tmpdir}` if configured differently)*
 
@@ -68,9 +68,13 @@ Initiate a new upload to the server:
 curl -X POST \
   -H "Tus-Resumable: 1.0.0" \
   -H "Upload-Length: 10000000" \
-  -I http://localhost:8080/api/upload
+  -I http://localhost:8080/test/api/upload
 ```
-Look for the `Location` header in the response and record the upload resource URL (e.g., `http://localhost:8080/api/upload/000003f1-a850-49de-af03-997272d834c9`). We will refer to this as `<UPLOAD_URL>`.
+Look for the `Location` header in the response and record the upload resource URL (e.g., `http://localhost:8080/api/upload/000003f1-a850-49de-af03-997272d834c9`). We will refer to this as `${UPLOAD_URL}`.
+
+```
+export UPLOAD_URL='http://localhost:8080/test/api/upload/0330595f-1c0d-49f5-9e78-c40b1845157d'
+```
 
 ---
 
@@ -81,7 +85,7 @@ dd if=/dev/zero bs=1024 count=10000 | pv -L 50k | curl -X PATCH -T - \
   -H "Tus-Resumable: 1.0.0" \
   -H "Upload-Offset: 0" \
   -H "Content-Type: application/offset+octet-stream" \
-  <UPLOAD_URL>
+  ${UPLOAD_URL}
 ```
 Keep this request running in your first terminal.
 
@@ -90,7 +94,7 @@ Keep this request running in your first terminal.
 #### Step 3: Send a HEAD Request from a Separate Terminal
 While the upload in Step 2 is actively running and holding the file lock, open a **second terminal window** and send a `HEAD` request to query the offset of the same upload resource:
 ```bash
-curl -X HEAD -H "Tus-Resumable: 1.0.0" -I <UPLOAD_URL>
+curl -X HEAD -H "Tus-Resumable: 1.0.0" -I ${UPLOAD_URL}
 ```
 
 ---
