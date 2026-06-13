@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,6 +20,7 @@ import java.util.UUID;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
+import me.desair.tus.server.util.InterruptibleInputStream;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
@@ -144,5 +146,95 @@ public class DiskLockingServiceTest {
     assertTrue(Files.exists(locksPath.resolve(recentLock)));
 
     uploadLock.release();
+  }
+
+  @Test
+  public void testRegisterAndRequestLockReleaseLocal() throws Exception {
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    byte[] data = new byte[] {1, 2, 3};
+    ByteArrayInputStream bis = new ByteArrayInputStream(data);
+    InterruptibleInputStream iis = new InterruptibleInputStream(bis);
+
+    lockingService.registerInputStream(uri, iis);
+    assertFalse(iis.isInterrupted());
+
+    lockingService.requestLockRelease(uri);
+    assertTrue(iis.isInterrupted());
+
+    // Stop file should also be created
+    Path stopFilePath =
+        storagePath.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+    assertTrue(Files.exists(stopFilePath));
+    Files.deleteIfExists(stopFilePath);
+  }
+
+  @Test
+  public void testWatchdogInterruptsStreamOnStopFile() throws Exception {
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    byte[] data = new byte[] {1, 2, 3};
+    ByteArrayInputStream bis = new ByteArrayInputStream(data);
+    InterruptibleInputStream iis = new InterruptibleInputStream(bis);
+
+    lockingService.registerInputStream(uri, iis);
+    assertFalse(iis.isInterrupted());
+
+    // Manually create the stop file (simulating cross-replica signaling)
+    Path stopFilePath =
+        storagePath.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+    Files.createDirectories(stopFilePath.getParent());
+    Files.write(stopFilePath, new byte[0]);
+
+    // Wait for watchdog to poll (polls every 1000ms, wait up to 2.5s)
+    long start = System.currentTimeMillis();
+    while (!iis.isInterrupted() && System.currentTimeMillis() - start < 2500L) {
+      Thread.sleep(100L);
+    }
+
+    assertTrue("Watchdog should have interrupted the stream", iis.isInterrupted());
+    Files.deleteIfExists(stopFilePath);
+  }
+
+  @Test
+  public void testWatchdogTerminatesWhenEmpty() throws Exception {
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    byte[] data = new byte[] {1, 2, 3};
+    ByteArrayInputStream bis = new ByteArrayInputStream(data);
+    InterruptibleInputStream iis = new InterruptibleInputStream(bis);
+
+    lockingService.registerInputStream(uri, iis);
+
+    // Watchdog should be running
+    Thread watchdog = findWatchdogThread();
+    assertTrue(watchdog != null && watchdog.isAlive());
+
+    // Release/clear active locks (mimicking normal lock release/close)
+    lockingService.requestLockRelease(uri);
+
+    // Watchdog should stop (since loop exits after activeLocks is empty)
+    long start = System.currentTimeMillis();
+    while (watchdog.isAlive() && System.currentTimeMillis() - start < 2500L) {
+      Thread.sleep(100L);
+    }
+    assertFalse("Watchdog thread should have terminated", watchdog.isAlive());
+
+    // Clean up stop file
+    Path stopFilePath =
+        storagePath.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+    Files.deleteIfExists(stopFilePath);
+  }
+
+  private Thread findWatchdogThread() {
+    ThreadGroup group = Thread.currentThread().getThreadGroup();
+    while (group.getParent() != null) {
+      group = group.getParent();
+    }
+    Thread[] threads = new Thread[group.activeCount() * 2];
+    int count = group.enumerate(threads);
+    for (int i = 0; i < count; i++) {
+      if ("tus-lock-watchdog".equals(threads[i].getName())) {
+        return threads[i];
+      }
+    }
+    return null;
   }
 }

@@ -316,15 +316,46 @@ public class TusFileUploadService {
 
     TusServletRequest request =
         new TusServletRequest(servletRequest, isChunkedTransferDecodingEnabled);
+    request.setAttribute("me.desair.tus.uploadLockingService", uploadLockingService);
     TusServletResponse response = new TusServletResponse(servletResponse);
 
-    try (UploadLock lock = uploadLockingService.lockUploadByUri(request.getRequestURI())) {
+    try (UploadLock lock = acquireUploadLock(method, request.getRequestURI())) {
 
       processLockedRequest(method, request, response, ownerKey);
 
     } catch (TusException e) {
       log.error("Unable to lock upload for request URI " + request.getRequestURI(), e);
+      response.sendError(e.getStatus(), e.getMessage());
     }
+  }
+
+  protected UploadLock acquireUploadLock(HttpMethod method, String requestUri)
+      throws TusException, IOException {
+    UploadLock lock = null;
+    int retries = 0;
+    while (retries < 25) {
+      try {
+        lock = uploadLockingService.lockUploadByUri(requestUri);
+        break;
+      } catch (TusException e) {
+        if (HttpMethod.HEAD.equals(method)) {
+          uploadLockingService.requestLockRelease(requestUri);
+          retries++;
+          try {
+            Thread.sleep(200L);
+          } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Lock acquisition retry interrupted", ie);
+          }
+        } else {
+          throw e;
+        }
+      }
+    }
+    if (lock == null) {
+      lock = uploadLockingService.lockUploadByUri(requestUri);
+    }
+    return lock;
   }
 
   /**

@@ -40,4 +40,25 @@ public interface UploadLockingService {
    * @param idFactory The {@link UploadIdFactory} to use within this locking service
    */
   void setIdFactory(UploadIdFactory idFactory);
+
+  /**
+   * Register the input stream associated with the active request URI so that it can be interrupted
+   * if lock contention occurs.
+   *
+   * @param requestUri The request URI of the active request
+   * @param inputStream The input stream of the active request
+   */
+  default void registerInputStream(String requestUri, java.io.InputStream inputStream) {
+    // No-op by default for backwards compatibility
+  }
+
+  /**
+   * Request that the lock for the given request URI be released. This might involve interrupting
+   * the active request's input stream.
+   *
+   * @param requestUri The request URI of the upload lock to release
+   */
+  default void requestLockRelease(String requestUri) {
+    // No-op by default for backwards compatibility
+  }
 }
