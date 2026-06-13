@@ -57,4 +57,70 @@ public class TusFileUploadServiceTest {
     UploadLock lock = service.acquireUploadLock(HttpMethod.HEAD, "/files/test");
     assertNotNull(lock);
   }
+
+  @Test
+  public void testAcquireUploadLockPatchThrowsImmediately() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    when(mockLockingService.lockUploadByUri(anyString()))
+        .thenThrow(new UploadAlreadyLockedException("Locked"));
+
+    TusFileUploadService service =
+        new TusFileUploadService().withUploadLockingService(mockLockingService);
+
+    try {
+      service.acquireUploadLock(HttpMethod.PATCH, "/files/test");
+      fail("Expected UploadAlreadyLockedException");
+    } catch (UploadAlreadyLockedException e) {
+      // expected
+    }
+  }
+
+  @Test
+  public void testProcessSuccess() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+
+    jakarta.servlet.http.HttpServletRequest mockReq =
+        mock(jakarta.servlet.http.HttpServletRequest.class);
+    jakarta.servlet.http.HttpServletResponse mockResp =
+        mock(jakarta.servlet.http.HttpServletResponse.class);
+    when(mockReq.getMethod()).thenReturn("PATCH");
+    when(mockReq.getRequestURI()).thenReturn("/files/test");
+    when(mockReq.getHeader(anyString())).thenReturn("");
+
+    TusFileUploadService service =
+        new TusFileUploadService().withUploadLockingService(mockLockingService);
+
+    me.desair.tus.server.upload.UploadStorageService mockStorage =
+        mock(me.desair.tus.server.upload.UploadStorageService.class);
+    service.withUploadStorageService(mockStorage);
+    when(mockStorage.getUploadInfo(anyString(), anyString())).thenReturn(null);
+
+    service.process(mockReq, mockResp, "owner");
+
+    verify(mockLockingService, times(1)).lockUploadByUri("/files/test");
+    verify(mockLock, times(1)).close();
+  }
+
+  @Test
+  public void testProcessLockFailure() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    when(mockLockingService.lockUploadByUri(anyString()))
+        .thenThrow(new UploadAlreadyLockedException("Locked"));
+
+    jakarta.servlet.http.HttpServletRequest mockReq =
+        mock(jakarta.servlet.http.HttpServletRequest.class);
+    jakarta.servlet.http.HttpServletResponse mockResp =
+        mock(jakarta.servlet.http.HttpServletResponse.class);
+    when(mockReq.getMethod()).thenReturn("PATCH");
+    when(mockReq.getRequestURI()).thenReturn("/files/test");
+
+    TusFileUploadService service =
+        new TusFileUploadService().withUploadLockingService(mockLockingService);
+
+    service.process(mockReq, mockResp, "owner");
+
+    verify(mockResp, times(1)).sendError(423, "Locked");
+  }
 }

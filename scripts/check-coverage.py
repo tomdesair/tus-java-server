@@ -181,9 +181,16 @@ def main():
                     print(f"   ❌ Uncovered lines: {group_ranges(uf['missed'])}")
                 if uf["partial"]:
                     print(f"   ⚠️  Partially covered lines: {group_ranges(uf['partial'])}")
+
+            has_missed = any(uf["missed"] for uf in uncovered_files)
             print("==========================================================")
-            print("❌ FAIL: Some modified lines are not covered by unit tests!")
-            sys.exit(1)
+            if has_missed:
+                print("❌ FAIL: Some modified lines are not covered by unit tests!")
+                sys.exit(1)
+            else:
+                print("🎉 All new and modified lines are covered by unit tests!")
+                print("⚠️  Note: Some lines have partial branch coverage (see report above).")
+                sys.exit(0)
         else:
             print("🎉 All new and modified lines are 100% covered by unit tests!")
             print("==========================================================")

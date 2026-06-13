@@ -347,6 +347,186 @@ public class DiskLockingServiceTest {
     Files.deleteIfExists(stopFilePath);
   }
 
+  @Test
+  public void testRequestLockReleaseCreatesParentDirectory() throws Exception {
+    Path tempDir = Files.createTempDirectory("tus-test-parent");
+    Path nestedStorage = tempDir.resolve("nested").resolve("sub");
+    DiskLockingService service = new DiskLockingService(idFactory, nestedStorage.toString());
+
+    UploadId id = new UploadId("000003f1-a850-49de-af03-997272d834c9");
+    java.lang.reflect.Field urlSafeField = UploadId.class.getDeclaredField("urlSafeValue");
+    urlSafeField.setAccessible(true);
+    urlSafeField.set(id, "subdir/000003f1-a850-49de-af03-997272d834c9");
+
+    reset(idFactory);
+    when(idFactory.readUploadId(org.mockito.Mockito.anyString())).thenReturn(id);
+
+    String uri = "/upload/test/subdir/000003f1-a850-49de-af03-997272d834c9";
+    service.requestLockRelease(uri);
+
+    Path stopFilePath =
+        nestedStorage
+            .resolve("locks")
+            .resolve("subdir")
+            .resolve("subdir")
+            .resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+
+    assertTrue(Files.exists(stopFilePath));
+    Files.deleteIfExists(stopFilePath);
+    FileUtils.deleteDirectory(tempDir.toFile());
+  }
+
+  @Test
+  public void testRequestLockReleaseWithGCedStream() throws Exception {
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    InterruptibleInputStream iis =
+        new InterruptibleInputStream(new ByteArrayInputStream(new byte[0]));
+    lockingService.registerInputStream(uri, iis);
+
+    java.lang.reflect.Field field = DiskLockingService.class.getDeclaredField("activeLocks");
+    field.setAccessible(true);
+    java.util.concurrent.ConcurrentHashMap<
+            String, java.lang.ref.WeakReference<InterruptibleInputStream>>
+        map =
+            (java.util.concurrent.ConcurrentHashMap<
+                    String, java.lang.ref.WeakReference<InterruptibleInputStream>>)
+                field.get(null);
+
+    java.lang.ref.WeakReference<InterruptibleInputStream> ref =
+        map.get("000003f1-a850-49de-af03-997272d834c9");
+    ref.clear();
+
+    lockingService.requestLockRelease(uri);
+    assertFalse(map.containsKey("000003f1-a850-49de-af03-997272d834c9"));
+  }
+
+  @Test
+  public void testRegisteredLockGetUploadUri() throws Exception {
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    UploadLock lock = lockingService.lockUploadByUri(uri);
+    org.junit.Assert.assertNotNull(lock);
+    assertThat(lock.getUploadUri(), is(uri));
+    lock.close();
+  }
+
+  @Test
+  public void testWatchdogRemovesClearedWeakReference() throws Exception {
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    InterruptibleInputStream iis =
+        new InterruptibleInputStream(new ByteArrayInputStream(new byte[0]));
+    lockingService.registerInputStream(uri, iis);
+
+    java.lang.reflect.Field field = DiskLockingService.class.getDeclaredField("activeLocks");
+    field.setAccessible(true);
+    java.util.concurrent.ConcurrentHashMap<
+            String, java.lang.ref.WeakReference<InterruptibleInputStream>>
+        map =
+            (java.util.concurrent.ConcurrentHashMap<
+                    String, java.lang.ref.WeakReference<InterruptibleInputStream>>)
+                field.get(null);
+
+    java.lang.ref.WeakReference<InterruptibleInputStream> ref =
+        map.get("000003f1-a850-49de-af03-997272d834c9");
+    org.junit.Assert.assertNotNull(ref);
+    ref.clear();
+
+    long start = System.currentTimeMillis();
+    while (map.containsKey("000003f1-a850-49de-af03-997272d834c9")
+        && System.currentTimeMillis() - start < 2500L) {
+      Thread.sleep(100L);
+    }
+
+    assertFalse(
+        "Watchdog should have removed the cleared weak reference from activeLocks",
+        map.containsKey("000003f1-a850-49de-af03-997272d834c9"));
+  }
+
+  @Test
+  public void testWatchdogInterrupted() throws Exception {
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    InterruptibleInputStream iis =
+        new InterruptibleInputStream(new ByteArrayInputStream(new byte[0]));
+    lockingService.registerInputStream(uri, iis);
+
+    Thread watchdog = findWatchdogThread();
+    org.junit.Assert.assertNotNull(watchdog);
+    assertTrue(watchdog.isAlive());
+
+    watchdog.interrupt();
+
+    long start = System.currentTimeMillis();
+    while (watchdog.isAlive() && System.currentTimeMillis() - start < 2500L) {
+      Thread.sleep(100L);
+    }
+    assertFalse("Watchdog thread should have terminated on interruption", watchdog.isAlive());
+
+    java.lang.reflect.Field field = DiskLockingService.class.getDeclaredField("activeLocks");
+    field.setAccessible(true);
+    java.util.concurrent.ConcurrentHashMap<?, ?> map =
+        (java.util.concurrent.ConcurrentHashMap<?, ?>) field.get(null);
+    map.clear();
+  }
+
+  @Test
+  public void testWatchdogUnexpectedException() throws Exception {
+    java.lang.reflect.Field field = DiskLockingService.class.getDeclaredField("activeLocks");
+    field.setAccessible(true);
+    java.util.concurrent.ConcurrentHashMap<
+            String, java.lang.ref.WeakReference<InterruptibleInputStream>>
+        map =
+            (java.util.concurrent.ConcurrentHashMap<
+                    String, java.lang.ref.WeakReference<InterruptibleInputStream>>)
+                field.get(null);
+
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    InterruptibleInputStream iis =
+        new InterruptibleInputStream(new ByteArrayInputStream(new byte[0]));
+    lockingService.registerInputStream(uri, iis);
+
+    Thread watchdog = findWatchdogThread();
+    org.junit.Assert.assertNotNull(watchdog);
+
+    java.lang.ref.WeakReference<InterruptibleInputStream> mockRef =
+        org.mockito.Mockito.mock(java.lang.ref.WeakReference.class);
+    when(mockRef.get()).thenThrow(new RuntimeException("Simulated exception"));
+    map.put("trigger-error", mockRef);
+
+    long start = System.currentTimeMillis();
+    while (watchdog.isAlive() && System.currentTimeMillis() - start < 2500L) {
+      Thread.sleep(100L);
+    }
+
+    map.clear();
+  }
+
+  @Test
+  public void testRegisteredLockDeleteStopFileIOException() throws Exception {
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    UploadLock lock = lockingService.lockUploadByUri(uri);
+    org.junit.Assert.assertNotNull(lock);
+
+    Path stopFilePath =
+        storagePath.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+    Files.createDirectories(stopFilePath);
+    Files.createFile(stopFilePath.resolve("dummy"));
+
+    try {
+      lock.release();
+    } finally {
+      FileUtils.deleteDirectory(stopFilePath.toFile());
+    }
+
+    UploadLock lock2 = lockingService.lockUploadByUri(uri);
+    org.junit.Assert.assertNotNull(lock2);
+    Files.createDirectories(stopFilePath);
+    Files.createFile(stopFilePath.resolve("dummy"));
+    try {
+      lock2.close();
+    } finally {
+      FileUtils.deleteDirectory(stopFilePath.toFile());
+    }
+  }
+
   private Thread findWatchdogThread() {
     ThreadGroup group = Thread.currentThread().getThreadGroup();
     while (group.getParent() != null) {
