@@ -372,6 +372,7 @@
                                         <argument>scripts/check-coverage.py</argument>
                                         <argument>--xml</argument>
                                         <argument>${project.reporting.outputDirectory}/jacoco-ut/jacoco.xml</argument>
+                                        <argument>${project.reporting.outputDirectory}/jacoco-it/jacoco.xml</argument>
                                         <argument>--limit</argument>
                                         <argument>${jacoco.coverage.limit}</argument>
                                         <argument>--compare-branch</argument>
