@@ -48,6 +48,11 @@ Completed parent uploads are indexed by checksum under the `<storagePath>/checks
 
 ### 6. Unit Test Coverage
 - Unit test coverage must remain high. All new code (including background watchdog threads, helper methods, stream wrappers, and retry logic) must be thoroughly unit tested.
+- After finalizing any implementation, you MUST check the unit test coverage on new/modified lines by running:
+  ```bash
+  mvn verify -Pcheck-coverage -Djacoco.compare.branch=master
+  ```
+  If any added or modified lines are reported as uncovered (❌) or partially covered (⚠️), you must add extra unit tests to cover them before submitting.
 
 ### 7. No Code Duplication & Reusability
 - Avoid code duplication wherever possible. Consolidate repetitive logic (such as path generation, header parsing, and lock acquisition/release) into reusable helper functions or utility classes. Keep file path resolutions consolidated.
