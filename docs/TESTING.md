@@ -108,3 +108,25 @@ curl -X HEAD -H "Tus-Resumable: 1.0.0" -I ${UPLOAD_URL}
   - The response will contain the `Upload-Offset` header reflecting the number of bytes successfully written to disk before the stream was interrupted (e.g., `Upload-Offset: 153600`).
 - **Subsequent Uploads**:
   - You can immediately resume the upload using a new `PATCH` request starting from the offset returned in the `HEAD` response.
+
+---
+
+## Automated Unit Test Coverage Verification
+
+To locally verify unit test coverage against a target percentage (default: 95%) and report which lines/files are not covered, you can run the Maven build with the `check-coverage` profile.
+
+### Run with default threshold (95%)
+```bash
+mvn verify -Pcheck-coverage
+```
+
+### Run with a custom threshold (e.g., 80%)
+```bash
+mvn verify -Pcheck-coverage -Djacoco.coverage.limit=80
+```
+
+This will:
+1. Run all unit/integration tests and generate the Jacoco XML coverage report.
+2. Execute the python checking script (`scripts/check-coverage.py`) which parses the report.
+3. Print a detailed list of uncovered (`❌`) and partially covered (`⚠️`) lines for each file.
+4. Fail the build with exit code 1 if the overall line coverage is below the threshold, or succeed if it meets or exceeds it.
