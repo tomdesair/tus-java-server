@@ -18,12 +18,12 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.TusExtension;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import org.apache.commons.codec.binary.Base64;
-import org.apache.commons.io.input.CountingInputStream;
+import org.apache.commons.io.input.BoundedInputStream;
 import org.apache.commons.lang3.StringUtils;
 
 public class TusServletRequest extends HttpServletRequestWrapper {
 
-  private CountingInputStream countingInputStream;
+  private BoundedInputStream countingInputStream;
   private Map<ChecksumAlgorithm, DigestInputStream> digestInputStreamMap =
       new EnumMap<>(ChecksumAlgorithm.class);
 
@@ -67,7 +67,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
         contentInputStream = new HttpChunkedEncodingInputStream(contentInputStream, trailerHeaders);
       }
 
-      countingInputStream = new CountingInputStream(contentInputStream);
+      countingInputStream = BoundedInputStream.builder().setInputStream(contentInputStream).get();
       contentInputStream = countingInputStream;
 
       ChecksumAlgorithm checksumAlgorithm =
@@ -97,7 +97,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
   }
 
   public long getBytesRead() {
-    return countingInputStream == null ? 0 : countingInputStream.getByteCount();
+    return countingInputStream == null ? 0 : countingInputStream.getCount();
   }
 
   public boolean hasCalculatedChecksum() {
@@ -141,7 +141,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
   }
 
   private boolean hasChunkedTransferEncoding() {
-    return StringUtils.equalsIgnoreCase("chunked", getHeader(HttpHeader.TRANSFER_ENCODING));
+    return "chunked".equalsIgnoreCase(getHeader(HttpHeader.TRANSFER_ENCODING));
   }
 
   private MessageDigest getMessageDigest(ChecksumAlgorithm algorithm) {

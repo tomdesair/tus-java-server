@@ -24,8 +24,8 @@ public abstract class UploadIdFactory {
    */
   public void setUploadUri(String uploadUri) {
     Validate.notBlank(uploadUri, "The upload URI pattern cannot be blank");
-    Validate.isTrue(StringUtils.startsWith(uploadUri, "/"), "The upload URI should start with /");
-    Validate.isTrue(!StringUtils.endsWith(uploadUri, "$"), "The upload URI should not end with $");
+    Validate.isTrue(uploadUri != null && uploadUri.startsWith("/"), "The upload URI should start with /");
+    Validate.isTrue(uploadUri != null && !uploadUri.endsWith("$"), "The upload URI should not end with $");
     this.uploadUri = uploadUri;
     this.uploadUriPattern = null;
   }
@@ -86,7 +86,7 @@ public abstract class UploadIdFactory {
       // We will extract the upload ID's by removing the upload URI from the start of the
       // request URI
       uploadUriPattern =
-          Pattern.compile("^.*" + uploadUri + (StringUtils.endsWith(uploadUri, "/") ? "" : "/?"));
+          Pattern.compile("^.*" + uploadUri + (uploadUri != null && uploadUri.endsWith("/") ? "" : "/?"));
     }
     return uploadUriPattern;
   }

@@ -34,7 +34,7 @@ public class UploadOffsetValidator implements RequestValidator {
 
     if (uploadInfo != null) {
       String expectedOffset = Objects.toString(uploadInfo.getOffset());
-      if (!StringUtils.equals(expectedOffset, uploadOffset)) {
+      if (!java.util.Objects.equals(expectedOffset, uploadOffset)) {
         throw new UploadOffsetMismatchException(
             "The Upload-Offset was "
                 + StringUtils.trimToNull(uploadOffset)

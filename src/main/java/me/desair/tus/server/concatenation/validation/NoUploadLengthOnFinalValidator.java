@@ -23,7 +23,7 @@ public class NoUploadLengthOnFinalValidator implements RequestValidator {
 
     String uploadConcatValue = request.getHeader(HttpHeader.UPLOAD_CONCAT);
 
-    if (StringUtils.startsWithIgnoreCase(uploadConcatValue, "final")
+    if (uploadConcatValue != null && uploadConcatValue.toLowerCase(java.util.Locale.ROOT).startsWith("final")
         && StringUtils.isNotBlank(request.getHeader(HttpHeader.UPLOAD_LENGTH))) {
 
       throw new UploadLengthNotAllowedOnConcatenationException(

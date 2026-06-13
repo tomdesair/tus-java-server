@@ -32,7 +32,7 @@ public class TusResumableValidator implements RequestValidator {
       throws TusException {
 
     String requestVersion = Utils.getHeader(request, HttpHeader.TUS_RESUMABLE);
-    if (!StringUtils.equals(requestVersion, TusFileUploadService.TUS_API_VERSION)) {
+    if (!TusFileUploadService.TUS_API_VERSION.equals(requestVersion)) {
       throw new InvalidTusResumableException(
           "This server does not support tus protocol version " + requestVersion);
     }

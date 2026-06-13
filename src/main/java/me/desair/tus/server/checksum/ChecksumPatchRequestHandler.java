@@ -47,7 +47,7 @@ public class ChecksumPatchRequestHandler extends AbstractRequestHandler {
         ChecksumAlgorithm checksumAlgorithm = checksumInfo.getAlgorithm();
         String calculatedValue = servletRequest.getCalculatedChecksum(checksumAlgorithm);
 
-        if (!StringUtils.equals(expectedValue, calculatedValue)) {
+        if (!java.util.Objects.equals(expectedValue, calculatedValue)) {
           // throw an exception if the checksum is invalid. This will also trigger the removal
           // of any
           // bytes that were already saved

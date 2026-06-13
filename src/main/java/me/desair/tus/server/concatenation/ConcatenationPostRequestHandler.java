@@ -41,10 +41,10 @@ public class ConcatenationPostRequestHandler extends AbstractRequestHandler {
     if (uploadInfo != null) {
 
       String uploadConcatValue = servletRequest.getHeader(HttpHeader.UPLOAD_CONCAT);
-      if (StringUtils.equalsIgnoreCase(uploadConcatValue, "partial")) {
+      if ("partial".equalsIgnoreCase(uploadConcatValue)) {
         uploadInfo.setUploadType(UploadType.PARTIAL);
 
-      } else if (StringUtils.startsWithIgnoreCase(uploadConcatValue, "final")) {
+      } else if (uploadConcatValue != null && uploadConcatValue.toLowerCase(java.util.Locale.ROOT).startsWith("final")) {
         // reset the length, just to be sure
         uploadInfo.setLength(null);
         uploadInfo.setUploadType(UploadType.CONCATENATED);

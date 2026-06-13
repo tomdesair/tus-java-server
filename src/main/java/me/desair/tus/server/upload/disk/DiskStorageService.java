@@ -58,13 +58,13 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
   public DiskStorageService(UploadIdFactory idFactory, String storagePath) {
     this(storagePath);
-    Validate.notNull(idFactory, "The IdFactory cannot be null");
+    java.util.Objects.requireNonNull(idFactory, "The IdFactory cannot be null");
     this.idFactory = idFactory;
   }
 
   @Override
   public void setIdFactory(UploadIdFactory idFactory) {
-    Validate.notNull(idFactory, "The IdFactory cannot be null");
+    java.util.Objects.requireNonNull(idFactory, "The IdFactory cannot be null");
     this.idFactory = idFactory;
   }
 
@@ -324,7 +324,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
   @Override
   public void setUploadConcatenationService(UploadConcatenationService concatenationService) {
-    Validate.notNull(concatenationService);
+    java.util.Objects.requireNonNull(concatenationService);
     this.uploadConcatenationService = concatenationService;
   }
 

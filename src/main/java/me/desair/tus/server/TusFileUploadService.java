@@ -253,7 +253,7 @@ public class TusFileUploadService {
   public TusFileUploadService disableTusExtension(String extensionName) {
     Validate.notNull(extensionName, "The extension name cannot be null");
     Validate.isTrue(
-        !StringUtils.equals("core", extensionName), "The core protocol cannot be disabled");
+        !"core".equals(extensionName), "The core protocol cannot be disabled");
 
     enabledFeatures.remove(extensionName);
     updateSupportedHttpMethods();

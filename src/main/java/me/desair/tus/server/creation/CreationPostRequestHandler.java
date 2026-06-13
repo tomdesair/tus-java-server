@@ -49,7 +49,7 @@ public class CreationPostRequestHandler extends AbstractRequestHandler {
     // It's important to return relative UPLOAD URLs in the Location header in order to support
     // HTTPS proxies
     // that sit in front of the web app
-    String url = uploadUri + (StringUtils.endsWith(uploadUri, "/") ? "" : "/") + info.getId();
+    String url = uploadUri + (uploadUri != null && uploadUri.endsWith("/") ? "" : "/") + info.getId();
     servletResponse.setHeader(HttpHeader.LOCATION, url);
     servletResponse.setStatus(HttpServletResponse.SC_CREATED);
 

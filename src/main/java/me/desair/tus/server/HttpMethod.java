@@ -26,7 +26,7 @@ public enum HttpMethod {
   /** Get the {@link HttpMethod} instance that matches the provided name. */
   public static HttpMethod forName(String name) {
     for (HttpMethod method : HttpMethod.values()) {
-      if (StringUtils.equalsIgnoreCase(method.name(), name)) {
+      if (method.name().equalsIgnoreCase(name)) {
         return method;
       }
     }
