@@ -18,7 +18,7 @@ Any new feature, bugfix, or improvement must be developed in a separate branch t
 ### CHANGELOG.md
 When adding new features or preparing a release, the `CHANGELOG.md` file must be updated to describe the new functionality added in this version. Use a release version header (e.g., `## [1.0.0-3.2]`) instead of `## [Unreleased]`. Derive this next release version from the SNAPSHOT version declared in the `pom.xml` file by removing the `-SNAPSHOT` suffix. Make sure to not add duplicate headers.
 
-## Release Process
+### Release Process
 When performing a release, please strictly follow the instructions outlined in the [docs/RELEASE.md](docs/RELEASE.md) documentation file.
 
 ## Developer Guidelines & Code Architecture
@@ -53,9 +53,7 @@ Completed parent uploads are indexed by checksum under the `<storagePath>/checks
 - Unit test coverage must remain high. All new code (including background watchdog threads, helper methods, stream wrappers, and retry logic) must be thoroughly unit tested.
 
 ### 8. No Code Duplication & Reusability
-- Avoid code duplication wherever possible. Consolidate repetitive logic (e.g., resolving file-system paths, reading upload IDs, creating/releasing locks) into reusable helper methods or utility functions. Always prioritize code reuse by extracting common logic into reusable helper functions or utilities. Keep file path resolutions consolidated.
+- Avoid code duplication wherever possible. Consolidate repetitive logic (such as path generation, header parsing, and lock acquisition/release) into reusable helper functions or utility classes. Keep file path resolutions consolidated.
 
 ### 9. Documentation & Comments
 - All new classes, interfaces, and non-obvious code blocks (e.g., watchdog lifecycle, stream wrapping logic, thread-safety mechanisms) must have detailed comments describing their purpose, behavior, and design decisions.
-
-## Release Process & Changelog Guidelines
