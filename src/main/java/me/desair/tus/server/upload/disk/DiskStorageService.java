@@ -94,12 +94,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     if (checksum == null || algorithm == null) {
       return null;
     }
-    Path checksumFile =
-        getStoragePath()
-            .getParent()
-            .resolve("checksums")
-            .resolve(algorithm.toString())
-            .resolve(checksum);
+    Path checksumFile = getChecksumPath(checksum, algorithm);
     if (Files.exists(checksumFile)) {
       String uploadIdStr =
           new String(Files.readAllBytes(checksumFile), StandardCharsets.UTF_8).trim();
@@ -227,11 +222,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
           && uploadInfo.getChecksumAlgorithm() != null) {
         // Index the checksum
         Path checksumFile =
-            getStoragePath()
-                .getParent()
-                .resolve("checksums")
-                .resolve(uploadInfo.getChecksumAlgorithm().toString())
-                .resolve(uploadInfo.getChecksum());
+            getChecksumPath(uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm());
         Files.createDirectories(checksumFile.getParent());
         Files.write(checksumFile, uploadInfo.getId().toString().getBytes(StandardCharsets.UTF_8));
       }
@@ -313,12 +304,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
       if (info.getDuplicatesUploadId() == null
           && info.getChecksum() != null
           && info.getChecksumAlgorithm() != null) {
-        Path checksumFile =
-            getStoragePath()
-                .getParent()
-                .resolve("checksums")
-                .resolve(info.getChecksumAlgorithm().toString())
-                .resolve(info.getChecksum());
+        Path checksumFile = getChecksumPath(info.getChecksum(), info.getChecksumAlgorithm());
         Files.deleteIfExists(checksumFile);
       }
       Path uploadPath = getPathInStorageDirectory(info.getId());
@@ -461,6 +447,14 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
   private Path getInfoPath(UploadId id) throws UploadNotFoundException {
     return getPathInUploadDir(id, INFO_FILE);
+  }
+
+  private Path getChecksumPath(String checksum, ChecksumAlgorithm algorithm) {
+    return getStoragePath()
+        .getParent()
+        .resolve("checksums")
+        .resolve(algorithm.toString())
+        .resolve(checksum);
   }
 
   private Path createUploadDirectory(UploadId id) throws IOException {

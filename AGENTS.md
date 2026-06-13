@@ -33,3 +33,8 @@ Completed parent uploads are indexed by checksum under the `<storagePath>/checks
 - Index lookup includes a self-cleaning check: if the index points to an upload that is null or whose data file is missing (e.g., due to expiration), the index file is deleted on the fly, keeping the file system clean without needing a separate index sweeper.
 - Child uploads (duplicates) are never indexed.
 - On parent termination, the parent's index entry is explicitly deleted.
+
+### 4. No Code Duplication & Reusability
+Do not duplicate code. Always prioritize code reuse by extracting common logic (such as path generation, header parsing, lock acquisition/release, etc.) into reusable helper functions or utilities. Keep file path resolutions consolidated.
+
+## Release Process & Changelog Guidelines

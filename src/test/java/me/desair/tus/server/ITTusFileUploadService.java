@@ -1555,6 +1555,27 @@ public class ITTusFileUploadService {
     assertResponseStatus(HttpServletResponse.SC_OK);
     assertThat(servletResponse.getContentAsString(), is(uploadContent));
 
+    // Manipulate parent file directly on disk
+    String manipulatedContent = "manipulated content on disk";
+    Files.write(
+        parentDataPath, manipulatedContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+    // Verify parent download retrieves the manipulated content
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(parentLocation);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertThat(servletResponse.getContentAsString(), is(manipulatedContent));
+
+    // Verify child download retrieves the same manipulated content
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(childLocation);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertThat(servletResponse.getContentAsString(), is(manipulatedContent));
+
     // 4. Delete parent upload
     tusFileUploadService.deleteUpload(parentLocation, OWNER_KEY);
 
