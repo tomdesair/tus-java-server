@@ -10,7 +10,6 @@ import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.lang3.StringUtils;
 
 /** Validate that the IDs specified in the Upload-Concat header map to an existing upload */
 public class PartialUploadsExistValidator implements RequestValidator {
@@ -25,7 +24,8 @@ public class PartialUploadsExistValidator implements RequestValidator {
 
     String uploadConcatValue = request.getHeader(HttpHeader.UPLOAD_CONCAT);
 
-    if (uploadConcatValue != null && uploadConcatValue.toLowerCase(java.util.Locale.ROOT).startsWith("final")) {
+    if (uploadConcatValue != null
+        && uploadConcatValue.toLowerCase(java.util.Locale.ROOT).startsWith("final")) {
 
       for (String uploadUri : Utils.parseConcatenationIDsFromHeader(uploadConcatValue)) {
 

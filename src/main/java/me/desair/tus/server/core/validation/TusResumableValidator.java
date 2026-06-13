@@ -9,7 +9,6 @@ import me.desair.tus.server.exception.InvalidTusResumableException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.lang3.StringUtils;
 
 /**
  * Class that will validate if the tus version in the request corresponds to our implementation

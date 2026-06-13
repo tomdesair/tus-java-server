@@ -29,7 +29,6 @@ import me.desair.tus.server.upload.disk.DiskStorageService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -252,8 +251,7 @@ public class TusFileUploadService {
    */
   public TusFileUploadService disableTusExtension(String extensionName) {
     Validate.notNull(extensionName, "The extension name cannot be null");
-    Validate.isTrue(
-        !"core".equals(extensionName), "The core protocol cannot be disabled");
+    Validate.isTrue(!"core".equals(extensionName), "The core protocol cannot be disabled");
 
     enabledFeatures.remove(extensionName);
     updateSupportedHttpMethods();
