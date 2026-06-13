@@ -12,6 +12,7 @@ import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,7 +50,7 @@ public class CreationPostRequestHandler extends AbstractRequestHandler {
     // It's important to return relative UPLOAD URLs in the Location header in order to support
     // HTTPS proxies
     // that sit in front of the web app
-    String url = uploadUri + (StringUtils.endsWith(uploadUri, "/") ? "" : "/") + info.getId();
+    String url = uploadUri + (Strings.CS.endsWith(uploadUri, "/") ? "" : "/") + info.getId();
     servletResponse.setHeader(HttpHeader.LOCATION, url);
     servletResponse.setStatus(HttpServletResponse.SC_CREATED);
 

@@ -9,6 +9,7 @@ import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 
 /**
  * The request MUST include one of the following headers: a) Upload-Length to indicate the size of
@@ -37,7 +38,7 @@ public class UploadDeferLengthValidator implements RequestValidator {
     }
 
     String uploadConcatValue = request.getHeader(HttpHeader.UPLOAD_CONCAT);
-    if (StringUtils.startsWithIgnoreCase(uploadConcatValue, "final")) {
+    if (Strings.CI.startsWith(uploadConcatValue, "final")) {
       concatenatedUpload = true;
     }
 

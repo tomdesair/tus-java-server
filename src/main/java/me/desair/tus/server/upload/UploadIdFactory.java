@@ -4,6 +4,7 @@ import java.io.Serializable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.apache.commons.lang3.Validate;
 
 /**
@@ -24,8 +25,8 @@ public abstract class UploadIdFactory {
    */
   public void setUploadUri(String uploadUri) {
     Validate.notBlank(uploadUri, "The upload URI pattern cannot be blank");
-    Validate.isTrue(StringUtils.startsWith(uploadUri, "/"), "The upload URI should start with /");
-    Validate.isTrue(!StringUtils.endsWith(uploadUri, "$"), "The upload URI should not end with $");
+    Validate.isTrue(Strings.CS.startsWith(uploadUri, "/"), "The upload URI should start with /");
+    Validate.isTrue(!Strings.CS.endsWith(uploadUri, "$"), "The upload URI should not end with $");
     this.uploadUri = uploadUri;
     this.uploadUriPattern = null;
   }
@@ -86,7 +87,7 @@ public abstract class UploadIdFactory {
       // We will extract the upload ID's by removing the upload URI from the start of the
       // request URI
       uploadUriPattern =
-          Pattern.compile("^.*" + uploadUri + (StringUtils.endsWith(uploadUri, "/") ? "" : "/?"));
+          Pattern.compile("^.*" + uploadUri + (Strings.CS.endsWith(uploadUri, "/") ? "" : "/?"));
     }
     return uploadUriPattern;
   }

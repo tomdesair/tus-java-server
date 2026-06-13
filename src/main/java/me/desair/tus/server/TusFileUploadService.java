@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.Set;
 import me.desair.tus.server.checksum.ChecksumExtension;
 import me.desair.tus.server.concatenation.ConcatenationExtension;
@@ -29,7 +30,7 @@ import me.desair.tus.server.upload.disk.DiskStorageService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -104,7 +105,7 @@ public class TusFileUploadService {
    * @return The current service
    */
   public TusFileUploadService withUploadIdFactory(UploadIdFactory uploadIdFactory) {
-    Validate.notNull(uploadIdFactory, "The UploadIdFactory cannot be null");
+    Objects.requireNonNull(uploadIdFactory, "The UploadIdFactory cannot be null");
     String previousUploadUri = this.idFactory.getUploadUri();
     this.idFactory = uploadIdFactory;
     this.idFactory.setUploadUri(previousUploadUri);
@@ -121,7 +122,7 @@ public class TusFileUploadService {
    * @return The current service
    */
   public TusFileUploadService withUploadStorageService(UploadStorageService uploadStorageService) {
-    Validate.notNull(uploadStorageService, "The UploadStorageService cannot be null");
+    Objects.requireNonNull(uploadStorageService, "The UploadStorageService cannot be null");
     // Copy over any previous configuration
     uploadStorageService.setMaxUploadSize(this.uploadStorageService.getMaxUploadSize());
     uploadStorageService.setUploadExpirationPeriod(
@@ -142,7 +143,7 @@ public class TusFileUploadService {
    * @return The current service
    */
   public TusFileUploadService withUploadLockingService(UploadLockingService uploadLockingService) {
-    Validate.notNull(uploadLockingService, "The UploadStorageService cannot be null");
+    Objects.requireNonNull(uploadLockingService, "The UploadStorageService cannot be null");
     uploadLockingService.setIdFactory(this.idFactory);
     // Update the upload storage service
     this.uploadLockingService = uploadLockingService;
@@ -236,7 +237,7 @@ public class TusFileUploadService {
    * @return The current service
    */
   public TusFileUploadService addTusExtension(TusExtension feature) {
-    Validate.notNull(feature, "A custom feature cannot be null");
+    Objects.requireNonNull(feature, "A custom feature cannot be null");
     enabledFeatures.put(feature.getName(), feature);
     updateSupportedHttpMethods();
     return this;
@@ -251,9 +252,9 @@ public class TusFileUploadService {
    * @return The current service
    */
   public TusFileUploadService disableTusExtension(String extensionName) {
-    Validate.notNull(extensionName, "The extension name cannot be null");
+    Objects.requireNonNull(extensionName, "The extension name cannot be null");
     Validate.isTrue(
-        !StringUtils.equals("core", extensionName), "The core protocol cannot be disabled");
+        !Strings.CS.equals("core", extensionName), "The core protocol cannot be disabled");
 
     enabledFeatures.remove(extensionName);
     updateSupportedHttpMethods();
@@ -306,8 +307,8 @@ public class TusFileUploadService {
   public void process(
       HttpServletRequest servletRequest, HttpServletResponse servletResponse, String ownerKey)
       throws IOException {
-    Validate.notNull(servletRequest, "The HTTP Servlet request cannot be null");
-    Validate.notNull(servletResponse, "The HTTP Servlet response cannot be null");
+    Objects.requireNonNull(servletRequest, "The HTTP Servlet request cannot be null");
+    Objects.requireNonNull(servletResponse, "The HTTP Servlet response cannot be null");
 
     HttpMethod method = HttpMethod.getMethodIfSupported(servletRequest, supportedHttpMethods);
 
