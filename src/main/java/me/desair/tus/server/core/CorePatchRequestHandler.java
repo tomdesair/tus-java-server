@@ -2,14 +2,17 @@ package me.desair.tus.server.core;
 
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Objects;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractRequestHandler;
+import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
@@ -50,8 +53,16 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
       found = false;
     } else if (uploadInfo.isUploadInProgress()) {
       try {
-        uploadInfo =
-            uploadStorageService.append(uploadInfo, servletRequest.getContentInputStream());
+        InputStream stream = servletRequest.getContentInputStream();
+        UploadLockingService lockingService =
+            (UploadLockingService)
+                servletRequest.getAttribute("me.desair.tus.uploadLockingService");
+        if (lockingService != null) {
+          InterruptibleInputStream interruptibleStream = new InterruptibleInputStream(stream);
+          lockingService.registerInputStream(servletRequest.getRequestURI(), interruptibleStream);
+          stream = interruptibleStream;
+        }
+        uploadInfo = uploadStorageService.append(uploadInfo, stream);
 
         if (uploadStorageService.isUploadDeduplicationEnabled()
             && servletRequest.hasCalculatedChecksum()) {

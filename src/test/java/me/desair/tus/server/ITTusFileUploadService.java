@@ -1587,6 +1587,140 @@ public class ITTusFileUploadService {
     assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
   }
 
+  @Test
+  public void testLockContentionAndHeadRelease() throws Exception {
+    // 1. Create upload resource
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 1000L);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    String location =
+        UPLOAD_URI
+            + StringUtils.substringAfter(
+                servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+    // 2. Start a blocking PATCH in a background thread to hold the lock
+    final java.util.concurrent.CountDownLatch requestStarted =
+        new java.util.concurrent.CountDownLatch(1);
+    final java.util.concurrent.atomic.AtomicReference<Exception> bgException =
+        new java.util.concurrent.atomic.AtomicReference<>();
+
+    InputStream blockingStream =
+        new InputStream() {
+          private volatile boolean closed = false;
+
+          @Override
+          public int read() throws IOException {
+            requestStarted.countDown();
+            synchronized (this) {
+              while (!closed) {
+                try {
+                  this.wait(100);
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                  throw new IOException("Interrupted", e);
+                }
+              }
+            }
+            throw new IOException("Stream closed");
+          }
+
+          @Override
+          public void close() throws IOException {
+            synchronized (this) {
+              closed = true;
+              this.notifyAll();
+            }
+          }
+        };
+
+    final MockHttpServletRequest bgRequest =
+        new MockHttpServletRequest() {
+          @Override
+          public jakarta.servlet.ServletInputStream getInputStream() {
+            return new jakarta.servlet.ServletInputStream() {
+              @Override
+              public int read() throws IOException {
+                return blockingStream.read();
+              }
+
+              @Override
+              public void close() throws IOException {
+                blockingStream.close();
+              }
+
+              @Override
+              public boolean isFinished() {
+                return false;
+              }
+
+              @Override
+              public boolean isReady() {
+                return true;
+              }
+
+              @Override
+              public void setReadListener(jakarta.servlet.ReadListener readListener) {}
+            };
+          }
+        };
+    bgRequest.setMethod("PATCH");
+    bgRequest.setRequestURI(location);
+    bgRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    bgRequest.addHeader(HttpHeader.CONTENT_LENGTH, 100);
+    bgRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    bgRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+    Thread bgThread =
+        new Thread(
+            new Runnable() {
+              @Override
+              public void run() {
+                try {
+                  MockHttpServletResponse bgResponse = new MockHttpServletResponse();
+                  tusFileUploadService.process(bgRequest, bgResponse, OWNER_KEY);
+                } catch (Exception e) {
+                  e.printStackTrace();
+                  bgException.set(e);
+                }
+              }
+            });
+    bgThread.start();
+
+    // Wait for the background thread to start reading (meaning it holds the lock)
+    requestStarted.await(2, java.util.concurrent.TimeUnit.SECONDS);
+
+    // 3. Concurrent PATCH request must fail immediately with 423
+    MockHttpServletRequest patchRequest = new MockHttpServletRequest();
+    MockHttpServletResponse patchResponse = new MockHttpServletResponse();
+    patchRequest.setMethod("PATCH");
+    patchRequest.setRequestURI(location);
+    patchRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    patchRequest.addHeader(HttpHeader.CONTENT_LENGTH, 10);
+    patchRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    patchRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    patchRequest.setContent(new byte[10]);
+
+    tusFileUploadService.process(patchRequest, patchResponse, OWNER_KEY);
+    assertThat(patchResponse.getStatus(), is(423));
+
+    // 4. Concurrent HEAD request must interrupt background thread and succeed
+    MockHttpServletRequest headRequest = new MockHttpServletRequest();
+    MockHttpServletResponse headResponse = new MockHttpServletResponse();
+    headRequest.setMethod("HEAD");
+    headRequest.setRequestURI(location);
+    headRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+    tusFileUploadService.process(headRequest, headResponse, OWNER_KEY);
+    assertThat(headResponse.getStatus(), is(204));
+    assertThat(headResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("0"));
+
+    // Clean up
+    bgThread.join(2000);
+  }
+
   protected void assertResponseHeader(final String header, final String value) {
     assertThat(servletResponse.getHeader(header), is(value));
   }

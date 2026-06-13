@@ -207,6 +207,16 @@ public class ThreadLocalCachedStorageAndLockingService
     return lockingServiceDelegate.isLocked(id);
   }
 
+  @Override
+  public void registerInputStream(String requestUri, InputStream inputStream) {
+    lockingServiceDelegate.registerInputStream(requestUri, inputStream);
+  }
+
+  @Override
+  public void requestLockRelease(String requestUri) {
+    lockingServiceDelegate.requestLockRelease(requestUri);
+  }
+
   private void cleanupCache() {
     WeakReference<UploadInfo> ref = uploadInfoCache.get();
     if (ref != null) {

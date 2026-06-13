@@ -1,0 +1,139 @@
+# Manual Testing
+
+## Setup & Running the Server
+
+Before performing the manual verification, you need to compile the library and start the Spring Boot demo server.
+
+### 1. Build and install the `tus-java-server` library:
+In the root directory of the `tus-java-server` project, run:
+```bash
+mvn clean install
+```
+
+### 2. Update the dependency version in the demo server:
+Open the `spring-boot-rest/pom.xml` file in the sibling `tus-java-server-spring-demo` project and update the version of `tus-java-server` to the locally built SNAPSHOT version:
+```xml
+<dependency>
+  <groupId>me.desair.tus</groupId>
+  <artifactId>tus-java-server</artifactId>
+  <version>1.0.0-3.2-SNAPSHOT</version>
+</dependency>
+```
+
+### 3. Build and start the Spring Boot rest demo server:
+Navigate to the sibling `tus-java-server-spring-demo` project and build/run the server:
+```bash
+cd ../tus-java-server-spring-demo
+mvn clean package
+java -jar spring-boot-rest/target/spring-boot-rest-0.0.1-SNAPSHOT.jar
+```
+*Note:* The demo server runs locally on port `8080` and exposes the upload endpoint at `http://localhost:8080/api/upload`.
+
+---
+
+## Cleanup
+
+The Spring Boot demo application writes upload metadata and file chunks to your system's temporary directory under a folder named `tus`.
+To clean up any files and folders created during testing, delete the temp directory:
+
+- **On macOS/Linux**:
+  ```bash
+  rm -rf $TMPDIR/tus
+  ```
+  *(or check your system's `$TMPDIR` / `${java.io.tmpdir}` if configured differently)*
+
+---
+
+## Upload Lock Contention Resolution
+
+This guide outlines how to manually verify that the upload lock contention resolution works as expected using the Spring Boot demo server, `curl`, and `pv` (Pipe Viewer).
+
+---
+
+### Prerequisites for Client
+
+Ensure you have the following tools installed on your client testing machine:
+- **curl**: Standard HTTP client.
+- **pv** (Pipe Viewer): Throttling tool used to simulate a slow or stalled upload.
+  - *macOS*: `brew install pv`
+  - *Debian/Ubuntu*: `sudo apt-get install pv`
+
+---
+
+### Step-by-Step Test Procedure
+
+#### Step 1: Create a New Upload Resource
+Initiate a new upload to the server:
+```bash
+curl -X POST \
+  -H "Tus-Resumable: 1.0.0" \
+  -H "Upload-Length: 10000000" \
+  -I http://localhost:8080/test/api/upload
+```
+Look for the `Location` header in the response and record the upload resource URL (e.g., `http://localhost:8080/api/upload/000003f1-a850-49de-af03-997272d834c9`). We will refer to this as `${UPLOAD_URL}`.
+
+```
+export UPLOAD_URL='http://localhost:8080/test/api/upload/0330595f-1c0d-49f5-9e78-c40b1845157d'
+```
+
+---
+
+#### Step 2: Start a Throttled PATCH Request
+To simulate an active, ongoing upload that is extremely slow (or stalled), run a `PATCH` request using `/dev/zero` throttled to `50 KB/s` via `pv`:
+```bash
+dd if=/dev/zero bs=1024 count=10000 | pv -L 50k | curl -X PATCH -T - \
+  -H "Tus-Resumable: 1.0.0" \
+  -H "Upload-Offset: 0" \
+  -H "Content-Type: application/offset+octet-stream" \
+  ${UPLOAD_URL}
+```
+Keep this request running in your first terminal.
+
+---
+
+#### Step 3: Send a HEAD Request from a Separate Terminal
+While the upload in Step 2 is actively running and holding the file lock, open a **second terminal window** and send a `HEAD` request to query the offset of the same upload resource:
+```bash
+curl -X HEAD -H "Tus-Resumable: 1.0.0" -I ${UPLOAD_URL}
+```
+
+---
+
+### Expected Results
+
+- **First Terminal (PATCH)**:
+  - The stalled/throttled `PATCH` upload should immediately abort with an I/O error or exit because the server terminated its input stream in response to the lock release request.
+- **Second Terminal (HEAD)**:
+  - The `HEAD` request should succeed with status `204 No Content` after a short delay (the server retries up to 25 times at 200ms intervals while releasing the lock).
+  - The response will contain the `Upload-Offset` header reflecting the number of bytes successfully written to disk before the stream was interrupted (e.g., `Upload-Offset: 153600`).
+- **Subsequent Uploads**:
+  - You can immediately resume the upload using a new `PATCH` request starting from the offset returned in the `HEAD` response.
+
+---
+
+## Automated Unit Test Coverage Verification
+
+To locally verify unit test coverage against a target percentage (default: 95%) and report which lines/files are not covered, you can run the Maven build with the `check-coverage` profile.
+
+### Run with default threshold (95%)
+```bash
+mvn verify -Pcheck-coverage
+```
+
+### Run with a custom threshold (e.g., 80%)
+```bash
+mvn verify -Pcheck-coverage -Djacoco.coverage.limit=80
+```
+
+This will:
+1. Run all unit/integration tests and generate the Jacoco XML coverage report.
+2. Execute the python checking script (`scripts/check-coverage.py`) which parses the report.
+3. Print a detailed list of uncovered (`❌`) and partially covered (`⚠️`) lines for each file.
+4. Fail the build with exit code 1 if the overall line coverage is below the threshold, or succeed if it meets or exceeds it.
+
+### Check coverage of only new/modified lines (compared to master)
+You can also use this feature to verify that any new code added in your branch is fully covered compared to another branch (such as `master`):
+```bash
+mvn verify -Pcheck-coverage -Djacoco.compare.branch=master
+```
+If there are any modified or added lines in your branch (located under `src/main/java`) that are not covered by unit tests, the build will output a detailed report listing only those lines and fail.

@@ -5,6 +5,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -18,6 +19,7 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
@@ -146,5 +148,36 @@ public class CorePatchRequestHandlerTest {
         null);
 
     assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
+  }
+
+  @Test
+  public void processWithLockingService() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId(UUID.randomUUID()));
+    info.setOffset(2L);
+    info.setLength(10L);
+    when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class)))
+        .thenReturn(info);
+
+    UploadInfo updatedInfo = new UploadInfo();
+    updatedInfo.setId(info.getId());
+    updatedInfo.setOffset(8L);
+    updatedInfo.setLength(10L);
+    when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class)))
+        .thenReturn(updatedInfo);
+
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+    servletRequest.setAttribute("me.desair.tus.uploadLockingService", mockLocking);
+
+    handler.process(
+        HttpMethod.PATCH,
+        new TusServletRequest(servletRequest),
+        new TusServletResponse(servletResponse),
+        uploadStorageService,
+        null);
+
+    verify(mockLocking, times(1))
+        .registerInputStream(eq(servletRequest.getRequestURI()), any(InputStream.class));
+    verify(uploadStorageService, times(1)).append(eq(info), any(InputStream.class));
   }
 }

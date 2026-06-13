@@ -76,6 +76,10 @@ public class FileBasedLock implements UploadLock {
     return uploadUri;
   }
 
+  public Path getLockPath() {
+    return lockPath;
+  }
+
   @Override
   public void release() {
     try {

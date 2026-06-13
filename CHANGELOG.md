@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [1.0.0-3.2]
 
 ### Added
+- **Lock Contention Resolution**: Allow resuming clients to immediately release upload locks held by stalled upload requests via `HEAD` requests. Supports both single-instance and multi-replica/Kubernetes deployments without breaking backward compatibility of the locking interfaces.
 - **File Deduplication by Hash**: Implemented optional, space-saving duplicate file detection and linking based on file checksums.
   - Added `withUploadDeduplication(boolean)` builder method on `TusFileUploadService` (default: `false` for backward compatibility).
   - Introduced index system under `<storagePath>/checksums/<algorithm>/<checksum_value>` for mapping file checksums to their original completed upload IDs.
