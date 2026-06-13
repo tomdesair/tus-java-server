@@ -83,8 +83,11 @@ public class Utils {
 
           try (ObjectInputStream ois = new ObjectInputStream(Channels.newInputStream(channel))) {
             info = clazz.cast(ois.readObject());
-          } catch (ClassNotFoundException e) {
-            // This should not happen
+          } catch (ClassNotFoundException
+              | java.io.EOFException
+              | java.io.StreamCorruptedException e) {
+            // File may be corrupted due to unexpected server shutdown
+            log.warn("Unable to read serializable file {}: {}", path, e.getMessage());
             info = null;
           }
         } else {

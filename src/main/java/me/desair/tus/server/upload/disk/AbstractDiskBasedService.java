@@ -23,6 +23,9 @@ public class AbstractDiskBasedService {
   }
 
   protected Path getStoragePath() {
+    if (!Files.exists(storagePath)) {
+      init();
+    }
     return storagePath;
   }
 

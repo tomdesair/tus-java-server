@@ -541,4 +541,23 @@ public class DiskLockingServiceTest {
     }
     return null;
   }
+
+  @Test
+  public void cleanupStaleLocksWhenStorageDirectoryNotExists() throws Exception {
+    // Create a new locking service with a non-existent storage path
+    Path nonExistentPath = Paths.get("target", "tus", "non-existent-" + UUID.randomUUID());
+    assertFalse(Files.exists(nonExistentPath));
+
+    DiskLockingService newLockingService =
+        new DiskLockingService(idFactory, nonExistentPath.toString());
+
+    // This should not throw an exception even if the directory does not exist
+    newLockingService.cleanupStaleLocks();
+
+    // The directory should be created automatically
+    assertTrue(Files.exists(nonExistentPath.resolve("locks")));
+
+    // Cleanup
+    FileUtils.deleteDirectory(nonExistentPath.toFile());
+  }
 }
