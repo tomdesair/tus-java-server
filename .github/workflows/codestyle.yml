@@ -8,6 +8,9 @@
 
 name: Google Java Codestyle
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: ["master"]
