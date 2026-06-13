@@ -9,6 +9,7 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Objects;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.util.Utils;
@@ -35,7 +36,7 @@ public class FileBasedLock implements UploadLock {
   public FileBasedLock(String uploadUri, Path lockPath)
       throws UploadAlreadyLockedException, IOException {
     Validate.notBlank(uploadUri, "The upload URI cannot be blank");
-    Validate.notNull(lockPath, "The path to the lock cannot be null");
+    Objects.requireNonNull(lockPath, "The path to the lock cannot be null");
     this.uploadUri = uploadUri;
     this.lockPath = lockPath;
 

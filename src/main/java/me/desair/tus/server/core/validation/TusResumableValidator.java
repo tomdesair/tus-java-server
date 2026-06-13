@@ -9,7 +9,7 @@ import me.desair.tus.server.exception.InvalidTusResumableException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 
 /**
  * Class that will validate if the tus version in the request corresponds to our implementation
@@ -32,7 +32,7 @@ public class TusResumableValidator implements RequestValidator {
       throws TusException {
 
     String requestVersion = Utils.getHeader(request, HttpHeader.TUS_RESUMABLE);
-    if (!StringUtils.equals(requestVersion, TusFileUploadService.TUS_API_VERSION)) {
+    if (!Strings.CS.equals(requestVersion, TusFileUploadService.TUS_API_VERSION)) {
       throw new InvalidTusResumableException(
           "This server does not support tus protocol version " + requestVersion);
     }

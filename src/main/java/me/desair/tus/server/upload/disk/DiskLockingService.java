@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
@@ -17,7 +18,6 @@ import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.util.InterruptibleInputStream;
-import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,7 +50,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
   /** Constructor to use custom UploadIdFactory. */
   public DiskLockingService(UploadIdFactory idFactory, String storagePath) {
     this(storagePath);
-    Validate.notNull(idFactory, "The IdFactory cannot be null");
+    Objects.requireNonNull(idFactory, "The IdFactory cannot be null");
     this.idFactory = idFactory;
   }
 
@@ -123,7 +123,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
 
   @Override
   public void setIdFactory(UploadIdFactory idFactory) {
-    Validate.notNull(idFactory, "The IdFactory cannot be null");
+    Objects.requireNonNull(idFactory, "The IdFactory cannot be null");
     this.idFactory = idFactory;
   }
 

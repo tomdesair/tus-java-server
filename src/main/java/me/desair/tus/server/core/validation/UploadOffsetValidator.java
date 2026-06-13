@@ -12,6 +12,7 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 
 /**
  * The Upload-Offset header’s value MUST be equal to the current offset of the resource. If the
@@ -34,7 +35,7 @@ public class UploadOffsetValidator implements RequestValidator {
 
     if (uploadInfo != null) {
       String expectedOffset = Objects.toString(uploadInfo.getOffset());
-      if (!StringUtils.equals(expectedOffset, uploadOffset)) {
+      if (!Strings.CS.equals(expectedOffset, uploadOffset)) {
         throw new UploadOffsetMismatchException(
             "The Upload-Offset was "
                 + StringUtils.trimToNull(uploadOffset)

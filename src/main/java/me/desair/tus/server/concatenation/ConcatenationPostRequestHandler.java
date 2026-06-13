@@ -11,7 +11,7 @@ import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 
 /**
  * The Server MUST acknowledge a successful upload creation with the 201 Created status. The Server
@@ -41,10 +41,10 @@ public class ConcatenationPostRequestHandler extends AbstractRequestHandler {
     if (uploadInfo != null) {
 
       String uploadConcatValue = servletRequest.getHeader(HttpHeader.UPLOAD_CONCAT);
-      if (StringUtils.equalsIgnoreCase(uploadConcatValue, "partial")) {
+      if (Strings.CI.equals(uploadConcatValue, "partial")) {
         uploadInfo.setUploadType(UploadType.PARTIAL);
 
-      } else if (StringUtils.startsWithIgnoreCase(uploadConcatValue, "final")) {
+      } else if (Strings.CI.startsWith(uploadConcatValue, "final")) {
         // reset the length, just to be sure
         uploadInfo.setLength(null);
         uploadInfo.setUploadType(UploadType.CONCATENATED);

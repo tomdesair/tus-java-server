@@ -1,9 +1,10 @@
 package me.desair.tus.server;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.Objects;
 import java.util.Set;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.Validate;
+import org.apache.commons.lang3.Strings;
 
 /**
  * Class that represents a HTTP method. The X-HTTP-Method-Override request header MUST be a string
@@ -26,7 +27,7 @@ public enum HttpMethod {
   /** Get the {@link HttpMethod} instance that matches the provided name. */
   public static HttpMethod forName(String name) {
     for (HttpMethod method : HttpMethod.values()) {
-      if (StringUtils.equalsIgnoreCase(method.name(), name)) {
+      if (Strings.CI.equals(method.name(), name)) {
         return method;
       }
     }
@@ -40,7 +41,7 @@ public enum HttpMethod {
    */
   public static HttpMethod getMethodIfSupported(
       HttpServletRequest request, Set<HttpMethod> supportedHttpMethods) {
-    Validate.notNull(request, "The HttpServletRequest cannot be null");
+    Objects.requireNonNull(request, "The HttpServletRequest cannot be null");
 
     String requestMethod = request.getHeader(HttpHeader.METHOD_OVERRIDE);
     if (StringUtils.isBlank(requestMethod) || forName(requestMethod) == null) {

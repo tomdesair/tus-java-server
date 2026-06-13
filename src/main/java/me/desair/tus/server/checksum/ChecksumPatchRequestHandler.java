@@ -13,6 +13,7 @@ import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 
 public class ChecksumPatchRequestHandler extends AbstractRequestHandler {
 
@@ -47,7 +48,7 @@ public class ChecksumPatchRequestHandler extends AbstractRequestHandler {
         ChecksumAlgorithm checksumAlgorithm = checksumInfo.getAlgorithm();
         String calculatedValue = servletRequest.getCalculatedChecksum(checksumAlgorithm);
 
-        if (!StringUtils.equals(expectedValue, calculatedValue)) {
+        if (!Strings.CS.equals(expectedValue, calculatedValue)) {
           // throw an exception if the checksum is invalid. This will also trigger the removal
           // of any
           // bytes that were already saved

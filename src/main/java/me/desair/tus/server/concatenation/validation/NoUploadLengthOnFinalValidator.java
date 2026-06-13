@@ -9,6 +9,7 @@ import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadLengthNotAllowedOnConcatenationException;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 
 /** The Client MUST NOT include the Upload-Length header in the upload creation. */
 public class NoUploadLengthOnFinalValidator implements RequestValidator {
@@ -23,7 +24,7 @@ public class NoUploadLengthOnFinalValidator implements RequestValidator {
 
     String uploadConcatValue = request.getHeader(HttpHeader.UPLOAD_CONCAT);
 
-    if (StringUtils.startsWithIgnoreCase(uploadConcatValue, "final")
+    if (Strings.CI.startsWith(uploadConcatValue, "final")
         && StringUtils.isNotBlank(request.getHeader(HttpHeader.UPLOAD_LENGTH))) {
 
       throw new UploadLengthNotAllowedOnConcatenationException(
