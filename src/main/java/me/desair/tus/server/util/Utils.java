@@ -19,6 +19,7 @@ import java.nio.channels.FileLock;
 import java.nio.file.Path;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.regex.Pattern;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import org.apache.commons.lang3.StringUtils;
@@ -31,6 +32,7 @@ public class Utils {
   private static final Logger log = LoggerFactory.getLogger(Utils.class);
   private static final int LOCK_FILE_RETRY_COUNT = 3;
   private static final long LOCK_FILE_SLEEP_TIME = 500;
+  private static final Pattern CHECKSUM_VALUE_PATTERN = Pattern.compile("^[a-zA-Z0-9+/=\\-_]+$");
 
   private Utils() {
     // This is a utility class that only holds static utility methods
@@ -187,7 +189,9 @@ public class Utils {
       String checksumValue =
           StringUtils.substringAfter(
               uploadChecksumHeader, ChecksumAlgorithm.CHECKSUM_VALUE_SEPARATOR);
-      if (algorithm != null && StringUtils.isNotBlank(checksumValue)) {
+      if (algorithm != null
+          && StringUtils.isNotBlank(checksumValue)
+          && CHECKSUM_VALUE_PATTERN.matcher(checksumValue).matches()) {
         return new ChecksumInfo(algorithm, checksumValue);
       }
     }

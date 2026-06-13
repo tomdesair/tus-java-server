@@ -254,6 +254,49 @@ public class UtilsTest {
     assertThat(info.getValue(), is("value123"));
   }
 
+  @Test
+  public void testParseUploadChecksumHeaderValidBase64AndHexAndCharacters() {
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    // test typical hex, base64, base64url characters: a-zA-Z0-9+/=-_
+    when(request.getHeader(HttpHeader.UPLOAD_CHECKSUM)).thenReturn("sha256 abcdef0123456789+/=-_");
+
+    Utils.ChecksumInfo info = Utils.parseUploadChecksumHeader(request);
+    assertThat(info, is(notNullValue()));
+    assertThat(info.getAlgorithm(), is(ChecksumAlgorithm.SHA256));
+    assertThat(info.getValue(), is("abcdef0123456789+/=-_"));
+  }
+
+  @Test
+  public void testParseUploadChecksumHeaderInvalidPathTraversal() {
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    // Test directory traversal attempt
+    when(request.getHeader(HttpHeader.UPLOAD_CHECKSUM)).thenReturn("sha256 ../../etc/passwd");
+
+    Utils.ChecksumInfo info = Utils.parseUploadChecksumHeader(request);
+    assertThat(info, is(nullValue()));
+  }
+
+  @Test
+  public void testParseUploadChecksumHeaderInvalidCharacters() {
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    // Test dots, backslashes, percent signs, brackets, spaces, etc.
+    List<String> invalidValues =
+        Arrays.asList(
+            "sha256 value.123",
+            "sha256 value\\123",
+            "sha256 value%123",
+            "sha256 value[123]",
+            "sha256 value 123",
+            "sha256 value?123",
+            "sha256 value*123",
+            "sha256 value:123");
+
+    for (String val : invalidValues) {
+      when(request.getHeader(HttpHeader.UPLOAD_CHECKSUM)).thenReturn(val);
+      assertThat(Utils.parseUploadChecksumHeader(request), is(nullValue()));
+    }
+  }
+
   /** Simple serializable class for testing. */
   public static class TestSerializable implements Serializable {
     private static final long serialVersionUID = 1L;
