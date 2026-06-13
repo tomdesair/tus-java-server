@@ -46,14 +46,11 @@ Completed parent uploads are indexed by checksum under the `<storagePath>/checks
 ### 5. No Thread-Local Contexts
 - Do not use `ThreadLocal` variables or thread-local request context to pass state between components. Always pass parameters explicitly or use request wrapping.
 
-### 6. Custom Locking Implementations
-- When writing custom `UploadLockingService` implementations, you should implement `registerInputStream` and `requestLockRelease` if the backing store (e.g. Redis, database, S3) needs to support lock contention resolution/interruption across nodes.
-
-### 7. Unit Test Coverage
+### 6. Unit Test Coverage
 - Unit test coverage must remain high. All new code (including background watchdog threads, helper methods, stream wrappers, and retry logic) must be thoroughly unit tested.
 
-### 8. No Code Duplication & Reusability
+### 7. No Code Duplication & Reusability
 - Avoid code duplication wherever possible. Consolidate repetitive logic (such as path generation, header parsing, and lock acquisition/release) into reusable helper functions or utility classes. Keep file path resolutions consolidated.
 
-### 9. Documentation & Comments
+### 8. Documentation & Comments
 - All new classes, interfaces, and non-obvious code blocks (e.g., watchdog lifecycle, stream wrapping logic, thread-safety mechanisms) must have detailed comments describing their purpose, behavior, and design decisions.

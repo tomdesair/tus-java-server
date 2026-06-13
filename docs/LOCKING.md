@@ -51,6 +51,8 @@ public interface UploadLockingService {
 
 ## 3. File System Based Implementation (`DiskLockingService`)
 
+### 3.1. General Overview
+
 `DiskLockingService` is the default locking service. It implements locking using Java NIO `FileChannel` and exclusive `FileLock` objects.
 
 - **Lock Files**: For an upload ID `<id>`, it attempts to acquire an exclusive lock on the file `locks/<id>` in the storage directory.
@@ -61,9 +63,7 @@ public interface UploadLockingService {
     2. Writes an empty `.stop` file named `locks/<id>.stop` in the shared locks directory.
   - The JVM instance that currently holds the file lock detects this `.stop` file and terminates its request.
 
----
-
-## 4. The Watchdog Process
+### 3.2. The Watchdog Process
 
 The watchdog is a background daemon thread managed entirely inside `DiskLockingService`.
 
