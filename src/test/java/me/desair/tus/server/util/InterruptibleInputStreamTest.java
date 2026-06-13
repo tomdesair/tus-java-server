@@ -45,12 +45,10 @@ public class InterruptibleInputStreamTest {
 
   @Test
   public void testInterruptDuringRead() throws IOException {
-    // Custom stream that blocks or behaves as expected
     InputStream bis =
         new InputStream() {
           @Override
           public int read() throws IOException {
-            // Return a byte normally
             return 42;
           }
 
@@ -70,6 +68,98 @@ public class InterruptibleInputStreamTest {
       fail("Expected IOException on read after interrupt");
     } catch (IOException e) {
       assertTrue(e.getMessage().contains("interrupted"));
+    }
+  }
+
+  @Test
+  public void testNullConstructorArg() {
+    try {
+      new InterruptibleInputStream(null);
+      fail("Expected IllegalArgumentException");
+    } catch (IllegalArgumentException e) {
+      assertEquals("Delegate InputStream cannot be null", e.getMessage());
+    }
+  }
+
+  @Test
+  public void testDelegateMethods() throws IOException {
+    byte[] data = new byte[] {1, 2, 3, 4, 5};
+    InputStream bis = new ByteArrayInputStream(data);
+    InterruptibleInputStream iis = new InterruptibleInputStream(bis);
+
+    assertTrue(iis.markSupported());
+    iis.mark(10);
+    assertEquals(5, iis.available());
+    assertEquals(2, iis.skip(2));
+    assertEquals(3, iis.read());
+    iis.reset();
+    assertEquals(1, iis.read());
+
+    // Test reset after interrupt
+    iis.interrupt();
+    try {
+      iis.reset();
+      fail("Expected IOException on reset after interrupt");
+    } catch (IOException e) {
+      assertTrue(e.getMessage().contains("interrupted"));
+    }
+
+    try {
+      iis.available();
+      fail("Expected IOException on available after interrupt");
+    } catch (IOException e) {
+      assertTrue(e.getMessage().contains("interrupted"));
+    }
+
+    try {
+      iis.skip(1);
+      fail("Expected IOException on skip after interrupt");
+    } catch (IOException e) {
+      assertTrue(e.getMessage().contains("interrupted"));
+    }
+  }
+
+  @Test
+  public void testReadExceptionPropagation() throws IOException {
+    InputStream exceptionStream =
+        new InputStream() {
+          @Override
+          public int read() throws IOException {
+            throw new IOException("read error");
+          }
+
+          @Override
+          public int read(byte[] b) throws IOException {
+            throw new IOException("read array error");
+          }
+
+          @Override
+          public int read(byte[] b, int off, int len) throws IOException {
+            throw new IOException("read range error");
+          }
+        };
+
+    InterruptibleInputStream iis = new InterruptibleInputStream(exceptionStream);
+
+    try {
+      iis.read();
+      fail("Expected IOException");
+    } catch (IOException e) {
+      assertEquals("read error", e.getMessage());
+    }
+
+    try {
+      iis.read(new byte[1]);
+      fail("Expected IOException");
+    } catch (IOException e) {
+      assertEquals("read array error", e.getMessage());
+    }
+
+    try {
+      iis.read(new byte[1], 0, 1);
+      fail("Expected IOException");
+    } catch (IOException e) {
+      assertEquals("read range error", e.getMessage());
     }
   }
 }

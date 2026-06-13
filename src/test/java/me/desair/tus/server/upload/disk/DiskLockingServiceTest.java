@@ -64,9 +64,15 @@ public class DiskLockingServiceTest {
             new Answer<UploadId>() {
               @Override
               public UploadId answer(InvocationOnMock invocation) throws Throwable {
-                return new UploadId(
-                    StringUtils.substringAfter(
-                        invocation.getArguments()[0].toString(), UPLOAD_URL + "/"));
+                Object arg = invocation.getArguments()[0];
+                if (arg == null) {
+                  return null;
+                }
+                String argStr = arg.toString();
+                if (!argStr.contains(UPLOAD_URL + "/")) {
+                  return null;
+                }
+                return new UploadId(StringUtils.substringAfter(argStr, UPLOAD_URL + "/"));
               }
             });
 
@@ -220,6 +226,124 @@ public class DiskLockingServiceTest {
     // Clean up stop file
     Path stopFilePath =
         storagePath.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+    Files.deleteIfExists(stopFilePath);
+  }
+
+  @Test
+  public void testDefaultConstructor() throws Exception {
+    DiskLockingService defaultService = new DiskLockingService(storagePath.toString());
+    defaultService.setIdFactory(idFactory);
+    UploadLock lock =
+        defaultService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
+    assertThat(lock, not(nullValue()));
+    lock.close();
+  }
+
+  @Test
+  public void testRequestLockReleaseIOException() throws Exception {
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    Path stopFilePath =
+        storagePath.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+    Files.createDirectories(stopFilePath);
+
+    try {
+      lockingService.requestLockRelease(uri);
+    } finally {
+      FileUtils.deleteDirectory(stopFilePath.toFile());
+    }
+  }
+
+  @Test
+  public void testRegisterInputStreamNullChecks() throws Exception {
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    InterruptibleInputStream iis =
+        new InterruptibleInputStream(new ByteArrayInputStream(new byte[0]));
+
+    lockingService.registerInputStream(null, iis);
+    lockingService.registerInputStream(uri, null);
+
+    reset(idFactory);
+    when(idFactory.readUploadId(nullable(String.class))).thenReturn(null);
+    lockingService.registerInputStream("/invalid/uri", iis);
+
+    lockingService.registerInputStream(uri, org.mockito.Mockito.mock(java.io.InputStream.class));
+  }
+
+  @Test
+  public void testRequestLockReleaseNullAndInvalid() throws Exception {
+    lockingService.requestLockRelease(null);
+
+    reset(idFactory);
+    when(idFactory.readUploadId(nullable(String.class))).thenReturn(null);
+    lockingService.requestLockRelease("/invalid/uri");
+  }
+
+  @Test
+  public void testCleanupStaleLocksWithStaleStopFile() throws Exception {
+    Path locksPath = storagePath.resolve("locks");
+    Files.createDirectories(locksPath);
+
+    String staleStopFile = "stale-stop-file.stop";
+    Path stopFilePath = locksPath.resolve(staleStopFile);
+    Files.createFile(stopFilePath);
+    Files.setLastModifiedTime(
+        stopFilePath, FileTime.fromMillis(System.currentTimeMillis() - 20000));
+
+    assertTrue(Files.exists(stopFilePath));
+    lockingService.cleanupStaleLocks();
+    assertFalse(Files.exists(stopFilePath));
+  }
+
+  @Test
+  public void testCleanupStaleLocksWithStaleLockAndStopFile() throws Exception {
+    Path locksPath = storagePath.resolve("locks");
+    Files.createDirectories(locksPath);
+
+    String staleLock = UUID.randomUUID().toString();
+    Path lockFilePath = locksPath.resolve(staleLock);
+    Path stopFilePath = locksPath.resolve(staleLock + ".stop");
+
+    Files.createFile(lockFilePath);
+    Files.createFile(stopFilePath);
+
+    Files.setLastModifiedTime(
+        lockFilePath, FileTime.fromMillis(System.currentTimeMillis() - 20000));
+    Files.setLastModifiedTime(
+        stopFilePath, FileTime.fromMillis(System.currentTimeMillis() - 20000));
+
+    assertTrue(Files.exists(lockFilePath));
+    assertTrue(Files.exists(stopFilePath));
+
+    lockingService.cleanupStaleLocks();
+
+    assertFalse(Files.exists(lockFilePath));
+    assertFalse(Files.exists(stopFilePath));
+  }
+
+  @Test
+  public void testWatchdogRobustnessOnInterruptException() throws Exception {
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+
+    InterruptibleInputStream faultyStream =
+        new InterruptibleInputStream(new ByteArrayInputStream(new byte[0])) {
+          @Override
+          public void interrupt() {
+            throw new RuntimeException("Simulated exception in interrupt()");
+          }
+        };
+
+    lockingService.registerInputStream(uri, faultyStream);
+
+    Path stopFilePath =
+        storagePath.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+    Files.createDirectories(stopFilePath.getParent());
+    Files.write(stopFilePath, new byte[0]);
+
+    long start = System.currentTimeMillis();
+    while (Files.exists(stopFilePath) && System.currentTimeMillis() - start < 2500L) {
+      Thread.sleep(100L);
+    }
+
     Files.deleteIfExists(stopFilePath);
   }
 

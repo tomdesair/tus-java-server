@@ -80,17 +80,18 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
   public void cleanupStaleLocks() throws IOException {
     try (DirectoryStream<Path> locksStream = Files.newDirectoryStream(getStoragePath())) {
       for (Path path : locksStream) {
-
-        FileTime lastModifiedTime = Files.getLastModifiedTime(path);
-        if (lastModifiedTime.toMillis() < System.currentTimeMillis() - 10000L) {
-          String fileName = path.getFileName().toString();
-          if (fileName.endsWith(".stop")) {
-            Files.deleteIfExists(path);
-          } else {
-            UploadId id = new UploadId(fileName);
-            if (!isLocked(id)) {
+        if (Files.exists(path)) {
+          FileTime lastModifiedTime = Files.getLastModifiedTime(path);
+          if (lastModifiedTime.toMillis() < System.currentTimeMillis() - 10000L) {
+            String fileName = path.getFileName().toString();
+            if (fileName.endsWith(".stop")) {
               Files.deleteIfExists(path);
-              Files.deleteIfExists(path.resolveSibling(fileName + ".stop"));
+            } else {
+              UploadId id = new UploadId(fileName);
+              if (!isLocked(id)) {
+                Files.deleteIfExists(path);
+                Files.deleteIfExists(path.resolveSibling(fileName + ".stop"));
+              }
             }
           }
         }
