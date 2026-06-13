@@ -23,6 +23,8 @@ on:
 
 jobs:
   mvn-install:
+    permissions:
+      contents: write
     strategy:
       matrix:
         java: [17, 21, 25]
