@@ -11,10 +11,10 @@ In the `tus` protocol, client uploads can be resumed after network interruptions
 ### Stalled uploads and resume handling
 1. When a client performs an upload via a `PATCH` request, the server acquires an exclusive lock on that upload.
 2. If the client's network connection drops, the `PATCH` request connection might remain in a "half-open" state on the server (stalled socket read).
-3. The client, recognizing the disconnect, attempts to resume by sending a `HEAD` request to query the current offset.
-4. However, the stalled `PATCH` request is still running on the server and holding the lock, preventing the client from resuming.
+3. The client, recognizing the disconnect, attempts to resume by sending a `HEAD` request to query the current offset (or a `DELETE` request to terminate/clean up the upload).
+4. However, the stalled `PATCH` request is still running on the server and holding the lock, preventing the client from resuming or deleting.
 
-To solve this, we need a mechanism where a new `HEAD` request can trigger the release of the lock held by the stalled request, allowing immediate resumability.
+To solve this, we need a mechanism where a new `HEAD` or `DELETE` request can trigger the release of the lock held by the stalled request, allowing immediate resumability or deletion.
 
 ---
 
@@ -45,7 +45,7 @@ public interface UploadLockingService {
 - **Backward Compatibility**: Both `registerInputStream` and `requestLockRelease` are `default` (no-op) methods, ensuring that third-party custom implementations of `UploadLockingService` (e.g. S3, Redis, or Database backends) do not break.
 - **Request Flow**:
   - When a `PATCH` request stream is created, its input stream is wrapped in an `InterruptibleInputStream` and registered via `registerInputStream`.
-  - When a `HEAD` request encounters a lock conflict, it invokes `requestLockRelease`, which triggers the watchdog and/or local interruption.
+  - When a `HEAD` or `DELETE` request encounters a lock conflict, it invokes `requestLockRelease`, which triggers the watchdog and/or local interruption.
 
 ---
 

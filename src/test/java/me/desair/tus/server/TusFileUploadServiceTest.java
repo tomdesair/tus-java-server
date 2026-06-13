@@ -76,6 +76,46 @@ public class TusFileUploadServiceTest {
   }
 
   @Test
+  public void testAcquireUploadLockDeleteInterrupted() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    when(mockLockingService.lockUploadByUri(anyString()))
+        .thenThrow(new UploadAlreadyLockedException("Locked"));
+
+    TusFileUploadService service =
+        new TusFileUploadService().withUploadLockingService(mockLockingService);
+
+    // Interrupt the thread to trigger InterruptedException during sleep
+    Thread.currentThread().interrupt();
+
+    try {
+      service.acquireUploadLock(HttpMethod.DELETE, "/files/test");
+      fail("Expected IOException due to thread interruption");
+    } catch (IOException e) {
+      // Clear interrupted flag so it doesn't leak to other tests
+      Thread.interrupted();
+      assertNotNull(e.getCause());
+    }
+  }
+
+  @Test
+  public void testAcquireUploadLockDeleteFallback() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+
+    var stubbing = when(mockLockingService.lockUploadByUri(anyString()));
+    for (int i = 0; i < 25; i++) {
+      stubbing = stubbing.thenThrow(new UploadAlreadyLockedException("Locked"));
+    }
+    stubbing.thenReturn(mockLock);
+
+    TusFileUploadService service =
+        new TusFileUploadService().withUploadLockingService(mockLockingService);
+
+    UploadLock lock = service.acquireUploadLock(HttpMethod.DELETE, "/files/test");
+    assertNotNull(lock);
+  }
+
+  @Test
   public void testProcessSuccess() throws Exception {
     UploadLockingService mockLockingService = mock(UploadLockingService.class);
     UploadLock mockLock = mock(UploadLock.class);

@@ -338,7 +338,7 @@ public class TusFileUploadService {
         lock = uploadLockingService.lockUploadByUri(requestUri);
         break;
       } catch (TusException e) {
-        if (HttpMethod.HEAD.equals(method)) {
+        if (HttpMethod.HEAD.equals(method) || HttpMethod.DELETE.equals(method)) {
           uploadLockingService.requestLockRelease(requestUri);
           retries++;
           try {
