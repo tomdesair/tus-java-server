@@ -37,7 +37,11 @@ public class AbstractDiskBasedService {
     if (id == null) {
       return null;
     } else {
-      return storagePath.resolve(id.toString());
+      Path uploadPath = storagePath.resolve(id.toString()).normalize();
+      if (!uploadPath.toAbsolutePath().startsWith(storagePath.toAbsolutePath().normalize())) {
+        throw new IllegalArgumentException("Invalid upload ID");
+      }
+      return uploadPath;
     }
   }
 
