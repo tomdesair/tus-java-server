@@ -1,0 +1,4 @@
+## 2026-06-16 - [Fix path traversal vulnerability in disk storage service]
+**Vulnerability:** Path traversal vulnerability in `AbstractDiskBasedService`. The method `getPathInStorageDirectory(UploadId id)` resolved the path dynamically from `id.toString()` without bounds checking, which could allow an attacker to read/write arbitrary files given an ID payload containing directory traversal sequences `..` or URL encoded path variants (`%2E%2E`).
+**Learning:** `URLCodec.encode` might not correctly sanitize path traversal characters. An attacker can set an ID value like `..`, which would bypass the encode step because `.decode("..")` evaluates to `..`. Therefore, input sanitization should verify the absolute directory boundaries.
+**Prevention:** Use Java `java.nio.file.Path` to resolve the full absolute path and ensure the path is within bounds using `startsWith()` logic on normalized absolute paths.

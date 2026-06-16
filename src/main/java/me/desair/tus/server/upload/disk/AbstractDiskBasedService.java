@@ -37,7 +37,12 @@ public class AbstractDiskBasedService {
     if (id == null) {
       return null;
     } else {
-      return storagePath.resolve(id.toString());
+      Path resolvedPath = storagePath.resolve(id.toString());
+      Path normalizedStoragePath = storagePath.toAbsolutePath().normalize();
+      if (!resolvedPath.toAbsolutePath().normalize().startsWith(normalizedStoragePath)) {
+        throw new IllegalArgumentException("Upload ID violates storage path boundaries");
+      }
+      return resolvedPath;
     }
   }
 
