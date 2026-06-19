@@ -4,9 +4,7 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Base64;
@@ -49,7 +47,8 @@ public class DownloadGetRequestHandlerSecurityTest {
     info.setOffset(10L); // finished
     // filename: "test\r\nInjected: true.txt"
     String maliciousFileName = "test\r\nInjected: true.txt\"";
-    String encodedMeta = "filename " + Base64.getEncoder().encodeToString(maliciousFileName.getBytes());
+    String encodedMeta =
+        "filename " + Base64.getEncoder().encodeToString(maliciousFileName.getBytes());
     info.setEncodedMetadata(encodedMeta);
 
     when(uploadStorageService.getUploadInfo(anyString(), any())).thenReturn(info);
@@ -59,6 +58,10 @@ public class DownloadGetRequestHandlerSecurityTest {
     String contentDisposition = servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION);
 
     // The filename parameter should not contain \r, \n, or "
-    assertThat(contentDisposition, is("attachment; filename=\"testInjected: true.txt\"; filename*=UTF-8''test%0D%0AInjected%3A%20true.txt%22"));
+    assertThat(
+        contentDisposition,
+        is(
+            "attachment; filename=\"testInjected: true.txt\";"
+                + " filename*=UTF-8''test%0D%0AInjected%3A%20true.txt%22"));
   }
 }
