@@ -10,6 +10,11 @@ import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutput;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedList;
+import org.apache.commons.io.serialization.ValidatingObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.io.Serializable;
@@ -83,7 +88,25 @@ public class Utils {
         // Lock will be released when the channel is closed
         if (lockFileShared(channel) != null) {
 
-          try (ObjectInputStream ois = new ObjectInputStream(Channels.newInputStream(channel))) {
+          try (ValidatingObjectInputStream ois = new ValidatingObjectInputStream(Channels.newInputStream(channel))) {
+            ois.accept(
+                me.desair.tus.server.upload.UploadInfo.class,
+                me.desair.tus.server.upload.UploadType.class,
+                me.desair.tus.server.upload.UploadId.class,
+                me.desair.tus.server.checksum.ChecksumAlgorithm.class,
+                java.util.UUID.class,
+                java.lang.Long.class,
+                java.lang.String.class,
+                java.lang.Number.class,
+                java.lang.Enum.class,
+                ArrayList.class,
+                LinkedList.class,
+                java.util.List.class,
+                Arrays.asList("").getClass(),
+                String[].class);
+            // For testing purposes: allows tests to deserialize their own mock objects
+            ois.accept("me.desair.tus.server.util.UtilsTest$TestSerializable");
+
             info = clazz.cast(ois.readObject());
           } catch (ClassNotFoundException
               | java.io.EOFException
