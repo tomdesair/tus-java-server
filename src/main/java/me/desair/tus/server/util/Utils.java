@@ -8,13 +8,7 @@ import static java.nio.file.StandardOpenOption.WRITE;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
 import java.io.ObjectOutput;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.LinkedList;
-import org.apache.commons.io.serialization.ValidatingObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.io.Serializable;
@@ -22,11 +16,14 @@ import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.regex.Pattern;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import org.apache.commons.io.serialization.ValidatingObjectInputStream;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,7 +85,8 @@ public class Utils {
         // Lock will be released when the channel is closed
         if (lockFileShared(channel) != null) {
 
-          try (ValidatingObjectInputStream ois = new ValidatingObjectInputStream(Channels.newInputStream(channel))) {
+          try (ValidatingObjectInputStream ois =
+              new ValidatingObjectInputStream(Channels.newInputStream(channel))) {
             ois.accept(
                 me.desair.tus.server.upload.UploadInfo.class,
                 me.desair.tus.server.upload.UploadType.class,
