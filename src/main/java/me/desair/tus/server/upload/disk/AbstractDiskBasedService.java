@@ -37,7 +37,13 @@ public class AbstractDiskBasedService {
     if (id == null) {
       return null;
     } else {
-      Path uploadPath = storagePath.resolve(id.toString()).normalize();
+      Path uploadPath =
+          storagePath
+              .resolve(
+                  id.getOriginalObject() != null
+                      ? id.getOriginalObject().toString()
+                      : id.toString())
+              .normalize();
       if (!uploadPath.startsWith(storagePath.normalize())) {
         throw new IllegalArgumentException(
             "The upload ID cannot point to a path outside the storage directory");
