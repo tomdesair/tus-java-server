@@ -1,0 +1,4 @@
+## 2024-06-28 - Insecure Deserialization in UploadInfo parsing
+**Vulnerability:** The application reads serialized UploadInfo files from disk using a standard `ObjectInputStream`. This allows an attacker to inject arbitrary serialized objects if they have the ability to write to the storage directory, potentially leading to Remote Code Execution (RCE) via insecure deserialization.
+**Learning:** `ObjectInputStream` inherently deserializes any class that implements `Serializable` and is available on the classpath. Even when expecting a specific class like `UploadInfo`, the object stream will instantiate the malicious class before the cast occurs.
+**Prevention:** Use `ValidatingObjectInputStream` from `commons-io` to enforce a strict allowlist of classes that can be deserialized. This ensures only expected classes (e.g., `UploadInfo` and its valid fields like `UploadType`, `UploadId`) are processed, rejecting unexpected classes before instantiation.
