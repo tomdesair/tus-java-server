@@ -50,7 +50,7 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
           HttpHeader.CONTENT_DISPOSITION,
           String.format(
               CONTENT_DISPOSITION_FORMAT,
-              info.getFileName(),
+              info.getFileName().replaceAll("[\r\n\"]", ""),
               URLEncoder.encode(info.getFileName(), StandardCharsets.UTF_8.toString())
                   .replace("+", "%20")));
 

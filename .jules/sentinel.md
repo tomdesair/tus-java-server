@@ -1,3 +1,7 @@
+## 2026-06-19 - Fix CRLF injection in Content-Disposition header
+**Vulnerability:** A CRLF injection vulnerability was present in `DownloadGetRequestHandler.java` where the unsanitized `info.getFileName()` was passed to `String.format` to form the `Content-Disposition` header. An attacker could craft a malicious filename containing carriage returns, line feeds, and double quotes to inject arbitrary HTTP headers in the response.
+**Learning:** Legacy HTTP header fields that accept unencoded strings, like the `filename="..."` attribute in `Content-Disposition`, are a common vector for HTTP response splitting/CRLF injection.
+**Prevention:** Always sanitize untrusted input when constructing HTTP headers, especially when not using a built-in framework that automatically sanitizes them. For filenames in `Content-Disposition`, strip out `\r`, `\n`, and `"` from the unencoded parameter, and ensure the `filename*=` parameter uses proper URL encoding (e.g., `URLEncoder.encode`).
 ## 2024-05-18 - Prevent Path Traversal in AbstractDiskBasedService
 **Vulnerability:** A Path Traversal vulnerability existed in `AbstractDiskBasedService`'s `getPathInStorageDirectory` method because it blindly resolved the `UploadId`'s value against the base storage directory.
 **Learning:** Even though `UploadId` may attempt to generate safe IDs, user-provided `UploadId`s or corrupted state might cause paths like `../../../etc/passwd` to be resolved, breaking out of the designated directory.
