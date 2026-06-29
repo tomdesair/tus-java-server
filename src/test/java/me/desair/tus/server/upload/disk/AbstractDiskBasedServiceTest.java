@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThrows;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.UUID;
@@ -18,16 +19,19 @@ public class AbstractDiskBasedServiceTest {
 
   private Path storagePath;
   private AbstractDiskBasedService service;
+  private Path tempFile;
 
   @Before
-  public void setUp() {
+  public void setUp() throws IOException {
     storagePath = Paths.get("target", "tus", "abstract-test").toAbsolutePath();
     service = new AbstractDiskBasedService(storagePath.toString());
+    tempFile = Files.createTempFile("tus-test", "file");
   }
 
   @After
   public void tearDown() throws IOException {
     FileUtils.deleteDirectory(storagePath.toFile());
+    Files.deleteIfExists(tempFile);
   }
 
   @Test
@@ -56,5 +60,14 @@ public class AbstractDiskBasedServiceTest {
     // storage root.
     Path path = service.getPathInStorageDirectory(id);
     assertThat(path.startsWith(storagePath), is(true));
+  }
+
+  @Test(expected = StoragePathNotAvailableException.class)
+  public void testInitThrowsStoragePathNotAvailableException() {
+    Path invalidDir = tempFile.resolve("invalid-dir");
+
+    AbstractDiskBasedService invalidService =
+        new AbstractDiskBasedService(invalidDir.toString()) {};
+    invalidService.getStoragePath();
   }
 }
