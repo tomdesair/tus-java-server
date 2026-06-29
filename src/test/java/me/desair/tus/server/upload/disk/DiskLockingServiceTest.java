@@ -356,20 +356,16 @@ public class DiskLockingServiceTest {
     UploadId id = new UploadId("000003f1-a850-49de-af03-997272d834c9");
     java.lang.reflect.Field urlSafeField = UploadId.class.getDeclaredField("urlSafeValue");
     urlSafeField.setAccessible(true);
-    urlSafeField.set(id, "subdir/000003f1-a850-49de-af03-997272d834c9");
+    urlSafeField.set(id, "000003f1-a850-49de-af03-997272d834c9");
 
     reset(idFactory);
     when(idFactory.readUploadId(org.mockito.Mockito.anyString())).thenReturn(id);
 
-    String uri = "/upload/test/subdir/000003f1-a850-49de-af03-997272d834c9";
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
     service.requestLockRelease(uri);
 
     Path stopFilePath =
-        nestedStorage
-            .resolve("locks")
-            .resolve("subdir")
-            .resolve("subdir")
-            .resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+        nestedStorage.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
 
     assertTrue(Files.exists(stopFilePath));
     Files.deleteIfExists(stopFilePath);
