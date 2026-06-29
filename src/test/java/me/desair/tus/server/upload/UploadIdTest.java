@@ -60,6 +60,13 @@ public class UploadIdTest {
   }
 
   @Test
+  public void testConstructorWithDecoderException() {
+    String malformedUrlStr = "%zz";
+    UploadId id = new UploadId(malformedUrlStr);
+    assertEquals("%zz", id.toString());
+  }
+
+  @Test
   public void equalsSameUrlSafeValue() {
     UploadId id1 = new UploadId("id%2F1");
     UploadId id2 = new UploadId("id/1");
