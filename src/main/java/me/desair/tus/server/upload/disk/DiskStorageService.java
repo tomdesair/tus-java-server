@@ -93,6 +93,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     if (checksum == null || algorithm == null) {
       return null;
     }
+    if (!isSafePathComponent(checksum)) {
+      throw new IOException("The checksum contains an unsafe value");
+    }
     Path checksumFile = getChecksumPath(checksum, algorithm);
     if (Files.exists(checksumFile)) {
       String uploadIdStr =
@@ -219,6 +222,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
           && !uploadInfo.isUploadInProgress()
           && uploadInfo.getChecksum() != null
           && uploadInfo.getChecksumAlgorithm() != null) {
+        if (!isSafePathComponent(uploadInfo.getChecksum())) {
+          throw new IOException("The checksum contains an unsafe value");
+        }
         // Index the checksum
         Path checksumFile =
             getChecksumPath(uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm());
@@ -303,8 +309,12 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
       if (info.getDuplicatesUploadId() == null
           && info.getChecksum() != null
           && info.getChecksumAlgorithm() != null) {
-        Path checksumFile = getChecksumPath(info.getChecksum(), info.getChecksumAlgorithm());
-        Files.deleteIfExists(checksumFile);
+        try {
+          Path checksumFile = getChecksumPath(info.getChecksum(), info.getChecksumAlgorithm());
+          Files.deleteIfExists(checksumFile);
+        } catch (IOException e) {
+          // Ignore
+        }
       }
       Path uploadPath = getPathInStorageDirectory(info.getId());
       FileUtils.deleteDirectory(uploadPath.toFile());
@@ -448,7 +458,10 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     return getPathInUploadDir(id, INFO_FILE);
   }
 
-  private Path getChecksumPath(String checksum, ChecksumAlgorithm algorithm) {
+  private Path getChecksumPath(String checksum, ChecksumAlgorithm algorithm) throws IOException {
+    if (!isSafePathComponent(checksum)) {
+      throw new IOException("The checksum contains an unsafe value");
+    }
     return getStoragePath()
         .getParent()
         .resolve("checksums")

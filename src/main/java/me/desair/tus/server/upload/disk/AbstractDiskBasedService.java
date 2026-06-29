@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import me.desair.tus.server.TusFileUploadService;
 import me.desair.tus.server.upload.UploadId;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,13 +38,24 @@ public class AbstractDiskBasedService {
     if (id == null) {
       return null;
     } else {
-      Path path = storagePath.resolve(id.toString());
-      if (!path.normalize().toAbsolutePath().startsWith(storagePath.normalize().toAbsolutePath())) {
+      if (!isSafePathComponent(id.toString())) {
         throw new IllegalArgumentException(
             "Upload ID is not valid and would result in a path traversal");
       }
-      return path;
+      return storagePath.resolve(id.toString());
     }
+  }
+
+  protected boolean isSafePathComponent(String component) {
+    if (StringUtils.isBlank(component)) {
+      return false;
+    }
+
+    if (component.contains("/") || component.contains("\\") || component.contains("..")) {
+      return false;
+    }
+
+    return true;
   }
 
   private synchronized void init() {

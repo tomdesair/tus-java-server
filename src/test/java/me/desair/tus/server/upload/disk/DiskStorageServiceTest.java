@@ -651,6 +651,12 @@ public class DiskStorageServiceTest {
     assertThat(storageService.getUploadInfoByChecksum("somechecksum", null), is(nullValue()));
   }
 
+  @Test(expected = IOException.class)
+  public void testGetUploadInfoByChecksumUnsafe() throws Exception {
+    storageService.getUploadInfoByChecksum(
+        "../../../etc/passwd", me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+  }
+
   @Test
   public void testGetUploadInfoByChecksumMissingDataFile() throws Exception {
     storageService.setUploadDeduplicationEnabled(true);
@@ -701,6 +707,19 @@ public class DiskStorageServiceTest {
     // Parent expiration should be nullified to match child
     parent = storageService.getUploadInfo(parent.getId());
     assertThat(parent.getExpirationTimestamp(), is(nullValue()));
+  }
+
+  @Test(expected = IOException.class)
+  public void testUnsafeChecksumValue() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    UploadInfo parent = new UploadInfo();
+    parent.setLength(100L);
+    parent.setOffset(100L);
+    parent = storageService.create(parent, null);
+    parent.setOffset(100L);
+    parent.setChecksum("../../../etc/passwd");
+    parent.setChecksumAlgorithm(me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+    storageService.update(parent);
   }
 
   private Path getUploadInfoPath(UploadId id) {
