@@ -225,44 +225,10 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
             break;
           }
 
-          // Check stop files for each active lock
-          for (Map.Entry<String, WeakReference<InterruptibleInputStream>> entry :
-              activeLocks.entrySet()) {
-            String idStr = entry.getKey();
-            WeakReference<InterruptibleInputStream> ref = entry.getValue();
-            InterruptibleInputStream stream = ref.get();
+          checkActiveLocks();
 
-            if (stream == null) {
-              activeLocks.remove(idStr);
-              continue;
-            }
-
-            Path stopFilePath = getStopPath(new UploadId(idStr));
-            if (stopFilePath != null && Files.exists(stopFilePath)) {
-              try {
-                log.info(
-                    "Watchdog detected stop file for upload ID {}. Interrupting stream.", idStr);
-                stream.interrupt();
-              } catch (Throwable t) {
-                log.warn("Error interrupting stream for ID " + idStr, t);
-              }
-              activeLocks.remove(idStr);
-              try {
-                Files.deleteIfExists(stopFilePath);
-              } catch (IOException e) {
-                // ignore
-              }
-            }
-          }
-
-          // Thread-safe check to decide whether to exit
-          if (activeLocks.isEmpty()) {
-            synchronized (watchdogLock) {
-              if (activeLocks.isEmpty()) {
-                watchdogThread = null;
-                break;
-              }
-            }
+          if (shouldExitWatchdog()) {
+            break;
           }
         }
       } catch (Throwable t) {
@@ -271,6 +237,54 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
           watchdogThread = null;
         }
       }
+    }
+
+    private void checkActiveLocks() {
+      // Check stop files for each active lock
+      for (Map.Entry<String, WeakReference<InterruptibleInputStream>> entry :
+          activeLocks.entrySet()) {
+        String idStr = entry.getKey();
+        WeakReference<InterruptibleInputStream> ref = entry.getValue();
+        InterruptibleInputStream stream = ref.get();
+
+        if (stream == null) {
+          activeLocks.remove(idStr);
+          continue;
+        }
+
+        checkStopFileAndInterrupt(idStr, stream);
+      }
+    }
+
+    private void checkStopFileAndInterrupt(String idStr, InterruptibleInputStream stream) {
+      Path stopFilePath = getStopPath(new UploadId(idStr));
+      if (stopFilePath != null && Files.exists(stopFilePath)) {
+        try {
+          log.info("Watchdog detected stop file for upload ID {}. Interrupting stream.", idStr);
+          stream.interrupt();
+        } catch (Throwable t) {
+          log.warn("Error interrupting stream for ID " + idStr, t);
+        }
+        activeLocks.remove(idStr);
+        try {
+          Files.deleteIfExists(stopFilePath);
+        } catch (IOException e) {
+          // ignore
+        }
+      }
+    }
+
+    private boolean shouldExitWatchdog() {
+      // Thread-safe check to decide whether to exit
+      if (activeLocks.isEmpty()) {
+        synchronized (watchdogLock) {
+          if (activeLocks.isEmpty()) {
+            watchdogThread = null;
+            return true;
+          }
+        }
+      }
+      return false;
     }
   }
 
