@@ -448,12 +448,26 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     return getPathInUploadDir(id, INFO_FILE);
   }
 
-  private Path getChecksumPath(String checksum, ChecksumAlgorithm algorithm) {
+  private Path getChecksumPath(String checksum, ChecksumAlgorithm algorithm) throws IOException {
+    if (!isSafePathComponent(checksum)) {
+      throw new IOException("The checksum contains an unsafe value.");
+    }
+    if (algorithm == null || !isSafePathComponent(algorithm.toString())) {
+      throw new IOException("The checksum algorithm contains an unsafe value.");
+    }
     return getStoragePath()
         .getParent()
         .resolve("checksums")
         .resolve(algorithm.toString())
         .resolve(checksum);
+  }
+
+  private boolean isSafePathComponent(String component) {
+    return component != null
+        && !component.trim().isEmpty()
+        && !component.contains("/")
+        && !component.contains("\\")
+        && !component.contains("..");
   }
 
   private Path createUploadDirectory(UploadId id) throws IOException {
@@ -464,6 +478,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     // Get the upload directory
     Path uploadDir = getPathInStorageDirectory(id);
     if (uploadDir != null && Files.exists(uploadDir)) {
+      if (!isSafePathComponent(fileName)) {
+        throw new IllegalArgumentException("The file name contains an unsafe value.");
+      }
       return uploadDir.resolve(fileName);
     } else {
       throw new UploadNotFoundException("The upload for id " + id + " was not found.");
