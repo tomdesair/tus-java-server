@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -24,6 +25,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.UploadNotFoundException;
@@ -732,5 +735,55 @@ public class DiskStorageServiceTest {
 
     // Cleanup
     FileUtils.deleteDirectory(nonExistentPath.toFile());
+  }
+
+  @Test
+  public void testGetUploadInfoByChecksumWithUnsafeChecksums() {
+    List<String> unsafeChecksums =
+        Arrays.asList(" ", "../test", "test/../test", "test/test", "test\\test", "..", "/");
+
+    for (String checksum : unsafeChecksums) {
+      assertThrows(
+          IOException.class,
+          () -> {
+            storageService.getUploadInfoByChecksum(
+                checksum, me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+          });
+    }
+  }
+
+  @Test
+  public void testUpdateWithUnsafeChecksums() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(100L);
+    info.setOffset(100L);
+    info = storageService.create(info, null);
+    info.setOffset(100L);
+
+    info.setChecksum("test/path");
+    info.setChecksumAlgorithm(me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+
+    final UploadInfo finalInfo = info;
+    assertThrows(
+        IOException.class,
+        () -> {
+          storageService.update(finalInfo);
+        });
+  }
+
+  @Test
+  public void testTerminateUploadWithUnsafeChecksums() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("test-id"));
+    info.setChecksum("test/path");
+    info.setChecksumAlgorithm(me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+
+    assertThrows(
+        IOException.class,
+        () -> {
+          storageService.terminateUpload(info);
+        });
   }
 }

@@ -48,6 +48,7 @@ Completed parent uploads are indexed by checksum under the `<storagePath>/checks
 
 ### 6. Unit Test Coverage
 - Unit test coverage must remain high. All new code (including background watchdog threads, helper methods, stream wrappers, and retry logic) must be thoroughly unit tested.
+- Do not use reflection to test private helper methods. Always test code through public API boundaries instead of bypassing encapsulation.
 - After finalizing any implementation, you MUST check the unit test coverage on new/modified lines by running:
   ```bash
   mvn verify -Pcheck-coverage -Djacoco.compare.branch=master
