@@ -194,6 +194,42 @@ def locate_release_artifacts(version):
 
     return paths, None
 
+def unlock_gpg_key(env=None):
+    print("[ ] Checking GPG key status...", end="", flush=True)
+    # 1. Try a silent dry-run signing check to see if key is already cached/unlocked
+    try:
+        proc = subprocess.run(
+            ["gpg", "--batch", "--sign", "--output", "-", "/dev/null"],
+            capture_output=True,
+            env=env,
+            timeout=2
+        )
+        if proc.returncode == 0:
+            print(f"\r[\033[92m✅\033[0m] GPG key status (cached/unlocked)")
+            return True
+    except Exception:
+        pass
+
+    # 2. If not cached, prompt the user interactively to unlock it
+    print(f"\r[!] GPG key is locked. Please enter your passphrase in the prompt to unlock it.")
+    try:
+        proc = subprocess.run(
+            ["gpg", "--clearsign"],
+            input="unlock-gpg-key-test\n",
+            stdout=subprocess.DEVNULL,
+            env=env,
+            text=True
+        )
+        if proc.returncode == 0:
+            print(f"[\033[92m✅\033[0m] GPG key successfully unlocked.")
+            return True
+        else:
+            print(f"[\033[91m❌\033[0m] Failed to unlock GPG key (exit code {proc.returncode}).")
+            return False
+    except Exception as e:
+        print(f"[\033[91m❌\033[0m] Error unlocking GPG key: {e}")
+        return False
+
 def main():
     args = parse_args()
 
@@ -274,6 +310,10 @@ def main():
                     break
             except Exception:
                 pass
+
+    # Ensure the GPG key is unlocked so the redirected maven commands do not block/timeout on signing
+    if not unlock_gpg_key(sub_env):
+        sys.exit(1)
 
     if args.mode == "validate":
         print(f"\n--- Starting Validation Run ({current_version} -> {release_version}) ---")
