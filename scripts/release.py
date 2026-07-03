@@ -442,7 +442,7 @@ def main():
             nf.write(notes)
 
         gh_args = ["gh", "release", "create", tag] + artifacts + [
-            "--title", f"Release {tag}",
+            "--title", tag,
             "--notes-file", notes_file
         ]
 
