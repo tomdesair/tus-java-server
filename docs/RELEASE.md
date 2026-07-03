@@ -39,9 +39,29 @@ To perform a release, ensure you have the following installed and configured loc
 
 ---
 
-## Stages of the Release
+## Automated Release (Recommended)
 
-Below are the step-by-step instructions to release a new version.
+You can automate the release process using the Python script at `scripts/release.py`. The release runs in two stages:
+
+1. **Validation Run (Dry-Run & SNAPSHOT deployment)**:
+   ```bash
+   python3 scripts/release.py validate
+   ```
+   This compiles the project, runs tests, deploys the `SNAPSHOT` version to Sonatype, and runs a dry-run release simulation.
+
+2. **Actual Release**:
+   ```bash
+   python3 scripts/release.py release
+   ```
+   This performs the actual version bump, tags the SCM repository, deploys the release artifacts to Maven Central staging, and creates a GitHub Release attaching the `.pom`, `.jar`, `-sources.jar`, and `-javadoc.jar` files.
+
+You can append `-y` or `--yes` to bypass version verification prompts and use the auto-proposed versions.
+
+---
+
+## Manual Stages of the Release
+
+Below are the step-by-step instructions to release a new version manually.
 
 ### 1. Verification and Snapshot Deployment (Optional but Recommended)
 
