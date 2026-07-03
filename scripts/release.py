@@ -230,6 +230,48 @@ def unlock_gpg_key(env=None):
         print(f"[\033[91m❌\033[0m] Error unlocking GPG key: {e}")
         return False
 
+def preflight_git_and_signing(env=None):
+    print("[ ] Verifying Git and signing configuration...", end="", flush=True)
+    try:
+        proc = subprocess.run(
+            ["git", "config", "commit.gpgsign"],
+            capture_output=True,
+            text=True,
+            env=env
+        )
+        gpgsign = proc.stdout.strip().lower() == "true"
+    except Exception:
+        gpgsign = False
+
+    if gpgsign:
+        print(f"\r[!] Commit signing is enabled. Creating a temporary dummy commit to unlock/cache your credentials.")
+
+    try:
+        proc = subprocess.run(
+            ["git", "commit", "--allow-empty", "-m", "release-preflight-check", "--no-verify"],
+            env=env,
+            stdout=subprocess.DEVNULL
+        )
+        if proc.returncode == 0:
+            subprocess.run(
+                ["git", "reset", "--soft", "HEAD~1"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=env,
+                check=True
+            )
+            print(f"[\033[92m✅\033[0m] Git and signing configuration verified.")
+            return True
+        else:
+            print(f"\r[\033[91m❌\033[0m] Git and signing configuration verification failed.")
+            print(f"\nFailed to create dummy commit (exit code {proc.returncode}).")
+            print("Please ensure your Git configuration (user.name, user.email, and GPG/SSH keys) is correct.")
+            return False
+    except Exception as e:
+        print(f"\r[\033[91m❌\033[0m] Git and signing configuration verification failed.")
+        print(f"Error during Git verification: {e}")
+        return False
+
 def main():
     args = parse_args()
 
@@ -313,6 +355,10 @@ def main():
 
     # Ensure the GPG key is unlocked so the redirected maven commands do not block/timeout on signing
     if not unlock_gpg_key(sub_env):
+        sys.exit(1)
+
+    # Ensure Git and commit signing (GPG, 1Password SSH keys, etc.) are verified and cached
+    if not preflight_git_and_signing(sub_env):
         sys.exit(1)
 
     if args.mode == "validate":
