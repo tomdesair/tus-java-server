@@ -44,7 +44,6 @@ public class RufhOptionsRequestHandler extends AbstractRequestHandler {
     servletResponse.setHeader(
         HttpHeader.ACCEPT_PATCH,
         HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD + ", application/offset+octet-stream");
-    servletResponse.setHeader(HttpHeader.UPLOAD_DRAFT, "11");
 
     addUploadLimitHeader(servletResponse, uploadStorageService);
     servletResponse.setStatus(HttpServletResponse.SC_NO_CONTENT);

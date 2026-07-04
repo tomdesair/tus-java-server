@@ -74,7 +74,6 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
       uploadStorageService.update(uploadInfo);
     }
 
-    servletResponse.setHeader(HttpHeader.UPLOAD_DRAFT, "11");
     servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, String.valueOf(uploadInfo.getOffset()));
     servletResponse.setHeader(
         HttpHeader.UPLOAD_COMPLETE, StructuredHeaderUtil.formatBoolean(isFinished));

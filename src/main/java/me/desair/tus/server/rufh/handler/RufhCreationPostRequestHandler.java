@@ -89,8 +89,6 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
       }
     }
 
-    servletResponse.setHeader(HttpHeader.UPLOAD_DRAFT, "11");
-
     boolean isFinished = Boolean.TRUE.equals(uploadComplete) || isUploadCompleted(uploadInfo);
     if (isFinished) {
       uploadInfo.setLength(uploadInfo.getOffset());

@@ -64,7 +64,6 @@ public class RufhOptionsRequestHandlerTest {
     assertThat(
         response.getHeader(HttpHeader.ACCEPT_PATCH),
         is("application/partial-upload, application/offset+octet-stream"));
-    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("11"));
     assertThat(
         response.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=100000, max-append-size=50000"));
   }

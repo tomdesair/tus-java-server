@@ -5,6 +5,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.upload.UploadId;
@@ -65,6 +66,7 @@ public class RufhProtocolCancellationTest {
         ProtocolVersion.RUFH);
 
     assertThat(response.getStatus(), is(204));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("11"));
     verify(storageService).terminateUpload(info);
   }
 }

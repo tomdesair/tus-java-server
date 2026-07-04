@@ -46,7 +46,6 @@ public class RufhHeadRequestHandler extends AbstractRequestHandler {
     UploadInfo uploadInfo = uploadStorageService.getUploadInfo(requestUri, ownerKey);
 
     servletResponse.setStatus(204);
-    servletResponse.setHeader(HttpHeader.UPLOAD_DRAFT, "11");
     servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, String.valueOf(uploadInfo.getOffset()));
     servletResponse.setHeader(
         HttpHeader.UPLOAD_COMPLETE,

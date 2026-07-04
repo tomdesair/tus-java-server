@@ -13,6 +13,7 @@ import me.desair.tus.server.rufh.handler.RufhDeleteRequestHandler;
 import me.desair.tus.server.rufh.handler.RufhErrorHandler;
 import me.desair.tus.server.rufh.handler.RufhHeadRequestHandler;
 import me.desair.tus.server.rufh.handler.RufhOptionsRequestHandler;
+import me.desair.tus.server.rufh.handler.RufhResponseHeadersHandler;
 import me.desair.tus.server.rufh.validation.RufhAppendValidator;
 import me.desair.tus.server.rufh.validation.RufhCreationValidator;
 import me.desair.tus.server.rufh.validation.RufhHeadHeaderValidator;
@@ -83,6 +84,7 @@ public class ResumableUploadsForHttpProtocol extends AbstractTusExtension {
 
   @Override
   protected void initRequestHandlers(List<RequestHandler> requestHandlers) {
+    requestHandlers.add(new RufhResponseHeadersHandler());
     requestHandlers.add(new RufhOptionsRequestHandler());
     requestHandlers.add(new RufhHeadRequestHandler());
     requestHandlers.add(new RufhCreationPostRequestHandler(interimResponseStrategy));
