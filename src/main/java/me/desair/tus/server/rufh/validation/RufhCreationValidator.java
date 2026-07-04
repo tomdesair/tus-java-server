@@ -53,11 +53,8 @@ public class RufhCreationValidator implements RequestValidator {
       }
     }
 
-    Long maxUploadSize = uploadStorageService.getMaxUploadSize();
-    if (maxUploadSize != null
-        && maxUploadSize > 0
-        && uploadLength != null
-        && uploadLength > maxUploadSize) {
+    long maxUploadSize = uploadStorageService.getMaxUploadSize();
+    if (maxUploadSize > 0 && uploadLength != null && uploadLength > maxUploadSize) {
       throw new TusException(413, "The requested upload length exceeds the maximum allowed size");
     }
 

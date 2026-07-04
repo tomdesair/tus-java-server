@@ -188,7 +188,7 @@ public class HttpProblemDetails {
     if (detail != null) {
       map.put("detail", detail);
     }
-    if (extraFields != null && !extraFields.isEmpty()) {
+    if (!extraFields.isEmpty()) {
       map.putAll(extraFields);
     }
     return formatJson(map);

@@ -70,9 +70,6 @@ public class RufhHeadRequestHandler extends AbstractRequestHandler {
 
   private void addUploadLimitHeader(
       TusServletResponse response, UploadStorageService uploadStorageService) {
-    if (uploadStorageService == null) {
-      return;
-    }
     Map<String, Object> limits = new LinkedHashMap<>();
     long maxSize = uploadStorageService.getMaxUploadSize();
     if (maxSize > 0) {

@@ -96,6 +96,6 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
   }
 
   private boolean isUploadCompleted(UploadInfo uploadInfo) {
-    return uploadInfo != null && !uploadInfo.isUploadInProgress();
+    return !uploadInfo.isUploadInProgress();
   }
 }

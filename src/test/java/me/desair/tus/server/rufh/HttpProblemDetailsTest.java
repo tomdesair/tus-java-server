@@ -1,5 +1,6 @@
 package me.desair.tus.server.rufh;
 
+import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 
@@ -110,5 +111,80 @@ public class HttpProblemDetailsTest {
                 + "\"title\":\"Inconsistent Upload Length\","
                 + "\"status\":400,"
                 + "\"detail\":\"The provided Upload-Length does not match existing metadata\"}"));
+  }
+
+  @Test
+  public void testProblemDetailsOfAndSendHelpers() throws Exception {
+    HttpProblemDetails.sendProblemDetails(
+        new TusServletResponse(response), 418, "type-uri", "Teapot Title", "Teapot Detail", null);
+    assertThat(response.getStatus(), is(418));
+    assertThat(response.getContentAsString(), containsString("\"title\":\"Teapot Title\""));
+
+    response = new MockHttpServletResponse();
+    HttpProblemDetails.sendOffsetMismatch(new TusServletResponse(response), 100L, 200L);
+    assertThat(response.getStatus(), is(409));
+
+    response = new MockHttpServletResponse();
+    HttpProblemDetails.sendCompletedUpload(new TusServletResponse(response), 400);
+    assertThat(response.getStatus(), is(400));
+
+    response = new MockHttpServletResponse();
+    HttpProblemDetails.sendInconsistentLength(new TusServletResponse(response));
+    assertThat(response.getStatus(), is(400));
+  }
+
+  @Test
+  public void testWriteToStandardHttpServletResponse() throws Exception {
+    HttpProblemDetails problem = HttpProblemDetails.forCompletedUpload(400);
+    problem.writeTo(response);
+    assertThat(response.getStatus(), is(400));
+    assertThat(response.getHeader(HttpHeader.CONTENT_TYPE), is("application/problem+json"));
+    assertThat(response.getContentAsString(), containsString("completed-upload"));
+  }
+
+  @Test
+  public void testNullTypeAndDetail() throws Exception {
+    HttpProblemDetails problem = new HttpProblemDetails(500, null, "Title", null, null);
+    assertThat(problem.getType(), is("about:blank"));
+    assertThat(problem.getDetail(), is(org.hamcrest.CoreMatchers.nullValue()));
+    assertThat(
+        problem.toJson(), is("{\"type\":\"about:blank\",\"title\":\"Title\",\"status\":500}"));
+  }
+
+  @Test
+  public void testJsonEscapingNullKeyAndSpecialChars() throws Exception {
+    java.util.Map<String, Object> extra = new java.util.LinkedHashMap<>();
+    extra.put(null, "val-with-\\-\"-controls-\n-\r-\t");
+    HttpProblemDetails problem = new HttpProblemDetails(500, "type", "Title", "Detail", extra);
+    String json = problem.toJson();
+    // Null key escapes to empty string ""
+    assertThat(json, containsString("\"\":"));
+    // Escaped backslash \\
+    assertThat(json, containsString("\\\\"));
+    // Escaped quote \"
+    assertThat(json, containsString("\\\""));
+    // Escaped controls
+    assertThat(json, containsString("\\n"));
+    assertThat(json, containsString("\\r"));
+    assertThat(json, containsString("\\t"));
+  }
+
+  @Test
+  public void testEmptyExtraFieldsAndBooleanValue() throws Exception {
+    // empty extraFields
+    HttpProblemDetails problem1 =
+        new HttpProblemDetails(500, "type", "Title", "Detail", new java.util.LinkedHashMap<>());
+    assertThat(
+        problem1.toJson(),
+        is("{\"type\":\"type\",\"title\":\"Title\",\"status\":500,\"detail\":\"Detail\"}"));
+
+    // boolean value in extraFields
+    java.util.Map<String, Object> extra = new java.util.LinkedHashMap<>();
+    extra.put("active", true);
+    HttpProblemDetails problem2 = new HttpProblemDetails(500, "type", "Title", "Detail", extra);
+    assertThat(
+        problem2.toJson(),
+        is(
+            "{\"type\":\"type\",\"title\":\"Title\",\"status\":500,\"detail\":\"Detail\",\"active\":true}"));
   }
 }

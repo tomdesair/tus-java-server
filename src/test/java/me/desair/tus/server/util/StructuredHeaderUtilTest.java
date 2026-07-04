@@ -53,6 +53,33 @@ public class StructuredHeaderUtilTest {
   }
 
   @Test
+  public void testFormatDictionaryEdgeCases() {
+    assertThat(StructuredHeaderUtil.formatDictionary(null), is(""));
+    assertThat(StructuredHeaderUtil.formatDictionary(new LinkedHashMap<>()), is(""));
+
+    Map<String, Object> dict = new LinkedHashMap<>();
+    dict.put("null-val", null);
+    dict.put("max-size", 100L);
+    assertThat(StructuredHeaderUtil.formatDictionary(dict), is("max-size=100"));
+  }
+
+  @Test
+  public void testParseDictionaryEdgeCases() {
+    assertThat(StructuredHeaderUtil.parseDictionary(null).isEmpty(), is(true));
+    assertThat(StructuredHeaderUtil.parseDictionary("").isEmpty(), is(true));
+    assertThat(StructuredHeaderUtil.parseDictionary("   ").isEmpty(), is(true));
+
+    Map<String, Object> dict1 = StructuredHeaderUtil.parseDictionary(",,max-size=100");
+    assertThat(dict1.get("max-size"), is(100L));
+
+    Map<String, Object> dict2 =
+        StructuredHeaderUtil.parseDictionary("active=?0, valid=?1, name=value");
+    assertThat(dict2.get("active"), is(Boolean.FALSE));
+    assertThat(dict2.get("valid"), is(Boolean.TRUE));
+    assertThat(dict2.get("name"), is("value"));
+  }
+
+  @Test
   public void testSanitizeHeaderValue() {
     assertThat(StructuredHeaderUtil.sanitizeHeaderValue("valid\r\nvalue"), is("validvalue"));
     assertThat(StructuredHeaderUtil.sanitizeHeaderValue("test\0null"), is("testnull"));

@@ -128,7 +128,7 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
   }
 
   private boolean isUploadCompleted(UploadInfo uploadInfo) {
-    return uploadInfo != null && !uploadInfo.isUploadInProgress();
+    return !uploadInfo.isUploadInProgress();
   }
 
   private String getUploadUri(
@@ -145,9 +145,6 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
 
   private void addUploadLimitHeader(
       TusServletResponse response, UploadStorageService uploadStorageService) {
-    if (uploadStorageService == null) {
-      return;
-    }
     Map<String, Object> limits = new LinkedHashMap<>();
     long maxSize = uploadStorageService.getMaxUploadSize();
     if (maxSize > 0) {

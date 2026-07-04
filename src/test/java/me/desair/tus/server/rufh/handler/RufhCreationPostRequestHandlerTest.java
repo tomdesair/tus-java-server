@@ -117,4 +117,285 @@ public class RufhCreationPostRequestHandlerTest {
     verify(lockingService)
         .registerInputStream(eq("/files/creation-id"), any(InterruptibleInputStream.class));
   }
+
+  @Test
+  public void testProcessWithInterimResponseStrategyAndNullBaseUri() throws Exception {
+    final java.util.List<String> interimUris = new java.util.ArrayList<>();
+    me.desair.tus.server.rufh.InterimResponseStrategy strategy =
+        (res, uri, offset) -> interimUris.add(uri);
+
+    handler = new RufhCreationPostRequestHandler(strategy);
+
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "5000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("creation-id"));
+    info.setLength(5000L);
+    info.setOffset(0L);
+
+    // Mock getUploadUri to return null to test fallback to requestURI
+    when(storageService.getUploadUri()).thenReturn(null);
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(info);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner");
+
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/creation-id"));
+    assertThat(interimUris.size(), is(1));
+    assertThat(interimUris.get(0), is("/files/creation-id"));
+  }
+
+  @Test
+  public void testProcessExistingUploadPatchReturnsEarly() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/existing-id");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("existing-id"));
+    when(storageService.getUploadInfo("/files/existing-id", "owner")).thenReturn(info);
+
+    handler.process(
+        HttpMethod.PATCH,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner");
+
+    // Early return, default status should remain (200) and no location header set
+    assertThat(response.getStatus(), is(200));
+    assertThat(response.getHeader(HttpHeader.LOCATION), org.hamcrest.CoreMatchers.nullValue());
+  }
+
+  @Test
+  public void testProcessWithoutLockingServiceAndAppendReturnsNull() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "1000");
+    request.setContent("creation body".getBytes());
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("creation-id"));
+    info.setLength(1000L);
+    info.setOffset(0L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+    // storageService.append returns null
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(null);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        "owner"); // Calls 5-parameter overload
+
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/creation-id"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("0"));
+  }
+
+  @Test
+  public void testProcessUploadLimitsHeader() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "5000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("creation-id"));
+    info.setLength(5000L);
+    info.setOffset(0L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(info);
+
+    // Test when max upload size > 0 and max append size > 0
+    when(storageService.getMaxUploadSize()).thenReturn(10000L);
+    when(storageService.getMaxAppendSize()).thenReturn(5000L);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        null,
+        "owner");
+
+    assertThat(
+        response.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=10000, max-append-size=5000"));
+
+    // Test when max upload size is 0 and max append size is null/0
+    response = new MockHttpServletResponse();
+    when(storageService.getMaxUploadSize()).thenReturn(0L);
+    when(storageService.getMaxAppendSize()).thenReturn(null);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        null,
+        "owner");
+
+    assertThat(response.getHeader(HttpHeader.UPLOAD_LIMIT), org.hamcrest.CoreMatchers.nullValue());
+  }
+
+  @Test
+  public void testProcessPatchCreationWhenUploadDoesNotExist() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/does-not-exist");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "1000");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("creation-id"));
+    info.setLength(1000L);
+    info.setOffset(0L);
+
+    when(storageService.getUploadInfo("/files/does-not-exist", "owner")).thenReturn(null);
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(info);
+
+    handler.process(
+        HttpMethod.PATCH,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner");
+
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/creation-id"));
+  }
+
+  @Test
+  public void testProcessNegativeLengthAndNullUploadId() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "-500");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(null); // Null ID
+    info.setOffset(0L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner");
+
+    assertThat(response.getStatus(), is(201));
+    // Location header ends with "/" because ID is empty string
+    assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/"));
+  }
+
+  @Test
+  public void testProcessNullInputStreamOrZeroContentLengthAndFinishedState() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    // Content length is 0
+    request.setContent(new byte[0]);
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("creation-id"));
+    info.setOffset(1000L);
+    info.setLength(1000L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner");
+
+    // Since UPLOAD_COMPLETE is ?1 (true), it should set status to 200
+    assertThat(response.getStatus(), is(200));
+  }
+
+  @Test
+  public void testProcessBaseUriEndsWithSlashAndNullInputStreamWithContentLength()
+      throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "5000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("creation-id"));
+    info.setLength(5000L);
+    info.setOffset(0L);
+
+    // baseUri ends with slash
+    when(storageService.getUploadUri()).thenReturn("/files/");
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+
+    // Create a custom request where input stream is null but content length > 0
+    TusServletRequest customRequest =
+        new TusServletRequest(request) {
+          @Override
+          public java.io.InputStream getContentInputStream() {
+            return null;
+          }
+
+          @Override
+          public long getContentLengthLong() {
+            return 100L;
+          }
+        };
+
+    handler.process(
+        HttpMethod.POST,
+        customRequest,
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner");
+
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/creation-id"));
+  }
+
+  @Test
+  public void testProcessFinishedStateWithUploadCompleted() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "1000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0"); // false, but offset == length below
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("creation-id"));
+    info.setOffset(1000L);
+    info.setLength(1000L); // Completed
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner");
+
+    assertThat(response.getStatus(), is(200));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+  }
 }

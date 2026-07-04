@@ -235,4 +235,115 @@ public class CoverageGapTest {
     storage.setMaxAppendSize(200L);
     assertThat(storage.getMaxAppendSize(), is(200L));
   }
+
+  @Test
+  public void testUploadStorageServiceDefaultMaxAppendSizeGreaterThanZero() {
+    UploadStorageService storage =
+        new UploadStorageService() {
+          // implementations of all required abstract methods...
+          @Override
+          public me.desair.tus.server.upload.UploadInfo getUploadInfo(String url, String key) {
+            return null;
+          }
+
+          @Override
+          public me.desair.tus.server.upload.UploadInfo getUploadInfo(
+              me.desair.tus.server.upload.UploadId id) {
+            return null;
+          }
+
+          @Override
+          public String getUploadUri() {
+            return null;
+          }
+
+          @Override
+          public me.desair.tus.server.upload.UploadInfo append(
+              me.desair.tus.server.upload.UploadInfo info, java.io.InputStream stream) {
+            return null;
+          }
+
+          @Override
+          public void setMaxUploadSize(Long size) {}
+
+          @Override
+          public long getMaxUploadSize() {
+            return 1000L;
+          } // Returns > 0
+
+          @Override
+          public me.desair.tus.server.upload.UploadInfo create(
+              me.desair.tus.server.upload.UploadInfo info, String key) {
+            return null;
+          }
+
+          @Override
+          public void update(me.desair.tus.server.upload.UploadInfo info) {}
+
+          @Override
+          public java.io.InputStream getUploadedBytes(String url, String key) {
+            return null;
+          }
+
+          @Override
+          public java.io.InputStream getUploadedBytes(me.desair.tus.server.upload.UploadId id) {
+            return null;
+          }
+
+          @Override
+          public void copyUploadTo(
+              me.desair.tus.server.upload.UploadInfo info, java.io.OutputStream stream) {}
+
+          @Override
+          public void cleanupExpiredUploads(UploadLockingService lock) {}
+
+          @Override
+          public void removeLastNumberOfBytes(
+              me.desair.tus.server.upload.UploadInfo info, long bytes) {}
+
+          @Override
+          public void terminateUpload(me.desair.tus.server.upload.UploadInfo info) {}
+
+          @Override
+          public Long getUploadExpirationPeriod() {
+            return null;
+          }
+
+          @Override
+          public void setUploadExpirationPeriod(Long period) {}
+
+          @Override
+          public void setUploadConcatenationService(
+              me.desair.tus.server.upload.concatenation.UploadConcatenationService service) {}
+
+          @Override
+          public me.desair.tus.server.upload.concatenation.UploadConcatenationService
+              getUploadConcatenationService() {
+            return null;
+          }
+
+          @Override
+          public void setIdFactory(me.desair.tus.server.upload.UploadIdFactory factory) {}
+        };
+
+    assertThat(storage.getMaxAppendSize(), is(1000L));
+  }
+
+  @Test
+  public void testDiskStorageServiceMaxAppendSizeReflectionZeroOrNegative() throws Exception {
+    DiskStorageService storage = new DiskStorageService("/tmp");
+    java.lang.reflect.Field field = DiskStorageService.class.getDeclaredField("maxAppendSize");
+    field.setAccessible(true);
+
+    // Set maxAppendSize to 0L directly via reflection to trigger branch: maxAppendSize != null &&
+    // maxAppendSize > 0 (where first is true, second is false)
+    field.set(storage, 0L);
+    storage.setMaxUploadSize(500L);
+    // Should fallback to maxUploadSize
+    assertThat(storage.getMaxAppendSize(), is(500L));
+
+    // Set maxAppendSize to -10L
+    field.set(storage, -10L);
+    assertThat(storage.getMaxAppendSize(), is(500L));
+  }
 }

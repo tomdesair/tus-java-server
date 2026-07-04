@@ -103,4 +103,111 @@ public class RufhAppendValidatorTest {
 
     validator.validate(HttpMethod.PATCH, request, storageService, "owner");
   }
+
+  @Test
+  public void testValidateUploadInfoNull() throws Exception {
+    request.setRequestURI("/files/does-not-exist");
+    when(storageService.getUploadInfo("/files/does-not-exist", "owner")).thenReturn(null);
+    // Should return early and not throw any exception
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
+
+  @Test(expected = TusException.class)
+  public void testValidateMismatchingUploadLength() throws Exception {
+    request.setRequestURI("/files/exists");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "6000"); // Current length is 5000
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5000L);
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
+
+  @Test
+  public void testValidateValidAppendRequestAlternativeContentType() throws Exception {
+    request.setRequestURI("/files/exists");
+    request.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5000L);
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
+
+  @Test(expected = TusException.class)
+  public void testValidateInvalidContentType() throws Exception {
+    request.setRequestURI("/files/exists");
+    request.addHeader(HttpHeader.CONTENT_TYPE, "text/plain");
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5000L);
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
+
+  @Test
+  public void testValidateMaxAppendSizeNullOrZeroOrContentLengthZero() throws Exception {
+    request.setRequestURI("/files/exists");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5000L);
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+
+    // maxAppendSize is null
+    when(storageService.getMaxAppendSize()).thenReturn(null);
+    request.setContent("hello".getBytes());
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+
+    // maxAppendSize is 0
+    when(storageService.getMaxAppendSize()).thenReturn(0L);
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+
+    // contentLength is 0
+    when(storageService.getMaxAppendSize()).thenReturn(5000L);
+    request.setContent(new byte[0]);
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
+
+  @Test
+  public void testValidateUploadInfoNoLengthButProvidedLength() throws Exception {
+    request.setRequestURI("/files/exists");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "5000"); // Provided length in request
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(null); // Upload info has no length yet
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
+
+  @Test
+  public void testValidateMatchingUploadLength() throws Exception {
+    request.setRequestURI("/files/exists");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "5000"); // Matches the existing upload length
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5000L);
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
 }

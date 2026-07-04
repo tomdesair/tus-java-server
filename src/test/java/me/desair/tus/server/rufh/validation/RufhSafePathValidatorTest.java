@@ -51,4 +51,10 @@ public class RufhSafePathValidatorTest {
     request.setRequestURI("/files/valid-upload-id");
     validator.validate(HttpMethod.POST, request, null, null);
   }
+
+  @Test
+  public void testValidateNullPath() throws Exception {
+    request.setRequestURI(null);
+    validator.validate(HttpMethod.POST, request, null, null);
+  }
 }

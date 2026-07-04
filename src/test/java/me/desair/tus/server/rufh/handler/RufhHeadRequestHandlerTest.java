@@ -102,4 +102,53 @@ public class RufhHeadRequestHandlerTest {
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("10000"));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
   }
+
+  @Test
+  public void testProcessWithMaxAppendSizeAndNoLength() throws Exception {
+    request.setRequestURI("/files/incomplete-id");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("incomplete-id"));
+    info.setOffset(1000L);
+    // Length is null
+    when(storageService.getUploadInfo("/files/incomplete-id", "owner")).thenReturn(info);
+    when(storageService.getMaxUploadSize()).thenReturn(0L);
+    when(storageService.getMaxAppendSize()).thenReturn(5000L);
+
+    handler.process(
+        HttpMethod.HEAD,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        null,
+        "owner");
+
+    assertThat(response.getStatus(), is(204));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("1000"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_LENGTH), org.hamcrest.CoreMatchers.nullValue());
+    assertThat(response.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-append-size=5000"));
+  }
+
+  @Test
+  public void testProcessWithNullMaxAppendSize() throws Exception {
+    request.setRequestURI("/files/incomplete-id");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("incomplete-id"));
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/incomplete-id", "owner")).thenReturn(info);
+    when(storageService.getMaxUploadSize()).thenReturn(10000L);
+    when(storageService.getMaxAppendSize()).thenReturn(null);
+
+    handler.process(
+        HttpMethod.HEAD,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        null,
+        "owner");
+
+    assertThat(response.getStatus(), is(204));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=10000"));
+  }
 }

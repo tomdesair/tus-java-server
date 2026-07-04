@@ -67,4 +67,19 @@ public class RufhDeleteRequestHandlerTest {
     assertThat(response.getStatus(), is(204));
     verify(storageService).terminateUpload(info);
   }
+
+  @Test
+  public void testProcessWithNullUploadInfo() throws Exception {
+    request.setRequestURI("/files/delete-id");
+    when(storageService.getUploadInfo("/files/delete-id", "owner")).thenReturn(null);
+
+    handler.process(
+        HttpMethod.DELETE,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        "owner"); // Calls 5-parameter overload
+
+    assertThat(response.getStatus(), is(204));
+  }
 }
