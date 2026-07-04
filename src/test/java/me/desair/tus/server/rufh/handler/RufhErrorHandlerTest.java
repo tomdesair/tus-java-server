@@ -8,6 +8,10 @@ import static org.mockito.Mockito.when;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.exception.InconsistentUploadLengthException;
+import me.desair.tus.server.exception.UploadAlreadyCompletedException;
+import me.desair.tus.server.exception.UploadOffsetMismatchException;
+import me.desair.tus.server.rufh.HttpProblemDetails;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -63,15 +67,20 @@ public class RufhErrorHandlerTest {
     info.setOffset(1000L); // Server offset is 1000
     when(storageService.getUploadInfo("/files/mismatch-id", "owner")).thenReturn(info);
 
-    response.setStatus(409); // Mismatch set by validation exception handling flow
+    UploadOffsetMismatchException exception = new UploadOffsetMismatchException("Mismatch");
 
-    handler.process(
-        HttpMethod.PATCH,
-        new TusServletRequest(request),
-        new TusServletResponse(response),
-        storageService,
-        null,
-        "owner");
+    HttpProblemDetails problem =
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            exception);
+    if (problem != null) {
+      problem.writeTo(new TusServletResponse(response));
+    }
 
     assertThat(response.getStatus(), is(409));
     assertThat(response.getHeader(HttpHeader.CONTENT_TYPE), is("application/problem+json"));
@@ -84,14 +93,20 @@ public class RufhErrorHandlerTest {
     // No UPLOAD_OFFSET header
     when(storageService.getUploadInfo("/files/mismatch-id", "owner")).thenReturn(null);
 
-    response.setStatus(409);
+    UploadOffsetMismatchException exception = new UploadOffsetMismatchException("Mismatch");
 
-    handler.process(
-        HttpMethod.PATCH,
-        new TusServletRequest(request),
-        new TusServletResponse(response),
-        storageService,
-        "owner"); // 5-parameter overload
+    HttpProblemDetails problem =
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            exception);
+    if (problem != null) {
+      problem.writeTo(new TusServletResponse(response));
+    }
 
     assertThat(response.getStatus(), is(409));
     assertThat(response.getContentAsString(), containsString("\"expected-offset\":0"));
@@ -107,15 +122,20 @@ public class RufhErrorHandlerTest {
     info.setLength(5000L); // Completed
     when(storageService.getUploadInfo("/files/completed-id", "owner")).thenReturn(info);
 
-    response.setStatus(400);
+    UploadAlreadyCompletedException exception = new UploadAlreadyCompletedException("Completed");
 
-    handler.process(
-        HttpMethod.PATCH,
-        new TusServletRequest(request),
-        new TusServletResponse(response),
-        storageService,
-        null,
-        "owner");
+    HttpProblemDetails problem =
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            exception);
+    if (problem != null) {
+      problem.writeTo(new TusServletResponse(response));
+    }
 
     assertThat(response.getStatus(), is(400));
     assertThat(response.getContentAsString(), containsString("completed-upload"));
@@ -131,15 +151,21 @@ public class RufhErrorHandlerTest {
     info.setLength(5000L); // In progress
     when(storageService.getUploadInfo("/files/in-progress-id", "owner")).thenReturn(info);
 
-    response.setStatus(400);
+    InconsistentUploadLengthException exception =
+        new InconsistentUploadLengthException("Inconsistent");
 
-    handler.process(
-        HttpMethod.PATCH,
-        new TusServletRequest(request),
-        new TusServletResponse(response),
-        storageService,
-        null,
-        "owner");
+    HttpProblemDetails problem =
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            exception);
+    if (problem != null) {
+      problem.writeTo(new TusServletResponse(response));
+    }
 
     assertThat(response.getStatus(), is(400));
     assertThat(response.getContentAsString(), containsString("inconsistent-upload-length"));
@@ -155,15 +181,20 @@ public class RufhErrorHandlerTest {
     info.setOffset(null); // Null offset
     when(storageService.getUploadInfo("/files/mismatch-id", "owner")).thenReturn(info);
 
-    response.setStatus(409);
+    UploadOffsetMismatchException exception = new UploadOffsetMismatchException("Mismatch");
 
-    handler.process(
-        HttpMethod.PATCH,
-        new TusServletRequest(request),
-        new TusServletResponse(response),
-        storageService,
-        null,
-        "owner");
+    HttpProblemDetails problem =
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            exception);
+    if (problem != null) {
+      problem.writeTo(new TusServletResponse(response));
+    }
 
     assertThat(response.getStatus(), is(409));
     assertThat(response.getContentAsString(), containsString("\"expected-offset\":0"));
@@ -174,17 +205,153 @@ public class RufhErrorHandlerTest {
     request.setRequestURI("/files/null-id");
     when(storageService.getUploadInfo("/files/null-id", "owner")).thenReturn(null);
 
-    response.setStatus(400);
+    InconsistentUploadLengthException exception =
+        new InconsistentUploadLengthException("Inconsistent");
 
-    handler.process(
-        HttpMethod.PATCH,
-        new TusServletRequest(request),
-        new TusServletResponse(response),
-        storageService,
-        null,
-        "owner");
+    HttpProblemDetails problem =
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            exception);
+    if (problem != null) {
+      problem.writeTo(new TusServletResponse(response));
+    }
 
     assertThat(response.getStatus(), is(400));
     assertThat(response.getContentAsString(), containsString("inconsistent-upload-length"));
+  }
+
+  @Test
+  public void testProcessWithUploadOffsetMismatchException() throws Exception {
+    request.setRequestURI("/files/mismatch-id");
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "2000");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("mismatch-id"));
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/mismatch-id", "owner")).thenReturn(info);
+
+    UploadOffsetMismatchException exception = new UploadOffsetMismatchException("Mismatch!");
+
+    HttpProblemDetails problem =
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            exception);
+
+    assertThat(problem.getStatus(), is(409));
+    assertThat(problem.getType(), containsString("mismatching-upload-offset"));
+    assertThat(problem.getExtraFields().get("expected-offset"), is(1000L));
+  }
+
+  @Test
+  public void testProcessWithUploadAlreadyCompletedException() throws Exception {
+    UploadAlreadyCompletedException exception = new UploadAlreadyCompletedException("Completed!");
+
+    HttpProblemDetails problem =
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            exception);
+
+    assertThat(problem.getStatus(), is(400));
+    assertThat(problem.getType(), containsString("completed-upload"));
+  }
+
+  @Test
+  public void testProcessWithInconsistentUploadLengthException() throws Exception {
+    InconsistentUploadLengthException exception =
+        new InconsistentUploadLengthException("Inconsistent!");
+
+    HttpProblemDetails problem =
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            exception);
+
+    assertThat(problem.getStatus(), is(400));
+    assertThat(problem.getType(), containsString("inconsistent-upload-length"));
+  }
+
+  @Test
+  public void testProcessWithUploadOffsetMismatchExceptionNullInfo() throws Exception {
+    request.setRequestURI("/files/mismatch-id");
+    when(storageService.getUploadInfo("/files/mismatch-id", "owner")).thenReturn(null);
+
+    UploadOffsetMismatchException exception = new UploadOffsetMismatchException("Mismatch!");
+
+    HttpProblemDetails problem =
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            exception);
+
+    assertThat(problem.getStatus(), is(409));
+    assertThat(problem.getExtraFields().get("expected-offset"), is(0L));
+  }
+
+  @Test
+  public void testProcessWithUploadOffsetMismatchExceptionNullOffset() throws Exception {
+    request.setRequestURI("/files/mismatch-id");
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "2000");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("mismatch-id"));
+    info.setOffset(null);
+    when(storageService.getUploadInfo("/files/mismatch-id", "owner")).thenReturn(info);
+
+    UploadOffsetMismatchException exception = new UploadOffsetMismatchException("Mismatch!");
+
+    HttpProblemDetails problem =
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            exception);
+
+    assertThat(problem.getStatus(), is(409));
+    assertThat(problem.getExtraFields().get("expected-offset"), is(0L));
+  }
+
+  @Test
+  public void testProcessWithNonErrorStatus() throws Exception {
+    response.setStatus(200);
+
+    HttpProblemDetails problem =
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            null);
+
+    // problem is null, so response body should remain empty
+    assertThat(problem, org.hamcrest.CoreMatchers.nullValue());
+    assertThat(response.getContentAsString(), is(""));
   }
 }

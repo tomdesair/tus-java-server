@@ -5,6 +5,7 @@ import java.io.InputStream;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.rufh.HttpProblemDetails;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -32,24 +33,14 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
   }
 
   @Override
-  public void process(
-      HttpMethod method,
-      TusServletRequest servletRequest,
-      TusServletResponse servletResponse,
-      UploadStorageService uploadStorageService,
-      String ownerKey)
-      throws IOException, TusException {
-    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey);
-  }
-
-  @Override
-  public void process(
+  public HttpProblemDetails process(
       HttpMethod method,
       TusServletRequest servletRequest,
       TusServletResponse servletResponse,
       UploadStorageService uploadStorageService,
       UploadLockingService uploadLockingService,
-      String ownerKey)
+      String ownerKey,
+      TusException exception)
       throws IOException, TusException {
 
     String requestUri = servletRequest.getRequestURI();
@@ -58,7 +49,7 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
     // If upload is null, this is a PATCH creation request and was handled by
     // RufhCreationPostRequestHandler
     if (uploadInfo == null) {
-      return;
+      return null;
     }
 
     String uploadCompleteHeader = servletRequest.getHeader(HttpHeader.UPLOAD_COMPLETE);
@@ -93,6 +84,7 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
     } else {
       servletResponse.setStatus(204);
     }
+    return null;
   }
 
   private boolean isUploadCompleted(UploadInfo uploadInfo) {

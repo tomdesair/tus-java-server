@@ -62,7 +62,8 @@ public class RufhDeleteRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         null,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(204));
     verify(storageService).terminateUpload(info);
@@ -78,7 +79,9 @@ public class RufhDeleteRequestHandlerTest {
         new TusServletRequest(request),
         new TusServletResponse(response),
         storageService,
-        "owner"); // Calls 5-parameter overload
+        null,
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(204));
   }

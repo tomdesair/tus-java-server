@@ -5,6 +5,7 @@ import java.io.IOException;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
+import me.desair.tus.server.exception.InconsistentUploadLengthException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.StructuredHeaderUtil;
@@ -43,8 +44,7 @@ public class RufhCreationValidator implements RequestValidator {
     // Upload-Complete: ?1
     if (uploadLength != null && Boolean.TRUE.equals(uploadComplete) && contentLength >= 0) {
       if (uploadLength != contentLength) {
-        throw new TusException(
-            400,
+        throw new InconsistentUploadLengthException(
             "The provided Upload-Length ("
                 + uploadLength
                 + ") does not match Content-Length ("

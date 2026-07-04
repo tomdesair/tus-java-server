@@ -41,6 +41,7 @@ When performing a release, please strictly follow the instructions outlined in t
 ### 4. Serializable UploadInfo & Backward Compatibility
 - The `UploadInfo` class is stored on disk serialized. If you modify fields in `UploadInfo`, you **must** preserve the `serialVersionUID = -8751200491586638308L` to ensure pre-existing uploads on disk do not trigger `InvalidClassException` upon deserialization.
 - Backward compatibility is paramount for this project. Breaking changes should only be done if all other options lead to ugly code and design. Breaking changes require a new major version.
+- **Release Scope for Backward Compatibility**: Only maintain backward compatibility for classes, methods, or public API signatures that are present in the latest official Git release tag. Signatures, classes, or helper methods introduced in unreleased commits or feature branches do not require backward compatibility and should be refactored or deleted directly.
 
 ### 5. Lock Contention Resolution & InterruptibleInputStream
 - Request handlers that stream payload bytes to storage (`CorePatchRequestHandler`, `RufhCreationPostRequestHandler`, `RufhAppendPatchRequestHandler`) MUST wrap body input streams in `InterruptibleInputStream` and register them via `lockingService.registerInputStream(...)`. This ensures concurrent `HEAD` and `DELETE` requests can interrupt ongoing byte streams cleanly and resolve lock contention.

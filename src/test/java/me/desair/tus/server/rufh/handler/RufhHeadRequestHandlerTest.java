@@ -66,7 +66,8 @@ public class RufhHeadRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         null,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(204));
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("2500"));
@@ -96,7 +97,8 @@ public class RufhHeadRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         null,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(204));
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("10000"));
@@ -121,7 +123,8 @@ public class RufhHeadRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         null,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(204));
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("1000"));
@@ -146,9 +149,35 @@ public class RufhHeadRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         null,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(204));
     assertThat(response.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=10000"));
+  }
+
+  @Test
+  public void testProcessHeadRequest5Params() throws Exception {
+    request.setRequestURI("/files/incomplete-id");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("incomplete-id"));
+    info.setOffset(2500L);
+    info.setLength(10000L);
+    when(storageService.getUploadInfo("/files/incomplete-id", "owner")).thenReturn(info);
+    when(storageService.getMaxUploadSize()).thenReturn(500000L);
+
+    handler.process(
+        HttpMethod.HEAD,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        null,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(204));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("2500"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
   }
 }

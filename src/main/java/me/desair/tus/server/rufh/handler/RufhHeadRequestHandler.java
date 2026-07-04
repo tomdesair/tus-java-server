@@ -5,6 +5,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.rufh.HttpProblemDetails;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -30,25 +32,15 @@ public class RufhHeadRequestHandler extends AbstractRequestHandler {
   }
 
   @Override
-  public void process(
-      HttpMethod method,
-      TusServletRequest servletRequest,
-      TusServletResponse servletResponse,
-      UploadStorageService uploadStorageService,
-      String ownerKey)
-      throws IOException {
-    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey);
-  }
-
-  @Override
-  public void process(
+  public HttpProblemDetails process(
       HttpMethod method,
       TusServletRequest servletRequest,
       TusServletResponse servletResponse,
       UploadStorageService uploadStorageService,
       UploadLockingService uploadLockingService,
-      String ownerKey)
-      throws IOException {
+      String ownerKey,
+      TusException exception)
+      throws IOException, TusException {
 
     String requestUri = servletRequest.getRequestURI();
     UploadInfo uploadInfo = uploadStorageService.getUploadInfo(requestUri, ownerKey);
@@ -66,6 +58,7 @@ public class RufhHeadRequestHandler extends AbstractRequestHandler {
 
     addUploadLimitHeader(servletResponse, uploadStorageService);
     servletResponse.setHeader(HttpHeader.CACHE_CONTROL, "no-store");
+    return null;
   }
 
   private void addUploadLimitHeader(

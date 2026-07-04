@@ -3,6 +3,7 @@ package me.desair.tus.server.rufh.handler;
 import java.io.IOException;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.rufh.HttpProblemDetails;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -26,24 +27,14 @@ public class RufhDeleteRequestHandler extends AbstractRequestHandler {
   }
 
   @Override
-  public void process(
-      HttpMethod method,
-      TusServletRequest servletRequest,
-      TusServletResponse servletResponse,
-      UploadStorageService uploadStorageService,
-      String ownerKey)
-      throws IOException, TusException {
-    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey);
-  }
-
-  @Override
-  public void process(
+  public HttpProblemDetails process(
       HttpMethod method,
       TusServletRequest servletRequest,
       TusServletResponse servletResponse,
       UploadStorageService uploadStorageService,
       UploadLockingService uploadLockingService,
-      String ownerKey)
+      String ownerKey,
+      TusException exception)
       throws IOException, TusException {
 
     String requestUri = servletRequest.getRequestURI();
@@ -53,5 +44,6 @@ public class RufhDeleteRequestHandler extends AbstractRequestHandler {
       uploadStorageService.terminateUpload(uploadInfo);
     }
     servletResponse.setStatus(204);
+    return null;
   }
 }

@@ -57,7 +57,8 @@ public class RufhOptionsRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         null,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(204));
     assertThat(
@@ -75,7 +76,9 @@ public class RufhOptionsRequestHandlerTest {
         new TusServletRequest(request),
         new TusServletResponse(response),
         null,
-        "owner"); // Calls 5-parameter overload with null storage
+        null,
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(204));
   }
@@ -91,7 +94,8 @@ public class RufhOptionsRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         null,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(204));
     assertThat(response.getHeader(HttpHeader.UPLOAD_LIMIT), org.hamcrest.CoreMatchers.nullValue());
@@ -108,7 +112,26 @@ public class RufhOptionsRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         null,
-        "owner");
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(204));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=10000"));
+  }
+
+  @Test
+  public void testProcessWithZeroMaxAppendSize() throws Exception {
+    when(storageService.getMaxUploadSize()).thenReturn(10000L);
+    when(storageService.getMaxAppendSize()).thenReturn(0L);
+
+    handler.process(
+        HttpMethod.OPTIONS,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        null,
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(204));
     assertThat(response.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=10000"));

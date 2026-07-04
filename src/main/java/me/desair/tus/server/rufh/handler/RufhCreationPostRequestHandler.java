@@ -7,6 +7,7 @@ import java.util.Map;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.rufh.HttpProblemDetails;
 import me.desair.tus.server.rufh.InterimResponseStrategy;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -42,30 +43,20 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
   }
 
   @Override
-  public void process(
-      HttpMethod method,
-      TusServletRequest servletRequest,
-      TusServletResponse servletResponse,
-      UploadStorageService uploadStorageService,
-      String ownerKey)
-      throws IOException, TusException {
-    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey);
-  }
-
-  @Override
-  public void process(
+  public HttpProblemDetails process(
       HttpMethod method,
       TusServletRequest servletRequest,
       TusServletResponse servletResponse,
       UploadStorageService uploadStorageService,
       UploadLockingService uploadLockingService,
-      String ownerKey)
+      String ownerKey,
+      TusException exception)
       throws IOException, TusException {
 
     if (HttpMethod.PATCH.equals(method)
         && isExistingUpload(servletRequest, uploadStorageService, ownerKey)) {
       // Existing upload on PATCH request is handled by RufhAppendPatchRequestHandler
-      return;
+      return null;
     }
 
     UploadInfo uploadInfo = new UploadInfo();
@@ -118,6 +109,7 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
 
       addUploadLimitHeader(servletResponse, uploadStorageService);
     }
+    return null;
   }
 
   private boolean isExistingUpload(

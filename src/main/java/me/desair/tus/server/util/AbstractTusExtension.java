@@ -10,6 +10,7 @@ import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.TusExtension;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.rufh.HttpProblemDetails;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 
@@ -101,7 +102,8 @@ public abstract class AbstractTusExtension implements TusExtension {
             servletResponse,
             uploadStorageService,
             uploadLockingService,
-            ownerKey);
+            ownerKey,
+            null);
       }
     }
   }
@@ -114,30 +116,54 @@ public abstract class AbstractTusExtension implements TusExtension {
       UploadStorageService uploadStorageService,
       String ownerKey)
       throws IOException, TusException {
-    handleError(
-        method, request, response, uploadStorageService, null, ownerKey, ProtocolVersion.TUS_1_0_0);
+    HttpProblemDetails pd =
+        handleError(
+            method,
+            request,
+            response,
+            uploadStorageService,
+            null,
+            ownerKey,
+            ProtocolVersion.TUS_1_0_0,
+            null);
+    if (pd != null) {
+      pd.writeTo(response);
+    }
   }
 
   @Override
-  public void handleError(
+  public HttpProblemDetails handleError(
       HttpMethod method,
       TusServletRequest request,
       TusServletResponse response,
       UploadStorageService uploadStorageService,
       UploadLockingService uploadLockingService,
       String ownerKey,
-      ProtocolVersion version)
+      ProtocolVersion version,
+      TusException exception)
       throws IOException, TusException {
 
     if (!isApplicable(method, version)) {
-      return;
+      return null;
     }
 
+    HttpProblemDetails problemDetails = null;
     for (RequestHandler requestHandler : requestHandlers) {
       if (requestHandler.supports(method) && requestHandler.isErrorHandler()) {
-        requestHandler.process(
-            method, request, response, uploadStorageService, uploadLockingService, ownerKey);
+        HttpProblemDetails pd =
+            requestHandler.process(
+                method,
+                request,
+                response,
+                uploadStorageService,
+                uploadLockingService,
+                ownerKey,
+                exception);
+        if (pd != null) {
+          problemDetails = pd;
+        }
       }
     }
+    return problemDetails;
   }
 }

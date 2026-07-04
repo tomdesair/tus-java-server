@@ -6,6 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.rufh.HttpProblemDetails;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractRequestHandler;
@@ -29,25 +31,15 @@ public class RufhOptionsRequestHandler extends AbstractRequestHandler {
   }
 
   @Override
-  public void process(
-      HttpMethod method,
-      TusServletRequest servletRequest,
-      TusServletResponse servletResponse,
-      UploadStorageService uploadStorageService,
-      String ownerKey)
-      throws IOException {
-    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey);
-  }
-
-  @Override
-  public void process(
+  public HttpProblemDetails process(
       HttpMethod method,
       TusServletRequest servletRequest,
       TusServletResponse servletResponse,
       UploadStorageService uploadStorageService,
       UploadLockingService uploadLockingService,
-      String ownerKey)
-      throws IOException {
+      String ownerKey,
+      TusException exception)
+      throws IOException, TusException {
 
     servletResponse.setHeader(
         HttpHeader.ACCEPT_PATCH,
@@ -56,6 +48,7 @@ public class RufhOptionsRequestHandler extends AbstractRequestHandler {
 
     addUploadLimitHeader(servletResponse, uploadStorageService);
     servletResponse.setStatus(HttpServletResponse.SC_NO_CONTENT);
+    return null;
   }
 
   private void addUploadLimitHeader(

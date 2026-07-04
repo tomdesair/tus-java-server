@@ -82,7 +82,8 @@ public class RufhAppendPatchRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         lockingService,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(204));
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("1011"));
@@ -104,7 +105,8 @@ public class RufhAppendPatchRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         lockingService,
-        "owner");
+        "owner",
+        null);
 
     // Early return, default status should be kept (usually 200 for mock response, but we didn't
     // touch it)
@@ -140,7 +142,8 @@ public class RufhAppendPatchRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         null, // No locking service
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(204));
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("1000"));
@@ -169,7 +172,9 @@ public class RufhAppendPatchRequestHandlerTest {
         new TusServletRequest(request),
         new TusServletResponse(response),
         storageService,
-        "owner");
+        null,
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(200));
     // Offset should still be 1000 because append returned null
@@ -198,7 +203,8 @@ public class RufhAppendPatchRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         null,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(200));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));

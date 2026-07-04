@@ -17,6 +17,7 @@ import me.desair.tus.server.creation.CreationExtension;
 import me.desair.tus.server.download.DownloadExtension;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.expiration.ExpirationExtension;
+import me.desair.tus.server.rufh.HttpProblemDetails;
 import me.desair.tus.server.rufh.ResumableUploadsForHttpProtocol;
 import me.desair.tus.server.termination.TerminationExtension;
 import me.desair.tus.server.upload.UploadIdFactory;
@@ -600,18 +601,24 @@ public class TusFileUploadService {
 
     response.setStatus(status);
 
+    HttpProblemDetails problemDetails = null;
     try {
       for (TusExtension feature : enabledFeatures.values()) {
         if (!request.isProcessedBy(feature)) {
           request.addProcessor(feature);
-          feature.handleError(
-              method,
-              request,
-              response,
-              uploadStorageService,
-              uploadLockingService,
-              ownerKey,
-              version);
+          HttpProblemDetails pd =
+              feature.handleError(
+                  method,
+                  request,
+                  response,
+                  uploadStorageService,
+                  uploadLockingService,
+                  ownerKey,
+                  version,
+                  exception);
+          if (pd != null) {
+            problemDetails = pd;
+          }
         }
       }
 
@@ -627,7 +634,11 @@ public class TusFileUploadService {
     // response. Otherwise, we send the error response with the status and message from the
     // exception.
     if (!response.isCommitted()) {
-      response.sendError(status, message);
+      if (problemDetails != null) {
+        problemDetails.writeTo(response);
+      } else {
+        response.sendError(status, message);
+      }
     }
   }
 

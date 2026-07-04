@@ -1,5 +1,6 @@
 package me.desair.tus.server;
 
+import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -7,6 +8,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.rufh.HttpProblemDetails;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.disk.DiskStorageService;
@@ -66,7 +68,7 @@ public class CoverageGapTest {
   }
 
   private static class DummyAbstractExtension extends AbstractTusExtension {
-    boolean handleError7Called = false;
+    boolean handleError8Called = false;
 
     @Override
     public String getName() {
@@ -85,16 +87,75 @@ public class CoverageGapTest {
     protected void initRequestHandlers(java.util.List<RequestHandler> requestHandlers) {}
 
     @Override
-    public void handleError(
+    public HttpProblemDetails handleError(
         HttpMethod method,
         TusServletRequest request,
         TusServletResponse response,
         UploadStorageService uploadStorageService,
         UploadLockingService uploadLockingService,
         String ownerKey,
-        ProtocolVersion version)
+        ProtocolVersion version,
+        TusException exception)
         throws IOException, TusException {
-      handleError7Called = true;
+      handleError8Called = true;
+      return null;
+    }
+  }
+
+  private static class DummyAbstractExtensionWithProblemDetails extends AbstractTusExtension {
+    DummyAbstractExtensionWithProblemDetails() {
+      super();
+    }
+
+    @Override
+    public String getName() {
+      return "dummy-pd";
+    }
+
+    @Override
+    public java.util.Collection<HttpMethod> getMinimalSupportedHttpMethods() {
+      return java.util.Collections.emptyList();
+    }
+
+    @Override
+    protected void initValidators(java.util.List<RequestValidator> requestValidators) {}
+
+    @Override
+    protected void initRequestHandlers(java.util.List<RequestHandler> requestHandlers) {
+      requestHandlers.add(
+          new RequestHandler() {
+            @Override
+            public boolean supports(HttpMethod method) {
+              return true;
+            }
+
+            @Override
+            public void process(
+                HttpMethod method,
+                TusServletRequest servletRequest,
+                TusServletResponse servletResponse,
+                UploadStorageService uploadStorageService,
+                String ownerKey)
+                throws java.io.IOException, TusException {}
+
+            @Override
+            public boolean isErrorHandler() {
+              return true;
+            }
+
+            @Override
+            public HttpProblemDetails process(
+                HttpMethod method,
+                TusServletRequest servletRequest,
+                TusServletResponse servletResponse,
+                UploadStorageService uploadStorageService,
+                UploadLockingService lockingService,
+                String ownerKey,
+                TusException exception)
+                throws java.io.IOException, TusException {
+              return HttpProblemDetails.forCompletedUpload(400);
+            }
+          });
     }
   }
 
@@ -108,15 +169,44 @@ public class CoverageGapTest {
     extension.process(HttpMethod.POST, null, null, null, null, null, ProtocolVersion.TUS_1_0_0);
     assertThat(extension.processCalled, is(true));
 
-    extension.handleError(HttpMethod.POST, null, null, null, null, null, ProtocolVersion.TUS_1_0_0);
+    extension.handleError(
+        HttpMethod.POST, null, null, null, null, null, ProtocolVersion.TUS_1_0_0, null);
     assertThat(extension.handleErrorCalled, is(true));
+
+    extension.handleErrorCalled = false;
+    HttpProblemDetails pd =
+        extension.handleError(
+            HttpMethod.POST,
+            null,
+            null,
+            null,
+            null,
+            null,
+            ProtocolVersion.TUS_1_0_0,
+            new TusException(400, "Error"));
+    assertThat(extension.handleErrorCalled, is(true));
+    assertThat(pd, nullValue());
   }
 
   @Test
   public void testAbstractTusExtensionHandleError5Args() throws Exception {
     DummyAbstractExtension ext = new DummyAbstractExtension();
     ext.handleError(HttpMethod.POST, null, null, null, null);
-    assertThat(ext.handleError7Called, is(true));
+    assertThat(ext.handleError8Called, is(true));
+  }
+
+  @Test
+  public void testAbstractTusExtensionHandleError5ArgsWithProblemDetails() throws Exception {
+    DummyAbstractExtensionWithProblemDetails ext = new DummyAbstractExtensionWithProblemDetails();
+    org.springframework.mock.web.MockHttpServletResponse response =
+        new org.springframework.mock.web.MockHttpServletResponse();
+    ext.handleError(
+        HttpMethod.POST,
+        new TusServletRequest(new org.springframework.mock.web.MockHttpServletRequest()),
+        new TusServletResponse(response),
+        null,
+        "owner");
+    assertThat(response.getContentAsString(), containsString("completed-upload"));
   }
 
   @Test
@@ -345,5 +435,65 @@ public class CoverageGapTest {
     // Set maxAppendSize to -10L
     field.set(storage, -10L);
     assertThat(storage.getMaxAppendSize(), is(500L));
+  }
+
+  private static class DummyAbstractExtensionWithoutOverride extends AbstractTusExtension {
+    @Override
+    public String getName() {
+      return "dummy-no-override";
+    }
+
+    @Override
+    public java.util.Collection<HttpMethod> getMinimalSupportedHttpMethods() {
+      return java.util.Collections.emptyList();
+    }
+
+    @Override
+    protected void initValidators(java.util.List<RequestValidator> requestValidators) {}
+
+    @Override
+    protected void initRequestHandlers(java.util.List<RequestHandler> requestHandlers) {}
+  }
+
+  @Test
+  public void testAbstractTusExtensionHandleError8ArgsNullProblemDetails() throws Exception {
+    DummyAbstractExtensionWithoutOverride ext = new DummyAbstractExtensionWithoutOverride();
+    ext.handleError(HttpMethod.POST, null, null, null, null, null, ProtocolVersion.TUS_1_0_0, null);
+  }
+
+  @Test
+  public void testRequestHandlerDefaultProcessBranchCoverage() throws Exception {
+    RequestHandler mockHandler =
+        new RequestHandler() {
+          @Override
+          public boolean supports(HttpMethod method) {
+            return true;
+          }
+
+          @Override
+          public void process(
+              HttpMethod method,
+              TusServletRequest servletRequest,
+              TusServletResponse servletResponse,
+              UploadStorageService uploadStorageService,
+              String ownerKey)
+              throws IOException, TusException {}
+
+          @Override
+          public boolean isErrorHandler() {
+            return false;
+          }
+        };
+
+    // Test branch: uploadLockingService != null, servletRequest == null
+    UploadLockingService mockLocking = org.mockito.Mockito.mock(UploadLockingService.class);
+    mockHandler.process(HttpMethod.PATCH, null, null, null, mockLocking, "owner", null);
+
+    // Test branch: uploadLockingService == null, servletRequest != null
+    TusServletRequest mockRequest = org.mockito.Mockito.mock(TusServletRequest.class);
+    mockHandler.process(HttpMethod.PATCH, mockRequest, null, null, null, "owner", null);
+
+    // Test branch: uploadLockingService != null, servletRequest != null
+    mockHandler.process(HttpMethod.PATCH, mockRequest, null, null, mockLocking, "owner", null);
   }
 }

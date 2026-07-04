@@ -3,7 +3,10 @@ package me.desair.tus.server.rufh.handler;
 import java.io.IOException;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.exception.InconsistentUploadLengthException;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadAlreadyCompletedException;
+import me.desair.tus.server.exception.UploadOffsetMismatchException;
 import me.desair.tus.server.rufh.HttpProblemDetails;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -41,28 +44,17 @@ public class RufhErrorHandler extends AbstractRequestHandler {
   }
 
   @Override
-  public void process(
-      HttpMethod method,
-      TusServletRequest servletRequest,
-      TusServletResponse servletResponse,
-      UploadStorageService uploadStorageService,
-      String ownerKey)
-      throws IOException, TusException {
-    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey);
-  }
-
-  @Override
-  public void process(
+  public HttpProblemDetails process(
       HttpMethod method,
       TusServletRequest servletRequest,
       TusServletResponse servletResponse,
       UploadStorageService uploadStorageService,
       UploadLockingService uploadLockingService,
-      String ownerKey)
+      String ownerKey,
+      TusException exception)
       throws IOException, TusException {
 
-    int status = servletResponse.getStatus();
-    if (status == 409) {
+    if (exception instanceof UploadOffsetMismatchException) {
       // Section 7.1: Mismatching Offset
       UploadInfo uploadInfo =
           uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
@@ -72,18 +64,16 @@ public class RufhErrorHandler extends AbstractRequestHandler {
           StructuredHeaderUtil.parseInteger(servletRequest.getHeader(HttpHeader.UPLOAD_OFFSET));
       long provided = providedOffset != null ? providedOffset : 0L;
 
-      HttpProblemDetails.forOffsetMismatch(expectedOffset, provided).writeTo(servletResponse);
+      return HttpProblemDetails.forOffsetMismatch(expectedOffset, provided);
 
-    } else if (status == 400) {
-      UploadInfo uploadInfo =
-          uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
-      if (uploadInfo != null && !uploadInfo.isUploadInProgress()) {
-        // Section 7.2: Completed Upload
-        HttpProblemDetails.forCompletedUpload(400).writeTo(servletResponse);
-      } else {
-        // Section 7.3: Inconsistent Length
-        HttpProblemDetails.forInconsistentLength().writeTo(servletResponse);
-      }
+    } else if (exception instanceof UploadAlreadyCompletedException) {
+      // Section 7.2: Completed Upload
+      return HttpProblemDetails.forCompletedUpload(400);
+
+    } else if (exception instanceof InconsistentUploadLengthException) {
+      // Section 7.3: Inconsistent Length
+      return HttpProblemDetails.forInconsistentLength();
     }
+    return null;
   }
 }

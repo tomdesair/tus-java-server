@@ -140,14 +140,20 @@ public class RufhProtocolAppendTest {
     request.setRequestURI("/files/test-id");
     TusServletRequest tusReq = new TusServletRequest(request, true);
 
-    protocol.handleError(
-        HttpMethod.PATCH,
-        tusReq,
-        new TusServletResponse(errResponse),
-        storageService,
-        lockingService,
-        null,
-        ProtocolVersion.RUFH);
+    me.desair.tus.server.rufh.HttpProblemDetails problemDetails =
+        protocol.handleError(
+            HttpMethod.PATCH,
+            tusReq,
+            new TusServletResponse(errResponse),
+            storageService,
+            lockingService,
+            null,
+            ProtocolVersion.RUFH,
+            new me.desair.tus.server.exception.UploadAlreadyCompletedException(
+                "The upload resource is already completed and cannot be modified"));
+    if (problemDetails != null) {
+      problemDetails.writeTo(new TusServletResponse(errResponse));
+    }
 
     assertThat(errResponse.getStatus(), is(400));
     assertThat(errResponse.getHeader(HttpHeader.CONTENT_TYPE), is("application/problem+json"));

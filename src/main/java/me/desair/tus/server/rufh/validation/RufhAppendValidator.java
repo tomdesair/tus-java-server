@@ -5,7 +5,10 @@ import java.io.IOException;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
+import me.desair.tus.server.exception.InconsistentUploadLengthException;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadAlreadyCompletedException;
+import me.desair.tus.server.exception.UploadOffsetMismatchException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.StructuredHeaderUtil;
@@ -57,7 +60,7 @@ public class RufhAppendValidator implements RequestValidator {
     }
 
     if (!uploadInfo.isUploadInProgress()) {
-      throw new TusException(400, "Upload resource is already completed");
+      throw new UploadAlreadyCompletedException("Upload resource is already completed");
     }
 
     Long maxAppendSize = uploadStorageService.getMaxAppendSize();
@@ -83,8 +86,7 @@ public class RufhAppendValidator implements RequestValidator {
 
     long currentOffset = uploadInfo.getOffset();
     if (providedOffset != currentOffset) {
-      throw new TusException(
-          409,
+      throw new UploadOffsetMismatchException(
           "Upload-Offset " + providedOffset + " does not match server offset " + currentOffset);
     }
 
@@ -106,8 +108,7 @@ public class RufhAppendValidator implements RequestValidator {
     Long providedLength = StructuredHeaderUtil.parseInteger(uploadLengthHeader);
     if (providedLength != null && uploadInfo.hasLength()) {
       if (!providedLength.equals(uploadInfo.getLength())) {
-        throw new TusException(
-            400,
+        throw new InconsistentUploadLengthException(
             "Provided Upload-Length ("
                 + providedLength
                 + ") does not match existing upload length ("

@@ -79,7 +79,8 @@ public class RufhCreationPostRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         lockingService,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(201));
     assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/creation-id"));
@@ -112,7 +113,8 @@ public class RufhCreationPostRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         lockingService,
-        "owner");
+        "owner",
+        null);
 
     verify(lockingService)
         .registerInputStream(eq("/files/creation-id"), any(InterruptibleInputStream.class));
@@ -147,7 +149,8 @@ public class RufhCreationPostRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         lockingService,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(201));
     assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/creation-id"));
@@ -170,7 +173,8 @@ public class RufhCreationPostRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         lockingService,
-        "owner");
+        "owner",
+        null);
 
     // Early return, default status should remain (200) and no location header set
     assertThat(response.getStatus(), is(200));
@@ -198,7 +202,9 @@ public class RufhCreationPostRequestHandlerTest {
         new TusServletRequest(request),
         new TusServletResponse(response),
         storageService,
-        "owner"); // Calls 5-parameter overload
+        null,
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(201));
     assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/creation-id"));
@@ -230,7 +236,8 @@ public class RufhCreationPostRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         null,
-        "owner");
+        "owner",
+        null);
 
     assertThat(
         response.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=10000, max-append-size=5000"));
@@ -246,7 +253,8 @@ public class RufhCreationPostRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         null,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getHeader(HttpHeader.UPLOAD_LIMIT), org.hamcrest.CoreMatchers.nullValue());
   }
@@ -272,7 +280,8 @@ public class RufhCreationPostRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         lockingService,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(201));
     assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/creation-id"));
@@ -296,7 +305,8 @@ public class RufhCreationPostRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         lockingService,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(201));
     // Location header ends with "/" because ID is empty string
@@ -324,7 +334,8 @@ public class RufhCreationPostRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         lockingService,
-        "owner");
+        "owner",
+        null);
 
     // Since UPLOAD_COMPLETE is ?1 (true), it should set status to 200
     assertThat(response.getStatus(), is(200));
@@ -367,7 +378,8 @@ public class RufhCreationPostRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         lockingService,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(201));
     assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/creation-id"));
@@ -393,7 +405,8 @@ public class RufhCreationPostRequestHandlerTest {
         new TusServletResponse(response),
         storageService,
         lockingService,
-        "owner");
+        "owner",
+        null);
 
     assertThat(response.getStatus(), is(200));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));

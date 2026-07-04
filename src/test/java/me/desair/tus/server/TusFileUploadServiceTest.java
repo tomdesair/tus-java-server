@@ -349,4 +349,37 @@ public class TusFileUploadServiceTest {
 
     assertThat(mockResp.getStatus(), is(415));
   }
+
+  @Test
+  public void testProcessTusExceptionResponseCommitted() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+
+    UploadStorageService mockStorage = mock(UploadStorageService.class);
+    UploadInfo info = new UploadInfo();
+    when(mockStorage.getUploadInfo(anyString(), any())).thenReturn(info);
+
+    org.springframework.mock.web.MockHttpServletRequest mockReq =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    jakarta.servlet.http.HttpServletResponse mockResp =
+        mock(jakarta.servlet.http.HttpServletResponse.class);
+    when(mockResp.isCommitted()).thenReturn(true);
+
+    mockReq.setMethod("PATCH");
+    mockReq.setRequestURI("/files/test");
+    // Cause a validation error (415)
+    mockReq.addHeader(HttpHeader.CONTENT_TYPE, "text/plain");
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorage)
+            .withSupportedProtocolVersions(ProtocolVersion.RUFH);
+
+    service.process(mockReq, mockResp, "owner");
+
+    // Since response is committed, sendError should not be called
+    verify(mockResp, never()).sendError(anyInt(), anyString());
+  }
 }

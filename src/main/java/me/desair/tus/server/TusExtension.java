@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.util.Collection;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.rufh.HttpProblemDetails;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
@@ -138,8 +139,8 @@ public interface TusExtension {
       throws IOException, TusException;
 
   /**
-   * React to validation or processing failures with access to the upload locking service and
-   * protocol version.
+   * React to validation or processing failures with access to the upload locking service, protocol
+   * version, and the caught TusException.
    *
    * @param method The HTTP method of this request
    * @param servletRequest The HTTP request
@@ -148,19 +149,23 @@ public interface TusExtension {
    * @param uploadLockingService The upload locking service instance
    * @param ownerKey Identifier of the owner of this upload
    * @param version The protocol version of the request
+   * @param exception The exception that occurred
+   * @return An optional HttpProblemDetails to write to the response
    * @throws TusException When handling the error fails
    * @throws IOException When unable to read upload information
    */
-  default void handleError(
+  default HttpProblemDetails handleError(
       HttpMethod method,
       TusServletRequest servletRequest,
       TusServletResponse servletResponse,
       UploadStorageService uploadStorageService,
       UploadLockingService uploadLockingService,
       String ownerKey,
-      ProtocolVersion version)
+      ProtocolVersion version,
+      TusException exception)
       throws IOException, TusException {
     handleError(method, servletRequest, servletResponse, uploadStorageService, ownerKey);
+    return null;
   }
 
   /**

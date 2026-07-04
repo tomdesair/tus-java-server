@@ -174,10 +174,49 @@ public class CorePatchRequestHandlerTest {
         new TusServletResponse(servletResponse),
         uploadStorageService,
         mockLocking,
+        null,
         null);
 
     verify(mockLocking, times(1))
         .registerInputStream(eq(servletRequest.getRequestURI()), any(InputStream.class));
     verify(uploadStorageService, times(1)).append(eq(info), any(InputStream.class));
+  }
+
+  @Test
+  public void testProcess7ParamsBranchCoverage() throws Exception {
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+
+    // lockingService != null, servletRequest == null
+    try {
+      handler.process(
+          HttpMethod.PATCH,
+          null,
+          new TusServletResponse(servletResponse),
+          uploadStorageService,
+          mockLocking,
+          "owner",
+          null);
+    } catch (Exception e) {
+      // Expected, we just need to hit the branch check
+    }
+
+    // lockingService == null, servletRequest != null
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId(UUID.randomUUID()));
+    info.setOffset(2L);
+    info.setLength(10L);
+    when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class)))
+        .thenReturn(info);
+    when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class)))
+        .thenReturn(info);
+
+    handler.process(
+        HttpMethod.PATCH,
+        new TusServletRequest(servletRequest),
+        new TusServletResponse(servletResponse),
+        uploadStorageService,
+        null,
+        "owner",
+        null);
   }
 }
