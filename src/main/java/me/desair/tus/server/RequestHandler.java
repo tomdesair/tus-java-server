@@ -30,13 +30,15 @@ public interface RequestHandler {
    * @throws IOException When an I/O error occurs
    * @throws TusException When a protocol error occurs
    */
-  void process(
+  default void process(
       HttpMethod method,
       TusServletRequest servletRequest,
       TusServletResponse servletResponse,
       UploadStorageService uploadStorageService,
       String ownerKey)
-      throws IOException, TusException;
+      throws IOException, TusException {
+    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey, null);
+  }
 
   /**
    * Process the given HTTP request with access to the upload locking service and the exception.

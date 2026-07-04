@@ -495,5 +495,34 @@ public class CoverageGapTest {
 
     // Test branch: uploadLockingService != null, servletRequest != null
     mockHandler.process(HttpMethod.PATCH, mockRequest, null, null, mockLocking, "owner", null);
+
+    // Test default 5-parameter process delegation to 7-parameter process
+    RequestHandler mockHandler7 =
+        new RequestHandler() {
+          @Override
+          public boolean supports(HttpMethod method) {
+            return true;
+          }
+
+          @Override
+          public boolean isErrorHandler() {
+            return false;
+          }
+
+          @Override
+          public HttpProblemDetails process(
+              HttpMethod method,
+              TusServletRequest servletRequest,
+              TusServletResponse servletResponse,
+              UploadStorageService uploadStorageService,
+              UploadLockingService uploadLockingService,
+              String ownerKey,
+              TusException exception)
+              throws IOException, TusException {
+            return null;
+          }
+        };
+
+    mockHandler7.process(HttpMethod.PATCH, null, null, null, "owner");
   }
 }
