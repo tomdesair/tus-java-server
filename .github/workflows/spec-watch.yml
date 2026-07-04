@@ -2,7 +2,7 @@ name: Monitor IETF Resumable Uploads Spec Updates
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Run daily at midnight UTC
+    - cron: "0 0 * * 6" # Run weekly on Saturday at midnight UTC
   workflow_dispatch: # Allow manual trigger
 
 jobs:
