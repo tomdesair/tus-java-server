@@ -106,13 +106,15 @@ public class ITTusFileUploadService {
             "termination",
             "download",
             "expiration",
-            "concatenation"));
+            "concatenation",
+            "resumable-uploads-for-http"));
   }
 
   @Test
   public void testDisableFeature() throws Exception {
     tusFileUploadService.disableTusExtension("download");
     tusFileUploadService.disableTusExtension("termination");
+    tusFileUploadService.disableTusExtension("resumable-uploads-for-http");
 
     assertThat(
         tusFileUploadService.getSupportedHttpMethods(),

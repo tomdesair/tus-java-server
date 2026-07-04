@@ -167,13 +167,13 @@ public class CorePatchRequestHandlerTest {
         .thenReturn(updatedInfo);
 
     UploadLockingService mockLocking = mock(UploadLockingService.class);
-    servletRequest.setAttribute("me.desair.tus.uploadLockingService", mockLocking);
 
     handler.process(
         HttpMethod.PATCH,
         new TusServletRequest(servletRequest),
         new TusServletResponse(servletResponse),
         uploadStorageService,
+        mockLocking,
         null);
 
     verify(mockLocking, times(1))

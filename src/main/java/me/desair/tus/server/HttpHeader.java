@@ -101,6 +101,33 @@ public class HttpHeader {
    */
   public static final String X_FORWARDED_FOR = "X-Forwarded-For";
 
+  /**
+   * The Upload-Complete request and response header field conveys the completeness state in IETF
+   * Resumable Uploads. Its value is a Structured Header Boolean (?1 or ?0).
+   */
+  public static final String UPLOAD_COMPLETE = "Upload-Complete";
+
+  /**
+   * The Upload-Limit response header field indicates limits applicable to the upload resource in
+   * IETF Resumable Uploads. Its value is a Structured Header Dictionary.
+   */
+  public static final String UPLOAD_LIMIT = "Upload-Limit";
+
+  /** The Upload-Draft request header field indicates draft parameters in IETF Resumable Uploads. */
+  public static final String UPLOAD_DRAFT = "Upload-Draft";
+
+  /**
+   * The Accept-Patch response header field advertises accepted patch media types (e.g.
+   * application/partial-upload).
+   */
+  public static final String ACCEPT_PATCH = "Accept-Patch";
+
+  /** Media type application/partial-upload used for IETF Resumable Upload append requests. */
+  public static final String CONTENT_TYPE_PARTIAL_UPLOAD = "application/partial-upload";
+
+  /** Media type application/problem+json used for RFC 7807 problem details error responses. */
+  public static final String CONTENT_TYPE_PROBLEM_JSON = "application/problem+json";
+
   private HttpHeader() {
     // This is an utility class to hold constants
   }

@@ -786,4 +786,16 @@ public class DiskStorageServiceTest {
           storageService.terminateUpload(info);
         });
   }
+
+  @Test
+  public void testMaxAppendSizeDefaulting() {
+    DiskStorageService diskService = new DiskStorageService(storagePath.toString());
+    assertThat(diskService.getMaxAppendSize(), is(nullValue()));
+
+    diskService.setMaxUploadSize(50000L);
+    assertThat(diskService.getMaxAppendSize(), is(50000L));
+
+    diskService.setMaxAppendSize(10000L);
+    assertThat(diskService.getMaxAppendSize(), is(10000L));
+  }
 }

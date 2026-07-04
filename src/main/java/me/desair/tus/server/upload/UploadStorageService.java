@@ -62,6 +62,26 @@ public interface UploadStorageService {
   long getMaxUploadSize();
 
   /**
+   * Limit the maximum append payload size to the given value in bytes.
+   *
+   * @param maxAppendSize The maximum append limit to set
+   */
+  default void setMaxAppendSize(Long maxAppendSize) {
+    // Default no-op for third-party implementations
+  }
+
+  /**
+   * Get the maximum append payload size configured on this storage service. If not explicitly set,
+   * defaults to the maximum upload size limit if set.
+   *
+   * @return The maximum append size in bytes, or null if no maximum append limit applies
+   */
+  default Long getMaxAppendSize() {
+    long maxUpload = getMaxUploadSize();
+    return maxUpload > 0 ? maxUpload : null;
+  }
+
+  /**
    * Create an upload location with the given upload information.
    *
    * @param info The Upload information to use to create the new upload

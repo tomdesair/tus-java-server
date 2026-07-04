@@ -45,6 +45,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   private static final String DATA_FILE = "data";
 
   private Long maxUploadSize = null;
+  private Long maxAppendSize = null;
   private Long uploadExpirationPeriod = null;
   private UploadIdFactory idFactory;
   private UploadConcatenationService uploadConcatenationService;
@@ -75,6 +76,20 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   @Override
   public long getMaxUploadSize() {
     return maxUploadSize == null ? 0 : maxUploadSize;
+  }
+
+  @Override
+  public void setMaxAppendSize(Long maxAppendSize) {
+    this.maxAppendSize = (maxAppendSize != null && maxAppendSize > 0 ? maxAppendSize : null);
+  }
+
+  @Override
+  public Long getMaxAppendSize() {
+    if (maxAppendSize != null && maxAppendSize > 0) {
+      return maxAppendSize;
+    }
+    long maxUpload = getMaxUploadSize();
+    return maxUpload > 0 ? maxUpload : null;
   }
 
   @Override

@@ -44,6 +44,18 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
       UploadStorageService uploadStorageService,
       String ownerKey)
       throws IOException, TusException {
+    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey);
+  }
+
+  @Override
+  public void process(
+      HttpMethod method,
+      TusServletRequest servletRequest,
+      TusServletResponse servletResponse,
+      UploadStorageService uploadStorageService,
+      UploadLockingService lockingService,
+      String ownerKey)
+      throws IOException, TusException {
 
     boolean found = true;
     UploadInfo uploadInfo =
@@ -54,9 +66,6 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
     } else if (uploadInfo.isUploadInProgress()) {
       try {
         InputStream stream = servletRequest.getContentInputStream();
-        UploadLockingService lockingService =
-            (UploadLockingService)
-                servletRequest.getAttribute("me.desair.tus.uploadLockingService");
         if (lockingService != null) {
           InterruptibleInputStream interruptibleStream = new InterruptibleInputStream(stream);
           lockingService.registerInputStream(servletRequest.getRequestURI(), interruptibleStream);

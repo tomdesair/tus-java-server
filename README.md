@@ -1,9 +1,9 @@
 [![Build and Tests](https://github.com/tomdesair/tus-java-server/actions/workflows/build.yml/badge.svg)](https://github.com/tomdesair/tus-java-server/actions?query=branch%3Amaster+) [![Coverage Status](https://coveralls.io/repos/github/tomdesair/tus-java-server/badge.svg?branch=master)](https://coveralls.io/github/tomdesair/tus-java-server?branch=master) [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=bugs)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=vulnerabilities)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Duplicated Lines](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=duplicated_lines_density)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server)
 
 # tus-java-server
-This library can be used to enable resumable (and potentially asynchronous) file uploads in any Java web application. This allows the users of your application to upload large files over slow and unreliable internet connections. The ability to pause or resume a file upload (after a connection loss or reset) is achieved by implementing the open file upload protocol tus (https://tus.io/). This library implements the server-side of the tus v1.0.0 protocol with [all optional extensions](#tus-protocol-extensions).
+This library can be used to enable resumable (and potentially asynchronous) file uploads in any Java web application. This allows the users of your application to upload large files over slow and unreliable internet connections. The ability to pause or resume a file upload (after a connection loss or reset) is achieved by implementing the open file upload protocol tus (https://tus.io/). This library implements the server-side of the tus v1.0.0 protocol as well as the official IETF Resumable Uploads for HTTP specification ([draft-ietf-httpbis-resumable-upload](https://datatracker.ietf.org/doc/draft-ietf-httpbis-resumable-upload/)), offering dual protocol version support.
 
-The Javadoc of this library can be found at https://tus.desair.me/. As of version 1.0.0-3.0, this library requires Java 17+. For older Java versions, please use one of the `1.0.0-2.x` releases.
+The Javadoc of this library can be found at https://tus.desair.me/. As of version 2.0.0, this library requires Java 17+.
 
 ## Quick Start and Examples
 The tus-java-server library only depends on Jakarta Servlet API 6.0 and some Apache Commons utility libraries. This
@@ -14,7 +14,7 @@ You can add the latest stable version of this library to your application using 
     <dependency>
       <groupId>me.desair.tus</groupId>
       <artifactId>tus-java-server</artifactId>
-      <version>1.0.0-3.0-SNAPSHOT</version>
+      <version>2.0.0-SNAPSHOT</version>
     </dependency>
 
 The main entry point of the library is the `me.desair.tus.server.TusFileUploadService.process(jakarta.servlet.http.HttpServletRequest, jakarta.servlet.http.HttpServletResponse)` method. You can call this method inside a `jakarta.servlet.http.HttpServlet`, a `jakarta.servlet.Filter` or any REST API controller of a framework that gives you access to `HttpServletRequest` and `HttpServletResponse` objects. In the following list, you can find some example implementations:
@@ -23,6 +23,38 @@ The main entry point of the library is the `me.desair.tus.server.TusFileUploadSe
 * [Resumable and asynchronous file upload using Uppy with form submission in Dropwizard (Jetty)](https://github.com/tomdesair/tus-java-server-dropwizard-demo)
 * [Resumable and asynchronous file upload in Spring Boot REST API with Uppy JavaScript client.](https://github.com/tomdesair/tus-java-server-spring-demo)
 * (more examples to come!)
+
+## Protocol Version Support (Tus 1.0.0 & IETF Resumable Uploads)
+
+> [!WARNING]
+> **Experimental Feature Disclaimer**: The IETF Resumable Uploads for HTTP (RUFH) specification (`draft-ietf-httpbis-resumable-upload`) is currently an active IETF draft. While this library implements draft-11 compliance, the RUFH protocol support should be considered **experimental** until the specification is published as an official RFC standard.
+
+`tus-java-server` supports both protocol specifications seamlessly:
+1. **Tus 1.0.0**: The widely-adopted [tus protocol standard](https://tus.io/).
+2. **IETF Resumable Uploads for HTTP**: The official IETF standardization draft ([draft-ietf-httpbis-resumable-upload](https://datatracker.ietf.org/doc/draft-ietf-httpbis-resumable-upload/)).
+
+### Configuring Protocol Version
+You can configure protocol support via `withSupportedProtocolVersions(ProtocolVersion)`:
+
+* `ProtocolVersion.AUTO` (Default): Automatically detects protocol version per HTTP request based on request headers (`Tus-Resumable` header triggers Tus 1.0.0; `Upload-Complete` header or `application/partial-upload` content type triggers IETF RUFH).
+* `ProtocolVersion.TUS_1_0_0`: Enforces Tus 1.0.0 handling exclusively.
+* `ProtocolVersion.RUFH`: Enforces IETF Resumable Uploads for HTTP (RUFH) handling exclusively.
+
+### Protocol Comparison & Available Features
+
+| Feature / Capability | Tus 1.0.0 | IETF Resumable Uploads |
+|---|---|---|
+| **Auto-Detection Signal** | `Tus-Resumable: 1.0.0` header | `Upload-Complete` header or `Content-Type: application/partial-upload` |
+| **Creation** | `POST` with `Upload-Length` / `Upload-Defer-Length` | `POST` with `Upload-Complete: ?0` / `?1` (or `application/partial-upload`) |
+| **Append Chunks** | `PATCH` with `Upload-Offset` | `PATCH` with `Upload-Offset` & `Content-Type: application/partial-upload` |
+| **Upload Status Query** | `HEAD` returns `Upload-Offset` & `Upload-Length` | `HEAD` returns `Upload-Offset` & `Upload-Complete` |
+| **Offset Mismatch Error** | HTTP 409 Conflict | HTTP 409 Conflict with RFC 7807 `application/problem+json` details |
+| **104 Interim Responses** | N/A | Supported (`InterimResponseStrategy`) |
+| **Upload Cancellation** | `DELETE` with `Tus-Resumable: 1.0.0` | `DELETE` with `Upload-Complete: ?0` |
+| **Checksum Validation** | Supported (`Checksum` extension) | Supported (`Checksum` extension) |
+| **Expiration Handling** | Supported (`Expiration` extension) | Supported (`Expiration` extension) |
+| **Concatenation** | Supported (`Concatenation` extension) | Supported (`Concatenation` extension) |
+| **Download Extension** | Supported (`Download` extension) | Supported (`Download` extension) |
 
 ## Tus Protocol Extensions
 Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-protocol), the library has all optional tus protocol extensions enabled by default. This means that the `Tus-Extension` header has value `creation,creation-defer-length,checksum,checksum-trailer,termination,expiration,concatenation,concatenation-unfinished`. Optionally you can also enable an unofficial `download` extension (see [configuration section](#usage-and-configuration)).
@@ -43,6 +75,7 @@ Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-
 The first step is to create a `TusFileUploadService` object using its constructor. You can make this object available as a (Spring bean) singleton or create a new instance for each request. After creating the object, you can configure it using the following methods:
 
 * `withUploadUri(String)`: Set the relative URL under which the main tus upload endpoint will be made available, for example `/files/upload`. Optionally, this URI may contain regex parameters in order to support endpoints that contain URL parameters, for example `/users/[0-9]+/files/upload`.
+* `withSupportedProtocolVersions(ProtocolVersion)`: Configure supported protocol versions (`ProtocolVersion.AUTO` for automatic header-based detection, `ProtocolVersion.TUS_1_0_0` for Tus 1.0.0 only, or `ProtocolVersion.IETF` for IETF Resumable Uploads only).
 * `withMaxUploadSize(Long)`: Specify the maximum number of bytes that can be uploaded per upload. If you don't call this method, the maximum number of bytes is `Long.MAX_VALUE`.
 * `withStoragePath(String)`: If you're using the default file system-based storage service, you can use this method to specify the path where to store the uploaded bytes and upload information.
 * `withChunkedTransferDecoding`: You can enable or disable the decoding of chunked HTTP requests by this library. Enable this feature in case the web container in which this service is running does not decode chunked transfers itself. By default, chunked decoding via this library is disabled (as modern frameworks tend to already do this for you).
@@ -74,10 +107,17 @@ After having processed the uploaded bytes on the server backend (e.g. copy them 
 Next to removing uploads after they have been completed and processed by the backend, it is also recommended to schedule a regular maintenance task to clean up any expired uploads or locks. Cleaning up expired uploads and locks can be achieved using the `me.desair.tus.server.TusFileUploadService.cleanup()` method.
 
 ## Compatible Client Implementations
-This tus protocol implementation has been [tested](https://github.com/tomdesair/tus-java-server-spring-demo) with the [Uppy file upload client](https://uppy.io/). This repository also contains [many automated integration tests](https://github.com/tomdesair/tus-java-server/blob/master/src/test/java/me/desair/tus/server/ITTusFileUploadService.java) that validate the tus protocol server implementation using plain HTTP requests. So in theory this means we're compatible with any tus 1.0.0 compliant client.
+This server implementation has been tested with:
+- **Tus 1.0.0 Clients**: Tested with [Uppy](https://uppy.io/) and `tus-js-client`.
+- **IETF Resumable Uploads Clients**:
+  - `tus-js-client`: Features experimental support for the IETF draft (configured via `protocol: 'ietf-draft-03'` / `'ietf-draft-05'`).
+  - Native Apple Platforms (`URLSession`): iOS 17+ and macOS 14+ natively support the IETF HTTP Resumable Uploads specification.
+  - Custom HTTP Clients: Standard HTTP clients sending `Upload-Complete` / `application/partial-upload` structured headers.
+
+This repository also contains comprehensive automated integration test suites (`ITTusFileUploadService`, `IetfProtocolCreationTest`, `IetfProtocolAppendTest`, `IetfProtocolHeadTest`, `IetfProtocolCancellationTest`) validating both protocol specifications.
 
 ## Versioning
-This artifact is versioned as `A.B.C-X.Y` where `A.B.C` is the version of the implemented tus protocol (currently 1.0.0) and `X.Y` is the version of this library.
+This artifact follows `MAJOR.MINOR.PATCH` semantic versioning. Version `2.0.0` introduces major dual-protocol support for both Tus 1.0.0 and the IETF Resumable Uploads for HTTP specification (`draft-ietf-httpbis-resumable-upload`).
 
 ## Contributing
 This library comes without any warranty and is released under a [MIT license](https://github.com/tomdesair/tus-java-server/blob/master/LICENSE). If you encounter any bugs or if you have an idea for a useful improvement you are welcome to [open a new issue](https://github.com/tomdesair/tus-java-server/issues) or to [create a pull request](https://github.com/tomdesair/tus-java-server/pulls) with the proposed implementation. Please note that any contributed code needs to be accompanied by automated unit and/or integration tests and comply with the [defined code-style](#code-style).

@@ -95,6 +95,26 @@ def check_changelog(release_version):
     except Exception as e:
         return False, f"Error reading CHANGELOG.md: {e}"
 
+def update_readme_version(new_version, readme_path="README.md"):
+    if not os.path.exists(readme_path):
+        return False, f"{readme_path} not found"
+    try:
+        with open(readme_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Update Maven dependency version block in README.md
+        pattern = r"(<artifactId>tus-java-server</artifactId>\s*<version>)[^<]+(</version>)"
+        if re.search(pattern, content):
+            new_content = re.sub(pattern, r"\g<1>" + new_version + r"\g<2>", content)
+            if new_content != content:
+                with open(readme_path, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                return True, None
+            return True, "README.md version already up to date"
+        return False, "Could not find tus-java-server dependency version block in README.md"
+    except Exception as e:
+        return False, f"Error updating {readme_path}: {e}"
+
 def get_changelog_notes(release_version):
     if not os.path.exists("CHANGELOG.md"):
         return ""
@@ -337,6 +357,15 @@ def main():
         print(f"Error: {err_msg}")
         sys.exit(1)
     print(f"\r[\033[92m✅\033[0m] Checking CHANGELOG.md")
+
+    # Update version in README.md
+    print("[ ] Updating README.md version...", end="", flush=True)
+    readme_updated, readme_msg = update_readme_version(release_version)
+    if not readme_updated:
+        print(f"\r[\033[91m❌\033[0m] Updating README.md version")
+        print(f"Error: {readme_msg}")
+        sys.exit(1)
+    print(f"\r[\033[92m✅\033[0m] Updating README.md version ({release_version})")
 
     # Setup environment for subprocesses
     # We must ensure we do not pass invalid GITHUB_TOKEN to gh CLI or maven if it causes auth problems
