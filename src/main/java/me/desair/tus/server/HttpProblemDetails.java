@@ -1,4 +1,4 @@
-package me.desair.tus.server.rufh;
+package me.desair.tus.server;
 
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -6,7 +6,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.util.TusServletResponse;
 
 /**

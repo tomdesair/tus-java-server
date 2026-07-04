@@ -8,10 +8,10 @@ import static org.mockito.Mockito.when;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.exception.InconsistentUploadLengthException;
 import me.desair.tus.server.exception.UploadAlreadyCompletedException;
 import me.desair.tus.server.exception.UploadOffsetMismatchException;
-import me.desair.tus.server.rufh.HttpProblemDetails;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;

@@ -17,7 +17,6 @@ import me.desair.tus.server.creation.CreationExtension;
 import me.desair.tus.server.download.DownloadExtension;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.expiration.ExpirationExtension;
-import me.desair.tus.server.rufh.HttpProblemDetails;
 import me.desair.tus.server.rufh.ResumableUploadsForHttpProtocol;
 import me.desair.tus.server.termination.TerminationExtension;
 import me.desair.tus.server.upload.UploadIdFactory;

@@ -1,10 +1,9 @@
-package me.desair.tus.server.rufh;
+package me.desair.tus.server;
 
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 
-import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
 import org.junit.Test;

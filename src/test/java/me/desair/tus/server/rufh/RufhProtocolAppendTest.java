@@ -140,7 +140,7 @@ public class RufhProtocolAppendTest {
     request.setRequestURI("/files/test-id");
     TusServletRequest tusReq = new TusServletRequest(request, true);
 
-    me.desair.tus.server.rufh.HttpProblemDetails problemDetails =
+    me.desair.tus.server.HttpProblemDetails problemDetails =
         protocol.handleError(
             HttpMethod.PATCH,
             tusReq,
