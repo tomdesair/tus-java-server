@@ -72,4 +72,15 @@ public interface RequestHandler {
    * @return true if this handler processes errors, false otherwise
    */
   boolean isErrorHandler();
+
+  /**
+   * Test if this request handler supports the given HTTP method and protocol version
+   *
+   * @param method The current HTTP method
+   * @param version The protocol version of the request
+   * @return true if supported, false otherwise
+   */
+  default boolean supports(HttpMethod method, ProtocolVersion version) {
+    return supports(method);
+  }
 }

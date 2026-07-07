@@ -128,6 +128,11 @@ In RUFH protocol, integrity verification is achieved using **RFC 9530 HTTP Diges
 - **Chunk verification**: Use the `Content-Digest` header containing the cryptographic hash of the transmitted chunk (e.g. `Content-Digest: sha-256=:...:`).
 - **Full file verification**: Use the `Repr-Digest` header in the creation request or final append request to define the expected digest of the complete file. Alternatively, send `Want-Repr-Digest` in the request to receive the calculated file digest from the server in the response's `Repr-Digest` header.
 
+### 4.5 Download Extension
+The unofficial `download` extension is fully supported under both protocols. Once enabled via the `withDownloadFeature()` method:
+- Clients can download completed uploads using a standard HTTP `GET` request to the upload's Location URI, regardless of whether it was uploaded via Tus 1.0.0 or RUFH.
+- For RUFH download responses, all Tus-specific headers (such as `Upload-Metadata` or `Tus-Extension`) are omitted.
+
 ---
 
 ## 5. Reverse Proxies & Load Balancers

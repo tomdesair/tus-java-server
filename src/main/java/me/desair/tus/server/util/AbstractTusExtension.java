@@ -55,7 +55,7 @@ public abstract class AbstractTusExtension implements TusExtension {
     }
 
     for (RequestValidator requestValidator : requestValidators) {
-      if (requestValidator.supports(method)) {
+      if (requestValidator.supports(method, version)) {
         requestValidator.validate(method, servletRequest, uploadStorageService, ownerKey);
       }
     }
@@ -95,7 +95,7 @@ public abstract class AbstractTusExtension implements TusExtension {
     }
 
     for (RequestHandler requestHandler : requestHandlers) {
-      if (requestHandler.supports(method)) {
+      if (requestHandler.supports(method, version)) {
         requestHandler.process(
             method,
             servletRequest,
@@ -149,7 +149,7 @@ public abstract class AbstractTusExtension implements TusExtension {
 
     HttpProblemDetails problemDetails = null;
     for (RequestHandler requestHandler : requestHandlers) {
-      if (requestHandler.supports(method) && requestHandler.isErrorHandler()) {
+      if (requestHandler.supports(method, version) && requestHandler.isErrorHandler()) {
         HttpProblemDetails pd =
             requestHandler.process(
                 method,
