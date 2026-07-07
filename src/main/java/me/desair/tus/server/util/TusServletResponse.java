@@ -41,14 +41,16 @@ public class TusServletResponse extends HttpServletResponseWrapper {
 
   @Override
   public void setHeader(String name, String value) {
-    super.setHeader(name, value);
-    overwriteHeader(name, value);
+    String sanitizedValue = sanitizeHeaderValue(value);
+    super.setHeader(name, sanitizedValue);
+    overwriteHeader(name, sanitizedValue);
   }
 
   @Override
   public void addHeader(String name, String value) {
-    super.addHeader(name, value);
-    recordHeader(name, value);
+    String sanitizedValue = sanitizeHeaderValue(value);
+    super.addHeader(name, sanitizedValue);
+    recordHeader(name, sanitizedValue);
   }
 
   @Override
@@ -83,5 +85,12 @@ public class TusServletResponse extends HttpServletResponseWrapper {
     List<String> values = new LinkedList<>();
     values.add(value);
     headers.put(name, values);
+  }
+
+  private String sanitizeHeaderValue(String value) {
+    if (value == null) {
+      return null;
+    }
+    return value.replaceAll("[\r\n]", "");
   }
 }
