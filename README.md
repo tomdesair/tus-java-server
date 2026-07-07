@@ -55,6 +55,7 @@ You can configure protocol support via `withSupportedProtocolVersions(ProtocolVe
 | **Expiration Handling** | Supported (`Expiration` extension) | Supported (`Expiration` extension) |
 | **Concatenation** | Supported (`Concatenation` extension) | Supported (`Concatenation` extension) |
 | **Download Extension** | Supported (`Download` extension) | Supported (`Download` extension) |
+| **HTTP Digests Validation** | N/A | Supported (`http-digests` extension) |
 
 ## Tus Protocol Extensions
 Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-protocol), the library has all optional tus protocol extensions enabled by default. This means that the `Tus-Extension` header has value `creation,creation-defer-length,checksum,checksum-trailer,termination,expiration,concatenation,concatenation-unfinished`. Optionally you can also enable an unofficial `download` extension (see [configuration section](#usage-and-configuration)).
@@ -68,6 +69,7 @@ Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-
 * [concatenation](https://tus.io/protocols/resumable-upload.html#concatenation): This extension can be used to concatenate multiple uploads into a single final upload enabling clients to perform parallel uploads and to upload non-contiguous chunks.
 * [concatenation-unfinished](https://tus.io/protocols/resumable-upload.html#concatenation): The client is allowed send the request to concatenate partial uploads while these partial uploads are still in progress.
 * `download`: The (unofficial) download extension allows clients to download uploaded files using a HTTP `GET` request. You can enable this extension by calling the `withDownloadFeature()` method.
+* `http-digests`: An extension implementing RFC 9530 to verify data integrity for the Resumable Uploads for HTTP (RUFH) protocol. Supported headers include `Content-Digest`, `Repr-Digest`, `Want-Content-Digest`, and `Want-Repr-Digest`.
 
 ## Usage and Configuration
 
@@ -87,6 +89,10 @@ The first step is to create a `TusFileUploadService` object using its constructo
 * `addTusExtension(TusExtension)`: Add a custom (application-specific) extension that implements the `me.desair.tus.server.TusExtension` interface. For example you can add your own extension that checks authentication and authorization policies within your application for the user doing the upload.
 * `disableTusExtension(String)`: Disable the `TusExtension` for which the `getName()` method matches the provided string. The default extensions have names "creation", "checksum", "expiration", "concatenation", "termination" and "download". You cannot disable the "core" feature.
 * `withUploadIdFactory(UploadIdFactory)`: Provide a custom `UploadIdFactory` implementation that should be used to generate identifiers for the different uploads. The default implementation generates identifiers using a UUID (`UuidUploadIdFactory`). Another example implementation of a custom ID factory is the system-time based `TimeBasedUploadIdFactory` class.
+
+### HTTP Digests ([RFC 9530](https://www.rfc-editor.org/rfc/rfc9530.html))
+The `http-digests` extension implements RFC 9530 to support data integrity checks for both individual data chunks (`Content-Digest`) and the entire file (`Repr-Digest`).
+* **Performance Disclaimer**: Calculating representation digests (`Repr-Digest`) requires streaming the entire uploaded file from disk. For extremely large files, this can introduce non-trivial I/O performance overhead on the server. To optimize, only request it via `Want-Repr-Digest` when absolutely necessary.
 
 
 For now this library only provides filesystem based storage and locking options. You can however provide your own implementation of a `UploadStorageService` and `UploadLockingService` using the methods `withUploadStorageService(UploadStorageService)` and `withUploadLockingService(UploadLockingService)` in order to support different types of upload storage.

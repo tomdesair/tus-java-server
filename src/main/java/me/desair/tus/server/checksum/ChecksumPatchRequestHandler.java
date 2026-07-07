@@ -36,9 +36,7 @@ public class ChecksumPatchRequestHandler extends AbstractRequestHandler {
     if (servletRequest.hasCalculatedChecksum() && StringUtils.isNotBlank(uploadChecksumHeader)) {
 
       // The Upload-Checksum header can be a trailing header which is only present after
-      // reading the
-      // full content.
-      // Therefor we need to revalidate that header here
+      // reading the full content.Therefor we need to revalidate that header here.
       new ChecksumAlgorithmValidator()
           .validate(method, servletRequest, uploadStorageService, ownerKey);
 

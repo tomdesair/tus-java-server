@@ -94,6 +94,7 @@ public class ITTusFileUploadService {
             HttpMethod.OPTIONS,
             HttpMethod.PATCH,
             HttpMethod.POST,
+            HttpMethod.PUT,
             HttpMethod.DELETE,
             HttpMethod.GET));
 
@@ -107,7 +108,8 @@ public class ITTusFileUploadService {
             "download",
             "expiration",
             "concatenation",
-            "resumable-uploads-for-http"));
+            "resumable-uploads-for-http",
+            "http-digests"));
   }
 
   @Test
@@ -115,6 +117,7 @@ public class ITTusFileUploadService {
     tusFileUploadService.disableTusExtension("download");
     tusFileUploadService.disableTusExtension("termination");
     tusFileUploadService.disableTusExtension("resumable-uploads-for-http");
+    tusFileUploadService.disableTusExtension("http-digests");
 
     assertThat(
         tusFileUploadService.getSupportedHttpMethods(),

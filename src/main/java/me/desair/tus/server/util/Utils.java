@@ -20,6 +20,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.regex.Pattern;
 import me.desair.tus.server.HttpHeader;
+import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import org.apache.commons.io.serialization.ValidatingObjectInputStream;
 import org.apache.commons.lang3.StringUtils;
@@ -196,6 +197,24 @@ public class Utils {
           && CHECKSUM_VALUE_PATTERN.matcher(checksumValue).matches()) {
         return new ChecksumInfo(algorithm, checksumValue);
       }
+    }
+    return null;
+  }
+
+  /**
+   * Resolves the upload URI from the HTTP request and response context.
+   *
+   * @param method The HttpMethod of the request
+   * @param request The TusServletRequest
+   * @param response The TusServletResponse
+   * @return The upload URI string, or null if it cannot be determined
+   */
+  public static String getUploadUri(
+      HttpMethod method, TusServletRequest request, TusServletResponse response) {
+    if (HttpMethod.POST.equals(method) || HttpMethod.PUT.equals(method)) {
+      return response != null ? response.getHeader(HttpHeader.LOCATION) : null;
+    } else if (HttpMethod.PATCH.equals(method)) {
+      return request != null ? request.getRequestURI() : null;
     }
     return null;
   }

@@ -28,6 +28,7 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
@@ -738,17 +739,29 @@ public class DiskStorageServiceTest {
   }
 
   @Test
-  public void testGetUploadInfoByChecksumWithUnsafeChecksums() {
-    List<String> unsafeChecksums =
-        Arrays.asList(" ", "../test", "test/../test", "test/test", "test\\test", "..", "/");
-
-    for (String checksum : unsafeChecksums) {
+  public void testGetUploadInfoByChecksumWithUnsafeChecksums() throws Exception {
+    // These values cannot be parsed to non-empty base64 bytes, so they remain unsafe and throw
+    // IOException
+    List<String> unsafeEmptyChecksums = Arrays.asList(" ", "..", "/");
+    for (String checksum : unsafeEmptyChecksums) {
       assertThrows(
           IOException.class,
           () -> {
             storageService.getUploadInfoByChecksum(
                 checksum, me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
           });
+    }
+
+    // These values contain path traversal characters but are parsed as base64 and converted to safe
+    // hex strings.
+    // They should not throw IOException, but return null since the resolved file does not exist.
+    List<String> unsafeBase64Checksums =
+        Arrays.asList("../test", "test/../test", "test/test", "test\\test");
+    for (String checksum : unsafeBase64Checksums) {
+      assertThat(
+          storageService.getUploadInfoByChecksum(
+              checksum, me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256),
+          is(nullValue()));
     }
   }
 
@@ -762,7 +775,8 @@ public class DiskStorageServiceTest {
     info = storageService.create(info, null);
     info.setOffset(100L);
 
-    info.setChecksum("test/path");
+    // Using an empty/unsafe value that fails base64 parsing and remains unsafe
+    info.setChecksum(" / ");
     info.setChecksumAlgorithm(me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
 
     final UploadInfo finalInfo = info;
@@ -777,7 +791,7 @@ public class DiskStorageServiceTest {
   public void testTerminateUploadWithUnsafeChecksums() throws Exception {
     UploadInfo info = new UploadInfo();
     info.setId(new UploadId("test-id"));
-    info.setChecksum("test/path");
+    info.setChecksum(" / ");
     info.setChecksumAlgorithm(me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
 
     assertThrows(
@@ -797,5 +811,29 @@ public class DiskStorageServiceTest {
 
     diskService.setMaxAppendSize(10000L);
     assertThat(diskService.getMaxAppendSize(), is(10000L));
+  }
+
+  @Test
+  public void testGetUploadInfoByChecksumWithNullValues() throws Exception {
+    // 1. null checksum should return null
+    assertThat(
+        storageService.getUploadInfoByChecksum(null, ChecksumAlgorithm.SHA256), is(nullValue()));
+
+    // 2. null algorithm should return null
+    assertThat(
+        storageService.getUploadInfoByChecksum(
+            "ba7816bc4335da0d4435913c04792c254db9c9363b8968b92b2313fa1d01f98b", null),
+        is(nullValue()));
+  }
+
+  @Test
+  public void testGetUploadInfoByChecksumWithValidBase64ContainingSlash() throws Exception {
+    // Valid SHA-256 base64 representation digest containing a slash:
+    // "E0/isChYLiH9/ph8pn/+F6EyUQ+PCZTi8epGL3cuQW0=" (length 44, decodes to 32 bytes)
+    // It should be decoded to hex (which is safe) and successfully resolved (returning null).
+    assertThat(
+        storageService.getUploadInfoByChecksum(
+            "E0/isChYLiH9/ph8pn/+F6EyUQ+PCZTi8epGL3cuQW0=", ChecksumAlgorithm.SHA256),
+        is(nullValue()));
   }
 }

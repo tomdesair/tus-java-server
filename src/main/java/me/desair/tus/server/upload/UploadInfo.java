@@ -40,6 +40,8 @@ public class UploadInfo implements Serializable {
   private UploadId duplicatesUploadId;
   private String checksum;
   private ChecksumAlgorithm checksumAlgorithm;
+  private String representationDigest;
+  private String requestedRepresentationDigests;
 
   /** Default constructor to use if an upload is created without HTTP request. */
   public UploadInfo() {
@@ -401,6 +403,42 @@ public class UploadInfo implements Serializable {
     this.checksumAlgorithm = checksumAlgorithm;
   }
 
+  /**
+   * Get the expected representation digest of the complete upload.
+   *
+   * @return The representation digest
+   */
+  public String getRepresentationDigest() {
+    return representationDigest;
+  }
+
+  /**
+   * Set the expected representation digest of the complete upload.
+   *
+   * @param representationDigest The representation digest
+   */
+  public void setRepresentationDigest(String representationDigest) {
+    this.representationDigest = representationDigest;
+  }
+
+  /**
+   * Get the requested representation digests header value from the client.
+   *
+   * @return The requested representation digests header value
+   */
+  public String getRequestedRepresentationDigests() {
+    return requestedRepresentationDigests;
+  }
+
+  /**
+   * Set the requested representation digests header value.
+   *
+   * @param requestedRepresentationDigests The requested representation digests header value
+   */
+  public void setRequestedRepresentationDigests(String requestedRepresentationDigests) {
+    this.requestedRepresentationDigests = requestedRepresentationDigests;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -427,6 +465,8 @@ public class UploadInfo implements Serializable {
         .append(getDuplicatesUploadId(), that.getDuplicatesUploadId())
         .append(getChecksum(), that.getChecksum())
         .append(getChecksumAlgorithm(), that.getChecksumAlgorithm())
+        .append(getRepresentationDigest(), that.getRepresentationDigest())
+        .append(getRequestedRepresentationDigests(), that.getRequestedRepresentationDigests())
         .isEquals();
   }
 
@@ -446,6 +486,8 @@ public class UploadInfo implements Serializable {
         .append(getDuplicatesUploadId())
         .append(getChecksum())
         .append(getChecksumAlgorithm())
+        .append(getRepresentationDigest())
+        .append(getRequestedRepresentationDigests())
         .toHashCode();
   }
 

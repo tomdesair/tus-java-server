@@ -166,4 +166,25 @@ public class StructuredHeaderUtil {
     }
     return value.replace("\r", "").replace("\n", "").replace("\0", "").trim();
   }
+
+  /**
+   * Parse a Structured Header List according to RFC 9651 Section 3.1.
+   *
+   * @param headerValue The list header value string
+   * @return Ordered {@link java.util.List} of member item strings
+   */
+  public static java.util.List<String> parseList(String headerValue) {
+    java.util.List<String> list = new java.util.ArrayList<>();
+    if (headerValue == null || headerValue.isBlank()) {
+      return list;
+    }
+    String[] members = headerValue.split(",");
+    for (String member : members) {
+      String trimmedMember = member.trim();
+      if (!trimmedMember.isEmpty()) {
+        list.add(sanitizeHeaderValue(trimmedMember));
+      }
+    }
+    return list;
+  }
 }

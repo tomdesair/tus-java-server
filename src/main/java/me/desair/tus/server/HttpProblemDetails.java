@@ -118,6 +118,23 @@ public class HttpProblemDetails {
   }
 
   /**
+   * Create a Mismatched Digest Values (400 Bad Request) problem details response.
+   *
+   * <p>Reference: Section 4 of RFC 9530: "This section defines the
+   * 'https://iana.org/assignments/http-problem-types#digest-mismatched-values' problem type."
+   *
+   * @return HttpProblemDetails instance configured for digest mismatch
+   */
+  public static HttpProblemDetails forDigestMismatch() {
+    return new HttpProblemDetails(
+        HttpServletResponse.SC_BAD_REQUEST,
+        "https://iana.org/assignments/http-problem-types#digest-mismatched-values",
+        "Mismatched Digest Values",
+        "The calculated digest does not match the provided digest value.",
+        null);
+  }
+
+  /**
    * Send problem details response directly to a TusServletResponse.
    *
    * @param response The servlet response

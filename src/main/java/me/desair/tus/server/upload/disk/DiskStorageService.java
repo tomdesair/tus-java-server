@@ -31,6 +31,7 @@ import me.desair.tus.server.upload.UploadType;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.concatenation.VirtualConcatenationService;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -464,17 +465,35 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   }
 
   private Path getChecksumPath(String checksum, ChecksumAlgorithm algorithm) throws IOException {
-    if (!isSafePathComponent(checksum)) {
+    String filename = checksum;
+    if (filename != null) {
+      if (!filename.matches("^[0-9a-fA-F]+$")) {
+        try {
+          byte[] bytes = Base64.decodeBase64(filename);
+          if (bytes != null && bytes.length > 0) {
+            StringBuilder sb = new StringBuilder();
+            for (byte b : bytes) {
+              sb.append(String.format("%02x", b));
+            }
+            filename = sb.toString();
+          }
+        } catch (Exception e) {
+          // Ignore, keep original filename
+        }
+      }
+    }
+
+    if (!isSafePathComponent(filename)) {
       throw new IOException("The checksum contains an unsafe value.");
     }
-    if (algorithm == null || !isSafePathComponent(algorithm.toString())) {
+    if (!isSafePathComponent(algorithm.toString())) {
       throw new IOException("The checksum algorithm contains an unsafe value.");
     }
     return getStoragePath()
         .getParent()
         .resolve("checksums")
         .resolve(algorithm.toString())
-        .resolve(checksum);
+        .resolve(filename);
   }
 
   private boolean isSafePathComponent(String component) {

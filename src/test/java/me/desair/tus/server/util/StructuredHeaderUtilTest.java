@@ -85,4 +85,18 @@ public class StructuredHeaderUtilTest {
     assertThat(StructuredHeaderUtil.sanitizeHeaderValue("test\0null"), is("testnull"));
     assertThat(StructuredHeaderUtil.sanitizeHeaderValue(null), nullValue());
   }
+
+  @Test
+  public void testParseList() {
+    java.util.List<String> list = StructuredHeaderUtil.parseList("sha-256, sha-512");
+    assertThat(list.size(), is(2));
+    assertThat(list.get(0), is("sha-256"));
+    assertThat(list.get(1), is("sha-512"));
+
+    java.util.List<String> list2 = StructuredHeaderUtil.parseList("sha-256,,sha-512");
+    assertThat(list2.size(), is(2));
+
+    assertThat(StructuredHeaderUtil.parseList(null).isEmpty(), is(true));
+    assertThat(StructuredHeaderUtil.parseList("   ").isEmpty(), is(true));
+  }
 }

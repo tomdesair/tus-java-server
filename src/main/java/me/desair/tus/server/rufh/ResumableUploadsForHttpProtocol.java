@@ -74,6 +74,11 @@ public class ResumableUploadsForHttpProtocol extends AbstractTusExtension {
   }
 
   @Override
+  public boolean mustReprocessOnError(HttpMethod method, ProtocolVersion version) {
+    return version == ProtocolVersion.RUFH;
+  }
+
+  @Override
   protected void initValidators(List<RequestValidator> requestValidators) {
     requestValidators.add(new RufhSafePathValidator());
     requestValidators.add(new RufhUploadExistsValidator());

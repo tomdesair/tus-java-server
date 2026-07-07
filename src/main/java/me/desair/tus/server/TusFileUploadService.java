@@ -14,6 +14,7 @@ import me.desair.tus.server.checksum.ChecksumExtension;
 import me.desair.tus.server.concatenation.ConcatenationExtension;
 import me.desair.tus.server.core.CoreProtocol;
 import me.desair.tus.server.creation.CreationExtension;
+import me.desair.tus.server.digest.HttpDigestsExtension;
 import me.desair.tus.server.download.DownloadExtension;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.expiration.ExpirationExtension;
@@ -69,6 +70,7 @@ public class TusFileUploadService {
     addTusExtension(new ExpirationExtension());
     addTusExtension(new ConcatenationExtension());
     addTusExtension(new ResumableUploadsForHttpProtocol());
+    addTusExtension(new HttpDigestsExtension());
   }
 
   /**
@@ -528,6 +530,7 @@ public class TusFileUploadService {
       return ProtocolVersion.RUFH;
     }
 
+    // We're in AUTO mode, so we need to detect the protocol version based on the request headers
     if (request != null) {
       if (request.getHeader(HttpHeader.TUS_RESUMABLE) != null) {
         return ProtocolVersion.TUS_1_0_0;
@@ -603,7 +606,7 @@ public class TusFileUploadService {
     HttpProblemDetails problemDetails = null;
     try {
       for (TusExtension feature : enabledFeatures.values()) {
-        if (!request.isProcessedBy(feature)) {
+        if (!request.isProcessedBy(feature) || feature.mustReprocessOnError(method, version)) {
           request.addProcessor(feature);
           HttpProblemDetails pd =
               feature.handleError(

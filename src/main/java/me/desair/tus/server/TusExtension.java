@@ -168,6 +168,18 @@ public interface TusExtension {
   }
 
   /**
+   * Returns whether this extension must handle errors even if the request was already successfully
+   * processed by it.
+   *
+   * @param method The HTTP method
+   * @param version The protocol version
+   * @return true if the extension must handle errors on exception, false otherwise
+   */
+  default boolean mustReprocessOnError(HttpMethod method, ProtocolVersion version) {
+    return false;
+  }
+
+  /**
    * The minimal list of HTTP methods that this extension needs to function properly.
    *
    * @return The list of HTTP methods required by this extension

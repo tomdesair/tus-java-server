@@ -53,6 +53,7 @@ When updating clients or proxies to use IETF Resumable Uploads, note the followi
 | **Upload Limits** | `Tus-Max-Size: 104857600` | `Upload-Limit: max-size=104857600, max-append-size=5242880` |
 | **Capabilities Discovery** | `OPTIONS` returns `Tus-Version`, `Tus-Extension` | `OPTIONS` returns `Accept-Patch: application/partial-upload` and `Upload-Limit` |
 | **Error Format** | Plain text | `application/problem+json` (RFC 7807) |
+| **Checksum / Data Integrity** | `Upload-Checksum: sha1 ...` | `Content-Digest` and `Repr-Digest` (RFC 9530) |
 
 ---
 
@@ -120,6 +121,12 @@ IETF Resumable Upload error responses return RFC 7807 problem details JSON:
     "provided-offset": 25000000
   }
   ```
+
+### 4.4 Data Integrity Verification (HTTP Digests)
+In Tus 1.0.0, data integrity was verified using the `Upload-Checksum` header from the checksum extension.
+In RUFH protocol, integrity verification is achieved using **RFC 9530 HTTP Digests**:
+- **Chunk verification**: Use the `Content-Digest` header containing the cryptographic hash of the transmitted chunk (e.g. `Content-Digest: sha-256=:...:`).
+- **Full file verification**: Use the `Repr-Digest` header in the creation request or final append request to define the expected digest of the complete file. Alternatively, send `Want-Repr-Digest` in the request to receive the calculated file digest from the server in the response's `Repr-Digest` header.
 
 ---
 

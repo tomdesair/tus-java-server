@@ -7,6 +7,7 @@ import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.exception.InconsistentUploadLengthException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadAlreadyCompletedException;
+import me.desair.tus.server.exception.UploadDigestMismatchException;
 import me.desair.tus.server.exception.UploadOffsetMismatchException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -73,6 +74,9 @@ public class RufhErrorHandler extends AbstractRequestHandler {
     } else if (exception instanceof InconsistentUploadLengthException) {
       // Section 7.3: Inconsistent Length
       return HttpProblemDetails.forInconsistentLength();
+    } else if (exception instanceof UploadDigestMismatchException) {
+      // RFC 9530 Mismatched Digest Values
+      return HttpProblemDetails.forDigestMismatch();
     }
     return null;
   }

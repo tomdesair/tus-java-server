@@ -128,6 +128,24 @@ public class HttpHeader {
   /** Media type application/problem+json used for RFC 7807 problem details error responses. */
   public static final String CONTENT_TYPE_PROBLEM_JSON = "application/problem+json";
 
+  /** The Content-Digest HTTP header field associates one or more digests with a message content. */
+  public static final String CONTENT_DIGEST = "Content-Digest";
+
+  /** The Repr-Digest HTTP header field associates one or more digests with a representation. */
+  public static final String REPR_DIGEST = "Repr-Digest";
+
+  /**
+   * The Want-Content-Digest response/request header indicates capabilities/preference for content
+   * digests.
+   */
+  public static final String WANT_CONTENT_DIGEST = "Want-Content-Digest";
+
+  /**
+   * The Want-Repr-Digest response/request header indicates capabilities/preference for
+   * representation digests.
+   */
+  public static final String WANT_REPR_DIGEST = "Want-Repr-Digest";
+
   private HttpHeader() {
     // This is an utility class to hold constants
   }
