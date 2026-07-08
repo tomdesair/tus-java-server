@@ -163,4 +163,19 @@ public class TusFileUploadServiceTest {
 
     verify(mockResp, times(1)).sendError(423, "Locked");
   }
+
+  @Test
+  public void testDisableCreationWithUploadWhenCreationDisabled() throws Exception {
+    TusFileUploadService service = new TusFileUploadService();
+    // Disable creation extension first so it is not present
+    service.disableTusExtension("creation");
+
+    // Disable creation-with-upload should not fail or throw ClassCastException/NullPointerException
+    try {
+      service.disableTusExtension("creation-with-upload");
+    } catch (Exception e) {
+      fail(
+          "Should not throw exception when disabling creation-with-upload when creation is not enabled");
+    }
+  }
 }

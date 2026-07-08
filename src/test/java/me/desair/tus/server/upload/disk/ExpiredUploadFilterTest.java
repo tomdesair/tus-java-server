@@ -67,8 +67,8 @@ public class ExpiredUploadFilterTest {
     when(diskStorageService.getUploadInfo(eq(info.getId()))).thenReturn(info);
     when(uploadLockingService.isLocked(eq(info.getId()))).thenReturn(false);
 
-    // Completed uploads also expire
-    assertTrue(uploadFilter.accept(Paths.get(info.getId().toString())));
+    // Completed uploads do not expire via this filter
+    assertFalse(uploadFilter.accept(Paths.get(info.getId().toString())));
   }
 
   @Test

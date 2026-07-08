@@ -6,10 +6,12 @@ import java.util.List;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
+import me.desair.tus.server.creation.validation.PatchUploadLengthValidator;
 import me.desair.tus.server.creation.validation.PostEmptyRequestValidator;
 import me.desair.tus.server.creation.validation.PostUriValidator;
 import me.desair.tus.server.creation.validation.UploadDeferLengthValidator;
 import me.desair.tus.server.creation.validation.UploadLengthValidator;
+import me.desair.tus.server.creation.validation.UploadMetadataValidator;
 import me.desair.tus.server.util.AbstractTusExtension;
 
 /**
@@ -17,6 +19,8 @@ import me.desair.tus.server.util.AbstractTusExtension;
  * this extension.
  */
 public class CreationExtension extends AbstractTusExtension {
+
+  private PostEmptyRequestValidator postEmptyRequestValidator;
 
   @Override
   public String getName() {
@@ -31,9 +35,12 @@ public class CreationExtension extends AbstractTusExtension {
   @Override
   protected void initValidators(List<RequestValidator> requestValidators) {
     requestValidators.add(new PostUriValidator());
-    requestValidators.add(new PostEmptyRequestValidator());
+    postEmptyRequestValidator = new PostEmptyRequestValidator();
+    requestValidators.add(postEmptyRequestValidator);
     requestValidators.add(new UploadDeferLengthValidator());
     requestValidators.add(new UploadLengthValidator());
+    requestValidators.add(new PatchUploadLengthValidator());
+    requestValidators.add(new UploadMetadataValidator());
   }
 
   @Override
@@ -42,5 +49,9 @@ public class CreationExtension extends AbstractTusExtension {
     requestHandlers.add(new CreationPatchRequestHandler());
     requestHandlers.add(new CreationPostRequestHandler());
     requestHandlers.add(new CreationOptionsRequestHandler());
+  }
+
+  public void setCreationWithUploadEnabled(boolean enabled) {
+    postEmptyRequestValidator.setCreationWithUploadEnabled(enabled);
   }
 }
