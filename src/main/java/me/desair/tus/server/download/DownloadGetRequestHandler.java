@@ -50,12 +50,11 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
           HttpHeader.CONTENT_DISPOSITION,
           String.format(
               CONTENT_DISPOSITION_FORMAT,
-              info.getFileName().replaceAll("[\r\n\"]", ""),
+              info.getFileName().replace("\"", ""),
               URLEncoder.encode(info.getFileName(), StandardCharsets.UTF_8.toString())
                   .replace("+", "%20")));
 
-      servletResponse.setHeader(
-          HttpHeader.CONTENT_TYPE, info.getFileMimeType().replaceAll("[\r\n]", ""));
+      servletResponse.setHeader(HttpHeader.CONTENT_TYPE, info.getFileMimeType());
 
       if (info.hasMetadata()) {
         servletResponse.setHeader(HttpHeader.UPLOAD_METADATA, info.getEncodedMetadata());
