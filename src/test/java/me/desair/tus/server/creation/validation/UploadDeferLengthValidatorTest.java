@@ -119,7 +119,13 @@ public class UploadDeferLengthValidatorTest {
 
     // When we validate the request
     validator.validate(HttpMethod.POST, servletRequest, null, null);
+  }
 
-    // Expect an InvalidUploadLengthException
+  @Test(expected = InvalidUploadLengthException.class)
+  public void validateUploadDeferLengthNot1AndUploadLengthPresent() throws Exception {
+    servletRequest.addHeader(HttpHeader.UPLOAD_DEFER_LENGTH, 2);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 300L);
+
+    validator.validate(HttpMethod.POST, servletRequest, null, null);
   }
 }

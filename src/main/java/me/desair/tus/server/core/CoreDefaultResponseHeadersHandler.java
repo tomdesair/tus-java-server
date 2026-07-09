@@ -31,6 +31,13 @@ public class CoreDefaultResponseHeadersHandler implements RequestHandler {
     servletResponse.setHeader(HttpHeader.TUS_RESUMABLE, TusFileUploadService.TUS_API_VERSION);
     // By default, set the Content-Length to 0
     servletResponse.setHeader(HttpHeader.CONTENT_LENGTH, "0");
+
+    String requestVersion = servletRequest.getHeader(HttpHeader.TUS_RESUMABLE);
+    if (requestVersion != null
+        && !org.apache.commons.lang3.Strings.CS.equals(
+            requestVersion, TusFileUploadService.TUS_API_VERSION)) {
+      servletResponse.setHeader(HttpHeader.TUS_VERSION, TusFileUploadService.TUS_API_VERSION);
+    }
   }
 
   @Override

@@ -1,4 +1,4 @@
-package me.desair.tus.server.creation.validation;
+package me.desair.tus.server.creationwithupload.validation;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -6,21 +6,20 @@ import static org.junit.Assert.fail;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.exception.InvalidContentLengthException;
+import me.desair.tus.server.exception.InvalidContentTypeException;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
-public class PostEmptyRequestValidatorTest {
+public class PostContentTypeValidatorTest {
 
-  private PostEmptyRequestValidator validator;
-
+  private PostContentTypeValidator validator;
   private MockHttpServletRequest servletRequest;
 
   @Before
   public void setUp() {
     servletRequest = new MockHttpServletRequest();
-    validator = new PostEmptyRequestValidator();
+    validator = new PostContentTypeValidator();
   }
 
   @Test
@@ -36,56 +35,45 @@ public class PostEmptyRequestValidatorTest {
   }
 
   @Test
-  public void validateMissingContentLength() throws Exception {
-    // We don't set a content length header
-    // servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 3L);
+  public void validateContentTypeOk() throws Exception {
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 100L);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
 
-    // When we validate the request
     try {
       validator.validate(HttpMethod.POST, servletRequest, null, null);
     } catch (Exception ex) {
       fail();
     }
+  }
 
-    // No Exception is thrown
+  @Test(expected = InvalidContentTypeException.class)
+  public void validateContentTypeNotOk() throws Exception {
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 100L);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/octet-stream");
+
+    validator.validate(HttpMethod.POST, servletRequest, null, null);
+  }
+
+  @Test
+  public void validateNoContentLength() throws Exception {
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/octet-stream");
+
+    try {
+      validator.validate(HttpMethod.POST, servletRequest, null, null);
+    } catch (Exception ex) {
+      fail();
+    }
   }
 
   @Test
   public void validateContentLengthZero() throws Exception {
     servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0L);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/octet-stream");
 
-    // When we validate the request
     try {
       validator.validate(HttpMethod.POST, servletRequest, null, null);
     } catch (Exception ex) {
       fail();
     }
-
-    // No Exception is thrown
-  }
-
-  @Test(expected = InvalidContentLengthException.class)
-  public void validateContentLengthNotZero() throws Exception {
-    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 10L);
-
-    // When we validate the request
-    validator.validate(HttpMethod.POST, servletRequest, null, null);
-
-    // Expect a InvalidContentLengthException
-  }
-
-  @Test
-  public void validateContentLengthNotZeroWithCreationWithUpload() throws Exception {
-    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 10L);
-    validator.setCreationWithUploadEnabled(true);
-
-    // When we validate the request
-    try {
-      validator.validate(HttpMethod.POST, servletRequest, null, null);
-    } catch (Exception ex) {
-      fail();
-    }
-
-    // No Exception is thrown
   }
 }

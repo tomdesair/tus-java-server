@@ -31,7 +31,10 @@ public class ExpiredUploadFilter implements DirectoryStream.Filter<Path> {
       id = new UploadId(upload.getFileName().toString());
       UploadInfo info = diskStorageService.getUploadInfo(id);
 
-      if (info != null && info.isExpired() && !uploadLockingService.isLocked(id)) {
+      if (info != null
+          && info.isUploadInProgress()
+          && info.isExpired()
+          && !uploadLockingService.isLocked(id)) {
         return true;
       }
 

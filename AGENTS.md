@@ -13,10 +13,13 @@ env -u GITHUB_TOKEN gh pr create --title "..." --body "..."
 ## Git Branching Strategy
 Any new feature, bugfix, or improvement must be developed in a separate branch that starts with either `feature/` or `bugfix/` and has a meaningful but short name (e.g., `feature/lock-contention-resolution` or `bugfix/fix-upload-timeout`).
 
-## Releases
+## Releases and Documentation
+
+### README.md
+When a new feature is introduced, the `README.md` file must be updated with information on this new feature (e.g. configuration, usage).
 
 ### CHANGELOG.md
-When adding new features or preparing a release, the `CHANGELOG.md` file must be updated to describe the new functionality added in this version. Use a release version header (e.g., `## [1.0.0-3.2]`) instead of `## [Unreleased]`. Derive this next release version from the SNAPSHOT version declared in the `pom.xml` file by removing the `-SNAPSHOT` suffix. Make sure to not add duplicate headers.
+For any new feature, big improvements, or fixes, the `CHANGELOG.md` file must be updated to describe the changes added in this version. Use a release version header (e.g., `## [1.0.0-3.2]`) instead of `## [Unreleased]`. Derive this next release version from the SNAPSHOT version declared in the `pom.xml` file by removing the `-SNAPSHOT` suffix. Make sure to not add duplicate headers.
 
 ### Release Process
 When performing a release, please strictly follow the instructions outlined in the [docs/RELEASE.md](docs/RELEASE.md) documentation file.

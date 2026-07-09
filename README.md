@@ -25,10 +25,11 @@ The main entry point of the library is the `me.desair.tus.server.TusFileUploadSe
 * (more examples to come!)
 
 ## Tus Protocol Extensions
-Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-protocol), the library has all optional tus protocol extensions enabled by default. This means that the `Tus-Extension` header has value `creation,creation-defer-length,checksum,checksum-trailer,termination,expiration,concatenation,concatenation-unfinished`. Optionally you can also enable an unofficial `download` extension (see [configuration section](#usage-and-configuration)).
+Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-protocol), the library has all optional tus protocol extensions enabled by default. This means that the `Tus-Extension` header has value `creation,creation-defer-length,creation-with-upload,checksum,checksum-trailer,termination,expiration,concatenation,concatenation-unfinished`. Optionally you can also enable an unofficial `download` extension (see [configuration section](#usage-and-configuration)).
 
 * [creation](https://tus.io/protocols/resumable-upload.html#creation): The creation extension allows you to create new uploads and to retrieve the upload URL for them.
 * [creation-defer-length](https://tus.io/protocols/resumable-upload.html#post): You can create a new upload even if you don't know its final length at the time of creation.
+* [creation-with-upload](https://tus.io/protocols/resumable-upload.html#creation): The creation-with-upload extension allows you to create the upload resource and upload initial file data in a single POST request.
 * [checksum](https://tus.io/protocols/resumable-upload.html#checksum): An extension that allows you to verify data integrity of each upload (PATCH) request.
 * [checksum-trailer](https://tus.io/protocols/resumable-upload.html#checksum): If the checksum hash cannot be calculated at the beginning of the upload, it may be included as a trailer HTTP header at the end of the chunked HTTP request.
 * [termination](https://tus.io/protocols/resumable-upload.html#termination): Clients can terminate completed or in-progress uploads which allows the tus-java-server library to free up resources on the server.
@@ -36,6 +37,7 @@ Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-
 * [concatenation](https://tus.io/protocols/resumable-upload.html#concatenation): This extension can be used to concatenate multiple uploads into a single final upload enabling clients to perform parallel uploads and to upload non-contiguous chunks.
 * [concatenation-unfinished](https://tus.io/protocols/resumable-upload.html#concatenation): The client is allowed send the request to concatenate partial uploads while these partial uploads are still in progress.
 * `download`: The (unofficial) download extension allows clients to download uploaded files using a HTTP `GET` request. You can enable this extension by calling the `withDownloadFeature()` method.
+* `cors`: The (unofficial) CORS extension adds native CORS support out-of-the-box, setting CORS headers for all requests and responses, and handling preflight `OPTIONS` requests automatically. It is enabled by default.
 
 ## Usage and Configuration
 
@@ -52,7 +54,7 @@ The first step is to create a `TusFileUploadService` object using its constructo
 * `withUploadDeduplication(Boolean)`: Enable duplicate file processing based on the checksum hash. If enabled, the server will scan previous completed uploads for a file with the same checksum. If a duplicate is found, the new upload will link to the existing file (`duplicatesUploadId`), skipping redundant disk storage writes and saving disk space.
   * **Disclaimer**: If duplicate file processing is enabled, the duplicate (child) upload depends directly on the original (parent) upload file. If the original parent upload is deleted or terminated, any duplicate child uploads pointing to it will no longer be downloadable (returning `404 Not Found`).
 * `addTusExtension(TusExtension)`: Add a custom (application-specific) extension that implements the `me.desair.tus.server.TusExtension` interface. For example you can add your own extension that checks authentication and authorization policies within your application for the user doing the upload.
-* `disableTusExtension(String)`: Disable the `TusExtension` for which the `getName()` method matches the provided string. The default extensions have names "creation", "checksum", "expiration", "concatenation", "termination" and "download". You cannot disable the "core" feature.
+* `disableTusExtension(String)`: Disable the `TusExtension` for which the `getName()` method matches the provided string. The default extensions have names "creation", "creation-with-upload", "checksum", "expiration", "concatenation", "termination", "download" and "cors". You cannot disable the "core" feature.
 * `withUploadIdFactory(UploadIdFactory)`: Provide a custom `UploadIdFactory` implementation that should be used to generate identifiers for the different uploads. The default implementation generates identifiers using a UUID (`UuidUploadIdFactory`). Another example implementation of a custom ID factory is the system-time based `TimeBasedUploadIdFactory` class.
 
 

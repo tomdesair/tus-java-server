@@ -6,6 +6,7 @@ import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutput;
@@ -198,5 +199,10 @@ public class Utils {
       }
     }
     return null;
+  }
+
+  public static String getUploadURI(HttpServletRequest request, HttpServletResponse response) {
+    String location = response.getHeader(HttpHeader.LOCATION);
+    return StringUtils.isNotBlank(location) ? location : request.getRequestURI();
   }
 }

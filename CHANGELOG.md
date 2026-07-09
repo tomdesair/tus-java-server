@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0-3.3]
+
+### Added
+- **Creation-with-Upload Extension**: Implemented the optional `creation-with-upload` extension, allowing clients to combine creation and initial file data upload in a single `POST` request.
+- **CORS Extension**: Implemented native, out-of-the-box CORS support as an unofficial extension (`cors`) enabled by default. For backward compatibility, it can be disabled via `disableTusExtension("cors")`.
+
+### Changed
+- **Stricter Protocol Validation**:
+  - Prevent modifying `Upload-Length` headers in subsequent `PATCH` requests.
+  - Enforced format and Base64 validations for `Upload-Metadata` headers in `POST` requests.
+  - Enforced that `Upload-Defer-Length` header values must be strictly `"1"`.
+  - Reject malformed or invalid `Upload-Checksum` headers instead of silently ignoring them.
+  - Enabled checksum verification on `POST` requests when using the `creation-with-upload` extension.
+
+### Fixes
+  - Only unfinished uploads can expire.
+  - Fix for deduplication feature when base64-encoded checksum contains a slash.
+
 ## [1.0.0-3.2]
 
 ### Added

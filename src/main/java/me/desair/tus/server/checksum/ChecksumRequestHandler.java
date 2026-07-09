@@ -15,11 +15,12 @@ import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Strings;
 
-public class ChecksumPatchRequestHandler extends AbstractRequestHandler {
+/** Request handler that verifies the checksum of the uploaded data. */
+public class ChecksumRequestHandler extends AbstractRequestHandler {
 
   @Override
   public boolean supports(HttpMethod method) {
-    return HttpMethod.PATCH.equals(method);
+    return HttpMethod.PATCH.equals(method) || HttpMethod.POST.equals(method);
   }
 
   @Override
@@ -35,10 +36,8 @@ public class ChecksumPatchRequestHandler extends AbstractRequestHandler {
 
     if (servletRequest.hasCalculatedChecksum() && StringUtils.isNotBlank(uploadChecksumHeader)) {
 
-      // The Upload-Checksum header can be a trailing header which is only present after
-      // reading the
-      // full content.
-      // Therefor we need to revalidate that header here
+      // The Upload-Checksum header can be a trailing header which is only present after reading
+      // the full content. Therefore we need to revalidate that header here.
       new ChecksumAlgorithmValidator()
           .validate(method, servletRequest, uploadStorageService, ownerKey);
 
@@ -49,9 +48,8 @@ public class ChecksumPatchRequestHandler extends AbstractRequestHandler {
         String calculatedValue = servletRequest.getCalculatedChecksum(checksumAlgorithm);
 
         if (!Strings.CS.equals(expectedValue, calculatedValue)) {
-          // throw an exception if the checksum is invalid. This will also trigger the removal
-          // of any
-          // bytes that were already saved
+          // Throw an exception if the checksum is invalid. This will also trigger the removal of
+          // any bytes that were already saved.
           throw new UploadChecksumMismatchException(
               "Expected checksum "
                   + expectedValue
@@ -61,7 +59,8 @@ public class ChecksumPatchRequestHandler extends AbstractRequestHandler {
                   + checksumAlgorithm);
         } else if (uploadStorageService.isUploadDeduplicationEnabled()) {
           UploadInfo uploadInfo =
-              uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
+              uploadStorageService.getUploadInfo(
+                  Utils.getUploadURI(servletRequest, servletResponse), ownerKey);
           if (uploadInfo != null
               && !uploadInfo.isUploadInProgress()
               && uploadInfo.getDuplicatesUploadId() == null) {
