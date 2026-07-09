@@ -16,6 +16,10 @@ All notable changes to this project will be documented in this file.
   - Reject malformed or invalid `Upload-Checksum` headers instead of silently ignoring them.
   - Enabled checksum verification on `POST` requests when using the `creation-with-upload` extension.
 
+### Fixes
+  - Only unfinished uploads can expire.
+  - Fix for deduplication feature when base64-encoded checksum contains a slash.
+
 ## [1.0.0-3.2]
 
 ### Added
