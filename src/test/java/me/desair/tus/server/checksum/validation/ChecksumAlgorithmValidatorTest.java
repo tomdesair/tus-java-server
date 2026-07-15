@@ -4,8 +4,6 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.fail;
 import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -36,7 +34,7 @@ public class ChecksumAlgorithmValidatorTest {
   @Test
   public void supports() throws Exception {
     assertThat(validator.supports(HttpMethod.GET), is(false));
-    assertThat(validator.supports(HttpMethod.POST), is(false));
+    assertThat(validator.supports(HttpMethod.POST), is(true));
     assertThat(validator.supports(HttpMethod.PUT), is(false));
     assertThat(validator.supports(HttpMethod.DELETE), is(false));
     assertThat(validator.supports(HttpMethod.HEAD), is(false));
@@ -47,17 +45,12 @@ public class ChecksumAlgorithmValidatorTest {
 
   @Test
   public void testValid() throws Exception {
-    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 1234567890");
-
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 Kq5sNclcSpM=");
     validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
-
-    verify(servletRequest, times(1)).getHeader(HttpHeader.UPLOAD_CHECKSUM);
   }
 
   @Test
   public void testNoHeader() throws Exception {
-    // servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, null);
-
     try {
       validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
     } catch (Exception ex) {
@@ -68,7 +61,12 @@ public class ChecksumAlgorithmValidatorTest {
   @Test(expected = ChecksumAlgorithmNotSupportedException.class)
   public void testInvalidHeader() throws Exception {
     servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "test 1234567890");
+    validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
+  }
 
+  @Test(expected = me.desair.tus.server.exception.TusException.class)
+  public void testMalformedHeader() throws Exception {
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 invalid%base64");
     validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, null);
   }
 }

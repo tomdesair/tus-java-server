@@ -15,11 +15,12 @@ import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Strings;
 
-public class ChecksumPatchRequestHandler extends AbstractRequestHandler {
+/** Request handler that verifies the checksum of the uploaded data. */
+public class ChecksumRequestHandler extends AbstractRequestHandler {
 
   @Override
   public boolean supports(HttpMethod method) {
-    return HttpMethod.PATCH.equals(method);
+    return HttpMethod.PATCH.equals(method) || HttpMethod.POST.equals(method);
   }
 
   @Override
@@ -46,10 +47,9 @@ public class ChecksumPatchRequestHandler extends AbstractRequestHandler {
         ChecksumAlgorithm checksumAlgorithm = checksumInfo.getAlgorithm();
         String calculatedValue = servletRequest.getCalculatedChecksum(checksumAlgorithm);
 
-        if (!Strings.CI.equals(expectedValue, calculatedValue)) {
-          // throw an exception if the checksum is invalid. This will also trigger the removal
-          // of any
-          // bytes that were already saved
+        if (!Strings.CS.equals(expectedValue, calculatedValue)) {
+          // Throw an exception if the checksum is invalid. This will also trigger the removal of
+          // any bytes that were already saved.
           throw new UploadChecksumMismatchException(
               "Expected checksum "
                   + expectedValue
@@ -59,7 +59,8 @@ public class ChecksumPatchRequestHandler extends AbstractRequestHandler {
                   + checksumAlgorithm);
         } else if (uploadStorageService.isUploadDeduplicationEnabled()) {
           UploadInfo uploadInfo =
-              uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
+              uploadStorageService.getUploadInfo(
+                  Utils.getUploadUri(servletRequest, servletResponse), ownerKey);
           if (uploadInfo != null
               && !uploadInfo.isUploadInProgress()
               && uploadInfo.getDuplicatesUploadId() == null) {

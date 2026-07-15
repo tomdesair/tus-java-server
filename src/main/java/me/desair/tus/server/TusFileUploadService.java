@@ -13,7 +13,9 @@ import java.util.Set;
 import me.desair.tus.server.checksum.ChecksumExtension;
 import me.desair.tus.server.concatenation.ConcatenationExtension;
 import me.desair.tus.server.core.CoreProtocol;
+import me.desair.tus.server.cors.CorsExtension;
 import me.desair.tus.server.creation.CreationExtension;
+import me.desair.tus.server.creationwithupload.CreationWithUploadExtension;
 import me.desair.tus.server.digest.HttpDigestsExtension;
 import me.desair.tus.server.download.DownloadExtension;
 import me.desair.tus.server.exception.TusException;
@@ -31,6 +33,7 @@ import me.desair.tus.server.upload.disk.DiskLockingService;
 import me.desair.tus.server.upload.disk.DiskStorageService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.Strings;
 import org.apache.commons.lang3.Validate;
@@ -64,11 +67,14 @@ public class TusFileUploadService {
   protected void initFeatures() {
     // The order of the features is important
     addTusExtension(new CoreProtocol());
-    addTusExtension(new CreationExtension());
+    CreationExtension creationExtension = new CreationExtension();
+    addTusExtension(creationExtension);
+    addTusExtension(new CreationWithUploadExtension(creationExtension));
     addTusExtension(new ChecksumExtension());
     addTusExtension(new TerminationExtension());
     addTusExtension(new ExpirationExtension());
     addTusExtension(new ConcatenationExtension());
+    addTusExtension(new CorsExtension());
     addTusExtension(new ResumableUploadsForHttpProtocol());
     addTusExtension(new HttpDigestsExtension());
   }
@@ -312,6 +318,14 @@ public class TusFileUploadService {
 
     enabledFeatures.remove(extensionName);
     updateSupportedHttpMethods();
+
+    if (Strings.CS.equals("creation-with-upload", extensionName)) {
+      TusExtension creation = enabledFeatures.get("creation");
+      if (creation instanceof CreationExtension) {
+        ((CreationExtension) creation).setCreationWithUploadEnabled(false);
+      }
+    }
+
     return this;
   }
 
@@ -624,8 +638,10 @@ public class TusFileUploadService {
         }
       }
 
-      // Since an error occurred, the bytes we have written are probably not valid. So remove them.
-      UploadInfo uploadInfo = uploadStorageService.getUploadInfo(request.getRequestURI(), ownerKey);
+      // Since an error occurred, the bytes we have written are probably not valid. So remove
+      // them.
+      UploadInfo uploadInfo =
+          uploadStorageService.getUploadInfo(Utils.getUploadUri(request, response), ownerKey);
       uploadStorageService.removeLastNumberOfBytes(uploadInfo, request.getBytesRead());
 
     } catch (TusException ex) {

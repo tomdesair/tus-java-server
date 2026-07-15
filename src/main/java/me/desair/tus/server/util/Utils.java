@@ -16,6 +16,7 @@ import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.Path;
+import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -209,13 +210,18 @@ public class Utils {
    * @param response The TusServletResponse
    * @return The upload URI string, or null if it cannot be determined
    */
-  public static String getUploadUri(
-      HttpMethod method, TusServletRequest request, TusServletResponse response) {
+  public static String getUploadUri(TusServletRequest request, TusServletResponse response) {
+    HttpMethod method =
+        request != null
+            ? HttpMethod.getMethodIfSupported(request, EnumSet.allOf(HttpMethod.class))
+            : null;
+
     if (HttpMethod.POST.equals(method) || HttpMethod.PUT.equals(method)) {
       return response != null ? response.getHeader(HttpHeader.LOCATION) : null;
-    } else if (HttpMethod.PATCH.equals(method)) {
-      return request != null ? request.getRequestURI() : null;
+    } else if (request != null) {
+      return request.getRequestURI();
     }
+
     return null;
   }
 }

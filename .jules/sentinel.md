@@ -15,3 +15,7 @@
 **Vulnerability:** A CRLF injection vulnerability was present in `DownloadGetRequestHandler.java` where the unsanitized `info.getFileMimeType()` was passed directly to `servletResponse.setHeader` to form the `Content-Type` header. An attacker could craft a malicious mime-type containing carriage returns and line feeds to inject arbitrary HTTP headers in the response.
 **Learning:** Similar to `Content-Disposition`, legacy HTTP header fields that accept unencoded strings, like `Content-Type`, are a common vector for HTTP response splitting/CRLF injection when user input is used to construct them.
 **Prevention:** Always sanitize untrusted input when constructing HTTP headers, especially when not using a built-in framework that automatically sanitizes them. For `Content-Type`, strip out `\r` and `\n` from the unencoded parameter.
+## 2026-07-07 - Global CRLF injection in HTTP headers
+**Vulnerability:** A CRLF injection vulnerability was identified where unvalidated inputs could be reflected directly into HTTP response headers, leading to HTTP response splitting.
+**Learning:** Instead of sanitizing individual headers independently, the overarching wrapper that interacts with the HTTP response output should inherently validate and sanitize the input to prevent injection across all headers.
+**Prevention:** `TusServletResponse.java` was modified to include a `sanitizeHeaderValue` method, replacing any instances of `\r` and `\n` characters before interacting with the core `HttpServletResponse`, ensuring consistent CRLF prevention application-wide.

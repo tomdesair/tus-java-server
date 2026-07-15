@@ -4,6 +4,8 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 import java.io.IOException;
@@ -381,5 +383,21 @@ public class TusFileUploadServiceTest {
 
     // Since response is committed, sendError should not be called
     verify(mockResp, never()).sendError(anyInt(), anyString());
+  }
+
+  @Test
+  public void testDisableCreationWithUploadWhenCreationDisabled() throws Exception {
+    TusFileUploadService service = new TusFileUploadService();
+    // Disable creation extension first so it is not present
+    service.disableTusExtension("creation");
+
+    // Disable creation-with-upload should not fail or throw ClassCastException/NullPointerException
+    try {
+      service.disableTusExtension("creation-with-upload");
+    } catch (Exception e) {
+      fail(
+          "Should not throw exception when disabling creation-with-upload when creation is not"
+              + " enabled");
+    }
   }
 }

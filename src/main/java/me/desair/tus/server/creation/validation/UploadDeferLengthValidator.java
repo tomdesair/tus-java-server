@@ -33,7 +33,12 @@ public class UploadDeferLengthValidator implements RequestValidator {
       uploadLength = true;
     }
 
-    if (Utils.getHeader(request, HttpHeader.UPLOAD_DEFER_LENGTH).equals("1")) {
+    String deferLengthHeader = request.getHeader(HttpHeader.UPLOAD_DEFER_LENGTH);
+    if (StringUtils.isNotBlank(deferLengthHeader)) {
+      if (!"1".equals(deferLengthHeader)) {
+        throw new InvalidUploadLengthException(
+            "The " + HttpHeader.UPLOAD_DEFER_LENGTH + " header value must be 1");
+      }
       deferredLength = true;
     }
 

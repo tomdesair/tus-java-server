@@ -20,7 +20,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import me.desair.tus.server.HttpHeader;
-import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import org.apache.commons.io.FileUtils;
 import org.junit.AfterClass;
@@ -306,13 +305,21 @@ public class UtilsTest {
     when(request.getRequestURI()).thenReturn("/files/123");
     when(response.getHeader(HttpHeader.LOCATION)).thenReturn("/files/location");
 
-    assertThat(Utils.getUploadUri(HttpMethod.POST, request, response), is("/files/location"));
-    assertThat(Utils.getUploadUri(HttpMethod.PUT, request, response), is("/files/location"));
-    assertThat(Utils.getUploadUri(HttpMethod.PATCH, request, response), is("/files/123"));
-    assertThat(Utils.getUploadUri(HttpMethod.GET, request, response), is(nullValue()));
+    when(request.getMethod()).thenReturn("POST");
+    assertThat(Utils.getUploadUri(request, response), is("/files/location"));
+    when(request.getMethod()).thenReturn("PUT");
+    assertThat(Utils.getUploadUri(request, response), is("/files/location"));
+    when(request.getMethod()).thenReturn("PATCH");
+    assertThat(Utils.getUploadUri(request, response), is("/files/123"));
+    when(request.getMethod()).thenReturn("GET");
+    assertThat(Utils.getUploadUri(request, response), is("/files/123"));
+    when(request.getMethod()).thenReturn("HEAD");
+    assertThat(Utils.getUploadUri(request, response), is("/files/123"));
 
-    assertThat(Utils.getUploadUri(HttpMethod.POST, request, null), is(nullValue()));
-    assertThat(Utils.getUploadUri(HttpMethod.PATCH, null, response), is(nullValue()));
+    when(request.getMethod()).thenReturn("POST");
+    assertThat(Utils.getUploadUri(request, null), is(nullValue()));
+    when(request.getMethod()).thenReturn("PATCH");
+    assertThat(Utils.getUploadUri(null, response), is(nullValue()));
   }
 
   /** Simple serializable class for testing. */

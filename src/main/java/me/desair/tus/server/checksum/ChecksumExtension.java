@@ -22,7 +22,7 @@ public class ChecksumExtension extends AbstractTusExtension {
 
   @Override
   public Collection<HttpMethod> getMinimalSupportedHttpMethods() {
-    return Arrays.asList(HttpMethod.OPTIONS, HttpMethod.PATCH);
+    return Arrays.asList(HttpMethod.OPTIONS, HttpMethod.PATCH, HttpMethod.POST);
   }
 
   @Override
@@ -33,6 +33,6 @@ public class ChecksumExtension extends AbstractTusExtension {
   @Override
   protected void initRequestHandlers(List<RequestHandler> requestHandlers) {
     requestHandlers.add(new ChecksumOptionsRequestHandler());
-    requestHandlers.add(new ChecksumPatchRequestHandler());
+    requestHandlers.add(new ChecksumRequestHandler());
   }
 }

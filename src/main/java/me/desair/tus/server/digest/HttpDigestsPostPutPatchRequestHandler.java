@@ -49,7 +49,7 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
     verifyContentDigest(method, servletRequest);
 
     // Resolve UploadInfo using centralized helpers
-    String uploadUri = Utils.getUploadUri(method, servletRequest, servletResponse);
+    String uploadUri = Utils.getUploadUri(servletRequest, servletResponse);
     UploadInfo uploadInfo = null;
     if (uploadUri != null) {
       try {

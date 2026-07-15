@@ -24,9 +24,9 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 @RunWith(MockitoJUnitRunner.Silent.class)
-public class ChecksumPatchRequestHandlerTest {
+public class ChecksumRequestHandlerTest {
 
-  private ChecksumPatchRequestHandler handler;
+  private ChecksumRequestHandler handler;
 
   @Mock private TusServletRequest servletRequest;
 
@@ -34,7 +34,7 @@ public class ChecksumPatchRequestHandlerTest {
 
   @Before
   public void setUp() throws Exception {
-    handler = new ChecksumPatchRequestHandler();
+    handler = new ChecksumRequestHandler();
 
     UploadInfo info = new UploadInfo();
     info.setOffset(2L);
@@ -46,7 +46,7 @@ public class ChecksumPatchRequestHandlerTest {
   @Test
   public void supports() throws Exception {
     assertThat(handler.supports(HttpMethod.GET), is(false));
-    assertThat(handler.supports(HttpMethod.POST), is(false));
+    assertThat(handler.supports(HttpMethod.POST), is(true));
     assertThat(handler.supports(HttpMethod.PUT), is(false));
     assertThat(handler.supports(HttpMethod.DELETE), is(false));
     assertThat(handler.supports(HttpMethod.HEAD), is(false));
