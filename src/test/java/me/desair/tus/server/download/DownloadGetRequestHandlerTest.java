@@ -14,6 +14,7 @@ import java.io.OutputStream;
 import java.util.UUID;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.exception.UploadInProgressException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
@@ -56,6 +57,13 @@ public class DownloadGetRequestHandlerTest {
     assertThat(handler.supports(HttpMethod.OPTIONS), is(false));
     assertThat(handler.supports(HttpMethod.PATCH), is(false));
     assertThat(handler.supports(null), is(false));
+
+    assertThat(handler.supports(HttpMethod.GET, ProtocolVersion.TUS_1_0_0), is(true));
+    assertThat(handler.supports(HttpMethod.GET, ProtocolVersion.RUFH), is(true));
+    assertThat(handler.supports(HttpMethod.GET, ProtocolVersion.AUTO), is(false));
+    assertThat(handler.supports(HttpMethod.GET, null), is(false));
+    assertThat(handler.supports(HttpMethod.POST, ProtocolVersion.TUS_1_0_0), is(false));
+    assertThat(handler.supports(null, ProtocolVersion.TUS_1_0_0), is(false));
   }
 
   @Test
@@ -85,9 +93,6 @@ public class DownloadGetRequestHandlerTest {
         servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
         is("attachment; filename=\"test.jpg\"; filename*=UTF-8''test.jpg"));
     assertThat(servletResponse.getHeader(HttpHeader.CONTENT_TYPE), is("image/jpeg"));
-    assertThat(
-        servletResponse.getHeader(HttpHeader.UPLOAD_METADATA),
-        is("name dGVzdC5qcGc=,type aW1hZ2UvanBlZw=="));
 
     info.setEncodedMetadata("name TmHDr3ZlIGZpbGUudHh0,type dGV4dC9wbGFpbg==");
     handler.process(

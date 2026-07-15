@@ -297,6 +297,31 @@ public class UtilsTest {
     }
   }
 
+  @Test
+  public void testGetUploadUri() {
+    TusServletRequest request = mock(TusServletRequest.class);
+    TusServletResponse response = mock(TusServletResponse.class);
+
+    when(request.getRequestURI()).thenReturn("/files/123");
+    when(response.getHeader(HttpHeader.LOCATION)).thenReturn("/files/location");
+
+    when(request.getMethod()).thenReturn("POST");
+    assertThat(Utils.getUploadUri(request, response), is("/files/location"));
+    when(request.getMethod()).thenReturn("PUT");
+    assertThat(Utils.getUploadUri(request, response), is("/files/location"));
+    when(request.getMethod()).thenReturn("PATCH");
+    assertThat(Utils.getUploadUri(request, response), is("/files/123"));
+    when(request.getMethod()).thenReturn("GET");
+    assertThat(Utils.getUploadUri(request, response), is("/files/123"));
+    when(request.getMethod()).thenReturn("HEAD");
+    assertThat(Utils.getUploadUri(request, response), is("/files/123"));
+
+    when(request.getMethod()).thenReturn("POST");
+    assertThat(Utils.getUploadUri(request, null), is(nullValue()));
+    when(request.getMethod()).thenReturn("PATCH");
+    assertThat(Utils.getUploadUri(null, response), is(nullValue()));
+  }
+
   /** Simple serializable class for testing. */
   public static class TestSerializable implements Serializable {
     private static final long serialVersionUID = 1L;

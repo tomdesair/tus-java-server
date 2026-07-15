@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadInProgressException;
 import me.desair.tus.server.upload.UploadInfo;
@@ -24,6 +25,12 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
   @Override
   public boolean supports(HttpMethod method) {
     return HttpMethod.GET.equals(method);
+  }
+
+  @Override
+  public boolean supports(HttpMethod method, ProtocolVersion version) {
+    return HttpMethod.GET.equals(method)
+        && (version == ProtocolVersion.TUS_1_0_0 || version == ProtocolVersion.RUFH);
   }
 
   @Override
@@ -55,10 +62,6 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
                   .replace("+", "%20")));
 
       servletResponse.setHeader(HttpHeader.CONTENT_TYPE, info.getFileMimeType());
-
-      if (info.hasMetadata()) {
-        servletResponse.setHeader(HttpHeader.UPLOAD_METADATA, info.getEncodedMetadata());
-      }
 
       uploadStorageService.copyUploadTo(info, servletResponse.getOutputStream());
     }

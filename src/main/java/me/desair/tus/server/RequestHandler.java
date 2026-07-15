@@ -2,21 +2,85 @@ package me.desair.tus.server;
 
 import java.io.IOException;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 
+/** Interface for processing HTTP request logic within protocol extensions. */
 public interface RequestHandler {
 
+  /**
+   * Test if this request handler supports the given HTTP method.
+   *
+   * @param method The current HTTP method
+   * @return true if supported, false otherwise
+   */
   boolean supports(HttpMethod method);
 
-  void process(
+  /**
+   * Process the given HTTP request.
+   *
+   * @param method The HTTP method of this request
+   * @param servletRequest The HTTP request
+   * @param servletResponse The HTTP response
+   * @param uploadStorageService The current upload storage service
+   * @param ownerKey Identifier of the owner of this upload
+   * @throws IOException When an I/O error occurs
+   * @throws TusException When a protocol error occurs
+   */
+  default void process(
       HttpMethod method,
       TusServletRequest servletRequest,
       TusServletResponse servletResponse,
       UploadStorageService uploadStorageService,
       String ownerKey)
-      throws IOException, TusException;
+      throws IOException, TusException {
+    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey, null);
+  }
 
+  /**
+   * Process the given HTTP request with access to the upload locking service and the exception.
+   *
+   * @param method The HTTP method of this request
+   * @param servletRequest The HTTP request
+   * @param servletResponse The HTTP response
+   * @param uploadStorageService The current upload storage service
+   * @param uploadLockingService The upload locking service instance
+   * @param ownerKey Identifier of the owner of this upload
+   * @param exception The exception that occurred
+   * @return An optional HttpProblemDetails to write to the response
+   * @throws IOException When an I/O error occurs
+   * @throws TusException When a protocol error occurs
+   */
+  default HttpProblemDetails process(
+      HttpMethod method,
+      TusServletRequest servletRequest,
+      TusServletResponse servletResponse,
+      UploadStorageService uploadStorageService,
+      UploadLockingService uploadLockingService,
+      String ownerKey,
+      TusException exception)
+      throws IOException, TusException {
+    process(method, servletRequest, servletResponse, uploadStorageService, ownerKey);
+    return null;
+  }
+
+  /**
+   * Test if this handler is an error handler invoked during exception processing.
+   *
+   * @return true if this handler processes errors, false otherwise
+   */
   boolean isErrorHandler();
+
+  /**
+   * Test if this request handler supports the given HTTP method and protocol version
+   *
+   * @param method The current HTTP method
+   * @param version The protocol version of the request
+   * @return true if supported, false otherwise
+   */
+  default boolean supports(HttpMethod method, ProtocolVersion version) {
+    return supports(method);
+  }
 }

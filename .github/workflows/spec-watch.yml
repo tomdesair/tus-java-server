@@ -1,0 +1,77 @@
+name: Monitor IETF Resumable Uploads Spec Updates
+
+on:
+  schedule:
+    - cron: "0 0 * * 6" # Run weekly on Saturday at midnight UTC
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  check-spec-update:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check IETF Datatracker API for Spec Revision
+        id: spec_check
+        run: |
+          # Fetch spec document metadata from IETF Datatracker API
+          API_RESPONSE=$(curl -s https://datatracker.ietf.org/api/v1/doc/document/draft-ietf-httpbis-resumable-upload/)
+          LATEST_REV=$(echo "$API_RESPONSE" | jq -r '.rev // empty')
+
+          if [ -z "$LATEST_REV" ]; then
+            echo "Failed to fetch latest revision from IETF Datatracker"
+            exit 1
+          fi
+
+          echo "Latest IETF Draft Revision: $LATEST_REV"
+          echo "latest_rev=$LATEST_REV" >> $GITHUB_OUTPUT
+
+          # Currently implemented baseline revision in tus-java-server: 11
+          BASELINE_REV="11"
+          echo "baseline_rev=$BASELINE_REV" >> $GITHUB_OUTPUT
+
+          if [ "$LATEST_REV" != "$BASELINE_REV" ]; then
+            echo "spec_updated=true" >> $GITHUB_OUTPUT
+          else
+            echo "spec_updated=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Issue if Spec Updated
+        if: steps.spec_check.outputs.spec_updated == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST_REV: ${{ steps.spec_check.outputs.latest_rev }}
+          BASELINE_REV: ${{ steps.spec_check.outputs.baseline_rev }}
+        run: |
+          TITLE="IETF Resumable Uploads Spec Updated: draft-ietf-httpbis-resumable-upload-$LATEST_REV"
+
+          # Check if an issue for this revision already exists
+          EXISTING_ISSUE=$(gh issue list --search "$TITLE" --json number --jq '.[0].number')
+
+          if [ -n "$EXISTING_ISSUE" ]; then
+            echo "An issue (#$EXISTING_ISSUE) for revision $LATEST_REV already exists."
+            exit 0
+          fi
+
+          BODY=$(cat <<EOF
+          A new revision of the IETF Resumable Uploads specification has been published: **draft-ietf-httpbis-resumable-upload-$LATEST_REV** (current baseline: draft-$BASELINE_REV).
+
+          - **Spec Datatracker**: https://datatracker.ietf.org/doc/draft-ietf-httpbis-resumable-upload/
+          - **Spec Diff**: https://author-tools.ietf.org/diff?doc_1=draft-ietf-httpbis-resumable-upload-$BASELINE_REV&doc_2=draft-ietf-httpbis-resumable-upload-$LATEST_REV
+
+          ### Recommended Actions for Developers & Agents:
+          1. Review the specification diff link above.
+          2. Update the verbatim spec quotes in the compliance test Javadocs (\`src/test/java/me/desair/tus/server/rufh/*\`).
+          3. Adjust protocol logic in \`ResumableUploadsForHttpProtocol.java\`, \`HttpHeader.java\`, \`StructuredHeaderUtil.java\`, or \`HttpProblemDetails.java\`.
+          4. Run test verification and coverage check:
+             \`\`\`bash
+             mvn verify -Pcheck-coverage -Djacoco.compare.branch=master
+             \`\`\`
+          EOF
+          )
+
+          gh issue create --title "$TITLE" --body "$BODY" --label "documentation,enhancement"

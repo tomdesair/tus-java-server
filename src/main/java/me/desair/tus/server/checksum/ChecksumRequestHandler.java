@@ -36,8 +36,8 @@ public class ChecksumRequestHandler extends AbstractRequestHandler {
 
     if (servletRequest.hasCalculatedChecksum() && StringUtils.isNotBlank(uploadChecksumHeader)) {
 
-      // The Upload-Checksum header can be a trailing header which is only present after reading
-      // the full content. Therefore we need to revalidate that header here.
+      // The Upload-Checksum header can be a trailing header which is only present after
+      // reading the full content.Therefor we need to revalidate that header here.
       new ChecksumAlgorithmValidator()
           .validate(method, servletRequest, uploadStorageService, ownerKey);
 
@@ -60,7 +60,7 @@ public class ChecksumRequestHandler extends AbstractRequestHandler {
         } else if (uploadStorageService.isUploadDeduplicationEnabled()) {
           UploadInfo uploadInfo =
               uploadStorageService.getUploadInfo(
-                  Utils.getUploadURI(servletRequest, servletResponse), ownerKey);
+                  Utils.getUploadUri(servletRequest, servletResponse), ownerKey);
           if (uploadInfo != null
               && !uploadInfo.isUploadInProgress()
               && uploadInfo.getDuplicatesUploadId() == null) {

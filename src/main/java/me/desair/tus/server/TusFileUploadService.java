@@ -16,9 +16,11 @@ import me.desair.tus.server.core.CoreProtocol;
 import me.desair.tus.server.cors.CorsExtension;
 import me.desair.tus.server.creation.CreationExtension;
 import me.desair.tus.server.creationwithupload.CreationWithUploadExtension;
+import me.desair.tus.server.digest.HttpDigestsExtension;
 import me.desair.tus.server.download.DownloadExtension;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.expiration.ExpirationExtension;
+import me.desair.tus.server.rufh.ResumableUploadsForHttpProtocol;
 import me.desair.tus.server.termination.TerminationExtension;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
@@ -52,6 +54,7 @@ public class TusFileUploadService {
   private final Set<HttpMethod> supportedHttpMethods = EnumSet.noneOf(HttpMethod.class);
   private boolean isThreadLocalCacheEnabled = false;
   private boolean isChunkedTransferDecodingEnabled = false;
+  private ProtocolVersion supportedProtocolVersion = ProtocolVersion.AUTO;
 
   /** Constructor. */
   public TusFileUploadService() {
@@ -72,6 +75,31 @@ public class TusFileUploadService {
     addTusExtension(new ExpirationExtension());
     addTusExtension(new ConcatenationExtension());
     addTusExtension(new CorsExtension());
+    addTusExtension(new ResumableUploadsForHttpProtocol());
+    addTusExtension(new HttpDigestsExtension());
+  }
+
+  /**
+   * Configure the supported protocol version(s) for this service.
+   *
+   * @param supportedProtocolVersion ProtocolVersion setting (TUS_1_0_0, RUFH, or AUTO)
+   * @return The current service
+   */
+  public TusFileUploadService withSupportedProtocolVersions(
+      ProtocolVersion supportedProtocolVersion) {
+    if (supportedProtocolVersion != null) {
+      this.supportedProtocolVersion = supportedProtocolVersion;
+    }
+    return this;
+  }
+
+  /**
+   * Get the configured protocol version setting.
+   *
+   * @return Current ProtocolVersion configuration
+   */
+  public ProtocolVersion getSupportedProtocolVersion() {
+    return supportedProtocolVersion;
   }
 
   /**
@@ -98,6 +126,22 @@ public class TusFileUploadService {
     Validate.exclusiveBetween(
         0, Long.MAX_VALUE, maxUploadSize, "The max upload size must be bigger than 0");
     this.uploadStorageService.setMaxUploadSize(maxUploadSize);
+    return this;
+  }
+
+  /**
+   * Set the maximum size allowed for an individual upload append (PATCH) request in IETF Resumable
+   * Uploads.
+   *
+   * @param maxAppendSize The maximum append size limit in bytes
+   * @return The current service
+   */
+  public TusFileUploadService withMaxAppendSize(Long maxAppendSize) {
+    if (maxAppendSize != null) {
+      Validate.exclusiveBetween(
+          0, Long.MAX_VALUE, maxAppendSize, "The max append size must be bigger than 0");
+    }
+    this.uploadStorageService.setMaxAppendSize(maxAppendSize);
     return this;
   }
 
@@ -131,6 +175,7 @@ public class TusFileUploadService {
     Objects.requireNonNull(uploadStorageService, "The UploadStorageService cannot be null");
     // Copy over any previous configuration
     uploadStorageService.setMaxUploadSize(this.uploadStorageService.getMaxUploadSize());
+    uploadStorageService.setMaxAppendSize(this.uploadStorageService.getMaxAppendSize());
     uploadStorageService.setUploadExpirationPeriod(
         this.uploadStorageService.getUploadExpirationPeriod());
     uploadStorageService.setIdFactory(this.idFactory);
@@ -138,6 +183,15 @@ public class TusFileUploadService {
     this.uploadStorageService = uploadStorageService;
     prepareCacheIfEnabled();
     return this;
+  }
+
+  /**
+   * Get the current {@link UploadStorageService} configured on this service.
+   *
+   * @return The current {@link UploadStorageService}
+   */
+  public UploadStorageService getUploadStorageService() {
+    return this.uploadStorageService;
   }
 
   /**
@@ -331,7 +385,6 @@ public class TusFileUploadService {
 
     TusServletRequest request =
         new TusServletRequest(servletRequest, isChunkedTransferDecodingEnabled);
-    request.setAttribute("me.desair.tus.uploadLockingService", uploadLockingService);
     TusServletResponse response = new TusServletResponse(servletResponse);
 
     try (UploadLock lock = acquireUploadLock(method, request.getRequestURI())) {
@@ -471,37 +524,75 @@ public class TusFileUploadService {
   protected void processLockedRequest(
       HttpMethod method, TusServletRequest request, TusServletResponse response, String ownerKey)
       throws IOException {
-    try {
-      validateRequest(method, request, ownerKey);
+    ProtocolVersion detectedVersion = detectProtocolVersion(request);
 
-      executeProcessingByFeatures(method, request, response, ownerKey);
+    try {
+      validateRequest(method, request, ownerKey, detectedVersion);
+
+      executeProcessingByFeatures(method, request, response, ownerKey, detectedVersion);
 
     } catch (TusException e) {
-      processTusException(method, request, response, ownerKey, e);
+      processTusException(method, request, response, ownerKey, e, detectedVersion);
     }
+  }
+
+  public ProtocolVersion detectProtocolVersion(HttpServletRequest request) {
+    if (supportedProtocolVersion == ProtocolVersion.TUS_1_0_0) {
+      return ProtocolVersion.TUS_1_0_0;
+    }
+    if (supportedProtocolVersion == ProtocolVersion.RUFH) {
+      return ProtocolVersion.RUFH;
+    }
+
+    // We're in AUTO mode, so we need to detect the protocol version based on the request headers
+    if (request != null) {
+      if (request.getHeader(HttpHeader.TUS_RESUMABLE) != null) {
+        return ProtocolVersion.TUS_1_0_0;
+      }
+      if (request.getHeader(HttpHeader.UPLOAD_COMPLETE) != null
+          || request.getHeader(HttpHeader.UPLOAD_DRAFT) != null
+          || request.getHeader("upload-draft-interop-version") != null
+          || Strings.CS.startsWith(
+              request.getHeader(HttpHeader.CONTENT_TYPE), HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD)) {
+        return ProtocolVersion.RUFH;
+      }
+    }
+    return ProtocolVersion.TUS_1_0_0;
   }
 
   protected void executeProcessingByFeatures(
       HttpMethod method,
       TusServletRequest servletRequest,
       TusServletResponse servletResponse,
-      String ownerKey)
+      String ownerKey,
+      ProtocolVersion version)
       throws IOException, TusException {
 
     for (TusExtension feature : enabledFeatures.values()) {
       if (!servletRequest.isProcessedBy(feature)) {
         servletRequest.addProcessor(feature);
-        feature.process(method, servletRequest, servletResponse, uploadStorageService, ownerKey);
+        feature.process(
+            method,
+            servletRequest,
+            servletResponse,
+            uploadStorageService,
+            uploadLockingService,
+            ownerKey,
+            version);
       }
     }
   }
 
   protected void validateRequest(
-      HttpMethod method, HttpServletRequest servletRequest, String ownerKey)
+      HttpMethod method,
+      HttpServletRequest servletRequest,
+      String ownerKey,
+      ProtocolVersion version)
       throws TusException, IOException {
 
     for (TusExtension feature : enabledFeatures.values()) {
-      feature.validate(method, servletRequest, uploadStorageService, ownerKey);
+      feature.validate(
+          method, servletRequest, uploadStorageService, uploadLockingService, ownerKey, version);
     }
   }
 
@@ -510,7 +601,8 @@ public class TusFileUploadService {
       TusServletRequest request,
       TusServletResponse response,
       String ownerKey,
-      TusException exception)
+      TusException exception,
+      ProtocolVersion version)
       throws IOException {
 
     int status = exception.getStatus();
@@ -523,26 +615,49 @@ public class TusFileUploadService {
         status,
         message);
 
+    response.setStatus(status);
+
+    HttpProblemDetails problemDetails = null;
     try {
       for (TusExtension feature : enabledFeatures.values()) {
-
-        if (!request.isProcessedBy(feature)) {
+        if (!request.isProcessedBy(feature) || feature.mustReprocessOnError(method, version)) {
           request.addProcessor(feature);
-          feature.handleError(method, request, response, uploadStorageService, ownerKey);
+          HttpProblemDetails pd =
+              feature.handleError(
+                  method,
+                  request,
+                  response,
+                  uploadStorageService,
+                  uploadLockingService,
+                  ownerKey,
+                  version,
+                  exception);
+          if (pd != null) {
+            problemDetails = pd;
+          }
         }
       }
 
       // Since an error occurred, the bytes we have written are probably not valid. So remove
       // them.
       UploadInfo uploadInfo =
-          uploadStorageService.getUploadInfo(Utils.getUploadURI(request, response), ownerKey);
+          uploadStorageService.getUploadInfo(Utils.getUploadUri(request, response), ownerKey);
       uploadStorageService.removeLastNumberOfBytes(uploadInfo, request.getBytesRead());
 
     } catch (TusException ex) {
       log.warn("An exception occurred while handling another exception", ex);
     }
 
-    response.sendError(status, message);
+    // If one of the features has already committed a response, we don't need to send an error
+    // response. Otherwise, we send the error response with the status and message from the
+    // exception.
+    if (!response.isCommitted()) {
+      if (problemDetails != null) {
+        problemDetails.writeTo(response);
+      } else {
+        response.sendError(status, message);
+      }
+    }
   }
 
   private void updateSupportedHttpMethods() {
