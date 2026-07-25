@@ -247,6 +247,76 @@ public class TusFileUploadServiceTest {
     assertThat(service.getUploadStorageService().getMaxAppendSize(), is(1024L));
   }
 
+  @Test(expected = IllegalArgumentException.class)
+  public void testWithMaxAppendSizeInvalid() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMaxAppendSize(0L);
+  }
+
+  @Test
+  public void testWithMinAppendSize() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMinAppendSize(512L);
+    assertThat(service.getUploadStorageService().getMinAppendSize(), is(512L));
+
+    service.withMinAppendSize(null);
+    org.junit.Assert.assertNull(service.getUploadStorageService().getMinAppendSize());
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testWithMinAppendSizeInvalid() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMinAppendSize(0L);
+  }
+
+  @Test
+  public void testWithMinSize() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMinSize(2048L);
+    assertThat(service.getUploadStorageService().getMinSize(), is(2048L));
+
+    service.withMinSize(null);
+    org.junit.Assert.assertNull(service.getUploadStorageService().getMinSize());
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testWithMinSizeInvalid() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMinSize(0L);
+  }
+
+  @Test
+  public void testWithUploadStorageServicePreservesConfiguration() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMaxUploadSize(10000L);
+    service.withMaxAppendSize(1024L);
+    service.withMinAppendSize(512L);
+    service.withMinSize(2048L);
+    service.withUploadDeduplication(true);
+
+    UploadStorageService newStorage = mock(UploadStorageService.class);
+    service.withUploadStorageService(newStorage);
+
+    verify(newStorage).setMaxUploadSize(10000L);
+    verify(newStorage).setMaxAppendSize(1024L);
+    verify(newStorage).setMinAppendSize(512L);
+    verify(newStorage).setMinSize(2048L);
+    verify(newStorage).setUploadDeduplicationEnabled(true);
+  }
+
+  @Test
+  public void testThreadLocalCacheDelegatesAppendAndMinSizes() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMaxAppendSize(1024L);
+    service.withMinAppendSize(512L);
+    service.withMinSize(2048L);
+    service.withThreadLocalCache(true);
+
+    assertThat(service.getUploadStorageService().getMaxAppendSize(), is(1024L));
+    assertThat(service.getUploadStorageService().getMinAppendSize(), is(512L));
+    assertThat(service.getUploadStorageService().getMinSize(), is(2048L));
+  }
+
   @Test
   public void testProtocolVersionGetName() {
     assertThat(ProtocolVersion.TUS_1_0_0.getName(), is("TUS-1.0.0"));

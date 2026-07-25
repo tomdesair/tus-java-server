@@ -54,6 +54,7 @@ When updating clients or proxies to use IETF Resumable Uploads, note the followi
 | **Capabilities Discovery** | `OPTIONS` returns `Tus-Version`, `Tus-Extension` | `OPTIONS` returns `Accept-Patch: application/partial-upload` and `Upload-Limit` |
 | **Error Format** | Plain text | `application/problem+json` (RFC 7807) |
 | **Checksum / Data Integrity** | `Upload-Checksum: sha1 ...` | `Content-Digest` and `Repr-Digest` (RFC 9530) |
+| **Expiration Handling** | `Upload-Expires: Wed, 25 Jun 2026 16:00:00 GMT` | `Upload-Limit: max-age=3600` |
 
 ---
 
@@ -132,6 +133,11 @@ In RUFH protocol, integrity verification is achieved using **RFC 9530 HTTP Diges
 The unofficial `download` extension is fully supported under both protocols. Once enabled via the `withDownloadFeature()` method:
 - Clients can download completed uploads using a standard HTTP `GET` request to the upload's Location URI, regardless of whether it was uploaded via Tus 1.0.0 or RUFH.
 - For RUFH download responses, all Tus-specific headers (such as `Upload-Metadata` or `Tus-Extension`) are omitted.
+
+### 4.6 Expiration Handling
+The expiration extension works seamlessly across both Tus 1.0.0 and IETF Resumable Uploads protocols when configured via `.withUploadExpirationPeriod(Long milliseconds)`:
+- **Tus 1.0.0 Protocol**: Expiration is communicated to clients via the `Upload-Expires` response header field formatted as an HTTP date-time string (RFC 7231, e.g. `Upload-Expires: Wed, 25 Jun 2026 16:00:00 GMT`).
+- **IETF Resumable Uploads Protocol**: Expiration is communicated to clients via the `max-age` structured field parameter in the `Upload-Limit` response header field indicating remaining valid seconds (e.g. `Upload-Limit: max-size=1048576, max-age=3600`).
 
 ---
 

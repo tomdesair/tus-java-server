@@ -101,6 +101,12 @@ When running builds, tests, or coverage checks via Maven:
 - Do not use deprecated `StringUtils` comparison methods such as `StringUtils.equals(...)` or `StringUtils.equalsIgnoreCase(...)`.
 - Always use `org.apache.commons.lang3.Strings.CS` for case-sensitive operations (e.g., `Strings.CS.equals(...)`, `Strings.CS.startsWith(...)`) and `org.apache.commons.lang3.Strings.CI` for case-insensitive operations (e.g., `Strings.CI.equals(...)`, `Strings.CI.startsWith(...)`).
 
+### 14. UploadStorageService Configuration & Builder Synchronization
+Whenever a new setter or configuration property (such as `setMinAppendSize`, `setMinSize`, `setMaxAppendSize`) is added to `UploadStorageService`:
+- A corresponding `with...` builder method (e.g. `withMinAppendSize`, `withMinSize`) MUST be added to `TusFileUploadService` with thorough Javadoc comments.
+- `TusFileUploadService.withUploadStorageService(...)` MUST be updated to copy the setting from the old `UploadStorageService` instance to the new one.
+- `ThreadLocalCachedStorageAndLockingService` MUST delegate the setter and getter methods to `storageServiceDelegate`.
+
 ## IETF Resumable Uploads for HTTP (RUFH) Spec Maintenance & Update Playbook
 
 ### 1. Spec Diff Review

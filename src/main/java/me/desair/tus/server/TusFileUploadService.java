@@ -146,6 +146,37 @@ public class TusFileUploadService {
   }
 
   /**
+   * Set the minimum size allowed for an individual upload append or creation request in IETF
+   * Resumable Uploads.
+   *
+   * @param minAppendSize The minimum append size limit in bytes, or null for no limit
+   * @return The current service
+   */
+  public TusFileUploadService withMinAppendSize(Long minAppendSize) {
+    if (minAppendSize != null) {
+      Validate.exclusiveBetween(
+          0, Long.MAX_VALUE, minAppendSize, "The min append size must be bigger than 0");
+    }
+    this.uploadStorageService.setMinAppendSize(minAppendSize);
+    return this;
+  }
+
+  /**
+   * Set the minimum total upload representation size limit in bytes for creation requests in IETF
+   * Resumable Uploads.
+   *
+   * @param minSize The minimum total upload size limit in bytes, or null for no limit
+   * @return The current service
+   */
+  public TusFileUploadService withMinSize(Long minSize) {
+    if (minSize != null) {
+      Validate.exclusiveBetween(0, Long.MAX_VALUE, minSize, "The min size must be bigger than 0");
+    }
+    this.uploadStorageService.setMinSize(minSize);
+    return this;
+  }
+
+  /**
    * Provide a custom {@link UploadIdFactory} implementation that should be used to generate
    * identifiers for the different uploads. Example implementation are {@link
    * me.desair.tus.server.upload.UuidUploadIdFactory} and {@link
@@ -176,8 +207,12 @@ public class TusFileUploadService {
     // Copy over any previous configuration
     uploadStorageService.setMaxUploadSize(this.uploadStorageService.getMaxUploadSize());
     uploadStorageService.setMaxAppendSize(this.uploadStorageService.getMaxAppendSize());
+    uploadStorageService.setMinAppendSize(this.uploadStorageService.getMinAppendSize());
+    uploadStorageService.setMinSize(this.uploadStorageService.getMinSize());
     uploadStorageService.setUploadExpirationPeriod(
         this.uploadStorageService.getUploadExpirationPeriod());
+    uploadStorageService.setUploadDeduplicationEnabled(
+        this.uploadStorageService.isUploadDeduplicationEnabled());
     uploadStorageService.setIdFactory(this.idFactory);
     // Update the upload storage service
     this.uploadStorageService = uploadStorageService;

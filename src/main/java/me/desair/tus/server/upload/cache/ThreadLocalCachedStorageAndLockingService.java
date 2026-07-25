@@ -107,6 +107,36 @@ public class ThreadLocalCachedStorageAndLockingService
   }
 
   @Override
+  public void setMaxAppendSize(Long maxAppendSize) {
+    storageServiceDelegate.setMaxAppendSize(maxAppendSize);
+  }
+
+  @Override
+  public Long getMaxAppendSize() {
+    return storageServiceDelegate.getMaxAppendSize();
+  }
+
+  @Override
+  public void setMinAppendSize(Long minAppendSize) {
+    storageServiceDelegate.setMinAppendSize(minAppendSize);
+  }
+
+  @Override
+  public Long getMinAppendSize() {
+    return storageServiceDelegate.getMinAppendSize();
+  }
+
+  @Override
+  public void setMinSize(Long minSize) {
+    storageServiceDelegate.setMinSize(minSize);
+  }
+
+  @Override
+  public Long getMinSize() {
+    return storageServiceDelegate.getMinSize();
+  }
+
+  @Override
   public UploadInfo create(UploadInfo info, String ownerKey) throws IOException {
     UploadInfo uploadInfo = storageServiceDelegate.create(info, ownerKey);
     uploadInfoCache.set(new WeakReference<>(uploadInfo));
