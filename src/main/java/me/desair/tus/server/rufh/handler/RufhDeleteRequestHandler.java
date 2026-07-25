@@ -16,8 +16,8 @@ import me.desair.tus.server.util.TusServletResponse;
  *
  * <p>Terminates the upload resource on storage and responds with HTTP 204 No Content.
  *
- * <p>Reference: Section 4.5 (Upload Cancellation) & Section 4.5.2 (Server Behavior) of
- * draft-ietf-httpbis-resumable-upload-11.
+ * <p>Reference: Section 4.5.2 (Server Behavior - Upload Cancellation) of
+ * draft-ietf-httpbis-resumable-upload-12.
  */
 public class RufhDeleteRequestHandler extends AbstractRequestHandler {
 

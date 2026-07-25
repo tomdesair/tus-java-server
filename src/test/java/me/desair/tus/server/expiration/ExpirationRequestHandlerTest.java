@@ -80,7 +80,8 @@ public class ExpirationRequestHandlerTest {
         null);
 
     verify(uploadStorageService, times(1)).update(info);
-    assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_EXPIRES), is("1516617791000"));
+    assertThat(info.getExpirationTimestamp(), is(1516617791000L));
+    assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_EXPIRES), is(nullValue()));
   }
 
   @Test
@@ -101,7 +102,8 @@ public class ExpirationRequestHandlerTest {
         null);
 
     verify(uploadStorageService, times(1)).update(info);
-    assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_EXPIRES), is("1516617791000"));
+    assertThat(info.getExpirationTimestamp(), is(1516617791000L));
+    assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_EXPIRES), is(nullValue()));
   }
 
   @Test
@@ -139,9 +141,9 @@ public class ExpirationRequestHandlerTest {
         uploadStorageService,
         null);
 
-    // Upload Expires header must always be set
     verify(uploadStorageService, times(1)).update(info);
-    assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_EXPIRES), is("1516617791000"));
+    assertThat(info.getExpirationTimestamp(), is(1516617791000L));
+    assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_EXPIRES), is(nullValue()));
   }
 
   @Test

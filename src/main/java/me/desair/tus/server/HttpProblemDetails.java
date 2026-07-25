@@ -61,7 +61,7 @@ public class HttpProblemDetails {
   /**
    * Create an Offset Mismatch (409 Conflict) problem details response for RUFH append requests.
    *
-   * <p>Reference: Section 7.1 (Mismatching Offset) of draft-ietf-httpbis-resumable-upload-11: "This
+   * <p>Reference: Section 7.1 (Mismatching Offset) of draft-ietf-httpbis-resumable-upload-12: "This
    * section defines the 'https://iana.org/assignments/http-problem-types#mismatching-upload-offset'
    * problem type."
    *
@@ -83,7 +83,7 @@ public class HttpProblemDetails {
   /**
    * Create an Upload Completed problem details response.
    *
-   * <p>Reference: Section 7.2 (Completed Upload) of draft-ietf-httpbis-resumable-upload-11: "This
+   * <p>Reference: Section 7.2 (Completed Upload) of draft-ietf-httpbis-resumable-upload-12: "This
    * section defines the 'https://iana.org/assignments/http-problem-types#completed-upload' problem
    * type."
    *
@@ -102,7 +102,7 @@ public class HttpProblemDetails {
   /**
    * Create an Inconsistent Length (400 Bad Request) problem details response.
    *
-   * <p>Reference: Section 7.3 (Inconsistent Length) of draft-ietf-httpbis-resumable-upload-11:
+   * <p>Reference: Section 7.3 (Inconsistent Length) of draft-ietf-httpbis-resumable-upload-12:
    * "This section defines the
    * 'https://iana.org/assignments/http-problem-types#inconsistent-upload-length' problem type."
    *

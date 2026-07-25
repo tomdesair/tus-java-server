@@ -21,7 +21,7 @@ import org.apache.commons.lang3.Strings;
  * Upload-Offset equality, and Upload-Length compliance.
  *
  * <p>Reference: Section 4.4.1 (Append Request) & Section 4.4.2 (Append Response) of
- * draft-ietf-httpbis-resumable-upload-11:
+ * draft-ietf-httpbis-resumable-upload-12:
  *
  * <ul>
  *   <li>"If the Upload-Offset request header field value does not match the current offset... the
@@ -48,8 +48,13 @@ public class RufhAppendValidator implements RequestValidator {
     String requestUri = request.getRequestURI();
     UploadInfo uploadInfo = uploadStorageService.getUploadInfo(requestUri, ownerKey);
 
-    // If upload is null, this might be a PATCH creation request. Creation validation handles it.
-    if (uploadInfo == null) {
+    // If upload is null or expired, check if this is the creation endpoint. If not, the upload
+    // resource was not found.
+    if (uploadInfo == null || uploadInfo.isExpired()) {
+      String baseUri = uploadStorageService.getUploadUri();
+      if (baseUri != null && !requestUri.equals(baseUri) && !requestUri.equals(baseUri + "/")) {
+        throw new TusException(404, "Upload resource not found");
+      }
       return;
     }
 
@@ -76,6 +81,26 @@ public class RufhAppendValidator implements RequestValidator {
               + ") exceeds the maximum allowed append size ("
               + maxAppendSize
               + ")");
+    }
+
+    // Section 4.1.4: min-append-size validation with exemption for Upload-Complete: ?1
+    // "This limit does not apply to upload creation requests with no content, or to requests
+    // completing the upload by including the Upload-Complete: ?1 header field."
+    Long minAppendSize = uploadStorageService.getMinAppendSize();
+    String uploadCompleteHeader = request.getHeader(HttpHeader.UPLOAD_COMPLETE);
+    Boolean uploadComplete = StructuredHeaderUtil.parseBoolean(uploadCompleteHeader);
+    boolean isCompleteExempt = Boolean.TRUE.equals(uploadComplete);
+
+    if (minAppendSize != null && minAppendSize > 0 && !isCompleteExempt) {
+      if (contentLength < minAppendSize) {
+        throw new TusException(
+            400,
+            "The request payload size ("
+                + contentLength
+                + ") is below the minimum allowed append size ("
+                + minAppendSize
+                + ")");
+      }
     }
 
     String offsetHeader = request.getHeader(HttpHeader.UPLOAD_OFFSET);

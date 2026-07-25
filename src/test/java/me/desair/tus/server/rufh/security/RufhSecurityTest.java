@@ -79,7 +79,7 @@ public class RufhSecurityTest {
   }
 
   /**
-   * Section 13 (Security Considerations) of draft-11: "DELETE requests containing path traversal
+   * Section 13 (Security Considerations) of draft-12: "DELETE requests containing path traversal
    * sequences MUST be rejected."
    */
   @Test(expected = TusException.class)
@@ -91,7 +91,7 @@ public class RufhSecurityTest {
   }
 
   /**
-   * Section 13 (Security Considerations) of draft-11: "To reduce the risk of unauthorized access,
+   * Section 13 (Security Considerations) of draft-12: "To reduce the risk of unauthorized access,
    * it is RECOMMENDED to generate upload resource URIs in such a way that makes it hard to be
    * guessed... The server SHOULD ensure that only authorized clients can access the upload
    * resource."
@@ -110,7 +110,7 @@ public class RufhSecurityTest {
   }
 
   /**
-   * Section 13 (Security Considerations) of draft-11: "Servers or intermediaries need to consider
+   * Section 13 (Security Considerations) of draft-12: "Servers or intermediaries need to consider
    * that relying solely on message content limits to constrain resources allocated to uploads might
    * not be an effective strategy... Servers SHOULD provide mitigations for Slowloris attacks..."
    */

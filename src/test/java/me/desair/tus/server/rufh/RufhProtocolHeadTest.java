@@ -39,7 +39,7 @@ public class RufhProtocolHeadTest {
   }
 
   /**
-   * Section 4.3.2 (Server Behavior - Offset Retrieval) of draft-11: "A successful response to a
+   * Section 4.3.2 (Server Behavior - Offset Retrieval) of draft-12: "A successful response to a
    * HEAD request against an upload resource MUST include the offset in the Upload-Offset header
    * field, MUST include the completeness state in the Upload-Complete header field, MUST include
    * the length in the Upload-Length header field (unless omitted), MUST indicate limits in the
@@ -70,7 +70,7 @@ public class RufhProtocolHeadTest {
         ProtocolVersion.RUFH);
 
     assertThat(response.getStatus(), is(204));
-    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("11"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("12"));
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("2500"));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
     assertThat(response.getHeader(HttpHeader.UPLOAD_LENGTH), is("10000"));
@@ -142,5 +142,44 @@ public class RufhProtocolHeadTest {
     when(storageService.getUploadInfo("/files/test-id", null)).thenReturn(info);
 
     protocol.validate(HttpMethod.HEAD, request, storageService, null, null, ProtocolVersion.RUFH);
+  }
+
+  /**
+   * Section 4.3.2 (Server Behavior - Offset Retrieval via GET): "A successful response to a HEAD or
+   * GET request against an upload resource MUST include the offset in the Upload-Offset header
+   * field, MUST include the completeness state in the Upload-Complete header field... A client does
+   * not require response content for an offset retrieval request in order to successfully resume an
+   * upload. Therefore, serving response content for a GET request is unexpected."
+   */
+  @Test
+  public void testGetOffsetRetrievalIncompleteUpload() throws Exception {
+    request.setMethod("GET");
+    request.setRequestURI("/files/test-id");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("test-id"));
+    info.setOffset(3000L);
+    info.setLength(10000L);
+
+    when(storageService.getUploadInfo("/files/test-id", null)).thenReturn(info);
+    when(storageService.getMaxUploadSize()).thenReturn(500000L);
+
+    protocol.validate(HttpMethod.GET, request, storageService, null, null, ProtocolVersion.RUFH);
+    protocol.process(
+        HttpMethod.GET,
+        new TusServletRequest(request, true),
+        new TusServletResponse(response),
+        storageService,
+        null,
+        null,
+        ProtocolVersion.RUFH);
+
+    assertThat(response.getStatus(), is(204));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("12"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("3000"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_LENGTH), is("10000"));
+    assertThat(response.getHeader(HttpHeader.CACHE_CONTROL), is("no-store"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=500000"));
   }
 }

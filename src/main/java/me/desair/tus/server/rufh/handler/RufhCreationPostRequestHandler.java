@@ -2,8 +2,6 @@ package me.desair.tus.server.rufh.handler;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.HttpProblemDetails;
@@ -25,7 +23,7 @@ import me.desair.tus.server.util.TusServletResponse;
  * registration via {@link InterruptibleInputStream}, and response headers.
  *
  * <p>Reference: Section 4.2 (Upload Creation) & Section 4.2.2 (Server Behavior) of
- * draft-ietf-httpbis-resumable-upload-11.
+ * draft-ietf-httpbis-resumable-upload-12.
  */
 public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
 
@@ -104,8 +102,6 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
       servletResponse.setHeader(
           HttpHeader.UPLOAD_COMPLETE, StructuredHeaderUtil.formatBoolean(false));
       servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, String.valueOf(uploadInfo.getOffset()));
-
-      addUploadLimitHeader(servletResponse, uploadStorageService);
     }
     return null;
   }
@@ -131,21 +127,5 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
     }
     String idStr = uploadInfo.getId() != null ? uploadInfo.getId().toString() : "";
     return baseUri + (baseUri.endsWith("/") ? "" : "/") + idStr;
-  }
-
-  private void addUploadLimitHeader(
-      TusServletResponse response, UploadStorageService uploadStorageService) {
-    Map<String, Object> limits = new LinkedHashMap<>();
-    long maxSize = uploadStorageService.getMaxUploadSize();
-    if (maxSize > 0) {
-      limits.put("max-size", maxSize);
-    }
-    Long maxAppendSize = uploadStorageService.getMaxAppendSize();
-    if (maxAppendSize != null && maxAppendSize > 0) {
-      limits.put("max-append-size", maxAppendSize);
-    }
-    if (!limits.isEmpty()) {
-      response.setHeader(HttpHeader.UPLOAD_LIMIT, StructuredHeaderUtil.formatDictionary(limits));
-    }
   }
 }

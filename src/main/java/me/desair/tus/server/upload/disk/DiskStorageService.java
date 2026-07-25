@@ -47,6 +47,8 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
   private Long maxUploadSize = null;
   private Long maxAppendSize = null;
+  private Long minAppendSize = null;
+  private Long minSize = null;
   private Long uploadExpirationPeriod = null;
   private UploadIdFactory idFactory;
   private UploadConcatenationService uploadConcatenationService;
@@ -91,6 +93,26 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     }
     long maxUpload = getMaxUploadSize();
     return maxUpload > 0 ? maxUpload : null;
+  }
+
+  @Override
+  public void setMinAppendSize(Long minAppendSize) {
+    this.minAppendSize = (minAppendSize != null && minAppendSize > 0 ? minAppendSize : null);
+  }
+
+  @Override
+  public Long getMinAppendSize() {
+    return minAppendSize;
+  }
+
+  @Override
+  public void setMinSize(Long minSize) {
+    this.minSize = (minSize != null && minSize > 0 ? minSize : null);
+  }
+
+  @Override
+  public Long getMinSize() {
+    return minSize;
   }
 
   @Override
@@ -468,17 +490,13 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     String filename = checksum;
     if (filename != null) {
       if (!filename.matches("^[0-9a-fA-F]+$")) {
-        try {
-          byte[] bytes = Base64.decodeBase64(filename);
-          if (bytes != null && bytes.length > 0) {
-            StringBuilder sb = new StringBuilder();
-            for (byte b : bytes) {
-              sb.append(String.format("%02x", b));
-            }
-            filename = sb.toString();
+        byte[] bytes = Base64.decodeBase64(filename);
+        if (bytes != null && bytes.length > 0) {
+          StringBuilder sb = new StringBuilder();
+          for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
           }
-        } catch (Exception e) {
-          // Ignore, keep original filename
+          filename = sb.toString();
         }
       }
     }

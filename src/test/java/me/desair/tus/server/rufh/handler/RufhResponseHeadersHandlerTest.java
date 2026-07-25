@@ -52,6 +52,6 @@ public class RufhResponseHeadersHandlerTest {
         null,
         null);
 
-    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("11"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("12"));
   }
 }

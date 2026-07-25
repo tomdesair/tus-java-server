@@ -1,6 +1,6 @@
 # Migration Guide: Tus 1.0.0 to IETF Resumable Uploads
 
-This guide provides step-by-step instructions for upgrading `tus-java-server` applications and clients to support the official **IETF Resumable Uploads for HTTP specification** ([draft-ietf-httpbis-resumable-upload](https://www.ietf.org/archive/id/draft-ietf-httpbis-resumable-upload-11.html)).
+This guide provides step-by-step instructions for upgrading `tus-java-server` applications and clients to support the official **IETF Resumable Uploads for HTTP specification** ([draft-ietf-httpbis-resumable-upload](https://www.ietf.org/archive/id/draft-ietf-httpbis-resumable-upload-12.html)).
 
 ---
 

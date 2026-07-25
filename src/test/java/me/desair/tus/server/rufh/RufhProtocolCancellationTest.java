@@ -66,7 +66,7 @@ public class RufhProtocolCancellationTest {
         ProtocolVersion.RUFH);
 
     assertThat(response.getStatus(), is(204));
-    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("11"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("12"));
     verify(storageService).terminateUpload(info);
   }
 }

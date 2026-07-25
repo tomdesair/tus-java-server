@@ -43,7 +43,7 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
       throws IOException, TusException {
 
     UploadInfo info = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
-    if (info == null || info.isUploadInProgress()) {
+    if (info == null || info.isUploadInProgress() || info.isExpired()) {
       throw new UploadInProgressException(
           "Upload "
               + servletRequest.getRequestURI()

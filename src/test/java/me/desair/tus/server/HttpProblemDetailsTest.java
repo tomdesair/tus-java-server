@@ -19,7 +19,7 @@ public class HttpProblemDetailsTest {
   }
 
   /**
-   * Section 7.1 (Mismatching Offset) of draft-ietf-httpbis-resumable-upload-11 & RFC 7807: "This
+   * Section 7.1 (Mismatching Offset) of draft-ietf-httpbis-resumable-upload-12 & RFC 7807: "This
    * section defines the 'https://iana.org/assignments/http-problem-types#mismatching-upload-offset'
    * problem type. A server can use this problem type when responding to an upload append request
    * (Section 4.4) to indicate that the Upload-Offset header field in the request does not match the
@@ -54,7 +54,7 @@ public class HttpProblemDetailsTest {
   }
 
   /**
-   * Section 7.2 (Completed Upload) of draft-ietf-httpbis-resumable-upload-11 & RFC 7807: "This
+   * Section 7.2 (Completed Upload) of draft-ietf-httpbis-resumable-upload-12 & RFC 7807: "This
    * section defines the 'https://iana.org/assignments/http-problem-types#completed-upload' problem
    * type. A server can use this problem type when responding to an upload append request (Section
    * 4.4) to indicate that the upload has already been completed and cannot be modified."
@@ -82,7 +82,7 @@ public class HttpProblemDetailsTest {
   }
 
   /**
-   * Section 7.3 (Inconsistent Length) of draft-ietf-httpbis-resumable-upload-11 & RFC 7807: "This
+   * Section 7.3 (Inconsistent Length) of draft-ietf-httpbis-resumable-upload-12 & RFC 7807: "This
    * section defines the
    * 'https://iana.org/assignments/http-problem-types#inconsistent-upload-length' problem type. A
    * server can use this problem type when responding to an upload creation (Section 4.2) or upload

@@ -1,8 +1,6 @@
 package me.desair.tus.server.rufh.handler;
 
 import java.io.IOException;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.HttpProblemDetails;
@@ -16,19 +14,30 @@ import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 
 /**
- * Request handler for HTTP HEAD status retrieval requests.
+ * Request handler for HTTP HEAD and GET offset retrieval requests against upload resources.
  *
  * <p>Sets Upload-Offset, Upload-Complete, Upload-Length, Upload-Limit, Upload-Draft, and
  * Cache-Control headers on the response.
  *
- * <p>Reference: Section 4.3 (Offset Retrieval) & Appendix B (Draft Version Identification) of
- * draft-ietf-httpbis-resumable-upload-11.
+ * <p>Reference: Section 4.3 (Offset Retrieval) & Section 4.3.2 (Server Behavior) of
+ * draft-ietf-httpbis-resumable-upload-12:
+ *
+ * <ul>
+ *   <li>"A successful response to a HEAD or GET request against an upload resource MUST include the
+ *       offset in the Upload-Offset header field..."
+ *   <li>"MUST include the Upload-Complete header field..."
+ *   <li>"MUST indicate the limits in the Upload-Limit header field..."
+ *   <li>"SHOULD include the Cache-Control header field with the value no-store..."
+ *   <li>"A client does not require response content for an offset retrieval request in order to
+ *       successfully resume an upload. Therefore, serving response content for a GET request is
+ *       unexpected. Its meaning is not defined by this protocol."
+ * </ul>
  */
-public class RufhHeadRequestHandler extends AbstractRequestHandler {
+public class RufhHeadGetRequestHandler extends AbstractRequestHandler {
 
   @Override
   public boolean supports(HttpMethod method) {
-    return HttpMethod.HEAD.equals(method);
+    return HttpMethod.HEAD.equals(method) || HttpMethod.GET.equals(method);
   }
 
   @Override
@@ -44,6 +53,9 @@ public class RufhHeadRequestHandler extends AbstractRequestHandler {
 
     String requestUri = servletRequest.getRequestURI();
     UploadInfo uploadInfo = uploadStorageService.getUploadInfo(requestUri, ownerKey);
+    if (uploadInfo == null || uploadInfo.isExpired()) {
+      return null;
+    }
 
     servletResponse.setStatus(204);
     servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, String.valueOf(uploadInfo.getOffset()));
@@ -55,24 +67,7 @@ public class RufhHeadRequestHandler extends AbstractRequestHandler {
       servletResponse.setHeader(HttpHeader.UPLOAD_LENGTH, String.valueOf(uploadInfo.getLength()));
     }
 
-    addUploadLimitHeader(servletResponse, uploadStorageService);
     servletResponse.setHeader(HttpHeader.CACHE_CONTROL, "no-store");
     return null;
-  }
-
-  private void addUploadLimitHeader(
-      TusServletResponse response, UploadStorageService uploadStorageService) {
-    Map<String, Object> limits = new LinkedHashMap<>();
-    long maxSize = uploadStorageService.getMaxUploadSize();
-    if (maxSize > 0) {
-      limits.put("max-size", maxSize);
-    }
-    Long maxAppendSize = uploadStorageService.getMaxAppendSize();
-    if (maxAppendSize != null && maxAppendSize > 0) {
-      limits.put("max-append-size", maxAppendSize);
-    }
-    if (!limits.isEmpty()) {
-      response.setHeader(HttpHeader.UPLOAD_LIMIT, StructuredHeaderUtil.formatDictionary(limits));
-    }
   }
 }

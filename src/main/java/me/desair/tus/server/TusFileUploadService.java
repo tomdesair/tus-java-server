@@ -70,12 +70,12 @@ public class TusFileUploadService {
     CreationExtension creationExtension = new CreationExtension();
     addTusExtension(creationExtension);
     addTusExtension(new CreationWithUploadExtension(creationExtension));
+    addTusExtension(new ResumableUploadsForHttpProtocol());
     addTusExtension(new ChecksumExtension());
     addTusExtension(new TerminationExtension());
     addTusExtension(new ExpirationExtension());
     addTusExtension(new ConcatenationExtension());
     addTusExtension(new CorsExtension());
-    addTusExtension(new ResumableUploadsForHttpProtocol());
     addTusExtension(new HttpDigestsExtension());
   }
 

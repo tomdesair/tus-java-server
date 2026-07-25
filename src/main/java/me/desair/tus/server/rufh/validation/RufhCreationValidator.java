@@ -15,7 +15,7 @@ import me.desair.tus.server.util.StructuredHeaderUtil;
  * size) and length consistency.
  *
  * <p>Reference: Section 4.1.3 (Length) & Section 4.2 (Upload Creation) of
- * draft-ietf-httpbis-resumable-upload-11: "If indicators (1) [Upload-Complete: ?1 with
+ * draft-ietf-httpbis-resumable-upload-12: "If indicators (1) [Upload-Complete: ?1 with
  * Content-Length] and (2) [Upload-Length] are both present in the same request, their indicated
  * lengths MUST match."
  */
@@ -58,6 +58,17 @@ public class RufhCreationValidator implements RequestValidator {
       throw new TusException(413, "The requested upload length exceeds the maximum allowed size");
     }
 
+    Long minSize = uploadStorageService.getMinSize();
+    if (minSize != null && minSize > 0 && uploadLength != null && uploadLength < minSize) {
+      throw new TusException(
+          400,
+          "The requested upload length ("
+              + uploadLength
+              + ") is smaller than the minimum allowed size ("
+              + minSize
+              + ")");
+    }
+
     Long maxAppendSize = uploadStorageService.getMaxAppendSize();
     if (maxAppendSize != null
         && maxAppendSize > 0
@@ -70,6 +81,23 @@ public class RufhCreationValidator implements RequestValidator {
               + ") exceeds the maximum allowed append size ("
               + maxAppendSize
               + ")");
+    }
+
+    // Section 4.1.4: min-append-size validation with exemptions
+    // "This limit does not apply to upload creation requests with no content, or to requests
+    // completing the upload by including the Upload-Complete: ?1 header field."
+    Long minAppendSize = uploadStorageService.getMinAppendSize();
+    boolean isContentExempt = contentLength <= 0 || Boolean.TRUE.equals(uploadComplete);
+    if (minAppendSize != null && minAppendSize > 0 && !isContentExempt) {
+      if (contentLength < minAppendSize) {
+        throw new TusException(
+            400,
+            "The request payload size ("
+                + contentLength
+                + ") is below the minimum allowed append size ("
+                + minAppendSize
+                + ")");
+      }
     }
   }
 }

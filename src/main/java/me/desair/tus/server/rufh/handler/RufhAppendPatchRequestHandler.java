@@ -23,7 +23,7 @@ import me.desair.tus.server.util.TusServletResponse;
  * and Upload-Draft response headers.
  *
  * <p>Reference: Section 4.4.2 (Append Response) & Appendix B (Draft Version Identification) of
- * draft-ietf-httpbis-resumable-upload-11.
+ * draft-ietf-httpbis-resumable-upload-12.
  */
 public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
 

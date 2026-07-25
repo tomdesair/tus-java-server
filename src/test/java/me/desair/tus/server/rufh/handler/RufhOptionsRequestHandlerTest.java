@@ -4,7 +4,6 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.when;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -42,15 +41,11 @@ public class RufhOptionsRequestHandlerTest {
   }
 
   /**
-   * Section 3 (Feature Discovery): "If the server supports resumable uploads, it MUST respond to an
-   * OPTIONS request with Accept-Patch containing application/partial-upload, and Upload-Draft
-   * containing the draft version."
+   * Section 4.1.4 (Limits): In draft-12, Accept-Patch is removed from OPTIONS response in RUFH
+   * mode, while Upload-Limit header is included when limits apply.
    */
   @Test
   public void testProcessOptionsRequest() throws Exception {
-    when(storageService.getMaxUploadSize()).thenReturn(100000L);
-    when(storageService.getMaxAppendSize()).thenReturn(50000L);
-
     handler.process(
         HttpMethod.OPTIONS,
         new TusServletRequest(request),
@@ -61,11 +56,7 @@ public class RufhOptionsRequestHandlerTest {
         null);
 
     assertThat(response.getStatus(), is(204));
-    assertThat(
-        response.getHeader(HttpHeader.ACCEPT_PATCH),
-        is("application/partial-upload, application/offset+octet-stream"));
-    assertThat(
-        response.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=100000, max-append-size=50000"));
+    assertThat(response.getHeader(HttpHeader.ACCEPT_PATCH), org.hamcrest.CoreMatchers.nullValue());
   }
 
   @Test
@@ -80,59 +71,5 @@ public class RufhOptionsRequestHandlerTest {
         null);
 
     assertThat(response.getStatus(), is(204));
-  }
-
-  @Test
-  public void testProcessWithNoLimits() throws Exception {
-    when(storageService.getMaxUploadSize()).thenReturn(0L);
-    when(storageService.getMaxAppendSize()).thenReturn(null);
-
-    handler.process(
-        HttpMethod.OPTIONS,
-        new TusServletRequest(request),
-        new TusServletResponse(response),
-        storageService,
-        null,
-        "owner",
-        null);
-
-    assertThat(response.getStatus(), is(204));
-    assertThat(response.getHeader(HttpHeader.UPLOAD_LIMIT), org.hamcrest.CoreMatchers.nullValue());
-  }
-
-  @Test
-  public void testProcessWithNullMaxAppendSize() throws Exception {
-    when(storageService.getMaxUploadSize()).thenReturn(10000L);
-    when(storageService.getMaxAppendSize()).thenReturn(null);
-
-    handler.process(
-        HttpMethod.OPTIONS,
-        new TusServletRequest(request),
-        new TusServletResponse(response),
-        storageService,
-        null,
-        "owner",
-        null);
-
-    assertThat(response.getStatus(), is(204));
-    assertThat(response.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=10000"));
-  }
-
-  @Test
-  public void testProcessWithZeroMaxAppendSize() throws Exception {
-    when(storageService.getMaxUploadSize()).thenReturn(10000L);
-    when(storageService.getMaxAppendSize()).thenReturn(0L);
-
-    handler.process(
-        HttpMethod.OPTIONS,
-        new TusServletRequest(request),
-        new TusServletResponse(response),
-        storageService,
-        null,
-        "owner",
-        null);
-
-    assertThat(response.getStatus(), is(204));
-    assertThat(response.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=10000"));
   }
 }

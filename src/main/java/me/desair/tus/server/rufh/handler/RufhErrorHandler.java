@@ -24,7 +24,7 @@ import me.desair.tus.server.util.TusServletResponse;
  * Request), and inconsistent upload length errors (HTTP 400 Bad Request) as RFC 7807 Problem
  * Details JSON.
  *
- * <p>Reference: Section 7 (Problem Types) of draft-ietf-httpbis-resumable-upload-11:
+ * <p>Reference: Section 7 (Problem Types) of draft-ietf-httpbis-resumable-upload-12:
  *
  * <ul>
  *   <li>Section 7.1: Mismatching Offset (409 Conflict)

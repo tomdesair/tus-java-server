@@ -123,7 +123,7 @@ public class RufhProtocolCreationTest {
 
     assertThat(response.getStatus(), is(200));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
-    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("11"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("12"));
   }
 
   /**
@@ -234,5 +234,101 @@ public class RufhProtocolCreationTest {
 
     verify(lockingService)
         .registerInputStream(eq("/files/" + info.getId()), any(InterruptibleInputStream.class));
+  }
+
+  /**
+   * Section 4.1.4 (min-append-size): "This limit does not apply to upload creation requests with no
+   * content..."
+   */
+  @Test
+  public void test0BytePostCreationBypassesMinAppendSize() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "10000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    // 0-byte payload content
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(10000L);
+    info.setOffset(0L);
+    info.setId(new UuidUploadIdFactory().createId());
+
+    when(storageService.getMinAppendSize()).thenReturn(1000L);
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+
+    protocol.validate(
+        HttpMethod.POST, request, storageService, lockingService, null, ProtocolVersion.RUFH);
+  }
+
+  /**
+   * Section 4.1.4 (min-append-size): "...or to requests completing the upload by including the
+   * Upload-Complete: ?1 header field."
+   */
+  @Test
+  public void testUploadCompleteBypassesMinAppendSize() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    request.setContent("Small".getBytes()); // 5 bytes < 1000L min-append-size
+
+    UploadInfo info = new UploadInfo();
+    info.setOffset(5L);
+    info.setId(new UuidUploadIdFactory().createId());
+
+    when(storageService.getMinAppendSize()).thenReturn(1000L);
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(info);
+
+    protocol.validate(
+        HttpMethod.POST, request, storageService, lockingService, null, ProtocolVersion.RUFH);
+  }
+
+  /**
+   * Section 4.1.4 (min-append-size): Non-exempt small creation POST payload (< minAppendSize)
+   * without Upload-Complete: ?1 is rejected.
+   */
+  @Test(expected = me.desair.tus.server.exception.TusException.class)
+  public void testCreationSmallPayloadRejectedByMinAppendSize() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.setContent("Small payload".getBytes()); // 13 bytes < 1000L
+
+    when(storageService.getMinAppendSize()).thenReturn(1000L);
+
+    protocol.validate(
+        HttpMethod.POST, request, storageService, lockingService, null, ProtocolVersion.RUFH);
+  }
+
+  /**
+   * Section 4.1.4 (min-size): Upload creation with Upload-Length smaller than minSize throws 400
+   * Bad Request.
+   */
+  @Test(expected = me.desair.tus.server.exception.TusException.class)
+  public void testUploadCreationSmallerThanMinSizeThrowsTusException() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "50");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+
+    when(storageService.getMinSize()).thenReturn(100L);
+
+    protocol.validate(
+        HttpMethod.POST, request, storageService, lockingService, null, ProtocolVersion.RUFH);
+  }
+
+  @Test
+  public void testUploadCreationValidMinSizeAndMinAppendSize() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "5000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.setContent("This payload is larger than 10 bytes".getBytes());
+
+    when(storageService.getMinSize()).thenReturn(100L);
+    when(storageService.getMinAppendSize()).thenReturn(10L);
+
+    protocol.validate(
+        HttpMethod.POST, request, storageService, lockingService, null, ProtocolVersion.RUFH);
   }
 }

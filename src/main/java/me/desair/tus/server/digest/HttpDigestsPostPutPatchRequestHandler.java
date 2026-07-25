@@ -208,9 +208,6 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
       UploadStorageService uploadStorageService)
       throws IOException, TusException {
     MessageDigest md = alg.getMessageDigest();
-    if (md == null) {
-      return null;
-    }
     try (InputStream is = uploadStorageService.getUploadedBytes(uploadUri, ownerKey)) {
       if (is == null) {
         return null;

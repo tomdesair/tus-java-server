@@ -11,7 +11,7 @@ import me.desair.tus.server.upload.UploadStorageService;
  * Request validator that checks the request URI for unsafe path traversal components (e.g. ".." or
  * null bytes).
  *
- * <p>Reference: Section 13 (Security Considerations) of draft-ietf-httpbis-resumable-upload-11:
+ * <p>Reference: Section 13 (Security Considerations) of draft-ietf-httpbis-resumable-upload-12:
  * "Uploaded representation data and its metadata are untrusted input."
  */
 public class RufhSafePathValidator implements RequestValidator {

@@ -30,8 +30,8 @@ jobs:
           echo "Latest IETF Draft Revision: $LATEST_REV"
           echo "latest_rev=$LATEST_REV" >> $GITHUB_OUTPUT
 
-          # Currently implemented baseline revision in tus-java-server: 11
-          BASELINE_REV="11"
+          # Currently implemented baseline revision in tus-java-server: 12
+          BASELINE_REV="12"
           echo "baseline_rev=$BASELINE_REV" >> $GITHUB_OUTPUT
 
           if [ "$LATEST_REV" != "$BASELINE_REV" ]; then

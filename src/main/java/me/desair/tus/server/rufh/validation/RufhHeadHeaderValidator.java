@@ -13,7 +13,7 @@ import me.desair.tus.server.upload.UploadStorageService;
  * Upload-Complete header fields.
  *
  * <p>Reference: Section 4.3.1 (Client Behavior - Offset Retrieval) of
- * draft-ietf-httpbis-resumable-upload-11: "The request MUST NOT contain Upload-Offset or
+ * draft-ietf-httpbis-resumable-upload-12: "The request MUST NOT contain Upload-Offset or
  * Upload-Complete header fields."
  */
 public class RufhHeadHeaderValidator implements RequestValidator {

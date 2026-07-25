@@ -212,54 +212,6 @@ public class RufhCreationPostRequestHandlerTest {
   }
 
   @Test
-  public void testProcessUploadLimitsHeader() throws Exception {
-    request.setMethod("POST");
-    request.setRequestURI("/files");
-    request.addHeader(HttpHeader.UPLOAD_LENGTH, "5000");
-    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
-
-    UploadInfo info = new UploadInfo();
-    info.setId(new UploadId("creation-id"));
-    info.setLength(5000L);
-    info.setOffset(0L);
-
-    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
-    when(storageService.append(any(UploadInfo.class), any())).thenReturn(info);
-
-    // Test when max upload size > 0 and max append size > 0
-    when(storageService.getMaxUploadSize()).thenReturn(10000L);
-    when(storageService.getMaxAppendSize()).thenReturn(5000L);
-
-    handler.process(
-        HttpMethod.POST,
-        new TusServletRequest(request),
-        new TusServletResponse(response),
-        storageService,
-        null,
-        "owner",
-        null);
-
-    assertThat(
-        response.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=10000, max-append-size=5000"));
-
-    // Test when max upload size is 0 and max append size is null/0
-    response = new MockHttpServletResponse();
-    when(storageService.getMaxUploadSize()).thenReturn(0L);
-    when(storageService.getMaxAppendSize()).thenReturn(null);
-
-    handler.process(
-        HttpMethod.POST,
-        new TusServletRequest(request),
-        new TusServletResponse(response),
-        storageService,
-        null,
-        "owner",
-        null);
-
-    assertThat(response.getHeader(HttpHeader.UPLOAD_LIMIT), org.hamcrest.CoreMatchers.nullValue());
-  }
-
-  @Test
   public void testProcessPatchCreationWhenUploadDoesNotExist() throws Exception {
     request.setMethod("PATCH");
     request.setRequestURI("/files/does-not-exist");

@@ -15,10 +15,10 @@ import me.desair.tus.server.util.TusServletResponse;
  * Request handler responsible for setting common response headers that must be present in all
  * Resumable Uploads for HTTP (RUFH) responses.
  *
- * <p>Specifically, sets the {@code Upload-Draft} header to {@code 11}.
+ * <p>Specifically, sets the {@code Upload-Draft} header to {@code 12}.
  *
  * <p>Reference: Appendix B (Draft Version Identification) of
- * draft-ietf-httpbis-resumable-upload-11.
+ * draft-ietf-httpbis-resumable-upload-12.
  */
 public class RufhResponseHeadersHandler extends AbstractRequestHandler {
 
@@ -43,7 +43,7 @@ public class RufhResponseHeadersHandler extends AbstractRequestHandler {
       TusException exception)
       throws IOException, TusException {
 
-    servletResponse.setHeader(HttpHeader.UPLOAD_DRAFT, "11");
+    servletResponse.setHeader(HttpHeader.UPLOAD_DRAFT, "12");
     return null;
   }
 }

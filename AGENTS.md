@@ -67,25 +67,37 @@ Completed parent uploads are indexed by checksum under the `<storagePath>/checks
 ### 9. No Thread-Local Contexts
 - Do not use `ThreadLocal` variables or thread-local request context to pass state between components. Always pass parameters explicitly or use request wrapping.
 
-### 10. Unit Test Coverage & Verbatim Spec Quotes
-- Unit test coverage must remain high. All new code (including background watchdog threads, helper methods, stream wrappers, and retry logic) must be thoroughly unit tested.
+### 10. Unit Test Coverage & Pragmatic Testing
+- Unit test coverage must remain high for all new feature logic, handlers, validators, and core workflows.
 - Do not use reflection to test private helper methods. Always test code through public API boundaries instead of bypassing encapsulation.
 - Compliance unit tests in `me.desair.tus.server.rufh` MUST contain verbatim specification quotes in method Javadocs based on the official specification.
-- After finalizing any implementation, you MUST check the unit test coverage on new/modified lines by running:
+- Coverage should focus on meaningful domain logic and contract behavior. Do not over-complicate test suites, write brittle reflection hacks, or add unnatural code structures solely to hit 100% JaCoCo coverage on defensive catch blocks or trivial fallbacks.
+- After finalizing implementation, verify test coverage on new/modified lines using:
   ```bash
-  mvn verify -Pcheck-coverage -Djacoco.compare.branch=master
+  mvn verify -Pcheck-coverage -Djacoco.compare.branch=master -q
   ```
-  If any added or modified lines are reported as uncovered (❌) or partially covered (⚠️), you must add extra unit tests to cover them before submitting.
+  If meaningful feature logic is reported as uncovered, add clean unit tests to cover it before submitting.
 
-### 11. Mandatory Javadocs & Code Formatting
+### 11. Efficient Build Execution & Token Reduction
+When running builds, tests, or coverage checks via Maven:
+- Use quiet/suppressed flags to minimize token usage from verbose logs:
+  - `-q` / `--quiet`: Suppresses standard Maven INFO log noise.
+  - `-Dtest=TestClass` / `-Dtest=TestClass#testMethod`: Run only the specific test or method relevant to your changes while iterating.
+  - `-Dstyle.color=never`: Suppresses ANSI color codes.
+- Example:
+  ```bash
+  mvn test -Dtest=RufhProtocolCreationTest -q
+  ```
+
+### 12. Mandatory Javadocs & Code Formatting
 - Always write thorough Javadoc comments for all new and modified public/protected classes, interfaces, and methods.
 - Always remove unused imports across all modified and newly created Java source files.
 - Run code formatting before committing:
   ```bash
-  mvn -P codestyle com.spotify.fmt:fmt-maven-plugin:format
+  mvn -P codestyle com.spotify.fmt:fmt-maven-plugin:format -q
   ```
 
-### 12. String Comparisons & Avoiding Deprecated StringUtils
+### 13. String Comparisons & Avoiding Deprecated StringUtils
 - Do not use deprecated `StringUtils` comparison methods such as `StringUtils.equals(...)` or `StringUtils.equalsIgnoreCase(...)`.
 - Always use `org.apache.commons.lang3.Strings.CS` for case-sensitive operations (e.g., `Strings.CS.equals(...)`, `Strings.CS.startsWith(...)`) and `org.apache.commons.lang3.Strings.CI` for case-insensitive operations (e.g., `Strings.CI.equals(...)`, `Strings.CI.startsWith(...)`).
 
@@ -93,16 +105,16 @@ Completed parent uploads are indexed by checksum under the `<storagePath>/checks
 
 ### 1. Spec Diff Review
 When a new draft revision of the IETF Resumable Uploads specification (`draft-ietf-httpbis-resumable-upload`: https://datatracker.ietf.org/doc/draft-ietf-httpbis-resumable-upload/) is published:
-- Compare the new draft against the current baseline (draft-11) using the official IETF Author Tools diff:
-  `https://author-tools.ietf.org/diff?doc_1=draft-ietf-httpbis-resumable-upload-11&doc_2=draft-ietf-httpbis-resumable-upload-<NEW_REV>`
+- Compare the new draft against the current baseline (draft-12) using the official IETF Author Tools diff:
+  `https://author-tools.ietf.org/diff?doc_1=draft-ietf-httpbis-resumable-upload-12&doc_2=draft-ietf-httpbis-resumable-upload-<NEW_REV>`
 - Identify any changed header names, structured field syntax changes, response status codes, or problem details schemas.
 
 ### 2. Spec-Driven Compliance Test Maintenance
-Compliance unit tests located in `src/test/java/me/desair/tus/server/rufh/` (`RufhProtocolCreationTest`, `RufhProtocolAppendTest`, `RufhProtocolHeadTest`, `RufhProtocolCancellationTest`, `HttpProblemDetailsTest`) contain verbatim quotes from the specification in their method Javadocs.
+Compliance unit tests located in `src/test/java/me/desair/tus.server.rufh/` (`RufhProtocolCreationTest`, `RufhProtocolAppendTest`, `RufhProtocolHeadTest`, `RufhProtocolCancellationTest`, `HttpProblemDetailsTest`) contain verbatim quotes from the specification in their method Javadocs.
 - **Workflow**:
   1. Update the verbatim spec quotes in test method Javadocs to reflect the new draft revision text.
   2. Update test assertions and expected header/status formats.
-  3. Run `mvn test` to pinpoint which server components need code updates.
+  3. Run `mvn test -Dtest=me.desair.tus.server.rufh.* -q` to pinpoint which server components need code updates.
 
 ### 3. Protocol Update Skill & Execution Procedure
 When updating the IETF protocol implementation for a new draft revision, follow this step-by-step procedure:
@@ -113,5 +125,5 @@ When updating the IETF protocol implementation for a new draft revision, follow 
 5. **Protocol Logic**: Update `ResumableUploadsForHttpProtocol.java` validation and processing logic.
 6. **Coverage Verification**: Verify code coverage and unit tests pass:
    ```bash
-   mvn verify -Pcheck-coverage -Djacoco.compare.branch=master
+   mvn verify -Pcheck-coverage -Djacoco.compare.branch=master -q
    ```

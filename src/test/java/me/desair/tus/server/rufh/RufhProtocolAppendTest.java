@@ -91,7 +91,7 @@ public class RufhProtocolAppendTest {
     assertThat(response.getStatus(), is(204));
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("1013"));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
-    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("11"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("12"));
   }
 
   /**
@@ -120,7 +120,7 @@ public class RufhProtocolAppendTest {
   }
 
   /**
-   * Section 7.2 (Completed Upload) of draft-11: "This section defines the
+   * Section 7.2 (Completed Upload) of draft-12: "This section defines the
    * 'https://iana.org/assignments/http-problem-types#completed-upload' problem type. A server can
    * use this problem type when responding to an upload append request (Section 4.4) to indicate
    * that the upload has already been completed and cannot be modified."
@@ -167,7 +167,7 @@ public class RufhProtocolAppendTest {
   }
 
   /**
-   * Appendix B (Draft Version Identification) of draft-11: "Server implementations of draft
+   * Appendix B (Draft Version Identification) of draft-12: "Server implementations of draft
    * versions of the protocol send a header field Upload-Draft with the interop version."
    */
   @Test
@@ -199,7 +199,7 @@ public class RufhProtocolAppendTest {
         null,
         ProtocolVersion.RUFH);
 
-    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("11"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_DRAFT), is("12"));
   }
 
   /**
@@ -372,5 +372,73 @@ public class RufhProtocolAppendTest {
 
     verify(lockingService)
         .registerInputStream(eq("/files/test-id"), any(InterruptibleInputStream.class));
+  }
+
+  /**
+   * Section 4.1.4 (min-append-size): Small append PATCH payload (< minAppendSize) without
+   * Upload-Complete: ?1 is rejected.
+   */
+  @Test(expected = TusException.class)
+  public void testAppendSmallPayloadRejectedByMinAppendSize() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/test-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.setContent("Small".getBytes()); // 5 bytes < 1000L
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("test-id"));
+    info.setOffset(1000L);
+
+    when(storageService.getUploadInfo("/files/test-id", null)).thenReturn(info);
+    when(storageService.getMinAppendSize()).thenReturn(1000L);
+
+    protocol.validate(
+        HttpMethod.PATCH, request, storageService, lockingService, null, ProtocolVersion.RUFH);
+  }
+
+  /**
+   * Section 4.1.4 (min-append-size): "...or to requests completing the upload by including the
+   * Upload-Complete: ?1 header field."
+   */
+  @Test
+  public void testAppendUploadCompleteBypassesMinAppendSize() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/test-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    request.setContent("Small".getBytes()); // 5 bytes < 1000L min-append-size
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("test-id"));
+    info.setOffset(1000L);
+
+    when(storageService.getUploadInfo("/files/test-id", null)).thenReturn(info);
+    when(storageService.getMinAppendSize()).thenReturn(1000L);
+
+    protocol.validate(
+        HttpMethod.PATCH, request, storageService, lockingService, null, ProtocolVersion.RUFH);
+  }
+
+  @Test
+  public void testAppendValidMinAppendSize() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/test-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.setContent("This payload is 32 bytes long!!".getBytes());
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("test-id"));
+    info.setOffset(1000L);
+
+    when(storageService.getUploadInfo("/files/test-id", null)).thenReturn(info);
+    when(storageService.getMinAppendSize()).thenReturn(10L);
+
+    protocol.validate(
+        HttpMethod.PATCH, request, storageService, lockingService, null, ProtocolVersion.RUFH);
   }
 }

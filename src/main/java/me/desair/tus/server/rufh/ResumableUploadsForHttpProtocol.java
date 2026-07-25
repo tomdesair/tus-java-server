@@ -11,9 +11,10 @@ import me.desair.tus.server.rufh.handler.RufhAppendPatchRequestHandler;
 import me.desair.tus.server.rufh.handler.RufhCreationPostRequestHandler;
 import me.desair.tus.server.rufh.handler.RufhDeleteRequestHandler;
 import me.desair.tus.server.rufh.handler.RufhErrorHandler;
-import me.desair.tus.server.rufh.handler.RufhHeadRequestHandler;
+import me.desair.tus.server.rufh.handler.RufhHeadGetRequestHandler;
 import me.desair.tus.server.rufh.handler.RufhOptionsRequestHandler;
 import me.desair.tus.server.rufh.handler.RufhResponseHeadersHandler;
+import me.desair.tus.server.rufh.handler.RufhUploadLimitHeaderRequestHandler;
 import me.desair.tus.server.rufh.validation.RufhAppendValidator;
 import me.desair.tus.server.rufh.validation.RufhCreationValidator;
 import me.desair.tus.server.rufh.validation.RufhHeadHeaderValidator;
@@ -62,7 +63,12 @@ public class ResumableUploadsForHttpProtocol extends AbstractTusExtension {
   @Override
   public Collection<HttpMethod> getMinimalSupportedHttpMethods() {
     return Arrays.asList(
-        HttpMethod.OPTIONS, HttpMethod.HEAD, HttpMethod.POST, HttpMethod.PATCH, HttpMethod.DELETE);
+        HttpMethod.OPTIONS,
+        HttpMethod.HEAD,
+        HttpMethod.GET,
+        HttpMethod.POST,
+        HttpMethod.PATCH,
+        HttpMethod.DELETE);
   }
 
   @Override
@@ -91,10 +97,11 @@ public class ResumableUploadsForHttpProtocol extends AbstractTusExtension {
   protected void initRequestHandlers(List<RequestHandler> requestHandlers) {
     requestHandlers.add(new RufhResponseHeadersHandler());
     requestHandlers.add(new RufhOptionsRequestHandler());
-    requestHandlers.add(new RufhHeadRequestHandler());
+    requestHandlers.add(new RufhHeadGetRequestHandler());
     requestHandlers.add(new RufhCreationPostRequestHandler(interimResponseStrategy));
     requestHandlers.add(new RufhAppendPatchRequestHandler());
     requestHandlers.add(new RufhDeleteRequestHandler());
+    requestHandlers.add(new RufhUploadLimitHeaderRequestHandler());
     requestHandlers.add(new RufhErrorHandler());
   }
 }

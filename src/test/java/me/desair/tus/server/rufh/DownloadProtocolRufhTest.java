@@ -151,8 +151,11 @@ public class DownloadProtocolRufhTest {
     servletRequest.setRequestURI(uploadLocation);
     serviceWithoutDownload.process(servletRequest, servletResponse, OWNER_KEY);
 
-    // Without the download feature, GET is not processed and defaults to 200 OK
-    assertThat(servletResponse.getStatus(), is(200));
+    // Without the download feature, GET acts as an offset retrieval request returning 204 No
+    // Content
+    assertThat(servletResponse.getStatus(), is(204));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("14"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
     assertThat(servletResponse.getContentAsString(), is(""));
   }
 }

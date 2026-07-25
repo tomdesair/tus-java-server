@@ -13,13 +13,15 @@ import me.desair.tus.server.upload.UploadStorageService;
  * appending, or cancellation requests.
  *
  * <p>Reference: Section 4.3 (Offset Retrieval), Section 4.4 (Upload Append), and Section 4.5
- * (Upload Cancellation) of draft-ietf-httpbis-resumable-upload-11.
+ * (Upload Cancellation) of draft-ietf-httpbis-resumable-upload-12.
  */
 public class RufhUploadExistsValidator implements RequestValidator {
 
   @Override
   public boolean supports(HttpMethod method) {
-    return HttpMethod.HEAD.equals(method) || HttpMethod.DELETE.equals(method);
+    return HttpMethod.HEAD.equals(method)
+        || HttpMethod.GET.equals(method)
+        || HttpMethod.DELETE.equals(method);
   }
 
   @Override
@@ -32,7 +34,7 @@ public class RufhUploadExistsValidator implements RequestValidator {
 
     String requestUri = request.getRequestURI();
     UploadInfo uploadInfo = uploadStorageService.getUploadInfo(requestUri, ownerKey);
-    if (uploadInfo == null) {
+    if (uploadInfo == null || uploadInfo.isExpired()) {
       throw new TusException(404, "Upload resource not found");
     }
   }
