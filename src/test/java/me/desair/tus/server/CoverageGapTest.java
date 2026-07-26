@@ -803,9 +803,16 @@ public class CoverageGapTest {
         "1234567890abcdef", me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
 
     // 3. Base64 decodes to empty byte array (length == 0)
-    storage.getUploadInfoByChecksum("?", me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+    storage.getUploadInfoByChecksum("===", me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
 
-    // 4. Base64 decodes to valid non-empty byte array
+    // 4. Unsafe checksum containing illegal path character throws IOException
+    org.junit.Assert.assertThrows(
+        IOException.class,
+        () ->
+            storage.getUploadInfoByChecksum(
+                "?", me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256));
+
+    // 5. Base64 decodes to valid non-empty byte array
     String base64Checksum =
         org.apache.commons.codec.binary.Base64.encodeBase64String(new byte[] {0x12, 0x34, 0x56});
     storage.getUploadInfoByChecksum(
@@ -823,6 +830,8 @@ public class CoverageGapTest {
     assertThat((Boolean) isSafe.invoke(storage, "path/with/slash"), is(false));
     assertThat((Boolean) isSafe.invoke(storage, "path\\with\\backslash"), is(false));
     assertThat((Boolean) isSafe.invoke(storage, "../dotdot"), is(false));
+    assertThat((Boolean) isSafe.invoke(storage, "question?mark"), is(false));
+    assertThat((Boolean) isSafe.invoke(storage, "asterisk*file"), is(false));
     assertThat((Boolean) isSafe.invoke(storage, ""), is(false));
     assertThat((Boolean) isSafe.invoke(storage, (String) null), is(false));
   }

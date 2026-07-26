@@ -742,7 +742,8 @@ public class DiskStorageServiceTest {
   public void testGetUploadInfoByChecksumWithUnsafeChecksums() throws Exception {
     // These values cannot be parsed to non-empty base64 bytes, so they remain unsafe and throw
     // IOException
-    List<String> unsafeEmptyChecksums = Arrays.asList(" ", "..", "/");
+    List<String> unsafeEmptyChecksums =
+        Arrays.asList(" ", "..", "/", "?", "*", ":", "<", ">", "\"", "|");
     for (String checksum : unsafeEmptyChecksums) {
       assertThrows(
           IOException.class,
