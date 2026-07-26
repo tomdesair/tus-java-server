@@ -3,8 +3,9 @@
 ## Project Context
 When working on this project, always read the [`README.md`](README.md) file to obtain full context on project architecture, features, configuration options, and dual protocol version support (Tus 1.0.0 & IETF RUFH).
 
-## GitHub CLI (`gh`) Usage
-When running `gh` commands in this project via an automated agent environment, ensure you bypass the default `GITHUB_TOKEN` environment variable. The agent environment may have an invalid `GITHUB_TOKEN` set, which `gh` prioritizes over valid keyring credentials, resulting in an `HTTP 401: Bad credentials` error.
+## GitHub CLI (`gh`) & Git Usage
+- Always run `git` commands (e.g., `git status`, `git diff`, `git add`, `git commit`, `git push`) and `gh` commands unsandboxed (setting `BypassSandbox: true` when calling `run_command`) to ensure git hooks, local tools, and remote repository authentication work without sandbox errors.
+- When running `gh` commands in this project via an automated agent environment, ensure you bypass the default `GITHUB_TOKEN` environment variable. The agent environment may have an invalid `GITHUB_TOKEN` set, which `gh` prioritizes over valid keyring credentials, resulting in an `HTTP 401: Bad credentials` error.
 
 **Workaround:** Prefix `gh` commands with `env -u GITHUB_TOKEN` to force the CLI to use the valid keyring authentication.
 
