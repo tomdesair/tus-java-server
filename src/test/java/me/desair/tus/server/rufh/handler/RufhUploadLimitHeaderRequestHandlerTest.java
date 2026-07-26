@@ -107,4 +107,62 @@ public class RufhUploadLimitHeaderRequestHandlerTest {
   public void isErrorHandler() {
     assertThat(handler.isErrorHandler(), is(true));
   }
+
+  @Test
+  public void testNullParameters() throws Exception {
+    // Calling process with null response or storageService should return without error or setting
+    // headers
+    handler.process(
+        HttpMethod.POST, new TusServletRequest(servletRequest), null, uploadStorageService, null);
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(servletRequest),
+        new TusServletResponse(servletResponse),
+        null,
+        null);
+    assertThat(
+        servletResponse.getHeader(HttpHeader.UPLOAD_LIMIT), org.hamcrest.CoreMatchers.nullValue());
+  }
+
+  @Test
+  public void testProcessWithMinAndAppendSizeLimits() throws Exception {
+    when(uploadStorageService.getMinSize()).thenReturn(100L);
+    when(uploadStorageService.getMaxAppendSize()).thenReturn(5000L);
+    when(uploadStorageService.getMinAppendSize()).thenReturn(10L);
+    when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class)))
+        .thenReturn(null);
+
+    TusServletResponse tusResponse = new TusServletResponse(servletResponse);
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(servletRequest),
+        tusResponse,
+        uploadStorageService,
+        null);
+
+    String uploadLimit = tusResponse.getHeader(HttpHeader.UPLOAD_LIMIT);
+    assertThat(uploadLimit, is(notNullValue()));
+    assertThat(uploadLimit.contains("min-size=100"), is(true));
+    assertThat(uploadLimit.contains("max-append-size=5000"), is(true));
+    assertThat(uploadLimit.contains("min-append-size=10"), is(true));
+  }
+
+  @Test
+  public void testProcessMaxAgeFromStorageService() throws Exception {
+    when(uploadStorageService.getUploadExpirationPeriod()).thenReturn(120000L); // 120s
+    when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class)))
+        .thenReturn(null);
+
+    TusServletResponse tusResponse = new TusServletResponse(servletResponse);
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(servletRequest),
+        tusResponse,
+        uploadStorageService,
+        null);
+
+    String uploadLimit = tusResponse.getHeader(HttpHeader.UPLOAD_LIMIT);
+    assertThat(uploadLimit, is(notNullValue()));
+    assertThat(uploadLimit.contains("max-age=120"), is(true));
+  }
 }

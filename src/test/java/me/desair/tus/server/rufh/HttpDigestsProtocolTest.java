@@ -1,7 +1,6 @@
 package me.desair.tus.server.rufh;
 
 import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -12,6 +11,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.util.Base64;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.TusFileUploadService;
@@ -152,11 +153,7 @@ public class HttpDigestsProtocolTest {
   public void testReprDigestCompleteUploadSuccess() throws Exception {
     String testContent = "representation test content";
     // base64 SHA-256 of "representation test content" is
-    // "p+nB8b3M1Y8z7HicF87RkC7C2f9xQnL9M6aW9w/6Ghk="
-    // Wait, let's verify actual base64 SHA-256 of "representation test content"
-    // MessageDigest SHA-256 of "representation test content" ->
-    // 66e8574a4413155f91456d2b380a06efcf5e8211dbf21fb1bfb41cf43c081e19
-    // base64: E0/isChYLiH9/ph8pn/+F6EyUQ+PCZTi8epGL3cuQW0=
+    // E0/isChYLiH9/ph8pn/+F6EyUQ+PCZTi8epGL3cuQW0=
     String correctBase64 = "E0/isChYLiH9/ph8pn/+F6EyUQ+PCZTi8epGL3cuQW0=";
 
     // 1. Create upload session with Repr-Digest
@@ -227,20 +224,23 @@ public class HttpDigestsProtocolTest {
   public void testWantReprDigestContinuousUpdates() throws Exception {
     String chunk1 = "chunk one ";
     String chunk2 = "chunk two";
-    // base64 SHA-256 of "chunk one " is "W/Wf9eL0Xg3V5bV5k9K6YVwU8O7g="
-    // Wait, let's verify actual base64 SHA-256 of "chunk one ":
-    // MessageDigest SHA-256 of "chunk one " -> Z8m4uP/R5D6q6Y0Vv5v1g6tH=...
-    // Let's just retrieve whatever the server outputs.
+    String fullContent = chunk1 + chunk2;
+    int totalLength = fullContent.getBytes(StandardCharsets.UTF_8).length;
+
+    MessageDigest digest = MessageDigest.getInstance("SHA-256");
 
     // 1. Create upload session with Want-Repr-Digest
     servletRequest.setMethod("POST");
     servletRequest.setRequestURI(UPLOAD_URI);
-    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "20");
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, String.valueOf(totalLength));
     servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
     servletRequest.addHeader(HttpHeader.WANT_REPR_DIGEST, "sha-256");
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     String uploadLocation = servletResponse.getHeader(HttpHeader.LOCATION);
-    assertThat(servletResponse.getHeader(HttpHeader.REPR_DIGEST), notNullValue());
+
+    String expectedDigest0 =
+        "sha-256=:" + Base64.getEncoder().encodeToString(digest.digest(new byte[0])) + ":";
+    assertThat(servletResponse.getHeader(HttpHeader.REPR_DIGEST), is(expectedDigest0));
 
     // 2. Append chunk 1
     servletRequest = new MockHttpServletRequest();
@@ -253,7 +253,33 @@ public class HttpDigestsProtocolTest {
     servletRequest.setContent(chunk1.getBytes(StandardCharsets.UTF_8));
 
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
-    assertThat(servletResponse.getHeader(HttpHeader.REPR_DIGEST), notNullValue());
+
+    String expectedDigest1 =
+        "sha-256=:"
+            + Base64.getEncoder()
+                .encodeToString(digest.digest(chunk1.getBytes(StandardCharsets.UTF_8)))
+            + ":";
+    assertThat(servletResponse.getHeader(HttpHeader.REPR_DIGEST), is(expectedDigest1));
+
+    // 3. Append chunk 2 and complete upload
+    servletRequest = new MockHttpServletRequest();
+    servletResponse = new MockHttpServletResponse();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadLocation);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    servletRequest.addHeader(
+        HttpHeader.UPLOAD_OFFSET, String.valueOf(chunk1.getBytes(StandardCharsets.UTF_8).length));
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    servletRequest.setContent(chunk2.getBytes(StandardCharsets.UTF_8));
+
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+
+    String expectedDigest2 =
+        "sha-256=:"
+            + Base64.getEncoder()
+                .encodeToString(digest.digest(fullContent.getBytes(StandardCharsets.UTF_8)))
+            + ":";
+    assertThat(servletResponse.getHeader(HttpHeader.REPR_DIGEST), is(expectedDigest2));
   }
 
   /** End-to-end test verifying withUploadDeduplication functionality using HTTP Digests. */

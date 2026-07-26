@@ -116,12 +116,6 @@ public class HttpHeader {
   /** The Upload-Draft request header field indicates draft parameters in IETF Resumable Uploads. */
   public static final String UPLOAD_DRAFT = "Upload-Draft";
 
-  /**
-   * The Accept-Patch response header field advertises accepted patch media types (e.g.
-   * application/partial-upload).
-   */
-  public static final String ACCEPT_PATCH = "Accept-Patch";
-
   /** Media type application/partial-upload used for IETF Resumable Upload append requests. */
   public static final String CONTENT_TYPE_PARTIAL_UPLOAD = "application/partial-upload";
 

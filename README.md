@@ -119,10 +119,7 @@ Next to removing uploads after they have been completed and processed by the bac
 ## Compatible Client Implementations
 This server implementation has been tested with:
 - **Tus 1.0.0 Clients**: Tested with [Uppy](https://uppy.io/) and `tus-js-client`.
-- **IETF Resumable Uploads Clients**:
-  - `tus-js-client`: Features experimental support for the IETF draft (configured via `protocol: 'ietf-draft-03'` / `'ietf-draft-05'`).
-  - Native Apple Platforms (`URLSession`): iOS 17+ and macOS 14+ natively support the IETF HTTP Resumable Uploads specification.
-  - Custom HTTP Clients: Standard HTTP clients sending `Upload-Complete` / `application/partial-upload` structured headers.
+- **IETF Resumable Uploads Clients**: For now, the implementation has only been tested with the [RUFH conformity tests of the IETF hackathon](https://github.com/tus/ietf-hackathon).
 
 This repository also contains comprehensive automated integration test suites (`ITTusFileUploadService`, `IetfProtocolCreationTest`, `IetfProtocolAppendTest`, `IetfProtocolHeadTest`, `IetfProtocolCancellationTest`) validating both protocol specifications.
 

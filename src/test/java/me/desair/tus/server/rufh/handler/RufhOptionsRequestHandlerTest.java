@@ -5,7 +5,6 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
@@ -56,7 +55,7 @@ public class RufhOptionsRequestHandlerTest {
         null);
 
     assertThat(response.getStatus(), is(204));
-    assertThat(response.getHeader(HttpHeader.ACCEPT_PATCH), org.hamcrest.CoreMatchers.nullValue());
+    assertThat(response.getHeader("Accept-Patch"), org.hamcrest.CoreMatchers.nullValue());
   }
 
   @Test

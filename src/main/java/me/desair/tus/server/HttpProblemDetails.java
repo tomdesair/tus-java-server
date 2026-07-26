@@ -44,21 +44,6 @@ public class HttpProblemDetails {
   }
 
   /**
-   * Factory method to create a problem details instance.
-   *
-   * @param status HTTP response status code
-   * @param type Problem type URI reference
-   * @param title Short summary of the problem type
-   * @param detail Human-readable explanation
-   * @param extraFields Additional extension members
-   * @return A new HttpProblemDetails instance
-   */
-  public static HttpProblemDetails of(
-      int status, String type, String title, String detail, Map<String, Object> extraFields) {
-    return new HttpProblemDetails(status, type, title, detail, extraFields);
-  }
-
-  /**
    * Create an Offset Mismatch (409 Conflict) problem details response for RUFH append requests.
    *
    * <p>Reference: Section 7.1 (Mismatching Offset) of draft-ietf-httpbis-resumable-upload-12: "This
@@ -132,63 +117,6 @@ public class HttpProblemDetails {
         "Mismatched Digest Values",
         "The calculated digest does not match the provided digest value.",
         null);
-  }
-
-  /**
-   * Send problem details response directly to a TusServletResponse.
-   *
-   * @param response The servlet response
-   * @param status HTTP response status code
-   * @param type Problem type URI reference
-   * @param title Short summary
-   * @param detail Human-readable explanation
-   * @param extraFields Additional extension members
-   * @throws IOException When writing response fails
-   */
-  public static void sendProblemDetails(
-      TusServletResponse response,
-      int status,
-      String type,
-      String title,
-      String detail,
-      Map<String, Object> extraFields)
-      throws IOException {
-    of(status, type, title, detail, extraFields).writeTo(response);
-  }
-
-  /**
-   * Helper to send offset mismatch problem details directly.
-   *
-   * @param response Servlet response
-   * @param expectedOffset Expected server offset
-   * @param providedOffset Provided upload offset
-   * @throws IOException When writing response fails
-   */
-  public static void sendOffsetMismatch(
-      TusServletResponse response, long expectedOffset, Long providedOffset) throws IOException {
-    forOffsetMismatch(expectedOffset, providedOffset).writeTo(response);
-  }
-
-  /**
-   * Helper to send completed upload problem details directly.
-   *
-   * @param response Servlet response
-   * @param status HTTP status code
-   * @throws IOException When writing response fails
-   */
-  public static void sendCompletedUpload(TusServletResponse response, int status)
-      throws IOException {
-    forCompletedUpload(status).writeTo(response);
-  }
-
-  /**
-   * Helper to send inconsistent length problem details directly.
-   *
-   * @param response Servlet response
-   * @throws IOException When writing response fails
-   */
-  public static void sendInconsistentLength(TusServletResponse response) throws IOException {
-    forInconsistentLength().writeTo(response);
   }
 
   /**

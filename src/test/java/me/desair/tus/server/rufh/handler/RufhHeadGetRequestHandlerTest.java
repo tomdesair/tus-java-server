@@ -127,4 +127,65 @@ public class RufhHeadGetRequestHandlerTest {
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("10000"));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
   }
+
+  @Test
+  public void testProcessNullUploadInfo() throws Exception {
+    request.setRequestURI("/files/null-id");
+    when(storageService.getUploadInfo("/files/null-id", "owner")).thenReturn(null);
+
+    assertThat(
+        handler.process(
+            HttpMethod.HEAD,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            null),
+        org.hamcrest.CoreMatchers.nullValue());
+  }
+
+  @Test
+  public void testProcessExpiredUploadInfo() throws Exception {
+    request.setRequestURI("/files/expired-id");
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("expired-id"));
+    info.setExpirationTimestamp(System.currentTimeMillis() - 1000L); // Expired
+    when(storageService.getUploadInfo("/files/expired-id", "owner")).thenReturn(info);
+
+    assertThat(
+        handler.process(
+            HttpMethod.HEAD,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            null),
+        org.hamcrest.CoreMatchers.nullValue());
+  }
+
+  @Test
+  public void testProcessUploadInfoWithoutLength() throws Exception {
+    request.setRequestURI("/files/no-length-id");
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("no-length-id"));
+    info.setOffset(500L);
+    // Length is null (not set)
+    when(storageService.getUploadInfo("/files/no-length-id", "owner")).thenReturn(info);
+
+    handler.process(
+        HttpMethod.HEAD,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        null,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(204));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("500"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_LENGTH), org.hamcrest.CoreMatchers.nullValue());
+  }
 }

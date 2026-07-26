@@ -67,7 +67,20 @@ public class DownloadProtocolRufhTest {
     assertThat(servletResponse.getStatus(), is(201));
     String uploadLocation = servletResponse.getHeader(HttpHeader.LOCATION);
 
-    // 2. Append chunk and complete upload
+    // 2. Perform HEAD on in-progress upload (offset retrieval headers)
+    servletRequest = new MockHttpServletRequest();
+    servletResponse = new MockHttpServletResponse();
+    servletRequest.setMethod("HEAD");
+    servletRequest.setRequestURI(uploadLocation);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertThat(servletResponse.getStatus(), is(204));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("0"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is("14"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LIMIT), is("min-size=0"));
+    assertThat(servletResponse.getHeader(HttpHeader.CACHE_CONTROL), is("no-store"));
+
+    // 3. Append chunk and complete upload
     servletRequest = new MockHttpServletRequest();
     servletResponse = new MockHttpServletResponse();
     servletRequest.setMethod("PATCH");
@@ -79,7 +92,20 @@ public class DownloadProtocolRufhTest {
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     assertThat(servletResponse.getStatus(), is(200));
 
-    // 3. Download the upload via GET
+    // 4. Perform HEAD on completed upload (offset retrieval headers)
+    servletRequest = new MockHttpServletRequest();
+    servletResponse = new MockHttpServletResponse();
+    servletRequest.setMethod("HEAD");
+    servletRequest.setRequestURI(uploadLocation);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertThat(servletResponse.getStatus(), is(204));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("14"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is("14"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LIMIT), is("min-size=0"));
+    assertThat(servletResponse.getHeader(HttpHeader.CACHE_CONTROL), is("no-store"));
+
+    // 5. Download the upload via GET
     servletRequest = new MockHttpServletRequest();
     servletResponse = new MockHttpServletResponse();
     servletRequest.setMethod("GET");
@@ -94,7 +120,7 @@ public class DownloadProtocolRufhTest {
         servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
         is(String.format("attachment; filename=\"%s\"; filename*=UTF-8''%s", uploadId, uploadId)));
 
-    // 4. Assert that all Tus-specific response headers are completely absent
+    // 6. Assert that all Tus-specific response headers are completely absent
     assertThat(servletResponse.getHeader(HttpHeader.TUS_RESUMABLE), nullValue());
     assertThat(servletResponse.getHeader(HttpHeader.TUS_VERSION), nullValue());
     assertThat(servletResponse.getHeader(HttpHeader.TUS_EXTENSION), nullValue());
@@ -114,7 +140,20 @@ public class DownloadProtocolRufhTest {
     assertThat(servletResponse.getStatus(), is(201));
     String uploadLocation = servletResponse.getHeader(HttpHeader.LOCATION);
 
-    // 2. Download in-progress upload via GET
+    // 2. Perform HEAD on in-progress upload
+    servletRequest = new MockHttpServletRequest();
+    servletResponse = new MockHttpServletResponse();
+    servletRequest.setMethod("HEAD");
+    servletRequest.setRequestURI(uploadLocation);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertThat(servletResponse.getStatus(), is(204));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("0"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is("14"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LIMIT), is("min-size=0"));
+    assertThat(servletResponse.getHeader(HttpHeader.CACHE_CONTROL), is("no-store"));
+
+    // 3. Download in-progress upload via GET (with download feature enabled)
     servletRequest = new MockHttpServletRequest();
     servletResponse = new MockHttpServletResponse();
     servletRequest.setMethod("GET");
@@ -138,13 +177,65 @@ public class DownloadProtocolRufhTest {
     servletRequest.setMethod("POST");
     servletRequest.setRequestURI(UPLOAD_URI);
     servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "14");
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    serviceWithoutDownload.process(servletRequest, servletResponse, OWNER_KEY);
+    assertThat(servletResponse.getStatus(), is(201));
+    String uploadLocation = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    // 3. HEAD on in-progress upload without download feature
+    servletRequest = new MockHttpServletRequest();
+    servletResponse = new MockHttpServletResponse();
+    servletRequest.setMethod("HEAD");
+    servletRequest.setRequestURI(uploadLocation);
+    serviceWithoutDownload.process(servletRequest, servletResponse, OWNER_KEY);
+    assertThat(servletResponse.getStatus(), is(204));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("0"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is("14"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LIMIT), is("min-size=0"));
+    assertThat(servletResponse.getHeader(HttpHeader.CACHE_CONTROL), is("no-store"));
+
+    // 4. GET on in-progress upload without download feature (acts as offset retrieval)
+    servletRequest = new MockHttpServletRequest();
+    servletResponse = new MockHttpServletResponse();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(uploadLocation);
+    serviceWithoutDownload.process(servletRequest, servletResponse, OWNER_KEY);
+    assertThat(servletResponse.getStatus(), is(204));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("0"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is("14"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LIMIT), is("min-size=0"));
+    assertThat(servletResponse.getHeader(HttpHeader.CACHE_CONTROL), is("no-store"));
+    assertThat(servletResponse.getContentAsString(), is(""));
+
+    // 5. Complete upload
+    servletRequest = new MockHttpServletRequest();
+    servletResponse = new MockHttpServletResponse();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadLocation);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
     servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
     servletRequest.setContent("hello download".getBytes(StandardCharsets.UTF_8));
     serviceWithoutDownload.process(servletRequest, servletResponse, OWNER_KEY);
     assertThat(servletResponse.getStatus(), is(200));
-    String uploadLocation = servletResponse.getHeader(HttpHeader.LOCATION);
 
-    // 3. Download via GET
+    // 6. HEAD on completed upload without download feature
+    servletRequest = new MockHttpServletRequest();
+    servletResponse = new MockHttpServletResponse();
+    servletRequest.setMethod("HEAD");
+    servletRequest.setRequestURI(uploadLocation);
+    serviceWithoutDownload.process(servletRequest, servletResponse, OWNER_KEY);
+    assertThat(servletResponse.getStatus(), is(204));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("14"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is("14"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LIMIT), is("min-size=0"));
+    assertThat(servletResponse.getHeader(HttpHeader.CACHE_CONTROL), is("no-store"));
+
+    // 7. GET on completed upload without download feature (acts as offset retrieval, only HTTP
+    // headers returned)
     servletRequest = new MockHttpServletRequest();
     servletResponse = new MockHttpServletResponse();
     servletRequest.setMethod("GET");
@@ -152,10 +243,13 @@ public class DownloadProtocolRufhTest {
     serviceWithoutDownload.process(servletRequest, servletResponse, OWNER_KEY);
 
     // Without the download feature, GET acts as an offset retrieval request returning 204 No
-    // Content
+    // Content and headers
     assertThat(servletResponse.getStatus(), is(204));
     assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("14"));
     assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LENGTH), is("14"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_LIMIT), is("min-size=0"));
+    assertThat(servletResponse.getHeader(HttpHeader.CACHE_CONTROL), is("no-store"));
     assertThat(servletResponse.getContentAsString(), is(""));
   }
 }

@@ -113,22 +113,23 @@ public class HttpProblemDetailsTest {
   }
 
   @Test
-  public void testProblemDetailsOfAndSendHelpers() throws Exception {
-    HttpProblemDetails.sendProblemDetails(
-        new TusServletResponse(response), 418, "type-uri", "Teapot Title", "Teapot Detail", null);
+  public void testWriteToDirectly() throws Exception {
+    HttpProblemDetails customProblem =
+        new HttpProblemDetails(418, "type-uri", "Teapot Title", "Teapot Detail", null);
+    customProblem.writeTo(new TusServletResponse(response));
     assertThat(response.getStatus(), is(418));
     assertThat(response.getContentAsString(), containsString("\"title\":\"Teapot Title\""));
 
     response = new MockHttpServletResponse();
-    HttpProblemDetails.sendOffsetMismatch(new TusServletResponse(response), 100L, 200L);
+    HttpProblemDetails.forOffsetMismatch(100L, 200L).writeTo(new TusServletResponse(response));
     assertThat(response.getStatus(), is(409));
 
     response = new MockHttpServletResponse();
-    HttpProblemDetails.sendCompletedUpload(new TusServletResponse(response), 400);
+    HttpProblemDetails.forCompletedUpload(400).writeTo(new TusServletResponse(response));
     assertThat(response.getStatus(), is(400));
 
     response = new MockHttpServletResponse();
-    HttpProblemDetails.sendInconsistentLength(new TusServletResponse(response));
+    HttpProblemDetails.forInconsistentLength().writeTo(new TusServletResponse(response));
     assertThat(response.getStatus(), is(400));
   }
 
