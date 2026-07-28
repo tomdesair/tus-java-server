@@ -6,7 +6,6 @@ import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
 
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutput;
@@ -17,10 +16,12 @@ import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.Path;
+import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.regex.Pattern;
 import me.desair.tus.server.HttpHeader;
+import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import org.apache.commons.io.serialization.ValidatingObjectInputStream;
 import org.apache.commons.lang3.StringUtils;
@@ -201,8 +202,26 @@ public class Utils {
     return null;
   }
 
-  public static String getUploadURI(HttpServletRequest request, HttpServletResponse response) {
-    String location = response.getHeader(HttpHeader.LOCATION);
-    return StringUtils.isNotBlank(location) ? location : request.getRequestURI();
+  /**
+   * Resolves the upload URI from the HTTP request and response context.
+   *
+   * @param method The HttpMethod of the request
+   * @param request The TusServletRequest
+   * @param response The TusServletResponse
+   * @return The upload URI string, or null if it cannot be determined
+   */
+  public static String getUploadUri(TusServletRequest request, TusServletResponse response) {
+    HttpMethod method =
+        request != null
+            ? HttpMethod.getMethodIfSupported(request, EnumSet.allOf(HttpMethod.class))
+            : null;
+
+    if (HttpMethod.POST.equals(method) || HttpMethod.PUT.equals(method)) {
+      return response != null ? response.getHeader(HttpHeader.LOCATION) : null;
+    } else if (request != null) {
+      return request.getRequestURI();
+    }
+
+    return null;
   }
 }

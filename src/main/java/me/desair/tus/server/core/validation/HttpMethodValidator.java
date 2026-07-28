@@ -18,7 +18,10 @@ public class HttpMethodValidator implements RequestValidator {
       String ownerKey)
       throws TusException {
 
-    if (method == null) {
+    if (method == null
+        || HttpMethod.PUT.equals(method)
+        || HttpMethod.TRACE.equals(method)
+        || HttpMethod.CONNECT.equals(method)) {
       throw new UnsupportedMethodException(
           "The HTTP method " + request.getMethod() + " is not supported");
     }

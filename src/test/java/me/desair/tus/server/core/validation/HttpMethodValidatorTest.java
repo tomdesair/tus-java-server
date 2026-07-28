@@ -38,6 +38,21 @@ public class HttpMethodValidatorTest {
     validator.validate(null, servletRequest, uploadStorageService, null);
   }
 
+  @Test(expected = UnsupportedMethodException.class)
+  public void validatePut() throws Exception {
+    validator.validate(HttpMethod.PUT, servletRequest, uploadStorageService, null);
+  }
+
+  @Test(expected = UnsupportedMethodException.class)
+  public void validateTrace() throws Exception {
+    validator.validate(HttpMethod.TRACE, servletRequest, uploadStorageService, null);
+  }
+
+  @Test(expected = UnsupportedMethodException.class)
+  public void validateConnect() throws Exception {
+    validator.validate(HttpMethod.CONNECT, servletRequest, uploadStorageService, null);
+  }
+
   @Test
   public void supports() throws Exception {
     assertThat(validator.supports(HttpMethod.GET), is(true));

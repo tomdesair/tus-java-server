@@ -62,6 +62,26 @@ public interface UploadStorageService {
   long getMaxUploadSize();
 
   /**
+   * Limit the maximum append payload size to the given value in bytes.
+   *
+   * @param maxAppendSize The maximum append limit to set
+   */
+  default void setMaxAppendSize(Long maxAppendSize) {
+    // Default no-op for third-party implementations
+  }
+
+  /**
+   * Get the maximum append payload size configured on this storage service. If not explicitly set,
+   * defaults to the maximum upload size limit if set.
+   *
+   * @return The maximum append size in bytes, or null if no maximum append limit applies
+   */
+  default Long getMaxAppendSize() {
+    long maxUpload = getMaxUploadSize();
+    return maxUpload > 0 ? maxUpload : null;
+  }
+
+  /**
    * Create an upload location with the given upload information.
    *
    * @param info The Upload information to use to create the new upload
@@ -195,5 +215,41 @@ public interface UploadStorageService {
   default UploadInfo getUploadInfoByChecksum(String checksum, ChecksumAlgorithm algorithm)
       throws IOException {
     return null;
+  }
+
+  /**
+   * Get the minimum append size limit in bytes for a single upload append or creation request.
+   *
+   * @return The minimum append size in bytes, or null if no minimum append size limit applies
+   */
+  default Long getMinAppendSize() {
+    return null;
+  }
+
+  /**
+   * Set the minimum append size limit in bytes for a single upload append or creation request.
+   *
+   * @param minAppendSize The minimum append size in bytes, or null for no limit
+   */
+  default void setMinAppendSize(Long minAppendSize) {
+    // No-op for backward compatibility
+  }
+
+  /**
+   * Get the minimum total upload representation size in bytes.
+   *
+   * @return The minimum size in bytes, or null if no minimum size limit applies
+   */
+  default Long getMinSize() {
+    return null;
+  }
+
+  /**
+   * Set the minimum total upload representation size in bytes.
+   *
+   * @param minSize The minimum size in bytes, or null for no limit
+   */
+  default void setMinSize(Long minSize) {
+    // No-op for backward compatibility
   }
 }

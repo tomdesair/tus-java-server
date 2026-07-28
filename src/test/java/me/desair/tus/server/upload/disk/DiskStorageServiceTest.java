@@ -742,7 +742,8 @@ public class DiskStorageServiceTest {
   public void testGetUploadInfoByChecksumWithUnsafeChecksums() throws Exception {
     // These values cannot be parsed to non-empty base64 bytes, so they remain unsafe and throw
     // IOException
-    List<String> unsafeEmptyChecksums = Arrays.asList(" ", "..", "/");
+    List<String> unsafeEmptyChecksums =
+        Arrays.asList(" ", "..", "/", "?", "*", ":", "<", ">", "\"", "|");
     for (String checksum : unsafeEmptyChecksums) {
       assertThrows(
           IOException.class,
@@ -802,6 +803,18 @@ public class DiskStorageServiceTest {
   }
 
   @Test
+  public void testMaxAppendSizeDefaulting() {
+    DiskStorageService diskService = new DiskStorageService(storagePath.toString());
+    assertThat(diskService.getMaxAppendSize(), is(nullValue()));
+
+    diskService.setMaxUploadSize(50000L);
+    assertThat(diskService.getMaxAppendSize(), is(50000L));
+
+    diskService.setMaxAppendSize(10000L);
+    assertThat(diskService.getMaxAppendSize(), is(10000L));
+  }
+
+  @Test
   public void testGetUploadInfoByChecksumWithNullValues() throws Exception {
     // 1. null checksum should return null
     assertThat(
@@ -823,5 +836,136 @@ public class DiskStorageServiceTest {
         storageService.getUploadInfoByChecksum(
             "E0/isChYLiH9/ph8pn/+F6EyUQ+PCZTi8epGL3cuQW0=", ChecksumAlgorithm.SHA256),
         is(nullValue()));
+  }
+
+  @Test
+  public void testMinAppendSizeAndMinSize() {
+    DiskStorageService diskService = new DiskStorageService(storagePath.toString());
+    assertThat(diskService.getMinAppendSize(), is(nullValue()));
+    assertThat(diskService.getMinSize(), is(nullValue()));
+
+    diskService.setMinAppendSize(100L);
+    assertThat(diskService.getMinAppendSize(), is(100L));
+
+    diskService.setMinAppendSize(0L);
+    assertThat(diskService.getMinAppendSize(), is(nullValue()));
+
+    diskService.setMinAppendSize(-5L);
+    assertThat(diskService.getMinAppendSize(), is(nullValue()));
+
+    diskService.setMinSize(500L);
+    assertThat(diskService.getMinSize(), is(500L));
+
+    diskService.setMinSize(0L);
+    assertThat(diskService.getMinSize(), is(nullValue()));
+
+    diskService.setMinSize(-5L);
+    assertThat(diskService.getMinSize(), is(nullValue()));
+  }
+
+  @Test
+  public void testUploadStorageServiceDefaultMethods() {
+    me.desair.tus.server.upload.UploadStorageService anonymousService =
+        new me.desair.tus.server.upload.UploadStorageService() {
+          @Override
+          public UploadInfo create(UploadInfo info, String ownerKey) throws IOException {
+            return null;
+          }
+
+          @Override
+          public UploadInfo getUploadInfo(String uploadUrl, String ownerKey) throws IOException {
+            return null;
+          }
+
+          @Override
+          public UploadInfo getUploadInfo(UploadId id) throws IOException {
+            return null;
+          }
+
+          @Override
+          public String getUploadUri() {
+            return null;
+          }
+
+          @Override
+          public void update(UploadInfo uploadInfo) throws UploadNotFoundException, IOException {}
+
+          @Override
+          public UploadInfo append(UploadInfo uploadInfo, InputStream inputStream)
+              throws IOException, UploadNotFoundException {
+            return null;
+          }
+
+          @Override
+          public InputStream getUploadedBytes(String uploadUri, String ownerKey)
+              throws IOException, UploadNotFoundException {
+            return null;
+          }
+
+          @Override
+          public InputStream getUploadedBytes(UploadId id)
+              throws IOException, UploadNotFoundException {
+            return null;
+          }
+
+          @Override
+          public void copyUploadTo(UploadInfo info, java.io.OutputStream outputStream)
+              throws IOException, UploadNotFoundException {}
+
+          @Override
+          public void cleanupExpiredUploads(UploadLockingService uploadLockingService)
+              throws IOException {}
+
+          @Override
+          public void removeLastNumberOfBytes(UploadInfo uploadInfo, long byteCount)
+              throws UploadNotFoundException, IOException {}
+
+          @Override
+          public void terminateUpload(UploadInfo uploadInfo)
+              throws UploadNotFoundException, IOException {}
+
+          @Override
+          public Long getUploadExpirationPeriod() {
+            return null;
+          }
+
+          @Override
+          public void setUploadExpirationPeriod(Long uploadExpirationPeriod) {}
+
+          @Override
+          public void setUploadConcatenationService(
+              me.desair.tus.server.upload.concatenation.UploadConcatenationService
+                  concatenationService) {}
+
+          @Override
+          public me.desair.tus.server.upload.concatenation.UploadConcatenationService
+              getUploadConcatenationService() {
+            return null;
+          }
+
+          @Override
+          public void setIdFactory(UploadIdFactory idFactory) {}
+
+          @Override
+          public long getMaxUploadSize() {
+            return 0;
+          }
+
+          @Override
+          public void setMaxUploadSize(Long maxUploadSize) {}
+
+          @Override
+          public Long getMaxAppendSize() {
+            return null;
+          }
+
+          @Override
+          public void setMaxAppendSize(Long maxAppendSize) {}
+        };
+
+    assertThat(anonymousService.getMinAppendSize(), is(nullValue()));
+    assertThat(anonymousService.getMinSize(), is(nullValue()));
+    anonymousService.setMinAppendSize(100L);
+    anonymousService.setMinSize(100L);
   }
 }

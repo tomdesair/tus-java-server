@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.util.Objects;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
@@ -44,6 +45,19 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
       UploadStorageService uploadStorageService,
       String ownerKey)
       throws IOException, TusException {
+    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey, null);
+  }
+
+  @Override
+  public HttpProblemDetails process(
+      HttpMethod method,
+      TusServletRequest servletRequest,
+      TusServletResponse servletResponse,
+      UploadStorageService uploadStorageService,
+      UploadLockingService lockingService,
+      String ownerKey,
+      TusException exception)
+      throws IOException, TusException {
 
     boolean found = true;
     UploadInfo uploadInfo =
@@ -54,14 +68,15 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
     } else if (uploadInfo.isUploadInProgress()) {
       try {
         InputStream stream = servletRequest.getContentInputStream();
-        UploadLockingService lockingService =
-            (UploadLockingService)
-                servletRequest.getAttribute("me.desair.tus.uploadLockingService");
+
+        // If a locking service is provided, wrap the input stream in an InterruptibleInputStream
+        // and register it with the locking service to allow for interruption of the upload.
         if (lockingService != null) {
           InterruptibleInputStream interruptibleStream = new InterruptibleInputStream(stream);
           lockingService.registerInputStream(servletRequest.getRequestURI(), interruptibleStream);
           stream = interruptibleStream;
         }
+
         uploadInfo = uploadStorageService.append(uploadInfo, stream);
 
         if (uploadStorageService.isUploadDeduplicationEnabled()
@@ -99,5 +114,6 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
           servletRequest.getRequestURI());
       servletResponse.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
     }
+    return null;
   }
 }

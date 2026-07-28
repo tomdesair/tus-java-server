@@ -46,19 +46,16 @@ public class ExpirationRequestHandler extends AbstractRequestHandler {
     UploadInfo uploadInfo = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
 
     // The Upload-Expires response header MUST be included in every PATCH response if the upload
-    // is
-    // going to expire.
+    // is going to expire.
     // If the expiration is known at the creation, the Upload-Expires header MUST be included in
-    // the
-    // response to
-    // the initial POST request. Its value MAY change over time.
+    // the response to the initial POST request. Its value MAY change over time.
 
-    if (expirationPeriod != null && expirationPeriod > 0 && uploadInfo != null) {
-
+    if (expirationPeriod != null
+        && expirationPeriod > 0
+        && uploadInfo != null
+        && !uploadInfo.isExpired()) {
       uploadInfo.updateExpiration(expirationPeriod);
       uploadStorageService.update(uploadInfo);
-
-      servletResponse.setDateHeader(HttpHeader.UPLOAD_EXPIRES, uploadInfo.getExpirationTimestamp());
     }
   }
 

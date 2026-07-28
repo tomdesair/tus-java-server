@@ -7,7 +7,6 @@ import java.io.InputStream;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -71,18 +70,21 @@ public class TusServletRequest extends HttpServletRequestWrapper {
       countingInputStream = BoundedInputStream.builder().setInputStream(contentInputStream).get();
       contentInputStream = countingInputStream;
 
+      // Retrieve checksum algorithm specified in Tus v1 Upload-Checksum header
       ChecksumAlgorithm checksumAlgorithm =
           ChecksumAlgorithm.forUploadChecksumHeader(getHeader(HttpHeader.UPLOAD_CHECKSUM));
 
-      List<ChecksumAlgorithm> algorithms;
+      java.util.Set<ChecksumAlgorithm> algorithms = new java.util.LinkedHashSet<>();
 
       if (isChunked) {
         // Since the Checksum header can still come at the end, keep track of all checksums
-        algorithms = Arrays.asList(ChecksumAlgorithm.values());
-      } else if (checksumAlgorithm != null) {
-        algorithms = Collections.singletonList(checksumAlgorithm);
+        algorithms.addAll(Arrays.asList(ChecksumAlgorithm.values()));
       } else {
-        algorithms = Collections.emptyList();
+        if (checksumAlgorithm != null) {
+          algorithms.add(checksumAlgorithm);
+        }
+        algorithms.addAll(
+            ChecksumAlgorithm.parseDigestHeader(getHeader(HttpHeader.CONTENT_DIGEST)).keySet());
       }
 
       for (ChecksumAlgorithm algorithm : algorithms) {

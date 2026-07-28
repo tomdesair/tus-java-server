@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.RequestHandler;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.util.AbstractTusExtension;
@@ -25,12 +26,18 @@ public class DownloadExtension extends AbstractTusExtension {
   }
 
   @Override
+  public boolean isApplicable(HttpMethod method, ProtocolVersion version) {
+    return true;
+  }
+
+  @Override
   protected void initValidators(List<RequestValidator> requestValidators) {
     // All validation is all read done by the Core protocol
   }
 
   @Override
   protected void initRequestHandlers(List<RequestHandler> requestHandlers) {
+    requestHandlers.add(new DownloadUploadMetadataHandler());
     requestHandlers.add(new DownloadGetRequestHandler());
     requestHandlers.add(new DownloadOptionsRequestHandler());
   }

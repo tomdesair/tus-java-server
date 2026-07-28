@@ -46,6 +46,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   private static final String DATA_FILE = "data";
 
   private Long maxUploadSize = null;
+  private Long maxAppendSize = null;
+  private Long minAppendSize = null;
+  private Long minSize = null;
   private Long uploadExpirationPeriod = null;
   private UploadIdFactory idFactory;
   private UploadConcatenationService uploadConcatenationService;
@@ -76,6 +79,40 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   @Override
   public long getMaxUploadSize() {
     return maxUploadSize == null ? 0 : maxUploadSize;
+  }
+
+  @Override
+  public void setMaxAppendSize(Long maxAppendSize) {
+    this.maxAppendSize = (maxAppendSize != null && maxAppendSize > 0 ? maxAppendSize : null);
+  }
+
+  @Override
+  public Long getMaxAppendSize() {
+    if (maxAppendSize != null && maxAppendSize > 0) {
+      return maxAppendSize;
+    }
+    long maxUpload = getMaxUploadSize();
+    return maxUpload > 0 ? maxUpload : null;
+  }
+
+  @Override
+  public void setMinAppendSize(Long minAppendSize) {
+    this.minAppendSize = (minAppendSize != null && minAppendSize > 0 ? minAppendSize : null);
+  }
+
+  @Override
+  public Long getMinAppendSize() {
+    return minAppendSize;
+  }
+
+  @Override
+  public void setMinSize(Long minSize) {
+    this.minSize = (minSize != null && minSize > 0 ? minSize : null);
+  }
+
+  @Override
+  public Long getMinSize() {
+    return minSize;
   }
 
   @Override
@@ -477,12 +514,43 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         .resolve(filename);
   }
 
+  /**
+   * Checks whether a given path component string is safe for use as a file or directory name on
+   * disk.
+   *
+   * <p>OS differences in path component restrictions:
+   *
+   * <ul>
+   *   <li><b>POSIX / Linux / macOS:</b> Strict path separators are {@code /} and NUL ({@code \0}).
+   *       Characters such as {@code ?}, {@code *}, {@code :}, {@code <}, {@code >}, {@code "}, and
+   *       {@code |} are allowed in Linux filenames.
+   *   <li><b>Windows (NTFS / FAT32):</b> Reserved characters prohibited in file/directory names are
+   *       {@code \}, {@code /}, {@code :}, {@code *}, {@code ?}, {@code "}, {@code <}, {@code >},
+   *       {@code |}, and ASCII control characters (0-31). Attempting to resolve paths containing
+   *       these characters on Windows triggers an OS-level {@link
+   *       java.nio.file.InvalidPathException}.
+   * </ul>
+   *
+   * To guarantee portable, cross-platform safety and prevent OS-dependent runtime exceptions on
+   * Windows, this method enforces validation against reserved characters from both Linux and
+   * Windows specifications, as well as relative path traversal sequences ({@code ..}).
+   *
+   * @param component the path component to validate
+   * @return {@code true} if the component is safe for cross-platform file system operations; {@code
+   *     false} otherwise
+   */
   private boolean isSafePathComponent(String component) {
-    return component != null
-        && !component.trim().isEmpty()
-        && !component.contains("/")
-        && !component.contains("\\")
-        && !component.contains("..");
+    if (component == null || component.trim().isEmpty() || component.contains("..")) {
+      return false;
+    }
+    for (int i = 0; i < component.length(); i++) {
+      char c = component.charAt(i);
+      if (c < 32 || c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"'
+          || c == '<' || c == '>' || c == '|') {
+        return false;
+      }
+    }
+    return true;
   }
 
   private Path createUploadDirectory(UploadId id) throws IOException {

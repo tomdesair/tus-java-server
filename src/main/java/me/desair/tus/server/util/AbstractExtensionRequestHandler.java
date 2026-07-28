@@ -2,6 +2,7 @@ package me.desair.tus.server.util;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.lang3.StringUtils;
 
@@ -11,6 +12,17 @@ public abstract class AbstractExtensionRequestHandler extends AbstractRequestHan
   @Override
   public boolean supports(HttpMethod method) {
     return HttpMethod.OPTIONS.equals(method);
+  }
+
+  @Override
+  public boolean supports(HttpMethod method, ProtocolVersion version) {
+    // To maintain backward compatibility, any extension is by default not active for RUFH protocol
+    // version. The extensions are only active for the TUS protocol version unless this method is
+    // overridden in the extension handler to support RUFH protocol version.
+    if (version == ProtocolVersion.RUFH) {
+      return false;
+    }
+    return supports(method);
   }
 
   @Override

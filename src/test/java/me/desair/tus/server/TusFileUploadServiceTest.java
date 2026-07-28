@@ -1,13 +1,19 @@
 package me.desair.tus.server;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 import java.io.IOException;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
+import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
+import me.desair.tus.server.upload.UploadStorageService;
 import org.junit.Test;
 
 public class TusFileUploadServiceTest {
@@ -165,6 +171,291 @@ public class TusFileUploadServiceTest {
   }
 
   @Test
+  public void testProtocolVersionConfiguration() {
+    TusFileUploadService service = new TusFileUploadService();
+    assertThat(
+        service.getSupportedProtocolVersion(), org.hamcrest.CoreMatchers.is(ProtocolVersion.AUTO));
+
+    service.withSupportedProtocolVersions(ProtocolVersion.RUFH);
+    assertThat(
+        service.getSupportedProtocolVersion(), org.hamcrest.CoreMatchers.is(ProtocolVersion.RUFH));
+
+    service.withSupportedProtocolVersions(ProtocolVersion.TUS_1_0_0);
+    assertThat(
+        service.getSupportedProtocolVersion(),
+        org.hamcrest.CoreMatchers.is(ProtocolVersion.TUS_1_0_0));
+
+    service.withSupportedProtocolVersions(null);
+    assertThat(
+        service.getSupportedProtocolVersion(),
+        org.hamcrest.CoreMatchers.is(ProtocolVersion.TUS_1_0_0));
+  }
+
+  @Test
+  public void testDetectProtocolVersion() {
+    TusFileUploadService service = new TusFileUploadService();
+
+    // Forced TUS_1_0_0
+    service.withSupportedProtocolVersions(ProtocolVersion.TUS_1_0_0);
+    assertThat(
+        service.detectProtocolVersion(null),
+        org.hamcrest.CoreMatchers.is(ProtocolVersion.TUS_1_0_0));
+
+    // Forced RUFH
+    service.withSupportedProtocolVersions(ProtocolVersion.RUFH);
+    assertThat(
+        service.detectProtocolVersion(null), org.hamcrest.CoreMatchers.is(ProtocolVersion.RUFH));
+
+    // AUTO mode
+    service.withSupportedProtocolVersions(ProtocolVersion.AUTO);
+    org.springframework.mock.web.MockHttpServletRequest req =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    assertThat(
+        service.detectProtocolVersion(req),
+        org.hamcrest.CoreMatchers.is(ProtocolVersion.TUS_1_0_0));
+
+    req.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    assertThat(
+        service.detectProtocolVersion(req),
+        org.hamcrest.CoreMatchers.is(ProtocolVersion.TUS_1_0_0));
+
+    req = new org.springframework.mock.web.MockHttpServletRequest();
+    req.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    assertThat(
+        service.detectProtocolVersion(req), org.hamcrest.CoreMatchers.is(ProtocolVersion.RUFH));
+
+    req = new org.springframework.mock.web.MockHttpServletRequest();
+    req.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    assertThat(
+        service.detectProtocolVersion(req), org.hamcrest.CoreMatchers.is(ProtocolVersion.RUFH));
+
+    req = new org.springframework.mock.web.MockHttpServletRequest();
+    req.addHeader(HttpHeader.UPLOAD_DRAFT, "4");
+    assertThat(
+        service.detectProtocolVersion(req), org.hamcrest.CoreMatchers.is(ProtocolVersion.RUFH));
+
+    req = new org.springframework.mock.web.MockHttpServletRequest();
+    req.addHeader("upload-draft-interop-version", "4");
+    assertThat(
+        service.detectProtocolVersion(req), org.hamcrest.CoreMatchers.is(ProtocolVersion.RUFH));
+  }
+
+  @Test
+  public void testWithMaxAppendSize() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMaxAppendSize(1024L);
+    assertThat(service.getUploadStorageService().getMaxAppendSize(), is(1024L));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testWithMaxAppendSizeInvalid() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMaxAppendSize(0L);
+  }
+
+  @Test
+  public void testWithMinAppendSize() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMinAppendSize(512L);
+    assertThat(service.getUploadStorageService().getMinAppendSize(), is(512L));
+
+    service.withMinAppendSize(null);
+    org.junit.Assert.assertNull(service.getUploadStorageService().getMinAppendSize());
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testWithMinAppendSizeInvalid() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMinAppendSize(0L);
+  }
+
+  @Test
+  public void testWithMinSize() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMinSize(2048L);
+    assertThat(service.getUploadStorageService().getMinSize(), is(2048L));
+
+    service.withMinSize(null);
+    org.junit.Assert.assertNull(service.getUploadStorageService().getMinSize());
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testWithMinSizeInvalid() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMinSize(0L);
+  }
+
+  @Test
+  public void testWithUploadStorageServicePreservesConfiguration() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMaxUploadSize(10000L);
+    service.withMaxAppendSize(1024L);
+    service.withMinAppendSize(512L);
+    service.withMinSize(2048L);
+    service.withUploadDeduplication(true);
+
+    UploadStorageService newStorage = mock(UploadStorageService.class);
+    service.withUploadStorageService(newStorage);
+
+    verify(newStorage).setMaxUploadSize(10000L);
+    verify(newStorage).setMaxAppendSize(1024L);
+    verify(newStorage).setMinAppendSize(512L);
+    verify(newStorage).setMinSize(2048L);
+    verify(newStorage).setUploadDeduplicationEnabled(true);
+  }
+
+  @Test
+  public void testThreadLocalCacheDelegatesAppendAndMinSizes() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withMaxAppendSize(1024L);
+    service.withMinAppendSize(512L);
+    service.withMinSize(2048L);
+    service.withThreadLocalCache(true);
+
+    assertThat(service.getUploadStorageService().getMaxAppendSize(), is(1024L));
+    assertThat(service.getUploadStorageService().getMinAppendSize(), is(512L));
+    assertThat(service.getUploadStorageService().getMinSize(), is(2048L));
+  }
+
+  @Test
+  public void testProtocolVersionGetName() {
+    assertThat(ProtocolVersion.TUS_1_0_0.getName(), is("TUS-1.0.0"));
+    assertThat(ProtocolVersion.RUFH.getName(), is("RUFH"));
+    assertThat(ProtocolVersion.AUTO.getName(), is("AUTO"));
+  }
+
+  @Test
+  public void testProcessTusExceptionRufhOffsetMismatch() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+
+    UploadStorageService mockStorage = mock(UploadStorageService.class);
+    UploadInfo info = new UploadInfo();
+    info.setOffset(100L);
+    when(mockStorage.getUploadInfo(anyString(), any())).thenReturn(info);
+
+    org.springframework.mock.web.MockHttpServletRequest mockReq =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    org.springframework.mock.web.MockHttpServletResponse mockResp =
+        new org.springframework.mock.web.MockHttpServletResponse();
+
+    mockReq.setMethod("PATCH");
+    mockReq.setRequestURI("/files/test");
+    mockReq.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    mockReq.addHeader(HttpHeader.UPLOAD_OFFSET, "200");
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorage)
+            .withSupportedProtocolVersions(ProtocolVersion.RUFH);
+
+    service.process(mockReq, mockResp, "owner");
+
+    assertThat(mockResp.getStatus(), is(409));
+    assertThat(
+        mockResp.getHeader(HttpHeader.CONTENT_TYPE), is(HttpHeader.CONTENT_TYPE_PROBLEM_JSON));
+  }
+
+  @Test
+  public void testProcessTusExceptionRufhNullInfoAndHeader() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+
+    UploadStorageService mockStorage = mock(UploadStorageService.class);
+    UploadInfo info = new UploadInfo();
+    // info with null offset
+    when(mockStorage.getUploadInfo(anyString(), any())).thenReturn(info);
+
+    org.springframework.mock.web.MockHttpServletRequest mockReq =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    org.springframework.mock.web.MockHttpServletResponse mockResp =
+        new org.springframework.mock.web.MockHttpServletResponse();
+
+    mockReq.setMethod("PATCH");
+    mockReq.setRequestURI("/files/test");
+    mockReq.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    mockReq.addHeader(HttpHeader.UPLOAD_OFFSET, "200");
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorage)
+            .withSupportedProtocolVersions(ProtocolVersion.RUFH);
+
+    service.process(mockReq, mockResp, "owner");
+
+    assertThat(mockResp.getStatus(), is(409));
+    assertThat(
+        mockResp.getHeader(HttpHeader.CONTENT_TYPE), is(HttpHeader.CONTENT_TYPE_PROBLEM_JSON));
+  }
+
+  @Test
+  public void testProcessTusExceptionRufhNon409() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+
+    UploadStorageService mockStorage = mock(UploadStorageService.class);
+    UploadInfo info = new UploadInfo();
+    when(mockStorage.getUploadInfo(anyString(), any())).thenReturn(info);
+
+    org.springframework.mock.web.MockHttpServletRequest mockReq =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    org.springframework.mock.web.MockHttpServletResponse mockResp =
+        new org.springframework.mock.web.MockHttpServletResponse();
+
+    mockReq.setMethod("PATCH");
+    mockReq.setRequestURI("/files/test");
+    mockReq.addHeader(HttpHeader.CONTENT_TYPE, "text/plain");
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorage)
+            .withSupportedProtocolVersions(ProtocolVersion.RUFH);
+
+    service.process(mockReq, mockResp, "owner");
+
+    assertThat(mockResp.getStatus(), is(415));
+  }
+
+  @Test
+  public void testProcessTusExceptionResponseCommitted() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+
+    UploadStorageService mockStorage = mock(UploadStorageService.class);
+    UploadInfo info = new UploadInfo();
+    when(mockStorage.getUploadInfo(anyString(), any())).thenReturn(info);
+
+    org.springframework.mock.web.MockHttpServletRequest mockReq =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    jakarta.servlet.http.HttpServletResponse mockResp =
+        mock(jakarta.servlet.http.HttpServletResponse.class);
+    when(mockResp.isCommitted()).thenReturn(true);
+
+    mockReq.setMethod("PATCH");
+    mockReq.setRequestURI("/files/test");
+    // Cause a validation error (415)
+    mockReq.addHeader(HttpHeader.CONTENT_TYPE, "text/plain");
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorage)
+            .withSupportedProtocolVersions(ProtocolVersion.RUFH);
+
+    service.process(mockReq, mockResp, "owner");
+
+    // Since response is committed, sendError should not be called
+    verify(mockResp, never()).sendError(anyInt(), anyString());
+  }
+
+  @Test
   public void testDisableCreationWithUploadWhenCreationDisabled() throws Exception {
     TusFileUploadService service = new TusFileUploadService();
     // Disable creation extension first so it is not present
@@ -175,7 +466,8 @@ public class TusFileUploadServiceTest {
       service.disableTusExtension("creation-with-upload");
     } catch (Exception e) {
       fail(
-          "Should not throw exception when disabling creation-with-upload when creation is not enabled");
+          "Should not throw exception when disabling creation-with-upload when creation is not"
+              + " enabled");
     }
   }
 }
