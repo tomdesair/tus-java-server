@@ -21,6 +21,7 @@ import me.desair.tus.server.download.DownloadExtension;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.expiration.ExpirationExtension;
 import me.desair.tus.server.rufh.ResumableUploadsForHttpProtocol;
+import me.desair.tus.server.rufh.util.RufhInterimResponseUtil;
 import me.desair.tus.server.termination.TerminationExtension;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
@@ -91,6 +92,22 @@ public class TusFileUploadService {
       this.supportedProtocolVersion = supportedProtocolVersion;
     }
     return this;
+  }
+
+  /**
+   * Generates the raw HTTP 104 interim response frame string for an incoming upload creation
+   * request under the IETF Resumable Uploads protocol (RUFH).
+   *
+   * @param servletRequest The incoming {@link HttpServletRequest}
+   * @param ownerKey The owner key identifier for the upload
+   * @return The raw HTTP 104 interim response string if applicable, or null if not applicable
+   */
+  public String getRawInterimResponse(HttpServletRequest servletRequest, String ownerKey) {
+    if (detectProtocolVersion(servletRequest) == ProtocolVersion.RUFH) {
+      return RufhInterimResponseUtil.getRawInterimResponse(
+          servletRequest, uploadStorageService, ownerKey);
+    }
+    return null;
   }
 
   /**
@@ -572,27 +589,7 @@ public class TusFileUploadService {
   }
 
   public ProtocolVersion detectProtocolVersion(HttpServletRequest request) {
-    if (supportedProtocolVersion == ProtocolVersion.TUS_1_0_0) {
-      return ProtocolVersion.TUS_1_0_0;
-    }
-    if (supportedProtocolVersion == ProtocolVersion.RUFH) {
-      return ProtocolVersion.RUFH;
-    }
-
-    // We're in AUTO mode, so we need to detect the protocol version based on the request headers
-    if (request != null) {
-      if (request.getHeader(HttpHeader.TUS_RESUMABLE) != null) {
-        return ProtocolVersion.TUS_1_0_0;
-      }
-      if (request.getHeader(HttpHeader.UPLOAD_COMPLETE) != null
-          || request.getHeader(HttpHeader.UPLOAD_DRAFT) != null
-          || request.getHeader("upload-draft-interop-version") != null
-          || Strings.CS.startsWith(
-              request.getHeader(HttpHeader.CONTENT_TYPE), HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD)) {
-        return ProtocolVersion.RUFH;
-      }
-    }
-    return ProtocolVersion.TUS_1_0_0;
+    return Utils.detectProtocolVersion(request, supportedProtocolVersion);
   }
 
   protected void executeProcessingByFeatures(
@@ -687,6 +684,7 @@ public class TusFileUploadService {
     // response. Otherwise, we send the error response with the status and message from the
     // exception.
     if (!response.isCommitted()) {
+      response.setStatus(status);
       if (problemDetails != null) {
         problemDetails.writeTo(response);
       } else {

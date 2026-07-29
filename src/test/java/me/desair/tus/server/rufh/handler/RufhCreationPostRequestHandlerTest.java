@@ -39,7 +39,7 @@ public class RufhCreationPostRequestHandlerTest {
 
   @Before
   public void setUp() {
-    handler = new RufhCreationPostRequestHandler(null);
+    handler = new RufhCreationPostRequestHandler();
     request = new MockHttpServletRequest();
     response = new MockHttpServletResponse();
 
@@ -121,12 +121,8 @@ public class RufhCreationPostRequestHandlerTest {
   }
 
   @Test
-  public void testProcessWithInterimResponseStrategyAndNullBaseUri() throws Exception {
-    final java.util.List<String> interimUris = new java.util.ArrayList<>();
-    me.desair.tus.server.rufh.InterimResponseStrategy strategy =
-        (res, uri, offset) -> interimUris.add(uri);
-
-    handler = new RufhCreationPostRequestHandler(strategy);
+  public void testProcessWithNullBaseUri() throws Exception {
+    handler = new RufhCreationPostRequestHandler();
 
     request.setMethod("POST");
     request.setRequestURI("/files");
@@ -154,8 +150,6 @@ public class RufhCreationPostRequestHandlerTest {
 
     assertThat(response.getStatus(), is(201));
     assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/creation-id"));
-    assertThat(interimUris.size(), is(1));
-    assertThat(interimUris.get(0), is("/files/creation-id"));
   }
 
   @Test
@@ -362,5 +356,86 @@ public class RufhCreationPostRequestHandlerTest {
 
     assertThat(response.getStatus(), is(200));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+  }
+
+  @Test
+  public void testProcessWithPreCreatedUploadInfo() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.addHeader(HttpHeader.CONTENT_LENGTH, "100");
+
+    UploadInfo preCreated = new UploadInfo();
+    preCreated.setId(new UploadId("pre-created-id"));
+    preCreated.setLength(100L);
+
+    request.setAttribute("me.desair.tus.preCreatedUploadInfo", preCreated);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/pre-created-id"));
+    verify(storageService).update(preCreated);
+    assertThat(preCreated.getLength(), is(100L));
+  }
+
+  @Test
+  public void testProcessWithPreCreatedUploadInfoWithoutLength() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+
+    UploadInfo preCreated = new UploadInfo();
+    preCreated.setId(new UploadId("pre-created-id"));
+    preCreated.setLength(50L);
+
+    request.setAttribute("me.desair.tus.preCreatedUploadInfo", preCreated);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/pre-created-id"));
+    verify(storageService).update(preCreated);
+    assertThat(preCreated.getLength(), is(50L));
+  }
+
+  @Test
+  public void testProcessWithPreCreatedUploadInfoNegativeLength() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "-1");
+
+    UploadInfo preCreated = new UploadInfo();
+    preCreated.setId(new UploadId("pre-created-id"));
+    preCreated.setLength(50L);
+
+    request.setAttribute("me.desair.tus.preCreatedUploadInfo", preCreated);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/pre-created-id"));
+    verify(storageService).update(preCreated);
+    assertThat(preCreated.getLength(), is(50L));
   }
 }

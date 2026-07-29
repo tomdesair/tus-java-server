@@ -12,7 +12,6 @@ import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,15 +41,7 @@ public class CreationPostRequestHandler extends AbstractRequestHandler {
     UploadInfo info = buildUploadInfo(servletRequest);
     info = uploadStorageService.create(info, ownerKey);
 
-    // We've already validated that the current request URL matches our upload URL so we can
-    // safely
-    // use it.
-    String uploadUri = servletRequest.getRequestURI();
-
-    // It's important to return relative UPLOAD URLs in the Location header in order to support
-    // HTTPS proxies
-    // that sit in front of the web app
-    String url = uploadUri + (Strings.CS.endsWith(uploadUri, "/") ? "" : "/") + info.getId();
+    String url = Utils.getUploadUriOnCreation(info, servletRequest, null);
     servletResponse.setHeader(HttpHeader.LOCATION, url);
     servletResponse.setStatus(HttpServletResponse.SC_CREATED);
 

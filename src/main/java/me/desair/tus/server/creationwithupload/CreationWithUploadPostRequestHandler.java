@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -28,12 +29,14 @@ public class CreationWithUploadPostRequestHandler extends AbstractRequestHandler
   }
 
   @Override
-  public void process(
+  public HttpProblemDetails process(
       HttpMethod method,
       TusServletRequest servletRequest,
       TusServletResponse servletResponse,
       UploadStorageService uploadStorageService,
-      String ownerKey)
+      UploadLockingService uploadLockingService,
+      String ownerKey,
+      TusException exception)
       throws IOException, TusException {
 
     Long contentLength = Utils.getLongHeader(servletRequest, HttpHeader.CONTENT_LENGTH);
@@ -43,12 +46,9 @@ public class CreationWithUploadPostRequestHandler extends AbstractRequestHandler
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(location, ownerKey);
         if (uploadInfo != null && uploadInfo.isUploadInProgress()) {
           InputStream stream = servletRequest.getContentInputStream();
-          UploadLockingService lockingService =
-              (UploadLockingService)
-                  servletRequest.getAttribute("me.desair.tus.uploadLockingService");
-          if (lockingService != null) {
+          if (uploadLockingService != null) {
             InterruptibleInputStream interruptibleStream = new InterruptibleInputStream(stream);
-            lockingService.registerInputStream(location, interruptibleStream);
+            uploadLockingService.registerInputStream(location, interruptibleStream);
             stream = interruptibleStream;
           }
 
@@ -59,5 +59,6 @@ public class CreationWithUploadPostRequestHandler extends AbstractRequestHandler
         }
       }
     }
+    return null;
   }
 }

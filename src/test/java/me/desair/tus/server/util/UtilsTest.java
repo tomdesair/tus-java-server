@@ -322,6 +322,70 @@ public class UtilsTest {
     assertThat(Utils.getUploadUri(null, response), is(nullValue()));
   }
 
+  @Test
+  public void testDetectProtocolVersion() {
+    HttpServletRequest request = mock(HttpServletRequest.class);
+
+    // AUTO mode with Tus-Resumable header -> TUS_1_0_0
+    when(request.getHeader(HttpHeader.TUS_RESUMABLE)).thenReturn("1.0.0");
+    assertThat(
+        Utils.detectProtocolVersion(request, me.desair.tus.server.ProtocolVersion.AUTO),
+        is(me.desair.tus.server.ProtocolVersion.TUS_1_0_0));
+
+    // AUTO mode with Upload-Complete header -> RUFH
+    when(request.getHeader(HttpHeader.TUS_RESUMABLE)).thenReturn(null);
+    when(request.getHeader(HttpHeader.UPLOAD_COMPLETE)).thenReturn("?0");
+    assertThat(
+        Utils.detectProtocolVersion(request, me.desair.tus.server.ProtocolVersion.AUTO),
+        is(me.desair.tus.server.ProtocolVersion.RUFH));
+
+    // Explicit TUS_1_0_0 mode
+    assertThat(
+        Utils.detectProtocolVersion(request, me.desair.tus.server.ProtocolVersion.TUS_1_0_0),
+        is(me.desair.tus.server.ProtocolVersion.TUS_1_0_0));
+
+    // Explicit RUFH mode
+    assertThat(
+        Utils.detectProtocolVersion(request, me.desair.tus.server.ProtocolVersion.RUFH),
+        is(me.desair.tus.server.ProtocolVersion.RUFH));
+
+    // Null request
+    assertThat(
+        Utils.detectProtocolVersion(null, me.desair.tus.server.ProtocolVersion.AUTO),
+        is(me.desair.tus.server.ProtocolVersion.TUS_1_0_0));
+  }
+
+  @Test
+  public void testGetUploadUriOnCreation() {
+    me.desair.tus.server.upload.UploadInfo info = new me.desair.tus.server.upload.UploadInfo();
+    info.setId(new me.desair.tus.server.upload.UploadId("test-id"));
+
+    me.desair.tus.server.upload.UploadStorageService storageService =
+        mock(me.desair.tus.server.upload.UploadStorageService.class);
+    when(storageService.getUploadUri()).thenReturn("/api/files");
+
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    when(request.getRequestURI()).thenReturn("/files");
+
+    // With requestURI set and storageService uploadUri set
+    assertThat(
+        Utils.getUploadUriOnCreation(info, request, storageService), is("/api/files/test-id"));
+
+    // With null request and storageService set
+    assertThat(Utils.getUploadUriOnCreation(info, null, storageService), is("/api/files/test-id"));
+
+    // With null request and null storageService
+    assertThat(Utils.getUploadUriOnCreation(info, null, null), is("/test-id"));
+
+    // With null uploadInfo
+    assertThat(Utils.getUploadUriOnCreation(null, null, null), is("/"));
+
+    // With uploadInfo having null id
+    assertThat(
+        Utils.getUploadUriOnCreation(new me.desair.tus.server.upload.UploadInfo(), null, null),
+        is("/"));
+  }
+
   /** Simple serializable class for testing. */
   public static class TestSerializable implements Serializable {
     private static final long serialVersionUID = 1L;
