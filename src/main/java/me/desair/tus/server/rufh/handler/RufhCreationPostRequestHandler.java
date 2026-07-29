@@ -6,7 +6,6 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.rufh.InterimResponseStrategy;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -15,22 +14,21 @@ import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.StructuredHeaderUtil;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
+import me.desair.tus.server.util.Utils;
 
 /**
  * Request handler for upload creation requests via HTTP POST, PUT, or PATCH.
  *
- * <p>Handles upload initialization, optional 104 interim responses, payload byte streaming, lock
- * registration via {@link InterruptibleInputStream}, and response headers.
+ * <p>Handles upload initialization, payload byte streaming, lock registration via {@link
+ * InterruptibleInputStream}, and response headers.
  *
  * <p>Reference: Section 4.2 (Upload Creation) & Section 4.2.2 (Server Behavior) of
  * draft-ietf-httpbis-resumable-upload-12.
  */
 public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
 
-  private final InterimResponseStrategy interimResponseStrategy;
-
-  public RufhCreationPostRequestHandler(InterimResponseStrategy interimResponseStrategy) {
-    this.interimResponseStrategy = interimResponseStrategy;
+  public RufhCreationPostRequestHandler() {
+    // Default constructor
   }
 
   @Override
@@ -57,22 +55,32 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
       return null;
     }
 
-    UploadInfo uploadInfo = new UploadInfo();
+    UploadInfo preCreatedUploadInfo =
+        (UploadInfo) servletRequest.getAttribute("me.desair.tus.preCreatedUploadInfo");
+
     String uploadLengthHeader = servletRequest.getHeader(HttpHeader.UPLOAD_LENGTH);
     Long uploadLength = StructuredHeaderUtil.parseInteger(uploadLengthHeader);
-    if (uploadLength != null && uploadLength >= 0) {
-      uploadInfo.setLength(uploadLength);
-    }
 
     String uploadCompleteHeader = servletRequest.getHeader(HttpHeader.UPLOAD_COMPLETE);
     Boolean uploadComplete = StructuredHeaderUtil.parseBoolean(uploadCompleteHeader);
 
-    uploadInfo = uploadStorageService.create(uploadInfo, ownerKey);
-    String uploadUri = getUploadUri(uploadInfo, servletRequest, uploadStorageService);
-
-    if (interimResponseStrategy != null) {
-      interimResponseStrategy.sendInterimResponse(servletResponse, uploadUri, 0L);
+    UploadInfo uploadInfo;
+    if (preCreatedUploadInfo != null) {
+      uploadInfo = preCreatedUploadInfo;
+      if (uploadLength != null && uploadLength >= 0) {
+        uploadInfo.setLength(uploadLength);
+      }
+      uploadStorageService.update(uploadInfo);
+    } else {
+      uploadInfo = new UploadInfo();
+      if (uploadLength != null && uploadLength >= 0) {
+        uploadInfo.setLength(uploadLength);
+      }
+      uploadInfo = uploadStorageService.create(uploadInfo, ownerKey);
     }
+
+    String uploadUri =
+        Utils.getUploadUriOnCreation(uploadInfo, servletRequest, uploadStorageService);
 
     InputStream is = servletRequest.getContentInputStream();
     if (is != null && servletRequest.getContentLengthLong() != 0) {
@@ -115,17 +123,5 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
 
   private boolean isUploadCompleted(UploadInfo uploadInfo) {
     return !uploadInfo.isUploadInProgress();
-  }
-
-  private String getUploadUri(
-      UploadInfo uploadInfo,
-      TusServletRequest servletRequest,
-      UploadStorageService storageService) {
-    String baseUri = storageService.getUploadUri();
-    if (baseUri == null) {
-      baseUri = servletRequest.getRequestURI();
-    }
-    String idStr = uploadInfo.getId() != null ? uploadInfo.getId().toString() : "";
-    return baseUri + (baseUri.endsWith("/") ? "" : "/") + idStr;
   }
 }

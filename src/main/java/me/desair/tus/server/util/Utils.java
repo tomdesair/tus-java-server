@@ -23,6 +23,8 @@ import java.util.regex.Pattern;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.io.serialization.ValidatingObjectInputStream;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -223,5 +225,62 @@ public class Utils {
     }
 
     return null;
+  }
+
+  /**
+   * Detects the protocol version for an incoming HTTP request based on request headers and
+   * configuration.
+   *
+   * @param request The HttpServletRequest
+   * @param supportedProtocolVersion The configured ProtocolVersion setting
+   * @return The detected ProtocolVersion (TUS_1_0_0 or RUFH)
+   */
+  public static me.desair.tus.server.ProtocolVersion detectProtocolVersion(
+      HttpServletRequest request, me.desair.tus.server.ProtocolVersion supportedProtocolVersion) {
+    if (supportedProtocolVersion == me.desair.tus.server.ProtocolVersion.TUS_1_0_0) {
+      return me.desair.tus.server.ProtocolVersion.TUS_1_0_0;
+    }
+    if (supportedProtocolVersion == me.desair.tus.server.ProtocolVersion.RUFH) {
+      return me.desair.tus.server.ProtocolVersion.RUFH;
+    }
+
+    if (request != null) {
+      if (request.getHeader(HttpHeader.TUS_RESUMABLE) != null) {
+        return me.desair.tus.server.ProtocolVersion.TUS_1_0_0;
+      }
+      if (request.getHeader(HttpHeader.UPLOAD_COMPLETE) != null
+          || request.getHeader(HttpHeader.UPLOAD_DRAFT) != null
+          || request.getHeader("upload-draft-interop-version") != null
+          || org.apache.commons.lang3.Strings.CS.startsWith(
+              request.getHeader(HttpHeader.CONTENT_TYPE), HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD)) {
+        return me.desair.tus.server.ProtocolVersion.RUFH;
+      }
+    }
+
+    return me.desair.tus.server.ProtocolVersion.TUS_1_0_0;
+  }
+
+  /**
+   * Builds the upload location URI for a newly created upload resource.
+   *
+   * @param uploadInfo The UploadInfo object containing the upload ID
+   * @param servletRequest The current HttpServletRequest or TusServletRequest
+   * @param storageService The current UploadStorageService
+   * @return The location URI string for the created upload
+   */
+  public static String getUploadUriOnCreation(
+      UploadInfo uploadInfo,
+      HttpServletRequest servletRequest,
+      UploadStorageService storageService) {
+    String baseUri = storageService != null ? storageService.getUploadUri() : null;
+    if (baseUri == null && servletRequest != null) {
+      baseUri = servletRequest.getRequestURI();
+    }
+    if (baseUri == null) {
+      baseUri = "";
+    }
+    String idStr =
+        uploadInfo != null && uploadInfo.getId() != null ? uploadInfo.getId().toString() : "";
+    return baseUri + (baseUri.endsWith("/") ? "" : "/") + idStr;
   }
 }

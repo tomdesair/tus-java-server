@@ -34,25 +34,9 @@ public class ResumableUploadsForHttpProtocol extends AbstractTusExtension {
 
   public static final String EXTENSION_NAME = "resumable-uploads-for-http";
 
-  private InterimResponseStrategy interimResponseStrategy = new NoOpInterimResponseStrategy();
-
   /** Construct a default ResumableUploadsForHttpProtocol extension instance. */
   public ResumableUploadsForHttpProtocol() {
     super();
-  }
-
-  /**
-   * Configure an optional interim response strategy (e.g. for HTTP 104 interim responses).
-   *
-   * @param interimResponseStrategy The interim response strategy to use
-   * @return Current extension instance for method chaining
-   */
-  public ResumableUploadsForHttpProtocol withInterimResponseStrategy(
-      InterimResponseStrategy interimResponseStrategy) {
-    if (interimResponseStrategy != null) {
-      this.interimResponseStrategy = interimResponseStrategy;
-    }
-    return this;
   }
 
   @Override
@@ -98,7 +82,7 @@ public class ResumableUploadsForHttpProtocol extends AbstractTusExtension {
     requestHandlers.add(new RufhResponseHeadersHandler());
     requestHandlers.add(new RufhOptionsRequestHandler());
     requestHandlers.add(new RufhHeadGetRequestHandler());
-    requestHandlers.add(new RufhCreationPostRequestHandler(interimResponseStrategy));
+    requestHandlers.add(new RufhCreationPostRequestHandler());
     requestHandlers.add(new RufhAppendPatchRequestHandler());
     requestHandlers.add(new RufhDeleteRequestHandler());
     requestHandlers.add(new RufhUploadLimitHeaderRequestHandler());

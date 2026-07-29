@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 - **RFC 9651 Structured Header Fields**: Implemented RFC 9651 parsing and serialization for `Upload-Offset`, `Upload-Complete`, `Upload-Length`, and `Upload-Limit` dictionary headers.
 - **RFC 7807 Problem Details JSON**: Added support for standard `application/problem+json` error responses (`mismatching-upload-offset`, `completed-upload`, `inconsistent-upload-length`).
 - **Dedicated Compliance & Security Test Suites**: Added comprehensive, spec-quoted unit tests under package `me.desair.tus.server.ietf` and security tests under `me.desair.tus.server.ietf.security` verifying Path Traversal protection, DoS limits, CRLF sanitization, and lock safety.
-- **User Migration Documentation**: Added `docs/MIGRATION.md` detailing steps for transitioning from Tus 1.0.0 to IETF RUFH.
+- **User Migration & Interim Responses Documentation**: Added `docs/MIGRATION.md` and `docs/INTERIM_RESPONSES.md` detailing migration strategies, HTTP 104 status frames under IETF RUFH, Tomcat/Servlet container limitations, cached reflection optimizations, and Spring Boot Tomcat Valve integration.
 
 ## [1.0.0-3.3]
 

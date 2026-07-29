@@ -49,7 +49,7 @@ You can configure protocol support via `withSupportedProtocolVersions(ProtocolVe
 | **Append Chunks** | `PATCH` with `Upload-Offset` | `PATCH` with `Upload-Offset` & `Content-Type: application/partial-upload` |
 | **Upload Status Query** | `HEAD` returns `Upload-Offset` & `Upload-Length` | `HEAD` returns `Upload-Offset` & `Upload-Complete` |
 | **Offset Mismatch Error** | HTTP 409 Conflict | HTTP 409 Conflict with RFC 7807 `application/problem+json` details |
-| **104 Interim Responses** | N/A | Supported (`InterimResponseStrategy`) |
+| **104 Interim Responses** | N/A | Supported (see [docs/INTERIM_RESPONSES.md](docs/INTERIM_RESPONSES.md)) |
 | **Upload Cancellation** | `DELETE` with `Tus-Resumable: 1.0.0` | `DELETE` with `Upload-Complete: ?0` |
 | **Checksum Validation** | Supported (`Checksum` extension) | Supported (based on HTTP Digests / RFC 9530) |
 | **Expiration Handling** | Supported (`Upload-Expires` header) | Supported (`max-age` parameter in `Upload-Limit` header) |
@@ -86,6 +86,7 @@ The first step is to create a `TusFileUploadService` object using its constructo
 * `withChunkedTransferDecoding`: You can enable or disable the decoding of chunked HTTP requests by this library. Enable this feature in case the web container in which this service is running does not decode chunked transfers itself. By default, chunked decoding via this library is disabled (as modern frameworks tend to already do this for you).
 * `withThreadLocalCache(Boolean)`: Optionally you can enable (or disable) an in-memory (thread local) cache of upload request data to reduce load on the storage backend and potentially increase performance when processing upload requests.
 * `withUploadExpirationPeriod(Long)`: You can set the number of milliseconds after which an upload is considered as expired and available for cleanup. Applies to both Tus 1.0.0 (`Upload-Expires` response header) and IETF RUFH (`max-age` parameter in `Upload-Limit` response header).
+* `getRawInterimResponse(HttpServletRequest, String)`: Helper method that inspects an incoming request and returns the raw HTTP 104 interim response frame string (`HTTP/1.1 104 Upload Resumption Supported\r\nLocation: ...\r\nUpload-Offset: 0\r\n\r\n`) if applicable, or `null` otherwise. Useful for web container extensions (such as Tomcat Valves) that flush 1xx interim responses directly to client sockets.
 * `withDownloadFeature()`: Enable the unofficial `download` extension that also allows you to download uploaded bytes.
 * `withUploadDeduplication(Boolean)`: Enable duplicate file processing based on the checksum hash. If enabled, the server will scan previous completed uploads for a file with the same checksum. If a duplicate is found, the new upload will link to the existing file (`duplicatesUploadId`), skipping redundant disk storage writes and saving disk space.
   * **Disclaimer**: If duplicate file processing is enabled, the duplicate (child) upload depends directly on the original (parent) upload file. If the original parent upload is deleted or terminated, any duplicate child uploads pointing to it will no longer be downloadable (returning `404 Not Found`).
@@ -96,6 +97,25 @@ The first step is to create a `TusFileUploadService` object using its constructo
 ### HTTP Digests ([RFC 9530](https://www.rfc-editor.org/rfc/rfc9530.html))
 The `http-digests` extension implements RFC 9530 to support data integrity checks for both individual data chunks (`Content-Digest`) and the entire file (`Repr-Digest`).
 * **Performance Disclaimer**: Calculating representation digests (`Repr-Digest`) requires streaming the entire uploaded file from disk. For extremely large files, this can introduce non-trivial I/O performance overhead on the server. To optimize, only request it via `Want-Repr-Digest` when absolutely necessary.
+
+### Emitting HTTP 104 Interim Responses in Tomcat / Spring Boot
+Because standard Java Servlet API (`HttpServletResponse`) does not natively support emitting 1xx informational responses, applications running on embedded Tomcat (such as Spring Boot) can use a custom Tomcat `Valve` to write the raw HTTP 104 interim response frame directly to Tomcat's underlying TCP socket buffer before servlet execution.
+
+For complete architectural details, Tomcat/Servlet API limitations, and production recommendations, see the dedicated **[HTTP 104 Interim Responses Guide](docs/INTERIM_RESPONSES.md)**.
+
+A live, production-ready reference implementation using cached reflection can be found in the [tus-java-server-spring-demo](https://github.com/tomdesair/tus-java-server-spring-demo) repository:
+* [`TusInterimResponseTomcatValve`](https://github.com/tomdesair/tus-java-server-spring-demo/blob/main/spring-boot-rest/src/main/java/me/desair/spring/tus/TusInterimResponseTomcatValve.java)
+
+To register the Valve in Spring Boot via `TomcatServletWebServerFactory`:
+
+```java
+@Bean
+public TomcatServletWebServerFactory tomcatFactory(TusFileUploadService tusFileUploadService) {
+    TomcatServletWebServerFactory factory = new TomcatServletWebServerFactory();
+    factory.addContextValves(new TusInterimResponseTomcatValve(tusFileUploadService));
+    return factory;
+}
+```
 
 
 For now this library only provides filesystem based storage and locking options. You can however provide your own implementation of a `UploadStorageService` and `UploadLockingService` using the methods `withUploadStorageService(UploadStorageService)` and `withUploadLockingService(UploadLockingService)` in order to support different types of upload storage.

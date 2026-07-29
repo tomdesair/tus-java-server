@@ -14,15 +14,6 @@ public class ResumableUploadsForHttpProtocolTest {
     ResumableUploadsForHttpProtocol protocol = new ResumableUploadsForHttpProtocol();
     assertThat(protocol.getName(), is(ResumableUploadsForHttpProtocol.EXTENSION_NAME));
 
-    // Call with null to check it doesn't break
-    protocol.withInterimResponseStrategy(null);
-
-    // Call with valid strategy
-    NoOpInterimResponseStrategy strategy = new NoOpInterimResponseStrategy();
-    protocol.withInterimResponseStrategy(strategy);
-
-    // Call sendInterimResponse to cover line 14 of NoOpInterimResponseStrategy
-    strategy.sendInterimResponse(null, null, 0L);
     // Test mustReprocessOnError coverage
     assertThat(
         protocol.mustReprocessOnError(me.desair.tus.server.HttpMethod.POST, ProtocolVersion.RUFH),

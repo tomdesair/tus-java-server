@@ -470,4 +470,44 @@ public class TusFileUploadServiceTest {
               + " enabled");
     }
   }
+
+  @Test
+  public void testGetRawInterimResponse() throws Exception {
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withSupportedProtocolVersions(ProtocolVersion.RUFH)
+            .withUploadUri("/files");
+
+    org.springframework.mock.web.MockHttpServletRequest request =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+
+    String raw = service.getRawInterimResponse(request, "owner-123");
+    assertNotNull(raw);
+    org.junit.Assert.assertTrue(raw.startsWith("HTTP/1.1 104 Upload Resumption Supported\r\n"));
+    org.junit.Assert.assertTrue(raw.contains("Location: /files/"));
+    org.junit.Assert.assertTrue(raw.contains("Upload-Offset: 0"));
+
+    // Test non-matching request (e.g. GET) returns null
+    request.setMethod("GET");
+    org.junit.Assert.assertNull(service.getRawInterimResponse(request, "owner-123"));
+
+    // Test AUTO protocol service with TUS 1.0.0 request returns null for RUFH 104 interim response
+    TusFileUploadService autoService =
+        new TusFileUploadService()
+            .withSupportedProtocolVersions(ProtocolVersion.AUTO)
+            .withUploadUri("/files");
+    org.springframework.mock.web.MockHttpServletRequest tus10Request =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    tus10Request.setMethod("POST");
+    tus10Request.setRequestURI("/files");
+    tus10Request.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    org.junit.Assert.assertNull(autoService.getRawInterimResponse(tus10Request, "owner-123"));
+
+    // Test null input
+    org.junit.Assert.assertNull(
+        service.getRawInterimResponse((jakarta.servlet.http.HttpServletRequest) null, "owner-123"));
+  }
 }
