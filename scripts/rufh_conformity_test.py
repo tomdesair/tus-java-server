@@ -859,8 +859,8 @@ class TestUploadLimitEnforcement:
         for part in limit_hdr.split(","):
             if "max-append-size=" in part:
                 max_append_size = int(part.split("=")[1].strip())
-        if max_append_size is None:
-            pytest.skip("Server does not advertise max-append-size")
+        if max_append_size is None or max_append_size > 10 * 1024 * 1024:
+            pytest.skip("Server max-append-size is not advertised or too large to test over socket")
 
         upload_uri = create_partial_upload(target_url, test_name=request.node.name)
         headers = {
@@ -1179,7 +1179,17 @@ if __name__ == "__main__":
                 if report.passed:
                     self.passed.append(report.nodeid)
                 elif report.failed:
-                    err_text = report.longreprtext if hasattr(report, "longreprtext") else str(report.longrepr)
+                    if hasattr(report.longrepr, "reprcrash"):
+                        err_text = report.longrepr.reprcrash.message
+                    elif hasattr(report, "longreprtext"):
+                        err_lines = [
+                            l.strip()
+                            for l in report.longreprtext.splitlines()
+                            if l.strip().startswith("E   ") or l.strip().startswith("AssertionError")
+                        ]
+                        err_text = "\n   ".join(err_lines) if err_lines else str(report.longrepr)
+                    else:
+                        err_text = str(report.longrepr)
                     self.failed.append((report.nodeid, err_text))
 
     reporter = CustomReporter()
@@ -1202,14 +1212,14 @@ if __name__ == "__main__":
     print("=" * 70)
 
     if reporter.failed:
-        print("\n[!] DETAILED FAILURE BREAKDOWN FOR AI AGENT / DEVELOPER REMEDIATION:")
+        print("\n[!] DETAILED FAILURE BREAKDOWN FOR REMEDIATION:")
         print("-" * 70)
         for idx, (test_id, err_text) in enumerate(reporter.failed, 1):
             print(f"\n{idx}. Test: {test_id}")
             func_name = test_id.split("::")[-1]
             print(f"   Function: {func_name}")
             print(f"   Specification Goal:\n     " + reporter.docs.get(test_id, "").replace("\n", "\n     "))
-            print(f"   Diagnostics:\n   " + err_text.replace("\n", "\n   "))
+            print(f"   Failure Reason:\n     " + err_text.replace("\n", "\n     "))
             print("-" * 70)
     else:
         print("\n[✓] ALL RUFH DRAFT-12 CONFORMITY TESTS PASSED SUCCESSFULLY!")

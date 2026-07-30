@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
 - **Dedicated Compliance Test Suites**: Added comprehensive, spec-quoted end-to-end tests using a dedicated Python script `scripts/rufh_conformity_test.py` with documentation on how to run the tests in `docs/CONFORMITY_TESTING.md`.
 - **User Migration & Interim Responses Documentation**: Added `docs/MIGRATION.md` and `docs/INTERIM_RESPONSES.md` detailing migration strategies, HTTP 104 status frames under IETF RUFH, Tomcat/Servlet container limitations, cached reflection optimizations, and Spring Boot Tomcat Valve integration.
 
+### Breaking
+- **Downloads**: In order to support both the Tus protocol and RUFH protocol, the unofficial download extension will not return a HTTP status code `204` for uploads that are still in progress and will not contain the response header `Tus-Resumable`.
+
 ## [1.0.0-3.3]
 
 ### Added

@@ -45,7 +45,7 @@ public class DownloadUploadMetadataHandlerTest {
   public void supports() {
     assertThat(handler.supports(HttpMethod.GET), is(true));
     assertThat(handler.supports(HttpMethod.GET, ProtocolVersion.TUS_1_0_0), is(true));
-    assertThat(handler.supports(HttpMethod.GET, ProtocolVersion.RUFH), is(false));
+    assertThat(handler.supports(HttpMethod.GET, ProtocolVersion.RUFH), is(true));
     assertThat(handler.supports(HttpMethod.POST, ProtocolVersion.TUS_1_0_0), is(false));
   }
 

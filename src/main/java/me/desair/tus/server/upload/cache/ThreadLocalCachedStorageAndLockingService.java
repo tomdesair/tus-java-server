@@ -51,6 +51,9 @@ public class ThreadLocalCachedStorageAndLockingService
 
   @Override
   public UploadInfo getUploadInfo(UploadId id) throws IOException {
+    if (id == null) {
+      return null;
+    }
     UploadInfo uploadInfo;
     WeakReference<UploadInfo> ref = uploadInfoCache.get();
     if (ref == null || (uploadInfo = ref.get()) == null || !id.equals(uploadInfo.getId())) {

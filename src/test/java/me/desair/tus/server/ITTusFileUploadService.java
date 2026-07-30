@@ -142,7 +142,6 @@ public class ITTusFileUploadService {
     servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
     assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
     assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
 
@@ -262,7 +261,6 @@ public class ITTusFileUploadService {
     servletRequest.setRequestURI(location);
 
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
     assertResponseHeader(HttpHeader.CONTENT_LENGTH, "" + uploadContent.getBytes().length);
     assertResponseHeader(
         HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
@@ -325,7 +323,6 @@ public class ITTusFileUploadService {
     servletRequest.setRequestURI(location);
 
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
     assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
     assertResponseStatus(HttpServletResponse.SC_OK);
     assertThat(servletResponse.getContentAsString(), is(""));
@@ -382,7 +379,6 @@ public class ITTusFileUploadService {
     servletRequest.setRequestURI(location);
 
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
     assertResponseHeader(HttpHeader.CONTENT_LENGTH, "" + uploadContent.getBytes().length);
     assertResponseHeader(
         HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
@@ -480,8 +476,7 @@ public class ITTusFileUploadService {
     servletRequest.setRequestURI(location);
 
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseStatus(422);
-    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    assertResponseStatus(204);
     assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
     assertThat(servletResponse.getContentAsString(), is(""));
 
@@ -706,7 +701,6 @@ public class ITTusFileUploadService {
 
     tusFileUploadService.process(servletRequest, servletResponse, null);
     assertResponseStatus(HttpServletResponse.SC_OK);
-    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
     assertResponseHeader(HttpHeader.CONTENT_LENGTH, "" + (part1 + part2 + part3).getBytes().length);
     assertResponseHeader(
         HttpHeader.UPLOAD_METADATA, "filename d29ybGRfZG9taW5hdGlvbl9wbGFuLnBkZg==");
@@ -1065,7 +1059,6 @@ public class ITTusFileUploadService {
 
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     assertResponseStatus(HttpServletResponse.SC_OK);
-    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
     assertResponseHeader(HttpHeader.CONTENT_LENGTH, "69");
     assertResponseHeader(
         HttpHeader.UPLOAD_METADATA,
@@ -1216,8 +1209,7 @@ public class ITTusFileUploadService {
     servletRequest.setRequestURI(locationFinal);
 
     tusFileUploadService.process(servletRequest, servletResponse);
-    assertResponseStatus(422);
-    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    assertResponseStatus(204);
     assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
     assertThat(servletResponse.getContentAsString(), is(""));
 
@@ -1281,7 +1273,6 @@ public class ITTusFileUploadService {
 
     tusFileUploadService.process(servletRequest, servletResponse, null);
     assertResponseStatus(HttpServletResponse.SC_OK);
-    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
     assertResponseHeader(HttpHeader.CONTENT_LENGTH, "" + (part1 + part2 + part3).getBytes().length);
     assertResponseHeader(HttpHeader.UPLOAD_METADATA, "filename ZmluYWwucGRm");
     assertThat(

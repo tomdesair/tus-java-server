@@ -8,6 +8,7 @@ import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.exception.InconsistentUploadLengthException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadAlreadyCompletedException;
+import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.exception.UploadOffsetMismatchException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -52,7 +53,7 @@ public class RufhAppendValidator implements RequestValidator {
 
     if (uploadInfo == null || uploadInfo.isExpired()) {
       if (!isCreationEndpoint) {
-        throw new TusException(404, "Upload resource not found");
+        throw new UploadNotFoundException("Upload resource not found");
       }
       return;
     }

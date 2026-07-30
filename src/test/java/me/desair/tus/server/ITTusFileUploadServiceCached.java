@@ -93,7 +93,6 @@ public class ITTusFileUploadServiceCached extends ITTusFileUploadService {
     servletRequest.setRequestURI(location);
 
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
     assertResponseHeader(HttpHeader.CONTENT_LENGTH, "" + uploadContent.getBytes().length);
     assertResponseStatus(HttpServletResponse.SC_OK);
     assertThat(servletResponse.getContentAsString(), is("This is an upload of someone else"));
@@ -104,8 +103,6 @@ public class ITTusFileUploadServiceCached extends ITTusFileUploadService {
     servletRequest.setRequestURI(location);
 
     tusFileUploadService.process(servletRequest, servletResponse, "ALTER-EGO");
-    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
     assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
   }
 }

@@ -5,6 +5,7 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -56,7 +57,7 @@ public class RufhHeadGetRequestHandler extends AbstractRequestHandler {
     UploadInfo uploadInfo = uploadStorageService.getUploadInfo(requestUri, ownerKey);
     if (!Utils.isCreationEndpoint(servletRequest, uploadStorageService)) {
       if (uploadInfo == null || uploadInfo.isExpired()) {
-        throw new TusException(404, "Upload resource not found");
+        throw new UploadNotFoundException("Upload resource not found");
       }
     } else if (uploadInfo == null || uploadInfo.isExpired()) {
       return null;
