@@ -50,7 +50,8 @@ public class HttpProblemDetailsTest {
                 + "\"title\":\"Offset Mismatch\","
                 + "\"status\":409,"
                 + "\"detail\":\"The provided Upload-Offset does not match the server's current offset\","
-                + "\"expected-offset\":12500000}"));
+                + "\"expected-offset\":12500000,"
+                + "\"provided-offset\":25000000}"));
   }
 
   /**

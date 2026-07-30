@@ -324,6 +324,11 @@ public class UtilsTest {
 
   @Test
   public void testDetectProtocolVersion() {
+    HttpServletRequest unversionedRequest = mock(HttpServletRequest.class);
+    assertThat(
+        Utils.detectProtocolVersion(unversionedRequest, me.desair.tus.server.ProtocolVersion.AUTO),
+        is(me.desair.tus.server.ProtocolVersion.TUS_1_0_0));
+
     HttpServletRequest request = mock(HttpServletRequest.class);
 
     // AUTO mode with Tus-Resumable header -> TUS_1_0_0
@@ -333,10 +338,10 @@ public class UtilsTest {
         is(me.desair.tus.server.ProtocolVersion.TUS_1_0_0));
 
     // AUTO mode with Upload-Complete header -> RUFH
-    when(request.getHeader(HttpHeader.TUS_RESUMABLE)).thenReturn(null);
-    when(request.getHeader(HttpHeader.UPLOAD_COMPLETE)).thenReturn("?0");
+    HttpServletRequest rufhReq = mock(HttpServletRequest.class);
+    when(rufhReq.getHeader(HttpHeader.UPLOAD_COMPLETE)).thenReturn("?0");
     assertThat(
-        Utils.detectProtocolVersion(request, me.desair.tus.server.ProtocolVersion.AUTO),
+        Utils.detectProtocolVersion(rufhReq, me.desair.tus.server.ProtocolVersion.AUTO),
         is(me.desair.tus.server.ProtocolVersion.RUFH));
 
     // Explicit TUS_1_0_0 mode
@@ -384,6 +389,49 @@ public class UtilsTest {
     assertThat(
         Utils.getUploadUriOnCreation(new me.desair.tus.server.upload.UploadInfo(), null, null),
         is("/"));
+  }
+
+  @Test
+  public void testIsExistingUploadResource() throws Exception {
+    assertThat(Utils.isExistingUploadResource(null, null, "owner"), is(false));
+
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    me.desair.tus.server.upload.UploadStorageService storageService =
+        mock(me.desair.tus.server.upload.UploadStorageService.class);
+
+    when(request.getRequestURI()).thenReturn("/files");
+    when(storageService.getUploadUri()).thenReturn("/files");
+    assertThat(Utils.isExistingUploadResource(request, storageService, "owner"), is(false));
+
+    when(request.getRequestURI()).thenReturn("/files/");
+    assertThat(Utils.isExistingUploadResource(request, storageService, "owner"), is(false));
+
+    when(request.getRequestURI()).thenReturn("/files/123");
+    when(storageService.getUploadInfo("/files/123", "owner")).thenReturn(null);
+    assertThat(Utils.isExistingUploadResource(request, storageService, "owner"), is(false));
+
+    me.desair.tus.server.upload.UploadInfo info = new me.desair.tus.server.upload.UploadInfo();
+    when(storageService.getUploadInfo("/files/123", "owner")).thenReturn(info);
+    assertThat(Utils.isExistingUploadResource(request, storageService, "owner"), is(true));
+  }
+
+  @Test
+  public void testIsCreationEndpoint() throws Exception {
+    assertThat(Utils.isCreationEndpoint(null, null), is(false));
+
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    me.desair.tus.server.upload.UploadStorageService storageService =
+        mock(me.desair.tus.server.upload.UploadStorageService.class);
+
+    when(request.getRequestURI()).thenReturn("/files");
+    when(storageService.getUploadUri()).thenReturn("/files");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(true));
+
+    when(request.getRequestURI()).thenReturn("/files/");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(true));
+
+    when(request.getRequestURI()).thenReturn("/files/123");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(false));
   }
 
   /** Simple serializable class for testing. */

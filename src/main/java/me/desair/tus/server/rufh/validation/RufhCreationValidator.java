@@ -9,6 +9,7 @@ import me.desair.tus.server.exception.InconsistentUploadLengthException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.StructuredHeaderUtil;
+import me.desair.tus.server.util.Utils;
 
 /**
  * Request validator checking creation request limits (max upload length and max append payload
@@ -23,7 +24,9 @@ public class RufhCreationValidator implements RequestValidator {
 
   @Override
   public boolean supports(HttpMethod method) {
-    return HttpMethod.POST.equals(method) || HttpMethod.PUT.equals(method);
+    return HttpMethod.POST.equals(method)
+        || HttpMethod.PUT.equals(method)
+        || HttpMethod.PATCH.equals(method);
   }
 
   @Override
@@ -33,6 +36,11 @@ public class RufhCreationValidator implements RequestValidator {
       UploadStorageService uploadStorageService,
       String ownerKey)
       throws TusException, IOException {
+
+    if (HttpMethod.PATCH.equals(method)
+        && Utils.isExistingUploadResource(request, uploadStorageService, ownerKey)) {
+      return;
+    }
 
     String uploadLengthHeader = request.getHeader(HttpHeader.UPLOAD_LENGTH);
     Long uploadLength = StructuredHeaderUtil.parseInteger(uploadLengthHeader);

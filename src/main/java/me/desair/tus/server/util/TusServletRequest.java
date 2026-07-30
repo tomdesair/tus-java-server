@@ -85,6 +85,9 @@ public class TusServletRequest extends HttpServletRequestWrapper {
         }
         algorithms.addAll(
             ChecksumAlgorithm.parseDigestHeader(getHeader(HttpHeader.CONTENT_DIGEST)).keySet());
+        algorithms.addAll(
+            ChecksumAlgorithm.parseDigestHeader(getHeader(HttpHeader.WANT_CONTENT_DIGEST))
+                .keySet());
       }
 
       for (ChecksumAlgorithm algorithm : algorithms) {

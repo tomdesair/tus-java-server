@@ -57,6 +57,9 @@ public class HttpProblemDetails {
   public static HttpProblemDetails forOffsetMismatch(long expectedOffset, Long providedOffset) {
     Map<String, Object> extra = new LinkedHashMap<>();
     extra.put("expected-offset", expectedOffset);
+    if (providedOffset != null) {
+      extra.put("provided-offset", providedOffset);
+    }
     return new HttpProblemDetails(
         HttpServletResponse.SC_CONFLICT,
         "https://iana.org/assignments/http-problem-types#mismatching-upload-offset",
@@ -146,9 +149,11 @@ public class HttpProblemDetails {
    */
   public void writeTo(HttpServletResponse response) throws IOException {
     Objects.requireNonNull(response, "Response cannot be null");
+    byte[] jsonBytes = toJson().getBytes(java.nio.charset.StandardCharsets.UTF_8);
     response.setStatus(status);
     response.setHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PROBLEM_JSON);
-    response.getWriter().write(toJson());
+    response.setContentLength(jsonBytes.length);
+    response.getWriter().write(new String(jsonBytes, java.nio.charset.StandardCharsets.UTF_8));
     response.getWriter().flush();
   }
 
@@ -160,9 +165,11 @@ public class HttpProblemDetails {
    */
   public void writeTo(TusServletResponse response) throws IOException {
     Objects.requireNonNull(response, "Response cannot be null");
+    byte[] jsonBytes = toJson().getBytes(java.nio.charset.StandardCharsets.UTF_8);
     response.setStatus(status);
     response.setHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PROBLEM_JSON);
-    response.getWriter().write(toJson());
+    response.setContentLength(jsonBytes.length);
+    response.getWriter().write(new String(jsonBytes, java.nio.charset.StandardCharsets.UTF_8));
     response.getWriter().flush();
   }
 

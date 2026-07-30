@@ -28,6 +28,7 @@ public class RufhAppendValidatorTest {
   public void setUp() {
     validator = new RufhAppendValidator();
     request = new MockHttpServletRequest();
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
   }
 
   @Test
@@ -104,11 +105,11 @@ public class RufhAppendValidatorTest {
     validator.validate(HttpMethod.PATCH, request, storageService, "owner");
   }
 
-  @Test
+  @Test(expected = TusException.class)
   public void testValidateUploadInfoNull() throws Exception {
+    when(storageService.getUploadUri()).thenReturn("/files");
     request.setRequestURI("/files/does-not-exist");
     when(storageService.getUploadInfo("/files/does-not-exist", "owner")).thenReturn(null);
-    // Should return early and not throw any exception
     validator.validate(HttpMethod.PATCH, request, storageService, "owner");
   }
 
@@ -209,5 +210,44 @@ public class RufhAppendValidatorTest {
     when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
 
     validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
+
+  @Test(expected = TusException.class)
+  public void testValidateMissingUploadCompleteHeader() throws Exception {
+    MockHttpServletRequest missingCompleteReq = new MockHttpServletRequest();
+    missingCompleteReq.setRequestURI("/files/exists");
+    missingCompleteReq.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    missingCompleteReq.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5000L);
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+
+    validator.validate(HttpMethod.PATCH, missingCompleteReq, storageService, "owner");
+  }
+
+  /**
+   * Section 4.4.2 (Server Behavior - Offset Exceeding Length): "the server MUST prevent the offset
+   * from exceeding the representation's length by rejecting the request once the offset exceeds the
+   * length, marking the upload resource invalid and rejecting any further interaction with it."
+   */
+  @Test(expected = TusException.class)
+  public void testValidateExceedingUploadLengthInvalidatesResource() throws Exception {
+    request.setRequestURI("/files/exists");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.setContent(new byte[5000]); // 1000 + 5000 = 6000 > 5000 declared length
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5000L);
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+
+    try {
+      validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+    } finally {
+      org.mockito.Mockito.verify(storageService).terminateUpload(info);
+    }
   }
 }

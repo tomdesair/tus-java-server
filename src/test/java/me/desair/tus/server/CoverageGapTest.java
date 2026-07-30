@@ -871,6 +871,7 @@ public class CoverageGapTest {
     appReq.setRequestURI("/files/test-id");
     appReq.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
     appReq.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    appReq.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
     appReq.setContent("hello".getBytes());
 
     appendVal.validate(HttpMethod.PATCH, appReq, mockStorage, "owner");

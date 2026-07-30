@@ -344,6 +344,7 @@ public class TusFileUploadServiceTest {
     mockReq.setRequestURI("/files/test");
     mockReq.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
     mockReq.addHeader(HttpHeader.UPLOAD_OFFSET, "200");
+    mockReq.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
 
     TusFileUploadService service =
         new TusFileUploadService()
@@ -378,6 +379,7 @@ public class TusFileUploadServiceTest {
     mockReq.setRequestURI("/files/test");
     mockReq.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
     mockReq.addHeader(HttpHeader.UPLOAD_OFFSET, "200");
+    mockReq.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
 
     TusFileUploadService service =
         new TusFileUploadService()
@@ -410,6 +412,7 @@ public class TusFileUploadServiceTest {
     mockReq.setMethod("PATCH");
     mockReq.setRequestURI("/files/test");
     mockReq.addHeader(HttpHeader.CONTENT_TYPE, "text/plain");
+    mockReq.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
 
     TusFileUploadService service =
         new TusFileUploadService()

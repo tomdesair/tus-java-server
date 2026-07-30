@@ -22,11 +22,13 @@ import java.util.List;
 import java.util.regex.Pattern;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.io.serialization.ValidatingObjectInputStream;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -228,36 +230,87 @@ public class Utils {
   }
 
   /**
-   * Detects the protocol version for an incoming HTTP request based on request headers and
-   * configuration.
+   * Detects the active ProtocolVersion for an incoming HttpServletRequest.
    *
-   * @param request The HttpServletRequest
+   * @param request The current HttpServletRequest
    * @param supportedProtocolVersion The configured ProtocolVersion setting
    * @return The detected ProtocolVersion (TUS_1_0_0 or RUFH)
    */
-  public static me.desair.tus.server.ProtocolVersion detectProtocolVersion(
-      HttpServletRequest request, me.desair.tus.server.ProtocolVersion supportedProtocolVersion) {
-    if (supportedProtocolVersion == me.desair.tus.server.ProtocolVersion.TUS_1_0_0) {
-      return me.desair.tus.server.ProtocolVersion.TUS_1_0_0;
+  public static ProtocolVersion detectProtocolVersion(
+      HttpServletRequest request, ProtocolVersion supportedProtocolVersion) {
+    if (supportedProtocolVersion == ProtocolVersion.TUS_1_0_0) {
+      return ProtocolVersion.TUS_1_0_0;
     }
-    if (supportedProtocolVersion == me.desair.tus.server.ProtocolVersion.RUFH) {
-      return me.desair.tus.server.ProtocolVersion.RUFH;
+    if (supportedProtocolVersion == ProtocolVersion.RUFH) {
+      return ProtocolVersion.RUFH;
     }
 
     if (request != null) {
-      if (request.getHeader(HttpHeader.TUS_RESUMABLE) != null) {
-        return me.desair.tus.server.ProtocolVersion.TUS_1_0_0;
+      if (StringUtils.isNotBlank(request.getHeader(HttpHeader.TUS_RESUMABLE))) {
+        return ProtocolVersion.TUS_1_0_0;
       }
-      if (request.getHeader(HttpHeader.UPLOAD_COMPLETE) != null
-          || request.getHeader(HttpHeader.UPLOAD_DRAFT) != null
-          || request.getHeader("upload-draft-interop-version") != null
-          || org.apache.commons.lang3.Strings.CS.startsWith(
-              request.getHeader(HttpHeader.CONTENT_TYPE), HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD)) {
-        return me.desair.tus.server.ProtocolVersion.RUFH;
+      if (StringUtils.isNotBlank(request.getHeader(HttpHeader.UPLOAD_OFFSET))
+          || StringUtils.isNotBlank(request.getHeader(HttpHeader.UPLOAD_COMPLETE))
+          || StringUtils.isNotBlank(request.getHeader(HttpHeader.UPLOAD_DRAFT))
+          || StringUtils.isNotBlank(request.getHeader("upload-draft-interop-version"))
+          || Strings.CS.startsWith(
+              request.getHeader(HttpHeader.CONTENT_TYPE), HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD)
+          || Strings.CS.startsWith(
+              request.getHeader(HttpHeader.CONTENT_TYPE), "application/offset+octet-stream")) {
+        return ProtocolVersion.RUFH;
+      }
+      String method = request.getMethod();
+      if (HttpMethod.HEAD.name().equalsIgnoreCase(method)
+          || HttpMethod.GET.name().equalsIgnoreCase(method)
+          || HttpMethod.DELETE.name().equalsIgnoreCase(method)) {
+        return ProtocolVersion.RUFH;
       }
     }
 
-    return me.desair.tus.server.ProtocolVersion.TUS_1_0_0;
+    return ProtocolVersion.TUS_1_0_0;
+  }
+
+  /**
+   * Determine if the given HTTP servlet request targets the upload creation base URI endpoint.
+   *
+   * @param request The HTTP request
+   * @param uploadStorageService The storage service instance
+   * @return {@code true} if request targets the base creation endpoint URI; {@code false} otherwise
+   */
+  public static boolean isCreationEndpoint(
+      HttpServletRequest request, UploadStorageService uploadStorageService) {
+    if (request == null || uploadStorageService == null) {
+      return false;
+    }
+    String requestUri = request.getRequestURI();
+    String baseUri = uploadStorageService.getUploadUri();
+    return requestUri != null
+        && baseUri != null
+        && (requestUri.equals(baseUri) || requestUri.equals(baseUri + "/"));
+  }
+
+  /**
+   * Determine if the given HTTP servlet request target URI represents an existing upload resource.
+   *
+   * @param request The HTTP request
+   * @param uploadStorageService The storage service instance
+   * @param ownerKey The owner key
+   * @return {@code true} if the request targets an existing upload resource; {@code false}
+   *     otherwise
+   * @throws IOException If storage lookup encounters an IO error
+   */
+  public static boolean isExistingUploadResource(
+      HttpServletRequest request, UploadStorageService uploadStorageService, String ownerKey)
+      throws IOException {
+    if (isCreationEndpoint(request, uploadStorageService)) {
+      return false;
+    }
+    String requestUri = request != null ? request.getRequestURI() : null;
+    UploadInfo existingUpload =
+        (uploadStorageService != null && requestUri != null)
+            ? uploadStorageService.getUploadInfo(requestUri, ownerKey)
+            : null;
+    return existingUpload != null && !existingUpload.isExpired();
   }
 
   /**

@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -128,41 +129,39 @@ public class RufhHeadGetRequestHandlerTest {
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
   }
 
-  @Test
-  public void testProcessNullUploadInfo() throws Exception {
+  @Test(expected = TusException.class)
+  public void testProcessNullUploadInfoThrows404() throws Exception {
     request.setRequestURI("/files/null-id");
+    when(storageService.getUploadUri()).thenReturn("/files");
     when(storageService.getUploadInfo("/files/null-id", "owner")).thenReturn(null);
 
-    assertThat(
-        handler.process(
-            HttpMethod.HEAD,
-            new TusServletRequest(request),
-            new TusServletResponse(response),
-            storageService,
-            null,
-            "owner",
-            null),
-        org.hamcrest.CoreMatchers.nullValue());
+    handler.process(
+        HttpMethod.HEAD,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        null,
+        "owner",
+        null);
   }
 
-  @Test
-  public void testProcessExpiredUploadInfo() throws Exception {
+  @Test(expected = TusException.class)
+  public void testProcessExpiredUploadInfoThrows404() throws Exception {
     request.setRequestURI("/files/expired-id");
+    when(storageService.getUploadUri()).thenReturn("/files");
     UploadInfo info = new UploadInfo();
     info.setId(new UploadId("expired-id"));
     info.setExpirationTimestamp(System.currentTimeMillis() - 1000L); // Expired
     when(storageService.getUploadInfo("/files/expired-id", "owner")).thenReturn(info);
 
-    assertThat(
-        handler.process(
-            HttpMethod.HEAD,
-            new TusServletRequest(request),
-            new TusServletResponse(response),
-            storageService,
-            null,
-            "owner",
-            null),
-        org.hamcrest.CoreMatchers.nullValue());
+    handler.process(
+        HttpMethod.HEAD,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        null,
+        "owner",
+        null);
   }
 
   @Test

@@ -12,6 +12,7 @@ import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.StructuredHeaderUtil;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
+import me.desair.tus.server.util.Utils;
 
 /**
  * Request handler for HTTP HEAD and GET offset retrieval requests against upload resources.
@@ -53,7 +54,11 @@ public class RufhHeadGetRequestHandler extends AbstractRequestHandler {
 
     String requestUri = servletRequest.getRequestURI();
     UploadInfo uploadInfo = uploadStorageService.getUploadInfo(requestUri, ownerKey);
-    if (uploadInfo == null || uploadInfo.isExpired()) {
+    if (!Utils.isCreationEndpoint(servletRequest, uploadStorageService)) {
+      if (uploadInfo == null || uploadInfo.isExpired()) {
+        throw new TusException(404, "Upload resource not found");
+      }
+    } else if (uploadInfo == null || uploadInfo.isExpired()) {
       return null;
     }
 

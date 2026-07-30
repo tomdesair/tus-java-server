@@ -15,6 +15,7 @@ import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
+import me.desair.tus.server.util.Utils;
 
 /** Send the uploaded bytes of finished uploads. */
 public class DownloadGetRequestHandler extends AbstractRequestHandler {
@@ -42,7 +43,13 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
       String ownerKey)
       throws IOException, TusException {
 
+    ProtocolVersion version = Utils.detectProtocolVersion(servletRequest, ProtocolVersion.AUTO);
     UploadInfo info = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
+    if (version == ProtocolVersion.RUFH && info != null && info.isUploadInProgress()) {
+      // Delegate to RufhHeadGetRequestHandler for RUFH offset retrieval on in-progress uploads
+      return;
+    }
+
     if (info == null || info.isUploadInProgress() || info.isExpired()) {
       throw new UploadInProgressException(
           "Upload "

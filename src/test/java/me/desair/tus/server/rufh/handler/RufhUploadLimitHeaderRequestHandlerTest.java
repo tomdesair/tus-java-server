@@ -46,6 +46,7 @@ public class RufhUploadLimitHeaderRequestHandlerTest {
     assertThat(handler.supports(HttpMethod.DELETE), is(false));
 
     assertThat(handler.supports(HttpMethod.POST, ProtocolVersion.RUFH), is(true));
+    assertThat(handler.supports(HttpMethod.OPTIONS, ProtocolVersion.TUS_1_0_0), is(true));
     assertThat(handler.supports(HttpMethod.POST, ProtocolVersion.TUS_1_0_0), is(false));
     assertThat(handler.supports(HttpMethod.DELETE, ProtocolVersion.RUFH), is(false));
   }

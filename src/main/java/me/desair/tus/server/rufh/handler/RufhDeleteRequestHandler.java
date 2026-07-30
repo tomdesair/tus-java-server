@@ -40,9 +40,11 @@ public class RufhDeleteRequestHandler extends AbstractRequestHandler {
     String requestUri = servletRequest.getRequestURI();
     UploadInfo uploadInfo = uploadStorageService.getUploadInfo(requestUri, ownerKey);
 
-    if (uploadInfo != null) {
-      uploadStorageService.terminateUpload(uploadInfo);
+    if (uploadInfo == null) {
+      throw new TusException(404, "Upload resource not found");
     }
+
+    uploadStorageService.terminateUpload(uploadInfo);
     servletResponse.setStatus(204);
     return null;
   }

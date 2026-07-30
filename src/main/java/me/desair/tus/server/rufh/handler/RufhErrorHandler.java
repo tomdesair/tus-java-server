@@ -55,6 +55,12 @@ public class RufhErrorHandler extends AbstractRequestHandler {
       TusException exception)
       throws IOException, TusException {
 
+    // Section 4.4.2 & §4.1.2: RUFH error responses SHOULD/MUST include Upload-Complete: ?0
+    if (servletResponse.getHeader(HttpHeader.UPLOAD_COMPLETE) == null) {
+      servletResponse.setHeader(
+          HttpHeader.UPLOAD_COMPLETE, StructuredHeaderUtil.formatBoolean(false));
+    }
+
     if (exception instanceof UploadOffsetMismatchException) {
       // Section 7.1: Mismatching Offset
       UploadInfo uploadInfo =
@@ -65,6 +71,10 @@ public class RufhErrorHandler extends AbstractRequestHandler {
           StructuredHeaderUtil.parseInteger(servletRequest.getHeader(HttpHeader.UPLOAD_OFFSET));
       long provided = providedOffset != null ? providedOffset : 0L;
 
+      servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, String.valueOf(expectedOffset));
+      servletResponse.setHeader(
+          HttpHeader.UPLOAD_COMPLETE, StructuredHeaderUtil.formatBoolean(false));
+
       return HttpProblemDetails.forOffsetMismatch(expectedOffset, provided);
 
     } else if (exception instanceof UploadAlreadyCompletedException) {
@@ -72,7 +82,9 @@ public class RufhErrorHandler extends AbstractRequestHandler {
       return HttpProblemDetails.forCompletedUpload(400);
 
     } else if (exception instanceof InconsistentUploadLengthException) {
-      // Section 7.3: Inconsistent Length
+      // Section 7.2: Inconsistent Length
+      servletResponse.setHeader(
+          HttpHeader.UPLOAD_COMPLETE, StructuredHeaderUtil.formatBoolean(false));
       return HttpProblemDetails.forInconsistentLength();
     } else if (exception instanceof UploadDigestMismatchException) {
       // RFC 9530 Mismatched Digest Values

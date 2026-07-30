@@ -22,6 +22,7 @@ import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 public class HttpDigestsPostPutPatchRequestHandlerTest {
 
@@ -160,6 +161,35 @@ public class HttpDigestsPostPutPatchRequestHandlerTest {
     assertThat(info.getRequestedRepresentationDigests(), is("sha-256"));
     assertThat(
         servletResponse.getHeader(HttpHeader.REPR_DIGEST),
+        is("sha-256=:LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=:"));
+  }
+
+  @Test
+  public void testProcessWithWantContentDigest() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.setMethod("POST");
+    request.setRequestURI("/files/123");
+    request.addHeader(HttpHeader.WANT_CONTENT_DIGEST, "sha-256");
+    request.setContent("hello".getBytes(StandardCharsets.UTF_8));
+
+    TusServletRequest servletRequest = new TusServletRequest(request);
+    byte[] buffer = new byte[100];
+    servletRequest.getContentInputStream().read(buffer);
+
+    MockHttpServletResponse mockResp = new MockHttpServletResponse();
+    TusServletResponse servletResponse = new TusServletResponse(mockResp);
+
+    handler.process(
+        HttpMethod.POST,
+        servletRequest,
+        servletResponse,
+        uploadStorageService,
+        uploadLockingService,
+        "owner",
+        null);
+
+    assertThat(
+        mockResp.getHeader(HttpHeader.CONTENT_DIGEST),
         is("sha-256=:LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=:"));
   }
 }

@@ -84,7 +84,8 @@ public class RufhInterimResponseUtilTest {
 
     String raw = RufhInterimResponseUtil.getRawInterimResponse(request, mockStorage, "owner");
     assertNotNull(raw);
-    assertTrue(raw.contains("Location: /files/existing-123"));
+    assertTrue(raw.contains("Upload-Offset: 0"));
+    org.junit.Assert.assertFalse(raw.contains("Location:"));
 
     // Storage exception returns null
     org.mockito.Mockito.when(mockStorage.getUploadInfo("/files/existing-123", "owner"))

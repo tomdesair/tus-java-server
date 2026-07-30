@@ -29,7 +29,8 @@ public class RufhUploadLimitHeaderRequestHandler extends AbstractRequestHandler 
 
   @Override
   public boolean supports(HttpMethod method, ProtocolVersion version) {
-    return version == ProtocolVersion.RUFH && supports(method);
+    return (version == ProtocolVersion.RUFH || HttpMethod.OPTIONS.equals(method))
+        && supports(method);
   }
 
   @Override

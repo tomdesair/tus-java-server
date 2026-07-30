@@ -12,6 +12,7 @@ import me.desair.tus.server.exception.UploadOffsetMismatchException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.StructuredHeaderUtil;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.Strings;
 
 /**
@@ -46,16 +47,19 @@ public class RufhAppendValidator implements RequestValidator {
       throws TusException, IOException {
 
     String requestUri = request.getRequestURI();
+    boolean isCreationEndpoint = Utils.isCreationEndpoint(request, uploadStorageService);
     UploadInfo uploadInfo = uploadStorageService.getUploadInfo(requestUri, ownerKey);
 
-    // If upload is null or expired, check if this is the creation endpoint. If not, the upload
-    // resource was not found.
     if (uploadInfo == null || uploadInfo.isExpired()) {
-      String baseUri = uploadStorageService.getUploadUri();
-      if (baseUri != null && !requestUri.equals(baseUri) && !requestUri.equals(baseUri + "/")) {
+      if (!isCreationEndpoint) {
         throw new TusException(404, "Upload resource not found");
       }
       return;
+    }
+
+    String uploadCompleteHeader = request.getHeader(HttpHeader.UPLOAD_COMPLETE);
+    if (uploadCompleteHeader == null) {
+      throw new TusException(400, "PATCH append request MUST include Upload-Complete header field");
     }
 
     String contentType = request.getHeader(HttpHeader.CONTENT_TYPE);
@@ -65,11 +69,39 @@ public class RufhAppendValidator implements RequestValidator {
     }
 
     if (!uploadInfo.isUploadInProgress()) {
+      try {
+        // Section 4.4.2: Deactivate upload resource when append is attempted on a completed upload
+        // ponytail: Terminate/deactivate upload resource per §4.4.2 when append is attempted past
+        // declared length
+        uploadStorageService.terminateUpload(uploadInfo);
+      } catch (Exception e) {
+        // Log or ignore cleanup failure
+      }
       throw new UploadAlreadyCompletedException("Upload resource is already completed");
     }
 
-    Long maxAppendSize = uploadStorageService.getMaxAppendSize();
+    String offsetHeader = request.getHeader(HttpHeader.UPLOAD_OFFSET);
+    Long providedOffset = StructuredHeaderUtil.parseInteger(offsetHeader);
+    if (providedOffset == null) {
+      throw new TusException(400, "Missing or invalid Upload-Offset header");
+    }
+
+    long currentOffset = uploadInfo.getOffset();
+    if (providedOffset != currentOffset) {
+      // Section 4.4.2: Offset Mismatch Error Response
+      // "If the Upload-Offset request header field value does not match the current offset... the
+      // server MUST reject
+      // the request with a 409 (Conflict) status code... The response MUST include the correct
+      // offset in the Upload-Offset header field."
+      throw new UploadOffsetMismatchException(
+          "Upload-Offset " + providedOffset + " does not match server offset " + currentOffset);
+    }
+
     long contentLength = request.getContentLengthLong();
+
+    // Section 4.1.4 & Section 4.7: Validate max-append-size first to reject oversized payloads with
+    // 413 Payload Too Large
+    Long maxAppendSize = uploadStorageService.getMaxAppendSize();
     if (maxAppendSize != null
         && maxAppendSize > 0
         && contentLength > 0
@@ -83,11 +115,37 @@ public class RufhAppendValidator implements RequestValidator {
               + ")");
     }
 
+    // Section 4.4.2: Prevent offset from exceeding upload length if length is known and invalidate
+    // resource
+    // "the server MUST prevent the offset from exceeding the representation's length by rejecting
+    // the request
+    // once the offset exceeds the length, marking the upload resource invalid and rejecting any
+    // further interaction with it."
+    // ponytail: When appended bytes cause offset to exceed declared length (or if upload is already
+    // at declared length),
+    // deactivate/terminate the upload resource per §4.4.2 and reject with 409 Conflict.
+    if (uploadInfo.hasLength()) {
+      if (currentOffset >= uploadInfo.getLength()
+          || (contentLength > 0 && currentOffset + contentLength > uploadInfo.getLength())) {
+        try {
+          uploadStorageService.terminateUpload(uploadInfo);
+        } catch (Exception e) {
+          // Log or ignore cleanup failure
+        }
+        throw new TusException(
+            409,
+            "Appended content length ("
+                + contentLength
+                + ") pushes total offset past declared upload length ("
+                + uploadInfo.getLength()
+                + ")");
+      }
+    }
+
     // Section 4.1.4: min-append-size validation with exemption for Upload-Complete: ?1
     // "This limit does not apply to upload creation requests with no content, or to requests
     // completing the upload by including the Upload-Complete: ?1 header field."
     Long minAppendSize = uploadStorageService.getMinAppendSize();
-    String uploadCompleteHeader = request.getHeader(HttpHeader.UPLOAD_COMPLETE);
     Boolean uploadComplete = StructuredHeaderUtil.parseBoolean(uploadCompleteHeader);
     boolean isCompleteExempt = Boolean.TRUE.equals(uploadComplete);
 
@@ -99,31 +157,6 @@ public class RufhAppendValidator implements RequestValidator {
                 + contentLength
                 + ") is below the minimum allowed append size ("
                 + minAppendSize
-                + ")");
-      }
-    }
-
-    String offsetHeader = request.getHeader(HttpHeader.UPLOAD_OFFSET);
-    Long providedOffset = StructuredHeaderUtil.parseInteger(offsetHeader);
-    if (providedOffset == null) {
-      throw new TusException(400, "Missing or invalid Upload-Offset header");
-    }
-
-    long currentOffset = uploadInfo.getOffset();
-    if (providedOffset != currentOffset) {
-      throw new UploadOffsetMismatchException(
-          "Upload-Offset " + providedOffset + " does not match server offset " + currentOffset);
-    }
-
-    // Section 4.4.2: Prevent offset from exceeding upload length if length is known
-    if (uploadInfo.hasLength() && contentLength > 0) {
-      if (currentOffset + contentLength > uploadInfo.getLength()) {
-        throw new TusException(
-            400,
-            "Appended content length ("
-                + contentLength
-                + ") pushes total offset past declared upload length ("
-                + uploadInfo.getLength()
                 + ")");
       }
     }

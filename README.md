@@ -86,8 +86,8 @@ The first step is to create a `TusFileUploadService` object using its constructo
 * `withChunkedTransferDecoding`: You can enable or disable the decoding of chunked HTTP requests by this library. Enable this feature in case the web container in which this service is running does not decode chunked transfers itself. By default, chunked decoding via this library is disabled (as modern frameworks tend to already do this for you).
 * `withThreadLocalCache(Boolean)`: Optionally you can enable (or disable) an in-memory (thread local) cache of upload request data to reduce load on the storage backend and potentially increase performance when processing upload requests.
 * `withUploadExpirationPeriod(Long)`: You can set the number of milliseconds after which an upload is considered as expired and available for cleanup. Applies to both Tus 1.0.0 (`Upload-Expires` response header) and IETF RUFH (`max-age` parameter in `Upload-Limit` response header).
-* `getRawInterimResponse(HttpServletRequest, String)`: Helper method that inspects an incoming request and returns the raw HTTP 104 interim response frame string (`HTTP/1.1 104 Upload Resumption Supported\r\nLocation: ...\r\nUpload-Offset: 0\r\n\r\n`) if applicable, or `null` otherwise. Useful for web container extensions (such as Tomcat Valves) that flush 1xx interim responses directly to client sockets.
-* `withDownloadFeature()`: Enable the unofficial `download` extension that also allows you to download uploaded bytes.
+* `withDownloadFeature()`: Enable the unofficial `download` extension that allows clients to download uploaded bytes via `GET`. This feature is disabled by default.
+  * **Disclaimer**: Enabling the download extension for `GET` requests may interfere with IETF RUFH `GET` offset retrieval conformity (Section 4.3 of draft-12), as RUFH specifies `GET` requests for offset retrieval returning `204 No Content`.
 * `withUploadDeduplication(Boolean)`: Enable duplicate file processing based on the checksum hash. If enabled, the server will scan previous completed uploads for a file with the same checksum. If a duplicate is found, the new upload will link to the existing file (`duplicatesUploadId`), skipping redundant disk storage writes and saving disk space.
   * **Disclaimer**: If duplicate file processing is enabled, the duplicate (child) upload depends directly on the original (parent) upload file. If the original parent upload is deleted or terminated, any duplicate child uploads pointing to it will no longer be downloadable (returning `404 Not Found`).
 * `addTusExtension(TusExtension)`: Add a custom (application-specific) extension that implements the `me.desair.tus.server.TusExtension` interface. For example you can add your own extension that checks authentication and authorization policies within your application for the user doing the upload.
@@ -135,10 +135,12 @@ After having processed the uploaded bytes on the server backend (e.g. copy them 
 
 Next to removing uploads after they have been completed and processed by the backend, it is also recommended to schedule a regular maintenance task to clean up any expired uploads or locks. Cleaning up expired uploads and locks can be achieved using the `me.desair.tus.server.TusFileUploadService.cleanup()` method.
 
-## Compatible Client Implementations
+## Compatible Client Implementations & Conformity Testing
 This server implementation has been tested with:
 - **Tus 1.0.0 Clients**: Tested with [Uppy](https://uppy.io/) and `tus-js-client`.
-- **IETF Resumable Uploads Clients**: For now, the implementation has only been tested with the [RUFH conformity tests of the IETF hackathon](https://github.com/tus/ietf-hackathon).
+- **IETF Resumable Uploads Clients & Conformity Tests**: The implementation has been thoroughly tested with our own built-in RUFH conformity test suite (`scripts/rufh_conformity_test.py`) validating compliance with draft-12 of the RUFH protocol specification and RFC 9530 HTTP Digests, as well as the community [RUFH conformity tests from the IETF hackathon](https://github.com/tus/ietf-hackathon).
+
+For detailed instructions on running our native conformity test suite and interpreting results, see the **[Conformity Testing Guide (docs/CONFORMITY_TESTING.md)](docs/CONFORMITY_TESTING.md)**.
 
 This repository also contains comprehensive automated integration test suites (`ITTusFileUploadService`, `IetfProtocolCreationTest`, `IetfProtocolAppendTest`, `IetfProtocolHeadTest`, `IetfProtocolCancellationTest`) validating both protocol specifications.
 

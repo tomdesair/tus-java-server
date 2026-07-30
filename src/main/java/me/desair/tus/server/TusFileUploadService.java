@@ -672,9 +672,13 @@ public class TusFileUploadService {
 
       // Since an error occurred, the bytes we have written are probably not valid. So remove
       // them.
-      UploadInfo uploadInfo =
-          uploadStorageService.getUploadInfo(Utils.getUploadUri(request, response), ownerKey);
-      uploadStorageService.removeLastNumberOfBytes(uploadInfo, request.getBytesRead());
+      String uploadUri = Utils.getUploadUri(request, response);
+      if (uploadUri != null) {
+        UploadInfo uploadInfo = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
+        if (uploadInfo != null) {
+          uploadStorageService.removeLastNumberOfBytes(uploadInfo, request.getBytesRead());
+        }
+      }
 
     } catch (TusException ex) {
       log.warn("An exception occurred while handling another exception", ex);

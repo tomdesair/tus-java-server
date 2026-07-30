@@ -59,6 +59,20 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
       }
     }
 
+    // 4. Provide Repr-Digest / Content-Digest response header if requested
+    String wantContentDigest = servletRequest.getHeader(HttpHeader.WANT_CONTENT_DIGEST);
+    if (StringUtils.isNotBlank(wantContentDigest)) {
+      ChecksumAlgorithm preferredAlg = ChecksumAlgorithm.selectBestAlgorithm(wantContentDigest);
+      if (preferredAlg != null) {
+        String calculatedVal = servletRequest.getCalculatedChecksum(preferredAlg);
+        if (calculatedVal != null) {
+          servletResponse.setHeader(
+              HttpHeader.CONTENT_DIGEST,
+              preferredAlg.getHttpDigestNames().get(0) + "=:" + calculatedVal + ":");
+        }
+      }
+    }
+
     if (uploadInfo != null) {
       // 2. Capture client Repr-Digest and Want-Repr-Digest
       captureDigestPreferences(servletRequest, uploadInfo, uploadStorageService);

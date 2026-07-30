@@ -5,11 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [2.0.0]
 
 ### Added
-- **IETF Resumable Uploads for HTTP (RUFH) Protocol Compliance**: Implemented full support for the official IETF Resumable Uploads for HTTP specification (`draft-ietf-httpbis-resumable-upload`).
+- **IETF Resumable Uploads for HTTP (RUFH) Protocol**: Implemented full support for the official IETF Resumable Uploads for HTTP specification (`draft-ietf-httpbis-resumable-upload-12`).
 - **Dual Protocol Auto-Detection**: Added transparent protocol routing in `TusFileUploadService` supporting both legacy `TUS_1_0_0` (`Tus-Resumable: 1.0.0`) and `RUFH` (`ProtocolVersion.RUFH`) clients concurrently on the same endpoint.
 - **RFC 9651 Structured Header Fields**: Implemented RFC 9651 parsing and serialization for `Upload-Offset`, `Upload-Complete`, `Upload-Length`, and `Upload-Limit` dictionary headers.
 - **RFC 7807 Problem Details JSON**: Added support for standard `application/problem+json` error responses (`mismatching-upload-offset`, `completed-upload`, `inconsistent-upload-length`).
-- **Dedicated Compliance & Security Test Suites**: Added comprehensive, spec-quoted unit tests under package `me.desair.tus.server.ietf` and security tests under `me.desair.tus.server.ietf.security` verifying Path Traversal protection, DoS limits, CRLF sanitization, and lock safety.
+- **Dedicated Compliance Test Suites**: Added comprehensive, spec-quoted end-to-end tests using a dedicated Python script `scripts/rufh_conformity_test.py` with documentation on how to run the tests in `docs/CONFORMITY_TESTING.md`.
 - **User Migration & Interim Responses Documentation**: Added `docs/MIGRATION.md` and `docs/INTERIM_RESPONSES.md` detailing migration strategies, HTTP 104 status frames under IETF RUFH, Tomcat/Servlet container limitations, cached reflection optimizations, and Spring Boot Tomcat Valve integration.
 
 ## [1.0.0-3.3]

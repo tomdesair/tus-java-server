@@ -32,13 +32,16 @@ public class RufhUploadExistsValidatorTest {
   @Test
   public void testSupports() {
     assertTrue(validator.supports(HttpMethod.HEAD));
+    assertTrue(validator.supports(HttpMethod.GET));
+    assertTrue(validator.supports(HttpMethod.PATCH));
     assertTrue(validator.supports(HttpMethod.DELETE));
     assertFalse(validator.supports(HttpMethod.POST));
   }
 
   /**
-   * Section 6.1 (Status Request) & Section 7 (Upload Cancellation): "If the upload resource does
-   * not exist, the server MUST reject the request with a 404 (Not Found) status code."
+   * Section 4.3 (Offset Retrieval), Section 4.4 (Upload Append) & Section 4.5 (Upload
+   * Cancellation): "If the upload resource does not exist, the server MUST reject the request with
+   * a 404 (Not Found) status code."
    */
   @Test(expected = TusException.class)
   public void testValidateUploadDoesNotExist() throws Exception {
@@ -46,6 +49,18 @@ public class RufhUploadExistsValidatorTest {
     when(storageService.getUploadInfo("/files/non-existent-id", "owner")).thenReturn(null);
 
     validator.validate(HttpMethod.HEAD, request, storageService, "owner");
+  }
+
+  /**
+   * Section 4.4 (Upload Append): "If the upload resource does not exist, the server MUST reject the
+   * request with a 404 (Not Found) status code."
+   */
+  @Test(expected = TusException.class)
+  public void testValidatePatchUploadDoesNotExist() throws Exception {
+    request.setRequestURI("/files/non-existent-id");
+    when(storageService.getUploadInfo("/files/non-existent-id", "owner")).thenReturn(null);
+
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
   }
 
   @Test
