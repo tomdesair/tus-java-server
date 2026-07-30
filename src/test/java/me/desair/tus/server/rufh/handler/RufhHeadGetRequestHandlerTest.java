@@ -187,4 +187,44 @@ public class RufhHeadGetRequestHandlerTest {
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
     assertThat(response.getHeader(HttpHeader.UPLOAD_LENGTH), org.hamcrest.CoreMatchers.nullValue());
   }
+
+  @Test
+  public void testProcessCreationEndpointWithNullUploadInfoReturnsNull() throws Exception {
+    request.setRequestURI("/files");
+    when(storageService.getUploadUri()).thenReturn("/files");
+    when(storageService.getUploadInfo("/files", "owner")).thenReturn(null);
+
+    Object result =
+        handler.process(
+            HttpMethod.HEAD,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            null);
+
+    assertThat(result, org.hamcrest.CoreMatchers.nullValue());
+  }
+
+  @Test
+  public void testProcessCreationEndpointWithExpiredUploadInfoReturnsNull() throws Exception {
+    request.setRequestURI("/files");
+    when(storageService.getUploadUri()).thenReturn("/files");
+    UploadInfo expiredInfo = new UploadInfo();
+    expiredInfo.setExpirationTimestamp(System.currentTimeMillis() - 1000L);
+    when(storageService.getUploadInfo("/files", "owner")).thenReturn(expiredInfo);
+
+    Object result =
+        handler.process(
+            HttpMethod.HEAD,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            null);
+
+    assertThat(result, org.hamcrest.CoreMatchers.nullValue());
+  }
 }

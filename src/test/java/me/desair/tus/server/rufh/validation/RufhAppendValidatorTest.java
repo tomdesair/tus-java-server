@@ -250,4 +250,39 @@ public class RufhAppendValidatorTest {
       org.mockito.Mockito.verify(storageService).terminateUpload(info);
     }
   }
+
+  @Test(expected = TusException.class)
+  public void testValidateCompletedUploadTerminateThrowsException() throws Exception {
+    request.setRequestURI("/files/exists");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "5000");
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5000L);
+    info.setOffset(5000L); // Completed
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+    org.mockito.Mockito.doThrow(new RuntimeException("Terminate failed"))
+        .when(storageService)
+        .terminateUpload(info);
+
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
+
+  @Test(expected = TusException.class)
+  public void testValidateExceedingLengthTerminateThrowsException() throws Exception {
+    request.setRequestURI("/files/exists");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.setContent(new byte[5000]);
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5000L);
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+    org.mockito.Mockito.doThrow(new RuntimeException("Terminate failed"))
+        .when(storageService)
+        .terminateUpload(info);
+
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
 }

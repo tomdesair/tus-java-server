@@ -192,4 +192,55 @@ public class HttpDigestsPostPutPatchRequestHandlerTest {
         mockResp.getHeader(HttpHeader.CONTENT_DIGEST),
         is("sha-256=:LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=:"));
   }
+
+  @Test
+  public void testProcessWithWantContentDigestUnknownAlgorithm() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.setMethod("POST");
+    request.setRequestURI("/files/123");
+    request.addHeader(HttpHeader.WANT_CONTENT_DIGEST, "unknown-alg=1");
+    request.setContent("hello".getBytes(StandardCharsets.UTF_8));
+
+    TusServletRequest servletRequest = new TusServletRequest(request);
+    MockHttpServletResponse mockResp = new MockHttpServletResponse();
+    TusServletResponse servletResponse = new TusServletResponse(mockResp);
+
+    handler.process(
+        HttpMethod.POST,
+        servletRequest,
+        servletResponse,
+        uploadStorageService,
+        uploadLockingService,
+        "owner",
+        null);
+
+    assertThat(
+        mockResp.getHeader(HttpHeader.CONTENT_DIGEST), org.hamcrest.CoreMatchers.nullValue());
+  }
+
+  @Test
+  public void testProcessWithWantContentDigestNoBodyRead() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.setMethod("POST");
+    request.setRequestURI("/files/123");
+    request.addHeader(HttpHeader.WANT_CONTENT_DIGEST, "sha-256");
+    request.setContent("hello".getBytes(StandardCharsets.UTF_8));
+
+    // Notice: we do NOT read content input stream, so calculatedVal is null
+    TusServletRequest servletRequest = new TusServletRequest(request);
+    MockHttpServletResponse mockResp = new MockHttpServletResponse();
+    TusServletResponse servletResponse = new TusServletResponse(mockResp);
+
+    handler.process(
+        HttpMethod.POST,
+        servletRequest,
+        servletResponse,
+        uploadStorageService,
+        uploadLockingService,
+        "owner",
+        null);
+
+    assertThat(
+        mockResp.getHeader(HttpHeader.CONTENT_DIGEST), org.hamcrest.CoreMatchers.nullValue());
+  }
 }

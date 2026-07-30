@@ -172,4 +172,20 @@ public class DownloadGetRequestHandlerTest {
         .copyUploadTo(any(UploadInfo.class), any(OutputStream.class));
     assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_NO_CONTENT));
   }
+
+  @Test(expected = UploadNotFoundException.class)
+  public void testWithExpiredUpload() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId(UUID.randomUUID()));
+    info.setExpirationTimestamp(System.currentTimeMillis() - 1000L);
+    when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class)))
+        .thenReturn(info);
+
+    handler.process(
+        HttpMethod.GET,
+        new TusServletRequest(servletRequest),
+        new TusServletResponse(servletResponse),
+        uploadStorageService,
+        null);
+  }
 }
