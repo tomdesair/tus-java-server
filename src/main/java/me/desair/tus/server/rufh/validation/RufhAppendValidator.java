@@ -6,8 +6,14 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.exception.InconsistentUploadLengthException;
+import me.desair.tus.server.exception.InvalidUploadCompleteHeaderException;
+import me.desair.tus.server.exception.InvalidUploadOffsetHeaderException;
+import me.desair.tus.server.exception.MaxAppendSizeExceededException;
+import me.desair.tus.server.exception.MinAppendSizeNotMetException;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UnsupportedMediaTypeException;
 import me.desair.tus.server.exception.UploadAlreadyCompletedException;
+import me.desair.tus.server.exception.UploadLengthExceededException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.exception.UploadOffsetMismatchException;
 import me.desair.tus.server.upload.UploadInfo;
@@ -60,19 +66,20 @@ public class RufhAppendValidator implements RequestValidator {
 
     String uploadCompleteHeader = request.getHeader(HttpHeader.UPLOAD_COMPLETE);
     if (uploadCompleteHeader == null) {
-      throw new TusException(400, "PATCH append request MUST include Upload-Complete header field");
+      throw new InvalidUploadCompleteHeaderException(
+          "PATCH append request MUST include Upload-Complete header field");
     }
 
     String contentType = request.getHeader(HttpHeader.CONTENT_TYPE);
     if (!Strings.CS.startsWith(contentType, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD)
         && !Strings.CS.startsWith(contentType, "application/offset+octet-stream")) {
-      throw new TusException(415, "Unsupported Content-Type for append request");
+      throw new UnsupportedMediaTypeException("Unsupported Content-Type for append request");
     }
 
     if (!uploadInfo.isUploadInProgress()) {
       try {
         // Section 4.4.2: Deactivate upload resource when append is attempted on a completed upload
-        // ponytail: Terminate/deactivate upload resource per §4.4.2 when append is attempted past
+        // Terminate/deactivate upload resource per §4.4.2 when append is attempted past
         // declared length
         uploadStorageService.terminateUpload(uploadInfo);
       } catch (Exception e) {
@@ -84,7 +91,7 @@ public class RufhAppendValidator implements RequestValidator {
     String offsetHeader = request.getHeader(HttpHeader.UPLOAD_OFFSET);
     Long providedOffset = StructuredHeaderUtil.parseInteger(offsetHeader);
     if (providedOffset == null) {
-      throw new TusException(400, "Missing or invalid Upload-Offset header");
+      throw new InvalidUploadOffsetHeaderException("Missing or invalid Upload-Offset header");
     }
 
     long currentOffset = uploadInfo.getOffset();
@@ -107,8 +114,7 @@ public class RufhAppendValidator implements RequestValidator {
         && maxAppendSize > 0
         && contentLength > 0
         && contentLength > maxAppendSize) {
-      throw new TusException(
-          413,
+      throw new MaxAppendSizeExceededException(
           "The request payload size ("
               + contentLength
               + ") exceeds the maximum allowed append size ("
@@ -122,9 +128,9 @@ public class RufhAppendValidator implements RequestValidator {
     // the request
     // once the offset exceeds the length, marking the upload resource invalid and rejecting any
     // further interaction with it."
-    // ponytail: When appended bytes cause offset to exceed declared length (or if upload is already
-    // at declared length),
-    // deactivate/terminate the upload resource per §4.4.2 and reject with 409 Conflict.
+    // When appended bytes cause offset to exceed declared length (or if upload is already
+    // at declared length), deactivate/terminate the upload resource per §4.4.2 and reject
+    // with 409 Conflict.
     if (uploadInfo.hasLength()) {
       if (currentOffset >= uploadInfo.getLength()
           || (contentLength > 0 && currentOffset + contentLength > uploadInfo.getLength())) {
@@ -133,8 +139,7 @@ public class RufhAppendValidator implements RequestValidator {
         } catch (Exception e) {
           // Log or ignore cleanup failure
         }
-        throw new TusException(
-            409,
+        throw new UploadLengthExceededException(
             "Appended content length ("
                 + contentLength
                 + ") pushes total offset past declared upload length ("
@@ -152,8 +157,7 @@ public class RufhAppendValidator implements RequestValidator {
 
     if (minAppendSize != null && minAppendSize > 0 && !isCompleteExempt) {
       if (contentLength < minAppendSize) {
-        throw new TusException(
-            400,
+        throw new MinAppendSizeNotMetException(
             "The request payload size ("
                 + contentLength
                 + ") is below the minimum allowed append size ("

@@ -7,7 +7,7 @@ import subprocess
 import shutil
 import xml.etree.ElementTree as ET
 
-# ponytail: simple release automation script using stdlib to minimize dependencies.
+# Simple release automation script using stdlib to minimize dependencies.
 # The script supports validation (dry-run + snapshot deploy) and actual release.
 
 LOG_FILE = "release.log"

@@ -6,6 +6,10 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.exception.InconsistentUploadLengthException;
+import me.desair.tus.server.exception.MaxAppendSizeExceededException;
+import me.desair.tus.server.exception.MaxUploadLengthExceededException;
+import me.desair.tus.server.exception.MinAppendSizeNotMetException;
+import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.StructuredHeaderUtil;
@@ -63,13 +67,13 @@ public class RufhCreationValidator implements RequestValidator {
 
     long maxUploadSize = uploadStorageService.getMaxUploadSize();
     if (maxUploadSize > 0 && uploadLength != null && uploadLength > maxUploadSize) {
-      throw new TusException(413, "The requested upload length exceeds the maximum allowed size");
+      throw new MaxUploadLengthExceededException(
+          "The requested upload length exceeds the maximum allowed size");
     }
 
     Long minSize = uploadStorageService.getMinSize();
     if (minSize != null && minSize > 0 && uploadLength != null && uploadLength < minSize) {
-      throw new TusException(
-          400,
+      throw new MinUploadLengthNotReachedException(
           "The requested upload length ("
               + uploadLength
               + ") is smaller than the minimum allowed size ("
@@ -82,8 +86,7 @@ public class RufhCreationValidator implements RequestValidator {
         && maxAppendSize > 0
         && contentLength > 0
         && contentLength > maxAppendSize) {
-      throw new TusException(
-          413,
+      throw new MaxAppendSizeExceededException(
           "The request payload size ("
               + contentLength
               + ") exceeds the maximum allowed append size ("
@@ -98,8 +101,7 @@ public class RufhCreationValidator implements RequestValidator {
     boolean isContentExempt = contentLength <= 0 || Boolean.TRUE.equals(uploadComplete);
     if (minAppendSize != null && minAppendSize > 0 && !isContentExempt) {
       if (contentLength < minAppendSize) {
-        throw new TusException(
-            400,
+        throw new MinAppendSizeNotMetException(
             "The request payload size ("
                 + contentLength
                 + ") is below the minimum allowed append size ("

@@ -5,6 +5,7 @@ import java.io.IOException;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UnsafePathException;
 import me.desair.tus.server.upload.UploadStorageService;
 
 /**
@@ -31,7 +32,7 @@ public class RufhSafePathValidator implements RequestValidator {
 
     String path = request.getRequestURI();
     if (path != null && (path.contains("..") || path.contains("\0"))) {
-      throw new TusException(400, "Invalid or unsafe path component: " + path);
+      throw new UnsafePathException("Invalid or unsafe path component: " + path);
     }
   }
 }
