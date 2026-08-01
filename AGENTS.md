@@ -110,6 +110,12 @@ Whenever a new setter or configuration property (such as `setMinAppendSize`, `se
 - `TusFileUploadService.withUploadStorageService(...)` MUST be updated to copy the setting from the old `UploadStorageService` instance to the new one.
 - `ThreadLocalCachedStorageAndLockingService` MUST delegate the setter and getter methods to `storageServiceDelegate`.
 
+### 15. Typed Exceptions & HttpServletResponse Status Codes
+- Do NOT throw generic `TusException` directly when throwing protocol errors or request validation failures.
+- Always throw specific typed exceptions from the `me.desair.tus.server.exception` package (e.g., `UploadNotFoundException`, `InvalidUploadMetadataException`, `UploadLengthExceededException`, `InvalidHttpDigestException`).
+- If a new error condition is introduced, create a new typed exception class in `me.desair.tus.server.exception` that extends `TusException`.
+- Typed exception constructors MUST use `jakarta.servlet.http.HttpServletResponse` HTTP status code constants (e.g., `HttpServletResponse.SC_BAD_REQUEST`, `HttpServletResponse.SC_CONFLICT`, `HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE`) when calling `super(status, message)`.
+
 ## IETF Resumable Uploads for HTTP (RUFH) Spec Maintenance & Update Playbook
 
 ### 1. Spec Diff Review
