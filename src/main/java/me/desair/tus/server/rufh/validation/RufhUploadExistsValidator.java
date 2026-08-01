@@ -5,8 +5,10 @@ import java.io.IOException;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.Utils;
 
 /**
  * Request validator verifying that the target upload resource exists for status querying, data
@@ -21,6 +23,7 @@ public class RufhUploadExistsValidator implements RequestValidator {
   public boolean supports(HttpMethod method) {
     return HttpMethod.HEAD.equals(method)
         || HttpMethod.GET.equals(method)
+        || HttpMethod.PATCH.equals(method)
         || HttpMethod.DELETE.equals(method);
   }
 
@@ -32,10 +35,14 @@ public class RufhUploadExistsValidator implements RequestValidator {
       String ownerKey)
       throws TusException, IOException {
 
+    if (Utils.isCreationEndpoint(request, uploadStorageService)) {
+      return;
+    }
+
     String requestUri = request.getRequestURI();
     UploadInfo uploadInfo = uploadStorageService.getUploadInfo(requestUri, ownerKey);
     if (uploadInfo == null || uploadInfo.isExpired()) {
-      throw new TusException(404, "Upload resource not found");
+      throw new UploadNotFoundException("Upload resource not found");
     }
   }
 }

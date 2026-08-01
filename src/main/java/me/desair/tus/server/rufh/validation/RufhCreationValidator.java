@@ -6,9 +6,14 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.exception.InconsistentUploadLengthException;
+import me.desair.tus.server.exception.MaxAppendSizeExceededException;
+import me.desair.tus.server.exception.MaxUploadLengthExceededException;
+import me.desair.tus.server.exception.MinAppendSizeNotMetException;
+import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.StructuredHeaderUtil;
+import me.desair.tus.server.util.Utils;
 
 /**
  * Request validator checking creation request limits (max upload length and max append payload
@@ -23,7 +28,9 @@ public class RufhCreationValidator implements RequestValidator {
 
   @Override
   public boolean supports(HttpMethod method) {
-    return HttpMethod.POST.equals(method) || HttpMethod.PUT.equals(method);
+    return HttpMethod.POST.equals(method)
+        || HttpMethod.PUT.equals(method)
+        || HttpMethod.PATCH.equals(method);
   }
 
   @Override
@@ -33,6 +40,11 @@ public class RufhCreationValidator implements RequestValidator {
       UploadStorageService uploadStorageService,
       String ownerKey)
       throws TusException, IOException {
+
+    if (HttpMethod.PATCH.equals(method)
+        && Utils.isExistingUploadResource(request, uploadStorageService, ownerKey)) {
+      return;
+    }
 
     String uploadLengthHeader = request.getHeader(HttpHeader.UPLOAD_LENGTH);
     Long uploadLength = StructuredHeaderUtil.parseInteger(uploadLengthHeader);
@@ -55,13 +67,13 @@ public class RufhCreationValidator implements RequestValidator {
 
     long maxUploadSize = uploadStorageService.getMaxUploadSize();
     if (maxUploadSize > 0 && uploadLength != null && uploadLength > maxUploadSize) {
-      throw new TusException(413, "The requested upload length exceeds the maximum allowed size");
+      throw new MaxUploadLengthExceededException(
+          "The requested upload length exceeds the maximum allowed size");
     }
 
     Long minSize = uploadStorageService.getMinSize();
     if (minSize != null && minSize > 0 && uploadLength != null && uploadLength < minSize) {
-      throw new TusException(
-          400,
+      throw new MinUploadLengthNotReachedException(
           "The requested upload length ("
               + uploadLength
               + ") is smaller than the minimum allowed size ("
@@ -74,8 +86,7 @@ public class RufhCreationValidator implements RequestValidator {
         && maxAppendSize > 0
         && contentLength > 0
         && contentLength > maxAppendSize) {
-      throw new TusException(
-          413,
+      throw new MaxAppendSizeExceededException(
           "The request payload size ("
               + contentLength
               + ") exceeds the maximum allowed append size ("
@@ -90,8 +101,7 @@ public class RufhCreationValidator implements RequestValidator {
     boolean isContentExempt = contentLength <= 0 || Boolean.TRUE.equals(uploadComplete);
     if (minAppendSize != null && minAppendSize > 0 && !isContentExempt) {
       if (contentLength < minAppendSize) {
-        throw new TusException(
-            400,
+        throw new MinAppendSizeNotMetException(
             "The request payload size ("
                 + contentLength
                 + ") is below the minimum allowed append size ("

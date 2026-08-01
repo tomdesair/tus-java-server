@@ -204,7 +204,8 @@ public enum ChecksumAlgorithm {
       for (Map.Entry<String, Object> entry : digestDict.entrySet()) {
         ChecksumAlgorithm alg = forHttpDigestName(entry.getKey());
         if (alg != null) {
-          result.put(alg, cleanDigestValue((String) entry.getValue()));
+          String val = entry.getValue() instanceof String ? (String) entry.getValue() : null;
+          result.put(alg, cleanDigestValue(val));
         }
       }
     }

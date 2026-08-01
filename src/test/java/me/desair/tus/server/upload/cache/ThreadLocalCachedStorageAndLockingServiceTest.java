@@ -65,6 +65,11 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
   }
 
   @Test
+  public void testGetUploadInfoWithNullId() throws IOException {
+    org.junit.Assert.assertNull(service.getUploadInfo((UploadId) null));
+  }
+
+  @Test
   public void testGetUploadInfoByUrlAndCaching() throws IOException {
     UploadId id = new UploadId(UUID.randomUUID().toString());
     UploadInfo info = new UploadInfo();

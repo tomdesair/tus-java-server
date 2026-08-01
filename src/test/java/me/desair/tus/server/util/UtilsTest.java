@@ -324,6 +324,11 @@ public class UtilsTest {
 
   @Test
   public void testDetectProtocolVersion() {
+    HttpServletRequest unversionedRequest = mock(HttpServletRequest.class);
+    assertThat(
+        Utils.detectProtocolVersion(unversionedRequest, me.desair.tus.server.ProtocolVersion.AUTO),
+        is(me.desair.tus.server.ProtocolVersion.TUS_1_0_0));
+
     HttpServletRequest request = mock(HttpServletRequest.class);
 
     // AUTO mode with Tus-Resumable header -> TUS_1_0_0
@@ -333,10 +338,10 @@ public class UtilsTest {
         is(me.desair.tus.server.ProtocolVersion.TUS_1_0_0));
 
     // AUTO mode with Upload-Complete header -> RUFH
-    when(request.getHeader(HttpHeader.TUS_RESUMABLE)).thenReturn(null);
-    when(request.getHeader(HttpHeader.UPLOAD_COMPLETE)).thenReturn("?0");
+    HttpServletRequest rufhReq = mock(HttpServletRequest.class);
+    when(rufhReq.getHeader(HttpHeader.UPLOAD_COMPLETE)).thenReturn("?0");
     assertThat(
-        Utils.detectProtocolVersion(request, me.desair.tus.server.ProtocolVersion.AUTO),
+        Utils.detectProtocolVersion(rufhReq, me.desair.tus.server.ProtocolVersion.AUTO),
         is(me.desair.tus.server.ProtocolVersion.RUFH));
 
     // Explicit TUS_1_0_0 mode
@@ -384,6 +389,127 @@ public class UtilsTest {
     assertThat(
         Utils.getUploadUriOnCreation(new me.desair.tus.server.upload.UploadInfo(), null, null),
         is("/"));
+  }
+
+  @Test
+  public void testIsExistingUploadResource() throws Exception {
+    assertThat(Utils.isExistingUploadResource(null, null, "owner"), is(false));
+
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    me.desair.tus.server.upload.UploadStorageService storageService =
+        mock(me.desair.tus.server.upload.UploadStorageService.class);
+
+    when(request.getRequestURI()).thenReturn("/files");
+    when(storageService.getUploadUri()).thenReturn("/files");
+    assertThat(Utils.isExistingUploadResource(request, storageService, "owner"), is(false));
+
+    when(request.getRequestURI()).thenReturn("/files/");
+    assertThat(Utils.isExistingUploadResource(request, storageService, "owner"), is(false));
+
+    when(request.getRequestURI()).thenReturn("/files/123");
+    when(storageService.getUploadInfo("/files/123", "owner")).thenReturn(null);
+    assertThat(Utils.isExistingUploadResource(request, storageService, "owner"), is(false));
+
+    me.desair.tus.server.upload.UploadInfo info = new me.desair.tus.server.upload.UploadInfo();
+    when(storageService.getUploadInfo("/files/123", "owner")).thenReturn(info);
+    assertThat(Utils.isExistingUploadResource(request, storageService, "owner"), is(true));
+  }
+
+  @Test
+  public void testIsCreationEndpoint() throws Exception {
+    assertThat(Utils.isCreationEndpoint(null, null), is(false));
+
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    me.desair.tus.server.upload.UploadStorageService storageService =
+        mock(me.desair.tus.server.upload.UploadStorageService.class);
+
+    when(request.getRequestURI()).thenReturn("/files");
+    when(storageService.getUploadUri()).thenReturn("/files");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(true));
+
+    when(request.getRequestURI()).thenReturn("/files/");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(true));
+
+    when(request.getRequestURI()).thenReturn("/files/123");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(false));
+  }
+
+  @Test
+  public void testDetermineProtocolVersionBranches() {
+    HttpServletRequest request = mock(HttpServletRequest.class);
+
+    // Content-Type: application/offset+octet-stream
+    when(request.getHeader(HttpHeader.CONTENT_TYPE)).thenReturn("application/offset+octet-stream");
+    assertThat(
+        Utils.detectProtocolVersion(request, me.desair.tus.server.ProtocolVersion.AUTO),
+        is(me.desair.tus.server.ProtocolVersion.RUFH));
+
+    // Method HEAD without tus headers
+    when(request.getHeader(HttpHeader.CONTENT_TYPE)).thenReturn(null);
+    when(request.getMethod()).thenReturn("HEAD");
+    assertThat(
+        Utils.detectProtocolVersion(request, me.desair.tus.server.ProtocolVersion.AUTO),
+        is(me.desair.tus.server.ProtocolVersion.RUFH));
+
+    // Method DELETE without tus headers
+    when(request.getMethod()).thenReturn("DELETE");
+    assertThat(
+        Utils.detectProtocolVersion(request, me.desair.tus.server.ProtocolVersion.AUTO),
+        is(me.desair.tus.server.ProtocolVersion.RUFH));
+
+    // Method POST with Upload-Offset
+    when(request.getMethod()).thenReturn("POST");
+    when(request.getHeader(HttpHeader.UPLOAD_OFFSET)).thenReturn("0");
+    assertThat(
+        Utils.detectProtocolVersion(request, me.desair.tus.server.ProtocolVersion.AUTO),
+        is(me.desair.tus.server.ProtocolVersion.RUFH));
+  }
+
+  @Test
+  public void testIsCreationEndpointEdgeCases() {
+    me.desair.tus.server.upload.UploadStorageService storageService =
+        mock(me.desair.tus.server.upload.UploadStorageService.class);
+    HttpServletRequest request = mock(HttpServletRequest.class);
+
+    assertThat(Utils.isCreationEndpoint(request, null), is(false));
+    assertThat(Utils.isCreationEndpoint(null, storageService), is(false));
+
+    when(request.getRequestURI()).thenReturn(null);
+    when(storageService.getUploadUri()).thenReturn("/files");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(false));
+
+    when(request.getRequestURI()).thenReturn("/files");
+    when(storageService.getUploadUri()).thenReturn(null);
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(false));
+  }
+
+  @Test
+  public void testIsExistingUploadResourceExpiredAndNull() throws Exception {
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    me.desair.tus.server.upload.UploadStorageService storageService =
+        mock(me.desair.tus.server.upload.UploadStorageService.class);
+
+    when(request.getRequestURI()).thenReturn("/files/123");
+    when(storageService.getUploadUri()).thenReturn("/files");
+
+    me.desair.tus.server.upload.UploadInfo expired = new me.desair.tus.server.upload.UploadInfo();
+    expired.setExpirationTimestamp(System.currentTimeMillis() - 1000L);
+    when(storageService.getUploadInfo("/files/123", "owner")).thenReturn(expired);
+
+    assertThat(Utils.isExistingUploadResource(request, storageService, "owner"), is(false));
+    assertThat(Utils.isExistingUploadResource(request, null, "owner"), is(false));
+  }
+
+  @Test
+  public void testIsExistingUploadResourceNullRequestUri() throws Exception {
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    me.desair.tus.server.upload.UploadStorageService storageService =
+        mock(me.desair.tus.server.upload.UploadStorageService.class);
+
+    when(request.getRequestURI()).thenReturn(null);
+    when(storageService.getUploadUri()).thenReturn("/files");
+
+    assertThat(Utils.isExistingUploadResource(request, storageService, "owner"), is(false));
   }
 
   /** Simple serializable class for testing. */

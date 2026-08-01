@@ -83,6 +83,8 @@ public class RufhErrorHandlerTest {
     }
 
     assertThat(response.getStatus(), is(409));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("1000"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
     assertThat(response.getHeader(HttpHeader.CONTENT_TYPE), is("application/problem+json"));
     assertThat(response.getContentAsString(), containsString("\"expected-offset\":1000"));
   }

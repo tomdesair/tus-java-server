@@ -84,7 +84,8 @@ public class RufhInterimResponseUtilTest {
 
     String raw = RufhInterimResponseUtil.getRawInterimResponse(request, mockStorage, "owner");
     assertNotNull(raw);
-    assertTrue(raw.contains("Location: /files/existing-123"));
+    assertTrue(raw.contains("Upload-Offset: 0"));
+    org.junit.Assert.assertFalse(raw.contains("Location:"));
 
     // Storage exception returns null
     org.mockito.Mockito.when(mockStorage.getUploadInfo("/files/existing-123", "owner"))
@@ -115,5 +116,77 @@ public class RufhInterimResponseUtilTest {
     String raw = RufhInterimResponseUtil.getRawInterimResponse(request, mockStorage, "owner");
     assertNotNull(raw);
     assertTrue(raw.contains("Location: /files/not-found-123/created-456"));
+  }
+
+  @Test
+  public void testGetRawInterimResponseWithAbsoluteUploadUri() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+
+    me.desair.tus.server.upload.UploadStorageService mockStorage =
+        org.mockito.Mockito.mock(me.desair.tus.server.upload.UploadStorageService.class);
+    me.desair.tus.server.upload.UploadInfo created = new me.desair.tus.server.upload.UploadInfo();
+    created.setId(new me.desair.tus.server.upload.UploadId("123"));
+
+    org.mockito.Mockito.when(mockStorage.getUploadUri())
+        .thenReturn("https://custom.domain.com/files");
+    org.mockito.Mockito.when(
+            mockStorage.create(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("owner")))
+        .thenReturn(created);
+
+    String raw = RufhInterimResponseUtil.getRawInterimResponse(request, mockStorage, "owner");
+    assertNotNull(raw);
+    assertTrue(raw.contains("Location: https://custom.domain.com/files/123"));
+  }
+
+  @Test
+  public void testGetRawInterimResponseWithNullUploadOffset() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/null-offset");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+
+    me.desair.tus.server.upload.UploadStorageService mockStorage =
+        org.mockito.Mockito.mock(me.desair.tus.server.upload.UploadStorageService.class);
+    me.desair.tus.server.upload.UploadInfo info = new me.desair.tus.server.upload.UploadInfo();
+    info.setOffset(null);
+
+    org.mockito.Mockito.when(mockStorage.getUploadInfo("/files/null-offset", "owner"))
+        .thenReturn(info);
+
+    String raw = RufhInterimResponseUtil.getRawInterimResponse(request, mockStorage, "owner");
+    assertNotNull(raw);
+    assertTrue(raw.contains("Upload-Offset: 0"));
+  }
+
+  @Test
+  public void testGetRawInterimResponseWithNullMethodAndPartialSchemeHost() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.setMethod(null);
+    request.setRequestURI("/files");
+
+    me.desair.tus.server.upload.UploadStorageService mockStorage =
+        org.mockito.Mockito.mock(me.desair.tus.server.upload.UploadStorageService.class);
+
+    assertNull(RufhInterimResponseUtil.getRawInterimResponse(request, mockStorage, "owner"));
+
+    // Scheme set, host null
+    MockHttpServletRequest request2 = new MockHttpServletRequest();
+    request2.setMethod("POST");
+    request2.setRequestURI("/files");
+    request2.setScheme("https");
+
+    me.desair.tus.server.upload.UploadInfo created = new me.desair.tus.server.upload.UploadInfo();
+    created.setId(new me.desair.tus.server.upload.UploadId("789"));
+    org.mockito.Mockito.when(
+            mockStorage.create(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("owner")))
+        .thenReturn(created);
+
+    String raw = RufhInterimResponseUtil.getRawInterimResponse(request2, mockStorage, "owner");
+    assertNotNull(raw);
+    assertTrue(raw.contains("Location: /files/789"));
   }
 }

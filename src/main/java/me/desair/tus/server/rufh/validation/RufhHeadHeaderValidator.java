@@ -5,6 +5,7 @@ import java.io.IOException;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
+import me.desair.tus.server.exception.InvalidHeadRequestException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 
@@ -33,8 +34,8 @@ public class RufhHeadHeaderValidator implements RequestValidator {
 
     if (request.getHeader(HttpHeader.UPLOAD_OFFSET) != null
         || request.getHeader(HttpHeader.UPLOAD_COMPLETE) != null) {
-      throw new TusException(
-          400, "HEAD request MUST NOT contain Upload-Offset or Upload-Complete header field");
+      throw new InvalidHeadRequestException(
+          "HEAD request MUST NOT contain Upload-Offset or Upload-Complete header field");
     }
   }
 }

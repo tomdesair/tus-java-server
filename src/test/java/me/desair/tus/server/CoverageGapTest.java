@@ -7,6 +7,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
+import me.desair.tus.server.exception.InvalidUploadOffsetHeaderException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -182,7 +183,7 @@ public class CoverageGapTest {
             null,
             null,
             ProtocolVersion.TUS_1_0_0,
-            new TusException(400, "Error"));
+            new InvalidUploadOffsetHeaderException("Error"));
     assertThat(extension.handleErrorCalled, is(true));
     assertThat(pd, nullValue());
   }
@@ -871,6 +872,7 @@ public class CoverageGapTest {
     appReq.setRequestURI("/files/test-id");
     appReq.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
     appReq.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    appReq.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
     appReq.setContent("hello".getBytes());
 
     appendVal.validate(HttpMethod.PATCH, appReq, mockStorage, "owner");
@@ -892,7 +894,7 @@ public class CoverageGapTest {
         mockStorage,
         null,
         "owner",
-        new TusException(400, "Error"));
+        new InvalidUploadOffsetHeaderException("Error"));
 
     // 4. RufhErrorHandler with null uploadStorageService or null servletRequest
     errorHandler.process(
@@ -902,7 +904,7 @@ public class CoverageGapTest {
         null,
         null,
         "owner",
-        new TusException(400, "Error"));
+        new InvalidUploadOffsetHeaderException("Error"));
 
     // 5. RufhCreationValidator minSize == 0 branch
     org.mockito.Mockito.when(mockStorage.getMinSize()).thenReturn(0L);

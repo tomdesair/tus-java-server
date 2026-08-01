@@ -29,7 +29,8 @@ public class RufhUploadLimitHeaderRequestHandler extends AbstractRequestHandler 
 
   @Override
   public boolean supports(HttpMethod method, ProtocolVersion version) {
-    return version == ProtocolVersion.RUFH && supports(method);
+    return (version == ProtocolVersion.RUFH || HttpMethod.OPTIONS.equals(method))
+        && supports(method);
   }
 
   @Override
@@ -46,11 +47,17 @@ public class RufhUploadLimitHeaderRequestHandler extends AbstractRequestHandler 
     }
 
     String uploadUri = servletResponse.getHeader(HttpHeader.LOCATION);
-    if (StringUtils.isBlank(uploadUri)) {
+    if (StringUtils.isBlank(uploadUri) && servletRequest != null) {
       uploadUri = servletRequest.getRequestURI();
     }
 
-    UploadInfo uploadInfo = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
+    UploadInfo uploadInfo = null;
+    try {
+      uploadInfo = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
+    } catch (Exception e) {
+      uploadInfo = null;
+    }
+
     addUploadLimitHeader(servletResponse, uploadStorageService, uploadInfo);
   }
 

@@ -160,8 +160,11 @@ public class DownloadProtocolRufhTest {
     servletRequest.setRequestURI(uploadLocation);
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
 
-    // Should return 422 Unprocessable Entity
-    assertThat(servletResponse.getStatus(), is(422));
+    // In RUFH §4.3, GET on an in-progress upload resource serves as an offset retrieval request
+    // (204 No Content)
+    assertThat(servletResponse.getStatus(), is(204));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("0"));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
   }
 
   @Test

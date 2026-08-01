@@ -168,6 +168,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
   @Override
   public UploadInfo getUploadInfo(UploadId id) throws IOException {
+    if (id == null) {
+      return null;
+    }
     try {
       Path infoPath = getInfoPath(id);
       if (infoPath == null || !Files.exists(infoPath)) {

@@ -50,7 +50,7 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
       throws IOException, TusException {
 
     if (HttpMethod.PATCH.equals(method)
-        && isExistingUpload(servletRequest, uploadStorageService, ownerKey)) {
+        && Utils.isExistingUploadResource(servletRequest, uploadStorageService, ownerKey)) {
       // Existing upload on PATCH request is handled by RufhAppendPatchRequestHandler
       return null;
     }
@@ -112,13 +112,6 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
       servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, String.valueOf(uploadInfo.getOffset()));
     }
     return null;
-  }
-
-  private boolean isExistingUpload(
-      TusServletRequest request, UploadStorageService uploadStorageService, String ownerKey)
-      throws IOException {
-    String requestUri = request.getRequestURI();
-    return uploadStorageService.getUploadInfo(requestUri, ownerKey) != null;
   }
 
   private boolean isUploadCompleted(UploadInfo uploadInfo) {

@@ -1,7 +1,6 @@
 package me.desair.tus.server.checksum.validation;
 
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -9,6 +8,7 @@ import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.ChecksumAlgorithmNotSupportedException;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadChecksumMalformedException;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
@@ -42,8 +42,7 @@ public class ChecksumAlgorithmValidator implements RequestValidator {
 
       // Check that the header is not malformed
       if (Utils.parseUploadChecksumHeader(request) == null) {
-        throw new TusException(
-            HttpServletResponse.SC_BAD_REQUEST, "The Upload-Checksum header is malformed");
+        throw new UploadChecksumMalformedException("The Upload-Checksum header is malformed");
       }
     }
   }

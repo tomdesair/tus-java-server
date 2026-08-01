@@ -70,6 +70,7 @@ Completed parent uploads are indexed by checksum under the `<storagePath>/checks
 
 ### 10. Unit Test Coverage & Pragmatic Testing
 - Unit test coverage must remain high for all new feature logic, handlers, validators, and core workflows.
+- **Mandatory Test Addition Rule**: Whenever any functional change, feature implementation, or protocol fix is added, corresponding unit tests MUST ALWAYS be added automatically to prove the fix/feature. Compliance unit tests MUST contain section references and verbatim specification quotes in method Javadocs based on the official specification.
 - Do not use reflection to test private helper methods. Always test code through public API boundaries instead of bypassing encapsulation.
 - Compliance unit tests in `me.desair.tus.server.rufh` MUST contain verbatim specification quotes in method Javadocs based on the official specification.
 - Coverage should focus on meaningful domain logic and contract behavior. Do not over-complicate test suites, write brittle reflection hacks, or add unnatural code structures solely to hit 100% JaCoCo coverage on defensive catch blocks or trivial fallbacks.
@@ -109,6 +110,12 @@ Whenever a new setter or configuration property (such as `setMinAppendSize`, `se
 - `TusFileUploadService.withUploadStorageService(...)` MUST be updated to copy the setting from the old `UploadStorageService` instance to the new one.
 - `ThreadLocalCachedStorageAndLockingService` MUST delegate the setter and getter methods to `storageServiceDelegate`.
 
+### 15. Typed Exceptions & HttpServletResponse Status Codes
+- Do NOT throw generic `TusException` directly when throwing protocol errors or request validation failures.
+- Always throw specific typed exceptions from the `me.desair.tus.server.exception` package (e.g., `UploadNotFoundException`, `InvalidUploadMetadataException`, `UploadLengthExceededException`, `InvalidHttpDigestException`).
+- If a new error condition is introduced, create a new typed exception class in `me.desair.tus.server.exception` that extends `TusException`.
+- Typed exception constructors MUST use `jakarta.servlet.http.HttpServletResponse` HTTP status code constants (e.g., `HttpServletResponse.SC_BAD_REQUEST`, `HttpServletResponse.SC_CONFLICT`, `HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE`) when calling `super(status, message)`.
+
 ## IETF Resumable Uploads for HTTP (RUFH) Spec Maintenance & Update Playbook
 
 ### 1. Spec Diff Review
@@ -135,3 +142,64 @@ When updating the IETF protocol implementation for a new draft revision, follow 
    ```bash
    mvn verify -Pcheck-coverage -Djacoco.compare.branch=master -q
    ```
+
+### 4. Conformity Test Suite Maintenance & Subagent Isolation
+Whenever a new draft revision of the RUFH specification is published, the repository's Python conformity test suite (`scripts/rufh_conformity_test.py`) MUST be reviewed and updated by a separate, dedicated subagent.
+- **Strict Isolation Rule**: The subagent tasked with updating `scripts/rufh_conformity_test.py` MUST ONLY consult the official IETF specification document (and RFC 9530) and MUST NOT inspect the Java server implementation code under `src/main/java/`. This ensures the conformity test suite remains an independent, unbiased specification benchmark.
+
+### 5. Conformity Test Suite Audit — Repeatable Procedure
+Use this procedure to audit `scripts/rufh_conformity_test.py` against the current (or a new) specification revision. The goal is to identify untested MUST/SHOULD/MAY requirements and produce an actionable improvement report.
+
+#### 5.1 Inputs
+- **Specification document**: The full text of the target draft revision, e.g.:
+  `https://www.ietf.org/archive/id/draft-ietf-httpbis-resumable-upload-<REV>.txt`
+- **Test suite**: `scripts/rufh_conformity_test.py` (read it in full).
+- **Previous audit report** (if any): `CONFORMITY_TEST_IMPROVEMENTS.md` in the project root.
+
+#### 5.2 Isolation Rules
+- **Do NOT read any Java source code** under `src/main/java/` during the audit. The audit must be purely spec-vs-test-script.
+- The only project files to read are `scripts/rufh_conformity_test.py` and optionally `CONFORMITY_TEST_IMPROVEMENTS.md`.
+- You may read the specification document, RFC 9530 (HTTP Digests), RFC 9651 (Structured Fields), and RFC 9457 (Problem Details) for normative context.
+
+#### 5.3 Audit Methodology (Clause-by-Clause)
+Walk through every normative section of the specification in order. For each section:
+
+1. **Extract every requirement** containing MUST, MUST NOT, SHOULD, SHOULD NOT, or MAY (per RFC 2119 / RFC 8174 semantics).
+2. **For each requirement**, search the test suite for a test that exercises it:
+   - Check if the test sends the right request (method, headers, body).
+   - Check if the test asserts the correct response behavior (status code, headers, body content).
+   - Note whether the test covers both the positive (conformant) and negative (non-conformant input) cases.
+3. **Classify the finding**:
+   - ✅ **Covered** — a test exists and its assertions match the requirement.
+   - ✅ **Partial** — a test exists but assertions are incomplete or only cover one case.
+   - ❌ **Missing** — no test covers this requirement.
+4. **For partial/missing items**, write a concrete recommendation: test method name, spec section, request/response to send, and assertions to make.
+
+The sections to audit (for draft-12) are:
+- §4.1.1 (Offset), §4.1.2 (Completeness), §4.1.3 (Length), §4.1.4 (Limits)
+- §4.2 (Upload Creation): §4.2.1 (Client Behavior), §4.2.2 (Server Behavior)
+- §4.3 (Offset Retrieval): §4.3.1 (Client Behavior), §4.3.2 (Server Behavior)
+- §4.4 (Upload Append): §4.4.1 (Client Behavior), §4.4.2 (Server Behavior)
+- §4.5 (Upload Cancellation): §4.5.1, §4.5.2 (Server Behavior)
+- §4.6 (Concurrency), §4.7 (Retry)
+- §5 (Status Code 104)
+- §6 (Media Type application/partial-upload)
+- §7.1 (Mismatching Offset problem type), §7.2 (Inconsistent Length problem type)
+- §10.1 (Optimistic Upload Creation), §10.1.1 (Upgrading), §10.2 (Careful Upload Creation)
+
+#### 5.4 Output Format
+Produce a Markdown report saved as `CONFORMITY_TEST_IMPROVEMENTS.md` in the project root (overwrite the previous version). The report MUST contain:
+
+1. **Executive Summary** — overall coverage assessment.
+2. **Critical Gaps** (🔴) — untested MUST-level requirements, with spec quotes and recommended test methods.
+3. **Important Gaps** (🟡) — untested SHOULD-level requirements or incomplete assertions.
+4. **Minor Improvements** (🔵) — edge cases, test quality improvements, spec alignment.
+5. **Existing Test Corrections** — any tests with incorrect or overly permissive assertions.
+6. **Recommended New Test Methods** — organized by test class, with spec section, method name, and description.
+7. **Summary Matrix** — table with columns: Spec Section, Requirement Level, Currently Tested (✅/✅ Partial/❌), Gap Description.
+
+#### 5.5 How to Invoke This Audit
+Request the audit with a prompt like:
+> Perform a strict conformity audit of `scripts/rufh_conformity_test.py` against the draft-12 specification at `https://www.ietf.org/archive/id/draft-ietf-httpbis-resumable-upload-12.txt`. Follow the audit procedure in AGENTS.md §5. Do NOT inspect any Java implementation code.
+
+To audit against a newer draft, replace the draft number in the URL.

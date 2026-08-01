@@ -21,7 +21,7 @@ public class DownloadUploadMetadataHandler extends AbstractRequestHandler {
 
   @Override
   public boolean supports(HttpMethod method, ProtocolVersion version) {
-    return HttpMethod.GET.equals(method) && version == ProtocolVersion.TUS_1_0_0;
+    return supports(method);
   }
 
   @Override

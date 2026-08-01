@@ -46,6 +46,7 @@ public class RufhUploadLimitHeaderRequestHandlerTest {
     assertThat(handler.supports(HttpMethod.DELETE), is(false));
 
     assertThat(handler.supports(HttpMethod.POST, ProtocolVersion.RUFH), is(true));
+    assertThat(handler.supports(HttpMethod.OPTIONS, ProtocolVersion.TUS_1_0_0), is(true));
     assertThat(handler.supports(HttpMethod.POST, ProtocolVersion.TUS_1_0_0), is(false));
     assertThat(handler.supports(HttpMethod.DELETE, ProtocolVersion.RUFH), is(false));
   }
@@ -164,5 +165,46 @@ public class RufhUploadLimitHeaderRequestHandlerTest {
     String uploadLimit = tusResponse.getHeader(HttpHeader.UPLOAD_LIMIT);
     assertThat(uploadLimit, is(notNullValue()));
     assertThat(uploadLimit.contains("max-age=120"), is(true));
+  }
+
+  @Test
+  public void testProcessWithLocationHeader() throws Exception {
+    when(uploadStorageService.getMaxUploadSize()).thenReturn(10000L);
+    when(uploadStorageService.getUploadInfo("/files/123", null)).thenReturn(null);
+
+    servletResponse.setHeader(HttpHeader.LOCATION, "/files/123");
+    TusServletResponse tusResponse = new TusServletResponse(servletResponse);
+
+    handler.process(HttpMethod.POST, null, tusResponse, uploadStorageService, null);
+
+    assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=10000"));
+  }
+
+  @Test
+  public void testProcessGetUploadInfoThrowsException() throws Exception {
+    when(uploadStorageService.getMaxUploadSize()).thenReturn(10000L);
+    when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class)))
+        .thenThrow(new RuntimeException("Storage failure"));
+
+    TusServletResponse tusResponse = new TusServletResponse(servletResponse);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(servletRequest),
+        tusResponse,
+        uploadStorageService,
+        null);
+
+    assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=10000"));
+  }
+
+  @Test
+  public void testProcessWithBlankUriAndNullRequest() throws Exception {
+    when(uploadStorageService.getMaxUploadSize()).thenReturn(10000L);
+    TusServletResponse tusResponse = new TusServletResponse(servletResponse);
+
+    handler.process(HttpMethod.POST, null, tusResponse, uploadStorageService, null);
+
+    assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_LIMIT), is("max-size=10000"));
   }
 }

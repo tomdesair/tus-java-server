@@ -187,6 +187,10 @@
                     <systemPropertyVariables>
                         <org.slf4j.simpleLogger.defaultLogLevel>error</org.slf4j.simpleLogger.defaultLogLevel>
                     </systemPropertyVariables>
+                    <reportFormat>plain</reportFormat>
+                    <consoleOutputReporter>
+                        <disable>true</disable>
+                    </consoleOutputReporter>
                 </configuration>
             </plugin>
 
@@ -202,6 +206,10 @@
                     <systemPropertyVariables>
                         <org.slf4j.simpleLogger.defaultLogLevel>error</org.slf4j.simpleLogger.defaultLogLevel>
                     </systemPropertyVariables>
+                    <reportFormat>plain</reportFormat>
+                    <consoleOutputReporter>
+                        <disable>true</disable>
+                    </consoleOutputReporter>
                 </configuration>
                 <executions>
                     <execution>

@@ -69,8 +69,8 @@ public class RufhDeleteRequestHandlerTest {
     verify(storageService).terminateUpload(info);
   }
 
-  @Test
-  public void testProcessWithNullUploadInfo() throws Exception {
+  @Test(expected = me.desair.tus.server.exception.TusException.class)
+  public void testProcessWithNullUploadInfoThrows404() throws Exception {
     request.setRequestURI("/files/delete-id");
     when(storageService.getUploadInfo("/files/delete-id", "owner")).thenReturn(null);
 
@@ -82,7 +82,5 @@ public class RufhDeleteRequestHandlerTest {
         null,
         "owner",
         null);
-
-    assertThat(response.getStatus(), is(204));
   }
 }

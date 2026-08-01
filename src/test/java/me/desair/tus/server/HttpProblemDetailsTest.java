@@ -50,6 +50,28 @@ public class HttpProblemDetailsTest {
                 + "\"title\":\"Offset Mismatch\","
                 + "\"status\":409,"
                 + "\"detail\":\"The provided Upload-Offset does not match the server's current offset\","
+                + "\"expected-offset\":12500000,"
+                + "\"provided-offset\":25000000}"));
+  }
+
+  @Test
+  public void testOffsetMismatchProblemDetailsNullProvidedOffset() throws Exception {
+    HttpProblemDetails problem = HttpProblemDetails.forOffsetMismatch(12500000L, null);
+
+    assertThat(problem.getStatus(), is(409));
+    assertThat(problem.getExtraFields().get("expected-offset"), is(12500000L));
+    assertThat(problem.getExtraFields().containsKey("provided-offset"), is(false));
+
+    problem.writeTo(new TusServletResponse(response));
+
+    assertThat(response.getStatus(), is(409));
+    assertThat(
+        response.getContentAsString(),
+        is(
+            "{\"type\":\"https://iana.org/assignments/http-problem-types#mismatching-upload-offset\","
+                + "\"title\":\"Offset Mismatch\","
+                + "\"status\":409,"
+                + "\"detail\":\"The provided Upload-Offset does not match the server's current offset\","
                 + "\"expected-offset\":12500000}"));
   }
 

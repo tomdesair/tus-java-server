@@ -49,19 +49,19 @@ public final class RufhInterimResponseUtil {
 
     String uploadUri;
     try {
-      boolean isExisting =
-          existingUploadUri != null
-              && uploadStorageService.getUploadInfo(existingUploadUri, ownerKey) != null;
+      UploadInfo uploadInfo = uploadStorageService.getUploadInfo(existingUploadUri, ownerKey);
 
-      if (isExisting) {
-        uploadUri = existingUploadUri;
-      } else {
-        UploadInfo uploadInfo = new UploadInfo();
-        uploadInfo = uploadStorageService.create(uploadInfo, ownerKey);
-        uploadUri = Utils.getUploadUriOnCreation(uploadInfo, servletRequest, uploadStorageService);
-
-        servletRequest.setAttribute("me.desair.tus.preCreatedUploadInfo", uploadInfo);
+      if (uploadInfo != null) {
+        long offset = uploadInfo.getOffset() != null ? uploadInfo.getOffset() : 0L;
+        return getRawInterimResponseForAppend(offset);
       }
+
+      uploadInfo = new UploadInfo();
+      uploadInfo = uploadStorageService.create(uploadInfo, ownerKey);
+      uploadUri = Utils.getUploadUriOnCreation(uploadInfo, servletRequest, uploadStorageService);
+
+      servletRequest.setAttribute("me.desair.tus.preCreatedUploadInfo", uploadInfo);
+
     } catch (Exception e) {
       return null;
     }
@@ -91,11 +91,13 @@ public final class RufhInterimResponseUtil {
   }
 
   /**
-   * Generates the raw HTTP 104 interim response frame string for a given upload URI and offset.
+   * Generates the raw HTTP 104 interim response frame string for an upload creation request.
    *
-   * @param uploadUri The location URI of the upload
-   * @param offset The initial upload offset (typically 0)
-   * @return The formatted HTTP 104 response frame string
+   * <p>Reference: Section 4.2.2 of draft-ietf-httpbis-resumable-upload-12.
+   *
+   * @param uploadUri The location URI of the created upload resource
+   * @param offset The upload offset
+   * @return The formatted HTTP 104 response frame string, or null if uploadUri is null
    */
   public static String getRawInterimResponse(String uploadUri, long offset) {
     if (uploadUri == null) {
@@ -104,6 +106,23 @@ public final class RufhInterimResponseUtil {
     StringBuilder sb = new StringBuilder();
     sb.append("HTTP/1.1 104 Upload Resumption Supported\r\n");
     sb.append("Location: ").append(uploadUri).append("\r\n");
+    sb.append("Upload-Offset: ").append(offset).append("\r\n");
+    sb.append("\r\n");
+    return sb.toString();
+  }
+
+  /**
+   * Generates the raw HTTP 104 interim response frame string for an upload append request.
+   *
+   * <p>Reference: Section 4.4.2 of draft-ietf-httpbis-resumable-upload-12 ("These interim responses
+   * MUST NOT include the Location header field").
+   *
+   * @param offset The current upload offset
+   * @return The formatted HTTP 104 response frame string for append
+   */
+  public static String getRawInterimResponseForAppend(long offset) {
+    StringBuilder sb = new StringBuilder();
+    sb.append("HTTP/1.1 104 Upload Resumption Supported\r\n");
     sb.append("Upload-Offset: ").append(offset).append("\r\n");
     sb.append("\r\n");
     return sb.toString();

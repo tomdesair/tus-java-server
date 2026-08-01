@@ -120,6 +120,50 @@ public class RufhProtocolAppendTest {
   }
 
   /**
+   * Section 4.4.2 (Append Response - Resource Invalidation): "If representation data is received
+   * with an offset that exceeds the representation's length, the server MUST prevent the offset
+   * from exceeding the representation's length and MUST invalidate the upload resource."
+   */
+  @Test
+  public void testAppendExceedingLengthInvalidatesResource() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/test-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "4990");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.setContent("This content is 30 bytes long".getBytes()); // 4990 + 30 = 5020 > 5000
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("test-id"));
+    info.setOffset(4990L);
+    info.setLength(5000L);
+
+    when(storageService.getUploadInfo("/files/test-id", null)).thenReturn(info);
+
+    try {
+      protocol.validate(
+          HttpMethod.PATCH, request, storageService, lockingService, null, ProtocolVersion.RUFH);
+    } catch (TusException expected) {
+      // Expected exception
+    }
+
+    verify(storageService).terminateUpload(info);
+  }
+
+  /**
+   * Section 4.4.2 (Append Response - Interim Responses): "Interim responses (104) MAY be generated
+   * by the server during append requests. These interim responses MUST NOT include the Location
+   * header field."
+   */
+  @Test
+  public void testAppendInterim104OmitsLocationHeader() {
+    String interimFrame =
+        me.desair.tus.server.rufh.util.RufhInterimResponseUtil.getRawInterimResponseForAppend(500L);
+    assertThat(interimFrame.contains("Location:"), is(false));
+    assertThat(interimFrame.contains("Upload-Offset: 500"), is(true));
+  }
+
+  /**
    * Section 7.2 (Completed Upload) of draft-12: "This section defines the
    * 'https://iana.org/assignments/http-problem-types#completed-upload' problem type. A server can
    * use this problem type when responding to an upload append request (Section 4.4) to indicate
@@ -322,6 +366,7 @@ public class RufhProtocolAppendTest {
     request.setRequestURI("/files/test-id");
     request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
     request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
     request.setContent("short payload".getBytes());
 
     UploadInfo info = new UploadInfo();
@@ -437,6 +482,27 @@ public class RufhProtocolAppendTest {
 
     when(storageService.getUploadInfo("/files/test-id", null)).thenReturn(info);
     when(storageService.getMinAppendSize()).thenReturn(10L);
+
+    protocol.validate(
+        HttpMethod.PATCH, request, storageService, lockingService, null, ProtocolVersion.RUFH);
+  }
+
+  /**
+   * Section 4.4.1 (Append Request): "The client MUST include the Upload-Complete header field in
+   * every PATCH append request."
+   */
+  @Test(expected = TusException.class)
+  public void testUploadAppendMissingUploadCompleteHeaderThrows400() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/test-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("test-id"));
+    info.setOffset(1000L);
+
+    when(storageService.getUploadInfo("/files/test-id", null)).thenReturn(info);
 
     protocol.validate(
         HttpMethod.PATCH, request, storageService, lockingService, null, ProtocolVersion.RUFH);

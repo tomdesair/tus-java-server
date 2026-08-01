@@ -1,10 +1,10 @@
 package me.desair.tus.server.creation.validation;
 
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
+import me.desair.tus.server.exception.InvalidUploadMetadataException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.Utils;
@@ -31,28 +31,24 @@ public class UploadMetadataValidator implements RequestValidator {
       for (String pair : pairs) {
         pair = pair.trim();
         if (StringUtils.isBlank(pair)) {
-          throw new TusException(
-              HttpServletResponse.SC_BAD_REQUEST, "Upload-Metadata cannot contain empty pairs");
+          throw new InvalidUploadMetadataException("Upload-Metadata cannot contain empty pairs");
         }
 
         String[] keyValue = pair.split(" ");
         if (keyValue.length > 2) {
-          throw new TusException(
-              HttpServletResponse.SC_BAD_REQUEST,
+          throw new InvalidUploadMetadataException(
               "Upload-Metadata key-value pairs must be separated by a single space");
         }
 
         String key = keyValue[0];
         if (StringUtils.isBlank(key)) {
-          throw new TusException(
-              HttpServletResponse.SC_BAD_REQUEST, "Upload-Metadata key cannot be empty");
+          throw new InvalidUploadMetadataException("Upload-Metadata key cannot be empty");
         }
 
         if (keyValue.length == 2) {
           String value = keyValue[1];
           if (!Base64.isBase64(value)) {
-            throw new TusException(
-                HttpServletResponse.SC_BAD_REQUEST,
+            throw new InvalidUploadMetadataException(
                 "Upload-Metadata value must be a valid Base64 encoded string");
           }
         }

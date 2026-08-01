@@ -147,4 +147,14 @@ public class RufhCreationValidatorTest {
     negativeRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
     validator.validate(HttpMethod.POST, negativeRequest, storageService, null);
   }
+
+  @Test
+  public void testValidatePatchOnExistingResourceSkipped() throws Exception {
+    request.setRequestURI("/files/existing-id");
+    when(storageService.getUploadUri()).thenReturn("/files");
+    me.desair.tus.server.upload.UploadInfo existing = new me.desair.tus.server.upload.UploadInfo();
+    when(storageService.getUploadInfo("/files/existing-id", "owner")).thenReturn(existing);
+
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
 }

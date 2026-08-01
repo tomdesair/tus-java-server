@@ -147,6 +147,36 @@ public class RufhProtocolCreationTest {
   }
 
   /**
+   * Section 7.2 (Inconsistent Length Response): "The server responds with a 400 (Bad Request)
+   * status code and the Upload-Complete: ?0 header field."
+   */
+  @Test
+  public void testInconsistentUploadLengthIncludesUploadCompleteFalse() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "1000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    request.setContent("Hello World".getBytes());
+
+    me.desair.tus.server.rufh.handler.RufhErrorHandler errorHandler =
+        new me.desair.tus.server.rufh.handler.RufhErrorHandler();
+    me.desair.tus.server.exception.InconsistentUploadLengthException ex =
+        new me.desair.tus.server.exception.InconsistentUploadLengthException("Length mismatch");
+
+    TusServletResponse servletResponse = new TusServletResponse(response);
+    errorHandler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        servletResponse,
+        storageService,
+        lockingService,
+        null,
+        ex);
+
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+  }
+
+  /**
    * Section 4.2.1 & 4.2.2 (Upload Creation without Upload-Length): "If the Upload-Complete header
    * field is set to true, but Upload-Length is omitted, the server determines the length from the
    * content sent."
@@ -330,5 +360,115 @@ public class RufhProtocolCreationTest {
 
     protocol.validate(
         HttpMethod.POST, request, storageService, lockingService, null, ProtocolVersion.RUFH);
+  }
+
+  /**
+   * Section 4.2.1 (Upload Creation): "All request methods allowing content can be used to start a
+   * resumable upload (e.g. POST, PUT, PATCH)."
+   */
+  @Test
+  public void testUploadCreationPutMethod() throws Exception {
+    request.setMethod("PUT");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "100");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(100L);
+    info.setOffset(0L);
+    info.setId(new UuidUploadIdFactory().createId());
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+
+    protocol.validate(
+        HttpMethod.PUT, request, storageService, lockingService, null, ProtocolVersion.RUFH);
+    protocol.process(
+        HttpMethod.PUT,
+        new TusServletRequest(request, true),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        null,
+        ProtocolVersion.RUFH);
+
+    assertThat(response.getStatus(), is(200));
+  }
+
+  /** Section 4.2.1 (Upload Creation): Creation using PATCH method on creation endpoint. */
+  @Test
+  public void testUploadCreationPatchMethod() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "100");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(100L);
+    info.setOffset(0L);
+    info.setId(new UuidUploadIdFactory().createId());
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+
+    protocol.validate(
+        HttpMethod.PATCH, request, storageService, lockingService, null, ProtocolVersion.RUFH);
+    protocol.process(
+        HttpMethod.PATCH,
+        new TusServletRequest(request, true),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        null,
+        ProtocolVersion.RUFH);
+
+    assertThat(response.getStatus(), is(200));
+  }
+
+  @Test
+  public void testUploadCreationWithPreCreatedUploadInfoAndLength() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "500");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+
+    UploadInfo preCreated = new UploadInfo();
+    preCreated.setId(new UuidUploadIdFactory().createId());
+    request.setAttribute("me.desair.tus.preCreatedUploadInfo", preCreated);
+
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(preCreated);
+
+    protocol.process(
+        HttpMethod.POST,
+        new TusServletRequest(request, true),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        null,
+        ProtocolVersion.RUFH);
+
+    assertThat(response.getStatus(), is(201));
+  }
+
+  @Test
+  public void testUploadCreationWithPreCreatedUploadInfoWithoutLength() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+
+    UploadInfo preCreated = new UploadInfo();
+    preCreated.setId(new UuidUploadIdFactory().createId());
+    request.setAttribute("me.desair.tus.preCreatedUploadInfo", preCreated);
+
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(preCreated);
+
+    protocol.process(
+        HttpMethod.POST,
+        new TusServletRequest(request, true),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        null,
+        ProtocolVersion.RUFH);
+
+    assertThat(response.getStatus(), is(201));
   }
 }

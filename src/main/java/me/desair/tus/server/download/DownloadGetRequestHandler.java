@@ -9,7 +9,7 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.exception.UploadInProgressException;
+import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractRequestHandler;
@@ -29,8 +29,7 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
 
   @Override
   public boolean supports(HttpMethod method, ProtocolVersion version) {
-    return HttpMethod.GET.equals(method)
-        && (version == ProtocolVersion.TUS_1_0_0 || version == ProtocolVersion.RUFH);
+    return supports(method);
   }
 
   @Override
@@ -43,28 +42,31 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
       throws IOException, TusException {
 
     UploadInfo info = uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
-    if (info == null || info.isUploadInProgress() || info.isExpired()) {
-      throw new UploadInProgressException(
-          "Upload "
-              + servletRequest.getRequestURI()
-              + " is still in progress "
-              + "and cannot be downloaded yet");
-    } else {
+    if (info == null || info.isExpired()) {
 
-      servletResponse.setHeader(HttpHeader.CONTENT_LENGTH, Objects.toString(info.getLength()));
-
-      servletResponse.setHeader(
-          HttpHeader.CONTENT_DISPOSITION,
-          String.format(
-              CONTENT_DISPOSITION_FORMAT,
-              info.getFileName().replace("\"", ""),
-              URLEncoder.encode(info.getFileName(), StandardCharsets.UTF_8.toString())
-                  .replace("+", "%20")));
-
-      servletResponse.setHeader(HttpHeader.CONTENT_TYPE, info.getFileMimeType());
-
-      uploadStorageService.copyUploadTo(info, servletResponse.getOutputStream());
+      throw new UploadNotFoundException("The requested upload cannot be found or has expired");
     }
+
+    if (info.isUploadInProgress()) {
+      // Delegate to RufhHeadGetRequestHandler for RUFH offset retrieval on in-progress uploads
+      servletResponse.setStatus(HttpServletResponse.SC_NO_CONTENT);
+      servletResponse.setHeader(HttpHeader.CONTENT_LENGTH, "0");
+      return;
+    }
+
+    servletResponse.setHeader(HttpHeader.CONTENT_LENGTH, Objects.toString(info.getLength()));
+
+    servletResponse.setHeader(
+        HttpHeader.CONTENT_DISPOSITION,
+        String.format(
+            CONTENT_DISPOSITION_FORMAT,
+            info.getFileName().replace("\"", ""),
+            URLEncoder.encode(info.getFileName(), StandardCharsets.UTF_8.toString())
+                .replace("+", "%20")));
+
+    servletResponse.setHeader(HttpHeader.CONTENT_TYPE, info.getFileMimeType());
+
+    uploadStorageService.copyUploadTo(info, servletResponse.getOutputStream());
 
     servletResponse.setStatus(HttpServletResponse.SC_OK);
   }

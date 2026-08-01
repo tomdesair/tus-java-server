@@ -4,6 +4,7 @@ import java.io.IOException;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -40,9 +41,11 @@ public class RufhDeleteRequestHandler extends AbstractRequestHandler {
     String requestUri = servletRequest.getRequestURI();
     UploadInfo uploadInfo = uploadStorageService.getUploadInfo(requestUri, ownerKey);
 
-    if (uploadInfo != null) {
-      uploadStorageService.terminateUpload(uploadInfo);
+    if (uploadInfo == null) {
+      throw new UploadNotFoundException("Upload resource not found");
     }
+
+    uploadStorageService.terminateUpload(uploadInfo);
     servletResponse.setStatus(204);
     return null;
   }

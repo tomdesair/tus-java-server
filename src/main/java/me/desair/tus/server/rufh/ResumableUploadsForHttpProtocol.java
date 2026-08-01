@@ -51,6 +51,7 @@ public class ResumableUploadsForHttpProtocol extends AbstractTusExtension {
         HttpMethod.HEAD,
         HttpMethod.GET,
         HttpMethod.POST,
+        HttpMethod.PUT,
         HttpMethod.PATCH,
         HttpMethod.DELETE);
   }

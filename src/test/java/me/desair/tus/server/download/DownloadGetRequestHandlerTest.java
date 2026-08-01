@@ -15,7 +15,7 @@ import java.util.UUID;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.ProtocolVersion;
-import me.desair.tus.server.exception.UploadInProgressException;
+import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -60,8 +60,8 @@ public class DownloadGetRequestHandlerTest {
 
     assertThat(handler.supports(HttpMethod.GET, ProtocolVersion.TUS_1_0_0), is(true));
     assertThat(handler.supports(HttpMethod.GET, ProtocolVersion.RUFH), is(true));
-    assertThat(handler.supports(HttpMethod.GET, ProtocolVersion.AUTO), is(false));
-    assertThat(handler.supports(HttpMethod.GET, null), is(false));
+    assertThat(handler.supports(HttpMethod.GET, ProtocolVersion.AUTO), is(true));
+    assertThat(handler.supports(HttpMethod.GET, null), is(true));
     assertThat(handler.supports(HttpMethod.POST, ProtocolVersion.TUS_1_0_0), is(false));
     assertThat(handler.supports(null, ProtocolVersion.TUS_1_0_0), is(false));
   }
@@ -134,7 +134,7 @@ public class DownloadGetRequestHandlerTest {
     assertThat(servletResponse.getHeader(HttpHeader.CONTENT_TYPE), is("application/octet-stream"));
   }
 
-  @Test(expected = UploadInProgressException.class)
+  @Test
   public void testWithInProgressUpload() throws Exception {
     final UploadId id = new UploadId(UUID.randomUUID());
 
@@ -152,9 +152,11 @@ public class DownloadGetRequestHandlerTest {
         new TusServletResponse(servletResponse),
         uploadStorageService,
         null);
+
+    assertThat(servletResponse.getStatus(), is(204));
   }
 
-  @Test(expected = UploadInProgressException.class)
+  @Test(expected = UploadNotFoundException.class)
   public void testWithUnknownUpload() throws Exception {
     when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class)))
         .thenReturn(null);
@@ -169,5 +171,21 @@ public class DownloadGetRequestHandlerTest {
     verify(uploadStorageService, never())
         .copyUploadTo(any(UploadInfo.class), any(OutputStream.class));
     assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_NO_CONTENT));
+  }
+
+  @Test(expected = UploadNotFoundException.class)
+  public void testWithExpiredUpload() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId(UUID.randomUUID()));
+    info.setExpirationTimestamp(System.currentTimeMillis() - 1000L);
+    when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class)))
+        .thenReturn(info);
+
+    handler.process(
+        HttpMethod.GET,
+        new TusServletRequest(servletRequest),
+        new TusServletResponse(servletResponse),
+        uploadStorageService,
+        null);
   }
 }

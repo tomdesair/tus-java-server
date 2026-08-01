@@ -114,6 +114,11 @@ public class DiskStorageServiceTest {
   }
 
   @Test
+  public void testGetUploadInfoWithNullId() throws Exception {
+    org.junit.Assert.assertNull(storageService.getUploadInfo((UploadId) null));
+  }
+
+  @Test
   public void getUploadUri() throws Exception {
     assertThat(storageService.getUploadUri(), is(UPLOAD_URL));
   }

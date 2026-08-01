@@ -172,3 +172,4 @@ buildNumber.properties
 __pycache__/
 .venv/
 *.pyc
+CONFORMITY_TEST_IMPROVEMENTS.md
