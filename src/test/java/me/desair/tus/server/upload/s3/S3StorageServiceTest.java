@@ -10,19 +10,25 @@ import static org.mockito.Mockito.when;
 
 import io.minio.GetObjectArgs;
 import io.minio.GetObjectResponse;
+import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import io.minio.Result;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
 import io.minio.errors.ErrorResponseException;
 import io.minio.messages.ErrorResponse;
+import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLockingService;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -591,6 +597,287 @@ public class S3StorageServiceTest {
 
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     storageService.copyUploadTo(info, baos);
+  }
+
+  @Test
+  public void testCleanupExpiredUploads() throws Exception {
+    UploadInfo expiredInfo = new UploadInfo();
+    UploadId expiredId = new UploadId("expired-123");
+    expiredInfo.setId(expiredId);
+    expiredInfo.setExpirationTimestamp(System.currentTimeMillis() - 10000L);
+
+    String json = UploadInfoSerializer.serialize(expiredInfo);
+
+    Item item = mock(Item.class);
+    when(item.objectName()).thenReturn("tus-uploads/expired-123.info");
+    Result<Item> result = new Result<>(item);
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(java.util.Collections.singletonList(result));
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
+
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+    when(mockLocking.isLocked(expiredId)).thenReturn(false);
+
+    storageService.cleanupExpiredUploads(mockLocking);
+  }
+
+  @Test(expected = IOException.class)
+  public void testCleanupExpiredUploadsThrowsIOExceptionOnMinioFailure() throws Exception {
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenThrow(new RuntimeException("MinIO failure"));
+
+    storageService.cleanupExpiredUploads(null);
+  }
+
+  @Test
+  public void testFinalizeCompletedUploadWithMultipleParts() throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("multi-part-123");
+    info.setId(id);
+    info.setLength(100L);
+    info.setOffset(0L);
+
+    String json = UploadInfoSerializer.serialize(info);
+
+    Item item1 = mock(Item.class);
+    when(item1.objectName()).thenReturn("tus-uploads/multi-part-123.part.00001");
+    Item item2 = mock(Item.class);
+    when(item2.objectName()).thenReturn("tus-uploads/multi-part-123.part.00002");
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(Arrays.asList(new Result<>(item1), new Result<>(item2)));
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
+
+    storageService.append(info, new ByteArrayInputStream(new byte[100]));
+  }
+
+  @Test
+  public void testFinalizeCompletedUploadWithLeftoverIncompletePart() throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("leftover-part-123");
+    info.setId(id);
+    info.setLength(50L);
+    info.setOffset(0L);
+
+    String json = UploadInfoSerializer.serialize(info);
+
+    StatObjectResponse leftoverHead = mock(StatObjectResponse.class);
+    when(leftoverHead.size()).thenReturn(50L);
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".part")) {
+                return leftoverHead;
+              }
+              ErrorResponse err = mock(ErrorResponse.class);
+              when(err.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(err, null, null);
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json.getBytes());
+              }
+              return mockGetObjectResponse(new byte[50]);
+            });
+
+    storageService.append(info, new ByteArrayInputStream(new byte[50]));
+  }
+
+  @Test
+  public void testFinalizeCompletedUploadZeroLength() throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("zero-len-123");
+    info.setId(id);
+    info.setLength(0L);
+    info.setOffset(0L);
+
+    String json = UploadInfoSerializer.serialize(info);
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
+
+    storageService.append(info, new ByteArrayInputStream(new byte[0]));
+  }
+
+  @Test
+  public void testTruncateFromCompletedObject() throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("trunc-completed-123");
+    info.setId(id);
+    info.setLength(100L);
+    info.setOffset(100L);
+
+    StatObjectResponse mockHead = mock(StatObjectResponse.class);
+    when(mockHead.size()).thenReturn(100L);
+    when(minioClient.statObject(any(StatObjectArgs.class))).thenReturn(mockHead);
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(invocation -> mockGetObjectResponse(new byte[100]));
+
+    storageService.removeLastNumberOfBytes(info, 30L);
+    assertEquals(Long.valueOf(70L), info.getOffset());
+  }
+
+  @Test
+  public void testTruncateFromIncompletePartByteCountGreaterThanPartSize() throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("trunc-inc-123");
+    info.setId(id);
+    info.setOffset(50L);
+
+    ErrorResponse noSuchKeyErr = mock(ErrorResponse.class);
+    when(noSuchKeyErr.code()).thenReturn("NoSuchKey");
+    ErrorResponseException noSuchKeyEx = new ErrorResponseException(noSuchKeyErr, null, null);
+
+    StatObjectResponse partHead = mock(StatObjectResponse.class);
+    when(partHead.size()).thenReturn(50L);
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".part")) {
+                return partHead;
+              }
+              throw noSuchKeyEx;
+            });
+
+    storageService.removeLastNumberOfBytes(info, 100L);
+    assertEquals(Long.valueOf(0L), info.getOffset());
+  }
+
+  @Test
+  public void testTruncateFromIncompletePartPartialBytes() throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("trunc-part-123");
+    info.setId(id);
+    info.setOffset(100L);
+
+    ErrorResponse noSuchKeyErr = mock(ErrorResponse.class);
+    when(noSuchKeyErr.code()).thenReturn("NoSuchKey");
+    ErrorResponseException noSuchKeyEx = new ErrorResponseException(noSuchKeyErr, null, null);
+
+    StatObjectResponse partHead = mock(StatObjectResponse.class);
+    when(partHead.size()).thenReturn(100L);
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".part")) {
+                return partHead;
+              }
+              throw noSuchKeyEx;
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(invocation -> mockGetObjectResponse(new byte[100]));
+
+    storageService.removeLastNumberOfBytes(info, 30L);
+    assertEquals(Long.valueOf(70L), info.getOffset());
+  }
+
+  @Test
+  public void testTerminateUploadWithChecksumAndParts() throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("term-123");
+    info.setId(id);
+    info.setChecksum("hash123");
+    info.setChecksumAlgorithm(ChecksumAlgorithm.SHA256);
+
+    Item item1 = mock(Item.class);
+    when(item1.objectName()).thenReturn("tus-uploads/term-123.part.00001");
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(java.util.Collections.singletonList(new Result<>(item1)));
+
+    storageService.terminateUpload(info);
+  }
+
+  @Test
+  public void testFetchS3ByteStreamIncompletePartFallback() throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("fallback-123");
+    info.setId(id);
+    info.setOffset(50L);
+
+    ErrorResponse noSuchKeyErr = mock(ErrorResponse.class);
+    when(noSuchKeyErr.code()).thenReturn("NoSuchKey");
+    ErrorResponseException noSuchKeyEx = new ErrorResponseException(noSuchKeyErr, null, null);
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(UploadInfoSerializer.serialize(info).getBytes());
+              }
+              if (args.object().endsWith(".part")) {
+                return mockGetObjectResponse("part-data".getBytes());
+              }
+              throw noSuchKeyEx;
+            });
+
+    InputStream stream = storageService.getUploadedBytes(id);
+    assertNotNull(stream);
+  }
+
+  @Test
+  public void testFetchS3ByteStreamZeroOffsetFallback() throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("zero-offset-123");
+    info.setId(id);
+    info.setOffset(0L);
+
+    ErrorResponse noSuchKeyErr = mock(ErrorResponse.class);
+    when(noSuchKeyErr.code()).thenReturn("NoSuchKey");
+    ErrorResponseException noSuchKeyEx = new ErrorResponseException(noSuchKeyErr, null, null);
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(UploadInfoSerializer.serialize(info).getBytes());
+              }
+              throw noSuchKeyEx;
+            });
+
+    InputStream stream = storageService.getUploadedBytes(id);
+    assertNotNull(stream);
+    assertEquals(0, stream.available());
+  }
+
+  @Test
+  public void testPutChecksumIndexAndObjectExistsExceptions() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("chk-123"));
+    info.setLength(100L);
+    info.setOffset(100L);
+    info.setChecksum("hashabc");
+    info.setChecksumAlgorithm(ChecksumAlgorithm.SHA256);
+
+    when(minioClient.putObject(any(PutObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              PutObjectArgs args = invocation.getArgument(0);
+              if (args.object().contains("checksums")) {
+                throw new RuntimeException("Checksum put failure");
+              }
+              return null;
+            });
+
+    storageService.update(info);
   }
 
   private GetObjectResponse mockGetObjectResponse(byte[] bytes) {
