@@ -107,4 +107,75 @@ public class ITS3StorageService {
     assertNotNull(found);
     assertEquals(parent.getId(), found.getId());
   }
+
+  @Test
+  public void testMultipartChunkedUploadAndFinalizationOnS3() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(20L);
+    info = storageService.create(info, "owner-multipart");
+
+    // Part 1: append 10 bytes (creates an incomplete .part file)
+    byte[] part1 = "1234567890".getBytes(StandardCharsets.UTF_8);
+    info = storageService.append(info, new ByteArrayInputStream(part1));
+    assertEquals(Long.valueOf(10L), info.getOffset());
+
+    // Part 2: append 10 bytes (completes the upload, triggers leftover .part finalization on real
+    // S3)
+    byte[] part2 = "abcdefghij".getBytes(StandardCharsets.UTF_8);
+    info = storageService.append(info, new ByteArrayInputStream(part2));
+    assertEquals(Long.valueOf(20L), info.getOffset());
+
+    // Verify uploaded bytes on real S3
+    try (InputStream is = storageService.getUploadedBytes(info.getId())) {
+      assertNotNull(is);
+      assertEquals("1234567890abcdefghij", IOUtils.toString(is, StandardCharsets.UTF_8));
+    }
+  }
+
+  @Test
+  public void testTruncationOnRealS3() throws Exception {
+    // Scenario A: Truncate in-progress upload with .part object
+    UploadInfo info1 = new UploadInfo();
+    info1.setLength(50L);
+    info1 = storageService.create(info1, "owner-trunc1");
+
+    byte[] bytes1 =
+        "Hello, World! This is an in-progress payload.".getBytes(StandardCharsets.UTF_8);
+    info1 = storageService.append(info1, new ByteArrayInputStream(bytes1));
+    assertEquals(Long.valueOf(bytes1.length), info1.getOffset());
+
+    storageService.removeLastNumberOfBytes(info1, 10L);
+    assertEquals(Long.valueOf(bytes1.length - 10), info1.getOffset());
+
+    // Scenario B: Truncate completed upload
+    UploadInfo info2 = new UploadInfo();
+    info2.setLength(12L);
+    info2 = storageService.create(info2, "owner-trunc2");
+    info2 =
+        storageService.append(
+            info2, new ByteArrayInputStream("Hello World!".getBytes(StandardCharsets.UTF_8)));
+    assertEquals(Long.valueOf(12L), info2.getOffset());
+
+    storageService.removeLastNumberOfBytes(info2, 6L);
+    assertEquals(Long.valueOf(6L), info2.getOffset());
+  }
+
+  @Test
+  public void testCleanupExpiredUploadsOnS3() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(100L);
+    info = storageService.create(info, "owner-exp");
+
+    // Set expiration in the past
+    info.setExpirationTimestamp(System.currentTimeMillis() - 60000L);
+    storageService.update(info);
+
+    assertNotNull(storageService.getUploadInfo(info.getId()));
+
+    // Run cleanup on real S3
+    storageService.cleanupExpiredUploads(null);
+
+    // Verify upload was cleaned up from real S3
+    assertNull(storageService.getUploadInfo(info.getId()));
+  }
 }
