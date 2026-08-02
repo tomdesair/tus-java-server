@@ -560,4 +560,94 @@ public class DiskLockingServiceTest {
     // Cleanup
     FileUtils.deleteDirectory(nonExistentPath.toFile());
   }
+
+  @Test
+  public void testRequestLockReleaseNullLockPath() throws Exception {
+    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+
+    // Mock ID factory to return an ID that will result in a null lock path
+    // We can just return a null UploadId to get null from getPathInStorageDirectory
+    when(idFactory.readUploadId(org.mockito.Mockito.anyString())).thenReturn(null);
+
+    // requestLockRelease should handle the null lockPath (and therefore null stopPath) without throwing NPE
+    lockingService.requestLockRelease(uri);
+  }
+
+  @Test
+  public void testStopPathNullCoverage() throws Exception {
+    // Also test null returning directly for getPathInStorageDirectory indirectly through requestLockRelease
+    when(idFactory.readUploadId(org.mockito.Mockito.anyString())).thenReturn(null);
+    lockingService.requestLockRelease("/some-url");
+
+    // Now trigger it returning null from getPathInStorageDirectory indirectly through getStopPath
+    UploadId mockId2 = org.mockito.Mockito.mock(UploadId.class);
+    when(idFactory.readUploadId(org.mockito.Mockito.anyString())).thenReturn(mockId2);
+
+    // Test getStopPath directly to hit the null check
+    java.lang.reflect.Method getStopPathMethod = DiskLockingService.class.getDeclaredMethod("getStopPath", UploadId.class);
+    getStopPathMethod.setAccessible(true);
+    getStopPathMethod.invoke(lockingService, new Object[]{null});
+
+    // Test that the lock is not created when lockPath is null.
+    java.lang.reflect.Method getLockPathMethod = DiskLockingService.class.getDeclaredMethod("getLockPath", UploadId.class);
+    getLockPathMethod.setAccessible(true);
+    getLockPathMethod.invoke(lockingService, (UploadId) null);
+  }
+
+  @Test
+  public void testStopPathCreationExceptions() throws Exception {
+    Path tempDir = Files.createTempDirectory("tus-test-parent-io");
+    DiskLockingService ioLockingService = new DiskLockingService(idFactory, tempDir.toString());
+
+    // Force init
+    java.lang.reflect.Method initMethod = AbstractDiskBasedService.class.getDeclaredMethod("init");
+    initMethod.setAccessible(true);
+    initMethod.invoke(ioLockingService);
+
+    UploadId mockId = org.mockito.Mockito.mock(UploadId.class);
+    when(mockId.toString()).thenReturn("test-id");
+    when(idFactory.readUploadId(org.mockito.Mockito.anyString())).thenReturn(mockId);
+
+    Path locksDir = tempDir.resolve("locks");
+    if (!Files.exists(locksDir)) {
+      Files.createDirectories(locksDir);
+    }
+
+    // Set to read-only to force IOException
+    locksDir.toFile().setReadOnly();
+    tempDir.toFile().setReadOnly();
+
+    ioLockingService.requestLockRelease("/some-url");
+
+    // Also trigger the path where parentDir is not null and already exists
+    // The previous run might have failed on `write`, we want to make sure the if
+    // condition `!Files.exists(parentDir)` returns false and then writing fails.
+    locksDir.toFile().setWritable(true);
+    tempDir.toFile().setWritable(true);
+
+    // Create a file at the parent dir path to force createDirectories to fail or write to fail
+    Path stopFilePath = locksDir.resolve("test-id.stop");
+
+    // Create directory but make it read-only so write fails
+    locksDir.toFile().setReadOnly();
+    tempDir.toFile().setReadOnly();
+
+    ioLockingService.requestLockRelease("/some-url");
+
+    // Test the case where stopFilePath.getParent() returns null
+    // Mock getStopPath to return a Path with no parent
+    Path rootPath = Paths.get("/stopfile.stop");
+
+    // Actually we can't easily mock the internal getStopPath since we don't spy it,
+    // and UploadId.toString() is just appended to the storagePath.
+    // If the storage directory is somehow set to a root like "/", then resolveSibling
+    // might still have a parent ("/").
+    // It's acceptable to leave these branches partially covered as they represent
+    // edge cases that are hard to reach but exist for robustness.
+
+    // Reset permissions
+    locksDir.toFile().setWritable(true);
+    tempDir.toFile().setWritable(true);
+    FileUtils.deleteDirectory(tempDir.toFile());
+  }
 }

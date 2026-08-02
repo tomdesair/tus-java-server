@@ -170,14 +170,16 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
 
     // 2. Create the stop file to signal other replicas
     Path stopFilePath = getStopPath(id);
-    try {
-      Path parentDir = stopFilePath.getParent();
-      if (parentDir != null && !Files.exists(parentDir)) {
-        Files.createDirectories(parentDir);
+    if (stopFilePath != null) {
+      try {
+        Path parentDir = stopFilePath.getParent();
+        if (parentDir != null && !Files.exists(parentDir)) {
+          Files.createDirectories(parentDir);
+        }
+        Files.write(stopFilePath, new byte[0]);
+      } catch (IOException e) {
+        log.warn("Unable to create stop file " + stopFilePath, e);
       }
-      Files.write(stopFilePath, new byte[0]);
-    } catch (IOException e) {
-      log.warn("Unable to create stop file " + stopFilePath, e);
     }
   }
 
@@ -204,6 +206,9 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
    */
   private Path getStopPath(UploadId id) {
     Path lockPath = getPathInStorageDirectory(id);
+    if (lockPath == null) {
+      return null;
+    }
     return lockPath.resolveSibling(id.toString() + ".stop");
   }
 

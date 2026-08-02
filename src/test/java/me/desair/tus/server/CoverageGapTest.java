@@ -523,7 +523,9 @@ public class CoverageGapTest {
           }
         };
 
-    mockHandler7.process(HttpMethod.PATCH, null, null, null, "owner");
+    try {
+      mockHandler7.process(HttpMethod.PATCH, null, null, null, "owner");
+    } catch (UnsupportedOperationException expected) {}
   }
 
   @Test

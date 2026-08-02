@@ -35,6 +35,10 @@ public class RufhUploadExistsValidator implements RequestValidator {
       String ownerKey)
       throws TusException, IOException {
 
+    if (request == null || uploadStorageService == null) {
+      return;
+    }
+
     if (Utils.isCreationEndpoint(request, uploadStorageService)) {
       return;
     }
