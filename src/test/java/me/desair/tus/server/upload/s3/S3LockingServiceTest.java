@@ -103,6 +103,18 @@ public class S3LockingServiceTest {
   }
 
   @Test
+  public void testIsLockedReturnsFalseOnErrorResponseNon404() throws Exception {
+    ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
+    Mockito.when(errorResponse.code()).thenReturn("AccessDenied");
+    ErrorResponseException accessDeniedEx = new ErrorResponseException(errorResponse, null, null);
+
+    Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenThrow(accessDeniedEx);
+
+    UploadId uploadId = new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e");
+    assertFalse(lockingService.isLocked(uploadId));
+  }
+
+  @Test
   public void testLockAcquisitionFailures() throws Exception {
     // Generic Exception during putObject
     Mockito.when(minioClient.putObject(Mockito.any(PutObjectArgs.class)))
@@ -173,5 +185,36 @@ public class S3LockingServiceTest {
         .thenThrow(new RuntimeException("ListObjects failure"));
 
     lockingService.cleanupStaleLocks();
+  }
+
+  @Test(expected = me.desair.tus.server.exception.UploadAlreadyLockedException.class)
+  public void testLockUploadByUriThrowsUploadAlreadyLockedExceptionWhenPutObjectFails()
+      throws Exception {
+    Mockito.when(minioClient.putObject(Mockito.any(PutObjectArgs.class)))
+        .thenThrow(new RuntimeException("PutObject failure"));
+
+    lockingService.lockUploadByUri("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
+  }
+
+  @Test
+  public void testWriteStopSignalHandlesMinioException() throws Exception {
+    lockingService.setIdFactory(new me.desair.tus.server.upload.UuidUploadIdFactory());
+    Mockito.when(minioClient.putObject(Mockito.any(PutObjectArgs.class)))
+        .thenThrow(new RuntimeException("PutObject failure for stop signal"));
+
+    lockingService.requestLockRelease("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
+  }
+
+  @Test
+  public void testDeleteObjectQuietlyHandlesMinioException() throws Exception {
+    Mockito.doThrow(new RuntimeException("RemoveObject failure"))
+        .when(minioClient)
+        .removeObject(Mockito.any(io.minio.RemoveObjectArgs.class));
+
+    UploadLock lock =
+        lockingService.lockUploadByUri("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
+    if (lock != null) {
+      lock.close();
+    }
   }
 }

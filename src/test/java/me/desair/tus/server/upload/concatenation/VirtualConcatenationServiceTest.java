@@ -341,4 +341,43 @@ public class VirtualConcatenationServiceTest {
 
     concatenationService.getConcatenatedBytes(infoParent);
   }
+
+  @Test(expected = UploadNotFoundException.class)
+  public void getPartialUploadsNotFound() throws Exception {
+    UploadInfo child1 = new UploadInfo();
+    child1.setId(new UploadId(UUID.randomUUID()));
+
+    UploadInfo infoParent = new UploadInfo();
+    infoParent.setId(new UploadId(UUID.randomUUID()));
+    infoParent.setConcatenationPartIds(
+        java.util.Collections.singletonList(child1.getId().toString()));
+
+    when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey()))
+        .thenReturn(null);
+
+    concatenationService.getPartialUploads(infoParent);
+  }
+
+  @Test
+  public void testMergeHandlesUploadNotFoundExceptionOnUpdate() throws Exception {
+    UploadInfo child1 = new UploadInfo();
+    child1.setId(new UploadId(UUID.randomUUID()));
+    child1.setLength(5L);
+    child1.setOffset(5L);
+
+    UploadInfo infoParent = new UploadInfo();
+    infoParent.setId(new UploadId(UUID.randomUUID()));
+    infoParent.setConcatenationPartIds(
+        java.util.Collections.singletonList(child1.getId().toString()));
+
+    when(uploadStorageService.getUploadInfo(child1.getId().toString(), infoParent.getOwnerKey()))
+        .thenReturn(child1);
+
+    org.mockito.Mockito.doThrow(new UploadNotFoundException("Parent upload missing"))
+        .when(uploadStorageService)
+        .update(infoParent);
+
+    concatenationService.merge(infoParent);
+    assertThat(infoParent.getLength(), is(5L));
+  }
 }

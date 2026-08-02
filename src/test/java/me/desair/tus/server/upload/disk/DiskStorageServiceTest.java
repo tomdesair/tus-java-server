@@ -1015,4 +1015,28 @@ public class DiskStorageServiceTest {
     UploadInfo corruptedRetrieved = storageService.getUploadInfo(info.getId());
     assertThat(corruptedRetrieved, is(nullValue()));
   }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testGetUploadInfoWithUnsafePathTraversalUploadId() throws Exception {
+    storageService.getUploadInfo(new UploadId(".."));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testGetUploadedBytesWithUnsafePathTraversalUploadId() throws Exception {
+    storageService.getUploadedBytes(new UploadId(".."));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testTerminateUploadWithUnsafePathTraversalUploadId() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId(".."));
+    storageService.terminateUpload(info);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testAppendWithUnsafePathTraversalUploadId() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId(".."));
+    storageService.append(info, new java.io.ByteArrayInputStream(new byte[10]));
+  }
 }

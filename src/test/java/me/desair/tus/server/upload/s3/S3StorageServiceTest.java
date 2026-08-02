@@ -326,6 +326,23 @@ public class S3StorageServiceTest {
   }
 
   @Test
+  public void testGetUploadInfoWithNullOffsetCalculatesOffset() throws Exception {
+    String json =
+        "{\"id\":\"24249a5b-01a4-4bf8-b67a-364273bb5a2e\",\"length\":1000,\"offset\":null}";
+    StatObjectResponse mockHead = mock(StatObjectResponse.class);
+    when(mockHead.size()).thenReturn(500L);
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
+    when(minioClient.statObject(any(StatObjectArgs.class))).thenReturn(mockHead);
+
+    UploadInfo fetched =
+        storageService.getUploadInfo(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
+    assertNotNull(fetched);
+    assertEquals(Long.valueOf(500L), fetched.getOffset());
+  }
+
+  @Test
   public void testAppendCompletingUploadWithLeftoverPart() throws Exception {
     UploadInfo info = new UploadInfo();
     info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
@@ -508,6 +525,72 @@ public class S3StorageServiceTest {
 
     assertNull(storageService.getUploadInfoByChecksum(null, null));
     assertNull(storageService.getUploadInfoByChecksum("abc", ChecksumAlgorithm.SHA256));
+  }
+
+  @Test(expected = me.desair.tus.server.exception.MinAppendSizeNotMetException.class)
+  public void testAppendThrowsMinAppendSizeNotMetException() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
+    info.setLength(1000L);
+
+    String json = UploadInfoSerializer.serialize(info);
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
+
+    storageService.setMinAppendSize(500L);
+    storageService.append(info, new ByteArrayInputStream(new byte[100]));
+  }
+
+  @Test(expected = me.desair.tus.server.exception.MaxUploadLengthExceededException.class)
+  public void testAppendThrowsMaxUploadLengthExceededException() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
+    info.setLength(2000L);
+
+    String json = UploadInfoSerializer.serialize(info);
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
+
+    storageService.setMaxUploadSize(1000L);
+    storageService.append(info, new ByteArrayInputStream(new byte[100]));
+  }
+
+  @Test(expected = me.desair.tus.server.exception.UploadNotFoundException.class)
+  public void testGetUploadedBytesByUriNotFoundThrowsException() throws Exception {
+    ErrorResponse errorResponse = mock(ErrorResponse.class);
+    when(errorResponse.code()).thenReturn("NoSuchKey");
+    ErrorResponseException ex = new ErrorResponseException(errorResponse, null, null);
+    when(minioClient.getObject(any(GetObjectArgs.class))).thenThrow(ex);
+
+    storageService.getUploadedBytes("/files/upload/non-existent-id", null);
+  }
+
+  @Test(expected = me.desair.tus.server.exception.UploadNotFoundException.class)
+  public void testAppendByUploadIdNotFoundThrowsException() throws Exception {
+    ErrorResponse errorResponse = mock(ErrorResponse.class);
+    when(errorResponse.code()).thenReturn("NoSuchKey");
+    ErrorResponseException ex = new ErrorResponseException(errorResponse, null, null);
+    when(minioClient.getObject(any(GetObjectArgs.class))).thenThrow(ex);
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("non-existent-id"));
+
+    storageService.append(info, new ByteArrayInputStream(new byte[100]));
+  }
+
+  @Test(expected = me.desair.tus.server.exception.UploadNotFoundException.class)
+  public void testCopyUploadToNotFoundThrowsUploadNotFoundException() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
+    info.setOffset(100L);
+
+    ErrorResponse errorResponse = mock(ErrorResponse.class);
+    when(errorResponse.code()).thenReturn("NoSuchKey");
+    ErrorResponseException ex = new ErrorResponseException(errorResponse, null, null);
+    when(minioClient.getObject(any(GetObjectArgs.class))).thenThrow(ex);
+
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    storageService.copyUploadTo(info, baos);
   }
 
   private GetObjectResponse mockGetObjectResponse(byte[] bytes) {
