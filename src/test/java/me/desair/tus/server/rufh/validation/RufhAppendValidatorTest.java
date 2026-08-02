@@ -113,6 +113,12 @@ public class RufhAppendValidatorTest {
     validator.validate(HttpMethod.PATCH, request, storageService, "owner");
   }
 
+  @Test
+  public void testValidateStorageServiceNull() throws Exception {
+    // Should return immediately without exception
+    validator.validate(HttpMethod.PATCH, request, null, "owner");
+  }
+
   @Test(expected = TusException.class)
   public void testValidateMismatchingUploadLength() throws Exception {
     request.setRequestURI("/files/exists");

@@ -53,6 +53,10 @@ public class RufhAppendValidator implements RequestValidator {
       String ownerKey)
       throws TusException, IOException {
 
+    if (uploadStorageService == null) {
+      return;
+    }
+
     String requestUri = request.getRequestURI();
     boolean isCreationEndpoint = Utils.isCreationEndpoint(request, uploadStorageService);
     UploadInfo uploadInfo = uploadStorageService.getUploadInfo(requestUri, ownerKey);
