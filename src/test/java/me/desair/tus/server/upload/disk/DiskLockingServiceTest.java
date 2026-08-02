@@ -569,13 +569,15 @@ public class DiskLockingServiceTest {
     // We can just return a null UploadId to get null from getPathInStorageDirectory
     when(idFactory.readUploadId(org.mockito.Mockito.anyString())).thenReturn(null);
 
-    // requestLockRelease should handle the null lockPath (and therefore null stopPath) without throwing NPE
+    // requestLockRelease should handle the null lockPath (and therefore null stopPath) without
+    // throwing NPE
     lockingService.requestLockRelease(uri);
   }
 
   @Test
   public void testStopPathNullCoverage() throws Exception {
-    // Also test null returning directly for getPathInStorageDirectory indirectly through requestLockRelease
+    // Also test null returning directly for getPathInStorageDirectory indirectly through
+    // requestLockRelease
     when(idFactory.readUploadId(org.mockito.Mockito.anyString())).thenReturn(null);
     lockingService.requestLockRelease("/some-url");
 
@@ -584,12 +586,14 @@ public class DiskLockingServiceTest {
     when(idFactory.readUploadId(org.mockito.Mockito.anyString())).thenReturn(mockId2);
 
     // Test getStopPath directly to hit the null check
-    java.lang.reflect.Method getStopPathMethod = DiskLockingService.class.getDeclaredMethod("getStopPath", UploadId.class);
+    java.lang.reflect.Method getStopPathMethod =
+        DiskLockingService.class.getDeclaredMethod("getStopPath", UploadId.class);
     getStopPathMethod.setAccessible(true);
-    getStopPathMethod.invoke(lockingService, new Object[]{null});
+    getStopPathMethod.invoke(lockingService, new Object[] {null});
 
     // Test that the lock is not created when lockPath is null.
-    java.lang.reflect.Method getLockPathMethod = DiskLockingService.class.getDeclaredMethod("getLockPath", UploadId.class);
+    java.lang.reflect.Method getLockPathMethod =
+        DiskLockingService.class.getDeclaredMethod("getLockPath", UploadId.class);
     getLockPathMethod.setAccessible(true);
     getLockPathMethod.invoke(lockingService, (UploadId) null);
   }
