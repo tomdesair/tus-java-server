@@ -36,7 +36,8 @@ public interface RequestHandler {
       UploadStorageService uploadStorageService,
       String ownerKey)
       throws IOException, TusException {
-    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey, null);
+    throw new UnsupportedOperationException(
+        "This method is deprecated and should not be called. Implement process(7 args) instead.");
   }
 
   /**
