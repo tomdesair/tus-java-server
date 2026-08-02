@@ -1,8 +1,10 @@
 package me.desair.tus.server.upload.s3;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import io.minio.MinioClient;
 import me.desair.tus.server.TestUtils;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import me.desair.tus.server.upload.UploadId;
@@ -12,14 +14,12 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.testcontainers.containers.GenericContainer;
-import software.amazon.awssdk.services.s3.S3Client;
 
 public class ITS3LockingService {
 
   private static GenericContainer<?> minio;
-  private static S3Client s3Client;
-  private static final String BUCKET = "test-lock-bucket";
-  private static final String TEST_UUID = "24249a5b-01a4-4bf8-b67a-364273bb5a2e";
+  private static MinioClient minioClient;
+  private static final String BUCKET = "test-locking-service-bucket";
 
   private S3LockingService lockingService;
 
@@ -32,8 +32,8 @@ public class ITS3LockingService {
     minio = TestUtils.createMinioContainer();
     minio.start();
 
-    s3Client = TestUtils.createS3Client(minio);
-    TestUtils.createBucket(s3Client, BUCKET);
+    minioClient = TestUtils.createMinioClient(minio);
+    TestUtils.createBucket(minioClient, BUCKET);
   }
 
   @AfterClass
@@ -46,28 +46,37 @@ public class ITS3LockingService {
   @Before
   public void setUp() {
     org.junit.Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable());
-    lockingService = new S3LockingService(s3Client, BUCKET);
+    lockingService = new S3LockingService(minioClient, BUCKET);
   }
 
   @Test
   public void testLockAcquireAndRelease() throws Exception {
-    UploadLock lock = lockingService.lockUploadByUri("/files/upload/" + TEST_UUID);
+    String uri = "/test/upload/24249a5b-01a4-4bf8-b67a-364273bb5a21";
+    UploadId id = new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a21");
+    UploadLock lock = lockingService.lockUploadByUri(uri);
     assertNotNull(lock);
-    assertTrue(lockingService.isLocked(new UploadId(TEST_UUID)));
 
-    lock.close();
-    org.junit.Assert.assertFalse(lockingService.isLocked(new UploadId(TEST_UUID)));
+    // Verify upload is locked
+    assertTrue(lockingService.isLocked(id));
+
+    // Release lock
+    lock.release();
+
+    // Verify lock is released
+    assertFalse(lockingService.isLocked(id));
   }
 
   @Test(expected = UploadAlreadyLockedException.class)
   public void testConcurrentLockFails() throws Exception {
-    UploadLock lock1 = lockingService.lockUploadByUri("/files/upload/" + TEST_UUID);
+    String uri = "/test/upload/24249a5b-01a4-4bf8-b67a-364273bb5a22";
+    UploadLock lock1 = lockingService.lockUploadByUri(uri);
+    assertNotNull(lock1);
+
     try {
-      lockingService.lockUploadByUri("/files/upload/" + TEST_UUID);
+      // Second lock attempt on same URI should throw UploadAlreadyLockedException
+      lockingService.lockUploadByUri(uri);
     } finally {
-      if (lock1 != null) {
-        lock1.close();
-      }
+      lock1.release();
     }
   }
 }

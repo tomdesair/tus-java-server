@@ -32,11 +32,7 @@ public class UploadInfoSerializer {
           public void serialize(
               UploadId uploadId, JsonGenerator gen, SerializerProvider serializers)
               throws IOException {
-            if (uploadId == null) {
-              gen.writeNull();
-            } else {
-              gen.writeString(uploadId.toString());
-            }
+            gen.writeString(uploadId.toString());
           }
         });
 

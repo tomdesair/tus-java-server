@@ -1,5 +1,6 @@
 package me.desair.tus.server.upload.s3;
 
+import io.minio.MinioClient;
 import me.desair.tus.server.AbstractITTusFileUploadService;
 import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.TestUtils;
@@ -7,18 +8,17 @@ import me.desair.tus.server.TusFileUploadService;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.testcontainers.containers.GenericContainer;
-import software.amazon.awssdk.services.s3.S3Client;
 
 /**
  * End-to-end integration test suite verifying {@link TusFileUploadService} backed by {@link
- * S3StorageService} and {@link S3LockingService} on MinIO. Extends {@link
+ * S3StorageService} and {@link S3LockingService} on MinIO using the MinIO Java SDK. Extends {@link
  * AbstractITTusFileUploadService} to run all Tus 1.0.0 protocol use cases against S3 storage.
  */
 public class ITS3TusFileUploadService extends AbstractITTusFileUploadService {
 
   private static GenericContainer<?> minio;
-  private static S3Client s3Client;
-  private static final String BUCKET = "test-tus-service-bucket";
+  private static MinioClient minioClient;
+  private static final String BUCKET = "test-service-s3-bucket";
 
   @BeforeClass
   public static void setUpClass() {
@@ -29,8 +29,8 @@ public class ITS3TusFileUploadService extends AbstractITTusFileUploadService {
     minio = TestUtils.createMinioContainer();
     minio.start();
 
-    s3Client = TestUtils.createS3Client(minio);
-    TestUtils.createBucket(s3Client, BUCKET);
+    minioClient = TestUtils.createMinioClient(minio);
+    TestUtils.createBucket(minioClient, BUCKET);
   }
 
   @AfterClass
@@ -49,9 +49,9 @@ public class ITS3TusFileUploadService extends AbstractITTusFileUploadService {
   protected TusFileUploadService createTusFileUploadService(String uploadUri) {
     org.junit.Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable());
 
-    S3StorageService s3Storage = new S3StorageService(s3Client, BUCKET);
-    S3LockingService s3Locking = new S3LockingService(s3Client, BUCKET);
-    S3ConcatenationService s3Concat = new S3ConcatenationService(s3Client, BUCKET, s3Storage);
+    S3StorageService s3Storage = new S3StorageService(minioClient, BUCKET);
+    S3LockingService s3Locking = new S3LockingService(minioClient, BUCKET);
+    S3ConcatenationService s3Concat = new S3ConcatenationService(minioClient, BUCKET, s3Storage);
     s3Storage.setUploadConcatenationService(s3Concat);
 
     return new TusFileUploadService()

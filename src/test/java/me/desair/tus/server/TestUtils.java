@@ -1,17 +1,14 @@
 package me.desair.tus.server;
 
-import java.net.URI;
+import io.minio.BucketExistsArgs;
+import io.minio.MakeBucketArgs;
+import io.minio.MinioClient;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 
 /**
- * Helper utility class for S3 integration tests running against Testcontainers MinIO. Supports both
- * Docker and Podman container engines automatically.
+ * Helper utility class for S3 integration tests running against Testcontainers MinIO using the
+ * MinIO Java SDK. Supports both Docker and Podman container engines automatically.
  */
 public final class TestUtils {
 
@@ -81,33 +78,30 @@ public final class TestUtils {
   }
 
   /**
-   * Create an AWS SDK v2 {@link S3Client} configured to connect to the given MinIO container.
+   * Create a {@link MinioClient} configured to connect to the given MinIO container.
    *
    * @param minio The active MinIO Testcontainer
-   * @return Pre-configured S3Client
+   * @return Pre-configured MinioClient
    */
-  public static S3Client createS3Client(GenericContainer<?> minio) {
+  public static MinioClient createMinioClient(GenericContainer<?> minio) {
     String minioUrl = "http://" + minio.getHost() + ":" + minio.getMappedPort(9000);
-    return S3Client.builder()
-        .endpointOverride(URI.create(minioUrl))
-        .credentialsProvider(
-            StaticCredentialsProvider.create(
-                AwsBasicCredentials.create("minioadmin", "minioadmin")))
-        .region(Region.US_EAST_1)
-        .forcePathStyle(true)
-        .build();
+    return MinioClient.builder().endpoint(minioUrl).credentials("minioadmin", "minioadmin").build();
   }
 
   /**
-   * Create an S3 bucket if it does not already exist.
+   * Ensures an S3 bucket exists using MinIO Client.
    *
-   * @param s3Client The S3Client instance
-   * @param bucketName Name of the bucket to create
+   * @param minioClient The MinIO Client
+   * @param bucket The S3 bucket name
    */
-  public static void createBucket(S3Client s3Client, String bucketName) {
+  public static void createBucket(MinioClient minioClient, String bucket) {
     try {
-      s3Client.createBucket(CreateBucketRequest.builder().bucket(bucketName).build());
-    } catch (Exception ignored) {
+      boolean found = minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build());
+      if (!found) {
+        minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
+      }
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to create bucket " + bucket, e);
     }
   }
 }

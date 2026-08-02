@@ -1,5 +1,18 @@
 package me.desair.tus.server.upload.s3;
 
+import io.minio.ComposeObjectArgs;
+import io.minio.GetObjectArgs;
+import io.minio.ListObjectsArgs;
+import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
+import io.minio.Result;
+import io.minio.SourceObject;
+import io.minio.StatObjectArgs;
+import io.minio.StatObjectResponse;
+import io.minio.errors.ErrorResponseException;
+import io.minio.messages.Item;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -11,7 +24,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
@@ -32,45 +44,21 @@ import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import software.amazon.awssdk.core.ResponseInputStream;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
-import software.amazon.awssdk.services.s3.model.CompletedPart;
-import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectResponse;
-import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
-import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
-import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
-import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
-import software.amazon.awssdk.services.s3.model.ListPartsRequest;
-import software.amazon.awssdk.services.s3.model.ListPartsResponse;
-import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
-import software.amazon.awssdk.services.s3.model.NoSuchUploadException;
-import software.amazon.awssdk.services.s3.model.Part;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.s3.model.S3Object;
-import software.amazon.awssdk.services.s3.model.UploadPartRequest;
-import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 /**
- * S3-compatible implementation of {@link UploadStorageService}.
+ * MinIO S3-backed implementation of {@link UploadStorageService} using the lightweight MinIO Java
+ * SDK.
  *
  * <p>Key Design Architecture:
  *
  * <ul>
- *   <li><b>Always Multipart Upload Strategy</b>: Employs S3 multipart uploads matching {@code tusd}
- *       architecture for scalable multi-gigabyte uploads.
+ *   <li><b>Server-Side Object Composition</b>: Uses S3/MinIO {@code composeObject} for scalable
+ *       multi-gigabyte uploads and virtual upload concatenation with zero server memory footprint.
  *   <li><b>Incomplete Part Buffering</b>: Sub-5MB chunks (below S3's minimum part size limit) are
  *       persisted as temporary {@code .part} objects in S3 and prepended automatically on
  *       subsequent appends.
- *   <li><b>Dynamic Dynamic Scaling</b>: Part sizes auto-scale up to 5GB based on total expected
- *       upload size.
+ *   <li><b>Dynamic Scaling</b>: Part sizes auto-scale up to 5GB based on total expected upload
+ *       size.
  *   <li><b>Zero-Byte & Deduplication Support</b>: Handles 0-byte uploads seamlessly and supports
  *       checksum deduplication.
  * </ul>
@@ -87,9 +75,8 @@ public class S3StorageService implements UploadStorageService {
   private static final long DEFAULT_MIN_PART_SIZE = 5L * 1024 * 1024; // 5 MB
   private static final long DEFAULT_PREFERRED_PART_SIZE = 50L * 1024 * 1024; // 50 MB
   private static final long DEFAULT_MAX_PART_SIZE = 5L * 1024 * 1024 * 1024L; // 5 GB
-  private static final int MAX_MULTIPART_PARTS = 10_000;
 
-  private final S3Client s3Client;
+  private final MinioClient minioClient;
   private final String bucket;
   private final String objectPrefix;
   private final String metadataPrefix;
@@ -113,12 +100,12 @@ public class S3StorageService implements UploadStorageService {
   /**
    * Basic constructor using default object key prefixes and standard system temp directory.
    *
-   * @param s3Client Pre-configured S3Client
+   * @param minioClient Pre-configured MinIO Client
    * @param bucket S3 bucket name
    */
-  public S3StorageService(S3Client s3Client, String bucket) {
+  public S3StorageService(MinioClient minioClient, String bucket) {
     this(
-        s3Client,
+        minioClient,
         bucket,
         DEFAULT_OBJECT_PREFIX,
         DEFAULT_METADATA_PREFIX,
@@ -130,7 +117,7 @@ public class S3StorageService implements UploadStorageService {
   /**
    * Full constructor allowing full customization of object prefixes and local disk buffer path.
    *
-   * @param s3Client Pre-configured S3Client
+   * @param minioClient Pre-configured MinIO Client
    * @param bucket S3 bucket name
    * @param objectPrefix Key prefix for data objects
    * @param metadataPrefix Key prefix for metadata (.info/.part) objects
@@ -139,14 +126,14 @@ public class S3StorageService implements UploadStorageService {
    * @param temporaryDirectory Directory path for buffering parts before S3 upload
    */
   public S3StorageService(
-      S3Client s3Client,
+      MinioClient minioClient,
       String bucket,
       String objectPrefix,
       String metadataPrefix,
       String checksumsPrefix,
       String locksPrefix,
       Path temporaryDirectory) {
-    this.s3Client = Objects.requireNonNull(s3Client, "S3Client must not be null");
+    this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
     this.objectPrefix = sanitizePrefix(objectPrefix);
     this.metadataPrefix = sanitizePrefix(metadataPrefix);
@@ -159,11 +146,11 @@ public class S3StorageService implements UploadStorageService {
 
     this.concatenationService =
         new S3ConcatenationService(
-            this.s3Client, this.bucket, this.objectPrefix, this, this.temporaryDirectory);
+            this.minioClient, this.bucket, this.objectPrefix, this, this.temporaryDirectory);
   }
 
   /**
-   * Returns the S3 object key for the completed upload data of the given upload.
+   * Returns the S3 object key for the completed upload data of the given upload info.
    *
    * @param uploadInfo The upload info object
    * @return The full S3 object key for the uploaded data
@@ -172,7 +159,49 @@ public class S3StorageService implements UploadStorageService {
     if (uploadInfo == null || uploadInfo.getId() == null) {
       return null;
     }
-    return buildObjectKey(uploadInfo.getId().toString());
+    String id = uploadInfo.getId().toString();
+    if (uploadInfo.getStorageUploadId() != null && !uploadInfo.getStorageUploadId().equals(id)) {
+      return uploadInfo.getStorageUploadId();
+    }
+    return buildObjectKey(id);
+  }
+
+  /**
+   * Return the S3 object key where the uploaded bytes are stored for the given upload URI.
+   *
+   * @param uploadUri The HTTP request URI of the upload
+   * @return The target S3 object key or null if upload not found
+   */
+  public String getS3ObjectKey(String uploadUri) {
+    try {
+      UploadId uploadId = idFactory.readUploadId(uploadUri);
+      if (uploadId == null) {
+        return null;
+      }
+      UploadInfo uploadInfo = getUploadInfo(uploadId);
+      return getS3ObjectKey(uploadInfo);
+    } catch (IOException e) {
+      log.debug("Error retrieving upload info for URI {}", uploadUri, e);
+      return null;
+    }
+  }
+
+  /**
+   * Return the S3 object key where the uploaded bytes are stored for the given upload URI and owner
+   * key.
+   *
+   * @param uploadUri The HTTP request URI of the upload
+   * @param ownerKey The owner key of the upload
+   * @return The target S3 object key or null if upload not found
+   */
+  public String getS3ObjectKey(String uploadUri, String ownerKey) {
+    try {
+      UploadInfo uploadInfo = getUploadInfo(uploadUri, ownerKey);
+      return getS3ObjectKey(uploadInfo);
+    } catch (IOException e) {
+      log.debug("Error retrieving upload info for URI {}", uploadUri, e);
+      return null;
+    }
   }
 
   @Override
@@ -196,11 +225,14 @@ public class S3StorageService implements UploadStorageService {
 
     String metadataKey = buildMetadataKey(id.toString());
     String json;
-    try (ResponseInputStream<GetObjectResponse> stream =
-        s3Client.getObject(GetObjectRequest.builder().bucket(bucket).key(metadataKey).build())) {
+    try (InputStream stream =
+        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(metadataKey).build())) {
       json = IOUtils.toString(stream, StandardCharsets.UTF_8);
-    } catch (NoSuchKeyException e) {
-      return null;
+    } catch (ErrorResponseException e) {
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
+        return null;
+      }
+      throw new IOException("Failed to fetch metadata object from S3 for ID " + id, e);
     } catch (Exception e) {
       throw new IOException("Failed to fetch metadata object from S3 for ID " + id, e);
     }
@@ -230,11 +262,7 @@ public class S3StorageService implements UploadStorageService {
       info.setId(idFactory.createId());
     }
     info.setOwnerKey(ownerKey);
-
-    String objectKey = buildObjectKey(info.getId().toString());
-    CreateMultipartUploadResponse response =
-        createS3MultipartUpload(objectKey, info.getFileMimeType());
-    info.setStorageUploadId(response.uploadId());
+    info.setStorageUploadId(info.getId().toString());
 
     try {
       update(info);
@@ -247,25 +275,14 @@ public class S3StorageService implements UploadStorageService {
   @Override
   public UploadInfo append(UploadInfo upload, InputStream inputStream)
       throws IOException, TusException {
-    // 1. High-level verification & setup
     UploadInfo info = fetchAndValidateUpload(upload.getId());
-    String objectKey = buildObjectKey(info.getId().toString());
-    String partObjectKey = buildIncompletePartKey(info.getId().toString());
+    String id = info.getId().toString();
+    String objectKey = getS3ObjectKey(info);
+    String partObjectKey = buildIncompletePartKey(id);
 
-    // 2. Prepare incoming byte stream by prepending leftover sub-5MB .part buffer if present
     InputStream streamToRead = prepareStreamWithExistingIncompletePart(partObjectKey, inputStream);
+    AppendResult appendResult = processPayloadChunks(info, streamToRead, id, partObjectKey);
 
-    // 3. Ensure active S3 multipart upload ID exists
-    String multipartUploadId = ensureMultipartUploadId(info, objectKey);
-
-    // 4. Read incoming stream and upload complete 5MB+ parts to S3 (buffering sub-5MB leftovers to
-    // .part)
-    List<CompletedPart> existingParts = fetchCompletedParts(objectKey, multipartUploadId);
-    AppendResult appendResult =
-        processPayloadChunks(
-            info, streamToRead, objectKey, multipartUploadId, partObjectKey, existingParts);
-
-    // 5. Enforce minimum append payload size rule
     if (minAppendSize != null && appendResult.totalBytesAppended < minAppendSize) {
       throw new MinAppendSizeNotMetException(
           "Append payload size "
@@ -274,12 +291,10 @@ public class S3StorageService implements UploadStorageService {
               + minAppendSize);
     }
 
-    // 6. Recalculate authoritative offset and finalize complete uploads
-    long newOffset = calculateCurrentOffset(objectKey, multipartUploadId, partObjectKey);
+    long newOffset = calculateCurrentOffset(objectKey, id, partObjectKey);
     info.setOffset(newOffset);
 
-    finalizeCompletedUploadIfFinished(
-        info, objectKey, multipartUploadId, appendResult.allParts, newOffset);
+    finalizeCompletedUploadIfFinished(info, objectKey, id, appendResult, newOffset);
     update(info);
     return info;
   }
@@ -291,12 +306,19 @@ public class S3StorageService implements UploadStorageService {
     }
     String metadataKey = buildMetadataKey(uploadInfo.getId().toString());
     String json = UploadInfoSerializer.serialize(uploadInfo);
+    byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
 
-    s3Client.putObject(
-        PutObjectRequest.builder().bucket(bucket).key(metadataKey).build(),
-        RequestBody.fromString(json, StandardCharsets.UTF_8));
+    try {
+      minioClient.putObject(
+          PutObjectArgs.builder().bucket(bucket).object(metadataKey).stream(
+                  new ByteArrayInputStream(jsonBytes), (long) jsonBytes.length, -1L)
+              .contentType("application/json")
+              .build());
+    } catch (Exception e) {
+      throw new IOException(
+          "Failed to write metadata object to S3 for ID " + uploadInfo.getId(), e);
+    }
 
-    // Index completed parent uploads for checksum deduplication
     if (isUploadDeduplicationEnabled()
         && uploadInfo.getChecksum() != null
         && uploadInfo.getChecksumAlgorithm() != null
@@ -326,12 +348,10 @@ public class S3StorageService implements UploadStorageService {
       throw new UploadNotFoundException("Upload with ID " + id + " was not found");
     }
 
-    // Direct parent upload resolution for duplicate uploads
     if (info.getDuplicatesUploadId() != null) {
       return getUploadedBytes(info.getDuplicatesUploadId());
     }
 
-    // Trigger virtual concatenation merge if needed
     if (UploadType.CONCATENATED.equals(info.getUploadType()) && info.getStorageUploadId() == null) {
       if (concatenationService != null) {
         concatenationService.merge(info);
@@ -353,14 +373,17 @@ public class S3StorageService implements UploadStorageService {
   @Override
   public void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException {
     try {
-      ListObjectsV2Response response =
-          s3Client.listObjectsV2(
-              ListObjectsV2Request.builder().bucket(bucket).prefix(metadataPrefix).build());
+      Iterable<Result<Item>> results =
+          minioClient.listObjects(
+              ListObjectsArgs.builder().bucket(bucket).prefix(metadataPrefix).build());
 
-      for (S3Object obj : response.contents()) {
-        if (obj.key().endsWith(".info")) {
+      for (Result<Item> result : results) {
+        Item item = result.get();
+        if (item.objectName().endsWith(".info")) {
           String idStr =
-              obj.key().substring(metadataPrefix.length(), obj.key().length() - ".info".length());
+              item.objectName()
+                  .substring(
+                      metadataPrefix.length(), item.objectName().length() - ".info".length());
           UploadId id = new UploadId(idStr);
           UploadInfo info = getUploadInfo(id);
 
@@ -383,20 +406,18 @@ public class S3StorageService implements UploadStorageService {
       return;
     }
     String id = uploadInfo.getId().toString();
-    String objectKey = buildObjectKey(id);
+    String objectKey = getS3ObjectKey(uploadInfo);
     String partKey = buildIncompletePartKey(id);
 
     long newOffset = Math.max(0L, uploadInfo.getOffset() - byteCount);
     uploadInfo.setOffset(newOffset);
     update(uploadInfo);
 
-    // Strategy 1: Truncate completed S3 object if present
     if (objectExists(objectKey)) {
       truncateFromCompletedObject(objectKey, partKey, newOffset);
       return;
     }
 
-    // Strategy 2: Truncate from incomplete .part object if present
     truncateFromIncompletePart(partKey, byteCount);
   }
 
@@ -406,17 +427,16 @@ public class S3StorageService implements UploadStorageService {
       return;
     }
     String id = uploadInfo.getId().toString();
-    String objectKey = buildObjectKey(id);
+    String objectKey = getS3ObjectKey(uploadInfo);
     String metadataKey = buildMetadataKey(id);
     String partKey = buildIncompletePartKey(id);
-
-    if (uploadInfo.getStorageUploadId() != null) {
-      abortMultipartUploadQuietly(objectKey, uploadInfo.getStorageUploadId());
-    }
 
     deleteObjectQuietly(objectKey);
     deleteObjectQuietly(metadataKey);
     deleteObjectQuietly(partKey);
+
+    // Delete all temporary part files
+    deleteAllPartObjectsQuietly(id);
 
     if (uploadInfo.getChecksum() != null && uploadInfo.getChecksumAlgorithm() != null) {
       deleteObjectQuietly(
@@ -433,16 +453,20 @@ public class S3StorageService implements UploadStorageService {
 
     String checksumKey = buildChecksumKey(checksum, algorithm);
     String parentIdStr;
-    try (ResponseInputStream<GetObjectResponse> stream =
-        s3Client.getObject(GetObjectRequest.builder().bucket(bucket).key(checksumKey).build())) {
+    try (InputStream stream =
+        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(checksumKey).build())) {
       parentIdStr = IOUtils.toString(stream, StandardCharsets.UTF_8).trim();
-    } catch (NoSuchKeyException e) {
-      return null;
+    } catch (ErrorResponseException e) {
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
+        return null;
+      }
+      throw new IOException("Failed to read checksum index object from S3", e);
+    } catch (Exception e) {
+      throw new IOException("Failed to read checksum index object from S3", e);
     }
 
     UploadInfo parentInfo = getUploadInfo(new UploadId(parentIdStr));
     if (parentInfo == null || !objectExists(buildObjectKey(parentIdStr))) {
-      // Self-cleaning: delete dangling checksum index object
       deleteObjectQuietly(checksumKey);
       return null;
     }
@@ -528,9 +552,8 @@ public class S3StorageService implements UploadStorageService {
     }
   }
 
-  // PRIVATE HELPER METHODS (Single Level of Abstraction)
+  // PRIVATE HELPER METHODS
 
-  /** Fetches upload info for given ID and validates size bounds. */
   private UploadInfo fetchAndValidateUpload(UploadId uploadId)
       throws UploadNotFoundException, TusException, IOException {
     UploadInfo info = getUploadInfo(uploadId);
@@ -541,7 +564,6 @@ public class S3StorageService implements UploadStorageService {
     return info;
   }
 
-  /** Validates upload length against max and min bounds. */
   private void validateUploadLimits(UploadInfo info) throws TusException {
     if (info.getLength() != null) {
       if (maxUploadSize != null && maxUploadSize > 0 && info.getLength() > maxUploadSize) {
@@ -555,20 +577,16 @@ public class S3StorageService implements UploadStorageService {
     }
   }
 
-  /**
-   * Checks for an existing incomplete .part object in S3 and prepends its content to incoming
-   * stream.
-   */
   private InputStream prepareStreamWithExistingIncompletePart(
       String partObjectKey, InputStream inputStream) throws IOException {
     try {
-      HeadObjectResponse partHead =
-          s3Client.headObject(
-              HeadObjectRequest.builder().bucket(bucket).key(partObjectKey).build());
+      StatObjectResponse partHead =
+          minioClient.statObject(
+              StatObjectArgs.builder().bucket(bucket).object(partObjectKey).build());
       if (partHead != null) {
-        ResponseInputStream<GetObjectResponse> partStream =
-            s3Client.getObject(
-                GetObjectRequest.builder().bucket(bucket).key(partObjectKey).build());
+        InputStream partStream =
+            minioClient.getObject(
+                GetObjectArgs.builder().bucket(bucket).object(partObjectKey).build());
         File tempPrependedFile =
             File.createTempFile("tus-s3-prep-", ".tmp", temporaryDirectory.toFile());
         tempPrependedFile.deleteOnExit();
@@ -579,46 +597,23 @@ public class S3StorageService implements UploadStorageService {
         deleteObjectQuietly(partObjectKey);
         return new SequenceInputStream(new FileInputStream(tempPrependedFile), inputStream);
       }
-    } catch (NoSuchKeyException ignored) {
-      // Normal case: no leftover .part object
+    } catch (ErrorResponseException e) {
+      if ("NoSuchKey".equalsIgnoreCase(e.errorResponse().code())) {
+        // Normal case: no leftover .part object
+      }
+    } catch (Exception ignored) {
     }
     return inputStream;
   }
 
-  /** Ensures valid multipart upload ID exists; initiates a new one if missing. */
-  private String ensureMultipartUploadId(UploadInfo info, String objectKey) {
-    String multipartUploadId = info.getStorageUploadId();
-    if (multipartUploadId == null) {
-      CreateMultipartUploadResponse createResponse =
-          createS3MultipartUpload(objectKey, info.getFileMimeType());
-      multipartUploadId = createResponse.uploadId();
-      info.setStorageUploadId(multipartUploadId);
-    }
-    return multipartUploadId;
-  }
-
-  /** Executes S3 CreateMultipartUpload request with content type header. */
-  private CreateMultipartUploadResponse createS3MultipartUpload(String objectKey, String mimeType) {
-    CreateMultipartUploadRequest.Builder builder =
-        CreateMultipartUploadRequest.builder().bucket(bucket).key(objectKey);
-    if (mimeType != null) {
-      builder.contentType(mimeType);
-    }
-    return s3Client.createMultipartUpload(builder.build());
-  }
-
-  /** Reads incoming stream chunks into temporary files, uploading completed 5MB+ parts to S3. */
   private AppendResult processPayloadChunks(
-      UploadInfo info,
-      InputStream streamToRead,
-      String objectKey,
-      String multipartUploadId,
-      String partObjectKey,
-      List<CompletedPart> existingParts)
+      UploadInfo info, InputStream streamToRead, String id, String partObjectKey)
       throws IOException, MaxAppendSizeExceededException {
 
-    int nextPartNumber = existingParts.size() + 1;
-    List<CompletedPart> allParts = new ArrayList<>(existingParts);
+    List<String> partKeys = fetchExistingPartKeys(id);
+    int nextPartNumber = partKeys.size() + 1;
+    List<String> allPartKeys = new ArrayList<>(partKeys);
+
     long optimalPartSize = calcOptimalPartSize(info.getLength() != null ? info.getLength() : 0);
     byte[] buffer = new byte[8192];
     long totalBytesAppended = 0;
@@ -657,84 +652,121 @@ public class S3StorageService implements UploadStorageService {
       long currentTotalOffset = info.getOffset() + totalBytesAppended;
       boolean isUploadComplete = info.getLength() != null && currentTotalOffset >= info.getLength();
 
-      // S3 requirement: parts must be >= 5MB UNLESS it is the final completing part
       if (chunkBytesWritten >= minPartSize || (streamFinished && isUploadComplete)) {
-        uploadPartToS3(
-            objectKey,
-            multipartUploadId,
-            nextPartNumber,
-            tempChunkFile,
-            chunkBytesWritten,
-            allParts);
+        String chunkKey = buildChunkPartKey(id, nextPartNumber);
+        uploadChunkToS3(chunkKey, tempChunkFile, chunkBytesWritten);
+        allPartKeys.add(chunkKey);
         nextPartNumber++;
       } else {
-        // Leftover chunk < 5MB and upload not complete -> store as .part object in S3
         storeIncompletePartToS3(partObjectKey, tempChunkFile, chunkBytesWritten);
       }
     }
 
-    return new AppendResult(totalBytesAppended, allParts);
+    return new AppendResult(totalBytesAppended, allPartKeys);
   }
 
-  /**
-   * Uploads a single part file to S3 multipart upload and appends its ETag to completed parts list.
-   */
-  private void uploadPartToS3(
-      String objectKey,
-      String multipartUploadId,
-      int partNumber,
-      File tempChunkFile,
-      long chunkLength,
-      List<CompletedPart> allParts)
+  private void uploadChunkToS3(String chunkKey, File tempChunkFile, long chunkLength)
       throws IOException {
-
     try (FileInputStream fis = new FileInputStream(tempChunkFile)) {
-      UploadPartResponse partResponse =
-          s3Client.uploadPart(
-              UploadPartRequest.builder()
-                  .bucket(bucket)
-                  .key(objectKey)
-                  .uploadId(multipartUploadId)
-                  .partNumber(partNumber)
-                  .contentLength(chunkLength)
-                  .build(),
-              RequestBody.fromInputStream(fis, chunkLength));
-
-      allParts.add(
-          CompletedPart.builder().partNumber(partNumber).eTag(partResponse.eTag()).build());
+      minioClient.putObject(
+          PutObjectArgs.builder().bucket(bucket).object(chunkKey).stream(fis, chunkLength, -1L)
+              .build());
+    } catch (Exception e) {
+      throw new IOException("Failed to upload part chunk to S3 key " + chunkKey, e);
     } finally {
       tempChunkFile.delete();
     }
   }
 
-  /** Writes a sub-5MB chunk to S3 as a temporary .part object. */
   private void storeIncompletePartToS3(String partObjectKey, File tempChunkFile, long chunkLength)
       throws IOException {
     try (FileInputStream fis = new FileInputStream(tempChunkFile)) {
-      s3Client.putObject(
-          PutObjectRequest.builder().bucket(bucket).key(partObjectKey).build(),
-          RequestBody.fromInputStream(fis, chunkLength));
+      minioClient.putObject(
+          PutObjectArgs.builder().bucket(bucket).object(partObjectKey).stream(fis, chunkLength, -1L)
+              .build());
+    } catch (Exception e) {
+      throw new IOException("Failed to write incomplete part object to S3 key " + partObjectKey, e);
     } finally {
       tempChunkFile.delete();
     }
   }
 
-  /** Completes S3 multipart upload if all expected bytes have been received. */
   private void finalizeCompletedUploadIfFinished(
-      UploadInfo info,
-      String objectKey,
-      String multipartUploadId,
-      List<CompletedPart> allParts,
-      long newOffset) {
+      UploadInfo info, String objectKey, String id, AppendResult appendResult, long newOffset)
+      throws IOException {
 
     if (info.getLength() != null && newOffset >= info.getLength()) {
-      s3Client.completeMultipartUpload(
-          CompleteMultipartUploadRequest.builder()
-              .bucket(bucket)
-              .key(objectKey)
-              .uploadId(multipartUploadId)
-              .multipartUpload(CompletedMultipartUpload.builder().parts(allParts).build())
-              .build());
+      List<String> partKeys = fetchExistingPartKeys(id);
+
+      // If leftover sub-5MB .part exists, save it as final part chunk
+      String leftoverPartKey = buildIncompletePartKey(id);
+      if (objectExists(leftoverPartKey)) {
+        int nextPartNum = partKeys.size() + 1;
+        String finalChunkKey = buildChunkPartKey(id, nextPartNum);
+        try (InputStream stream =
+            minioClient.getObject(
+                GetObjectArgs.builder().bucket(bucket).object(leftoverPartKey).build())) {
+          byte[] bytes = IOUtils.toByteArray(stream);
+          minioClient.putObject(
+              PutObjectArgs.builder().bucket(bucket).object(finalChunkKey).stream(
+                      new ByteArrayInputStream(bytes), (long) bytes.length, -1L)
+                  .build());
+          partKeys.add(finalChunkKey);
+        } catch (Exception e) {
+          throw new IOException("Failed to finalize incomplete part for ID " + id, e);
+        }
+        deleteObjectQuietly(leftoverPartKey);
+      }
+
+      if (!partKeys.isEmpty()) {
+        if (partKeys.size() == 1) {
+          // Single part: rename/copy single part key to objectKey or compose
+          List<SourceObject> sources = new ArrayList<>();
+          sources.add(SourceObject.builder().bucket(bucket).object(partKeys.get(0)).build());
+          try {
+            minioClient.composeObject(
+                ComposeObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(objectKey)
+                    .sources(sources)
+                    .build());
+          } catch (Exception e) {
+            throw new IOException("Failed to compose final single object " + objectKey, e);
+          }
+        } else {
+          // Multiple parts: compose all part keys into final objectKey server-side
+          List<SourceObject> sources = new ArrayList<>();
+          for (String pk : partKeys) {
+            sources.add(SourceObject.builder().bucket(bucket).object(pk).build());
+          }
+          try {
+            minioClient.composeObject(
+                ComposeObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(objectKey)
+                    .sources(sources)
+                    .build());
+          } catch (Exception e) {
+            throw new IOException("Failed to compose final multipart object " + objectKey, e);
+          }
+        }
+
+        // Clean up temporary part chunk objects
+        for (String pk : partKeys) {
+          deleteObjectQuietly(pk);
+        }
+      } else if (info.getLength() == 0L) {
+        // Zero-byte completed upload
+        byte[] empty = new byte[0];
+        try {
+          minioClient.putObject(
+              PutObjectArgs.builder().bucket(bucket).object(objectKey).stream(
+                      new ByteArrayInputStream(empty), 0L, -1L)
+                  .build());
+        } catch (Exception e) {
+          throw new IOException("Failed to put 0-byte object " + objectKey, e);
+        }
+      }
 
       if (isUploadDeduplicationEnabled()
           && info.getChecksum() != null
@@ -745,116 +777,122 @@ public class S3StorageService implements UploadStorageService {
     }
   }
 
-  /** Fetches data object stream or .part stream for a given upload ID. */
   private InputStream fetchS3ByteStream(UploadId id, UploadInfo info)
       throws UploadNotFoundException {
-    String objectKey = buildObjectKey(id.toString());
+    String objectKey = getS3ObjectKey(info);
+    if (objectKey == null && id != null) {
+      objectKey = buildObjectKey(id.toString());
+    }
     try {
-      return s3Client.getObject(GetObjectRequest.builder().bucket(bucket).key(objectKey).build());
-    } catch (NoSuchKeyException e) {
-      String partKey = buildIncompletePartKey(id.toString());
-      try {
-        return s3Client.getObject(GetObjectRequest.builder().bucket(bucket).key(partKey).build());
-      } catch (NoSuchKeyException ex) {
-        if (info != null && (info.getOffset() == null || info.getOffset() == 0L)) {
-          return new java.io.ByteArrayInputStream(new byte[0]);
+      // Step 1: Attempt to read from the completed object key in S3
+      return minioClient.getObject(
+          GetObjectArgs.builder().bucket(bucket).object(objectKey).build());
+    } catch (ErrorResponseException e) {
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
+        // Step 2: If completed object is not found, check for an incomplete .part object from an
+        // ongoing upload
+        String partKey = buildIncompletePartKey(id.toString());
+        try {
+          return minioClient.getObject(
+              GetObjectArgs.builder().bucket(bucket).object(partKey).build());
+        } catch (ErrorResponseException ex) {
+          if (S3Utils.parseErrorResponse(ex) == S3ErrorType.NO_SUCH_KEY) {
+            if (info != null && (info.getOffset() == null || info.getOffset() == 0L)) {
+              return new ByteArrayInputStream(new byte[0]);
+            }
+          }
+        } catch (Exception ignored) {
         }
-        throw new UploadNotFoundException("Uploaded bytes object not found for ID " + id);
       }
+      throw new UploadNotFoundException("Uploaded bytes object not found for ID " + id);
+    } catch (Exception e) {
+      throw new UploadNotFoundException("Uploaded bytes object not found for ID " + id);
     }
   }
 
-  /** Truncates bytes from a completed final S3 data object. */
   private void truncateFromCompletedObject(String objectKey, String partKey, long newOffset)
       throws IOException {
     if (newOffset > 0) {
-      try (ResponseInputStream<GetObjectResponse> objStream =
-          s3Client.getObject(GetObjectRequest.builder().bucket(bucket).key(objectKey).build())) {
+      try (InputStream objStream =
+          minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(objectKey).build())) {
         byte[] remainingBytes = new byte[(int) newOffset];
         IOUtils.readFully(objStream, remainingBytes);
-        s3Client.putObject(
-            PutObjectRequest.builder().bucket(bucket).key(partKey).build(),
-            RequestBody.fromBytes(remainingBytes));
+        minioClient.putObject(
+            PutObjectArgs.builder().bucket(bucket).object(partKey).stream(
+                    new ByteArrayInputStream(remainingBytes), (long) remainingBytes.length, -1L)
+                .build());
+      } catch (Exception e) {
+        throw new IOException("Failed to truncate completed object key " + objectKey, e);
       }
     }
     deleteObjectQuietly(objectKey);
   }
 
-  /** Truncates bytes from an incomplete .part S3 object buffer. */
   private void truncateFromIncompletePart(String partKey, long byteCount) {
     try {
-      HeadObjectResponse head =
-          s3Client.headObject(HeadObjectRequest.builder().bucket(bucket).key(partKey).build());
-      long partSize = head.contentLength();
+      StatObjectResponse head =
+          minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(partKey).build());
+      long partSize = head.size();
 
       if (byteCount >= partSize) {
         deleteObjectQuietly(partKey);
       } else {
-        ResponseInputStream<GetObjectResponse> partStream =
-            s3Client.getObject(GetObjectRequest.builder().bucket(bucket).key(partKey).build());
+        InputStream partStream =
+            minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(partKey).build());
         byte[] bytes = IOUtils.toByteArray(partStream);
         int newLength = (int) (bytes.length - byteCount);
+        byte[] remaining = java.util.Arrays.copyOf(bytes, newLength);
 
-        s3Client.putObject(
-            PutObjectRequest.builder().bucket(bucket).key(partKey).build(),
-            RequestBody.fromBytes(java.util.Arrays.copyOf(bytes, newLength)));
+        minioClient.putObject(
+            PutObjectArgs.builder().bucket(bucket).object(partKey).stream(
+                    new ByteArrayInputStream(remaining), (long) remaining.length, -1L)
+                .build());
       }
-    } catch (NoSuchKeyException ignored) {
-      // Normal state: incomplete part object not present
+    } catch (ErrorResponseException ignored) {
     } catch (Exception e) {
       log.debug("Error truncating incomplete part object {}", partKey, e);
     }
   }
 
-  /** Calculates authoritative offset by querying S3 ListParts and .part object. */
   private void calculateAndSetOffset(UploadInfo info) {
     String id = info.getId().toString();
-    String objectKey = buildObjectKey(id);
+    String objectKey = getS3ObjectKey(info);
     String partKey = buildIncompletePartKey(id);
-    String multipartUploadId = info.getStorageUploadId();
 
-    long offset = calculateCurrentOffset(objectKey, multipartUploadId, partKey);
+    long offset = calculateCurrentOffset(objectKey, id, partKey);
     info.setOffset(offset);
   }
 
-  /** Sums byte lengths of all uploaded S3 parts and incomplete .part buffer. */
-  private long calculateCurrentOffset(String objectKey, String multipartUploadId, String partKey) {
+  private long calculateCurrentOffset(String objectKey, String id, String partKey) {
     long offset = 0;
 
-    if (multipartUploadId != null) {
+    List<String> partKeys = fetchExistingPartKeys(id);
+    for (String pk : partKeys) {
       try {
-        ListPartsResponse listPartsResponse =
-            s3Client.listParts(
-                ListPartsRequest.builder()
-                    .bucket(bucket)
-                    .key(objectKey)
-                    .uploadId(multipartUploadId)
-                    .build());
-        for (Part part : listPartsResponse.parts()) {
-          offset += part.size();
-        }
-      } catch (NoSuchUploadException e) {
-        if (objectExists(objectKey)) {
-          try {
-            HeadObjectResponse head =
-                s3Client.headObject(
-                    HeadObjectRequest.builder().bucket(bucket).key(objectKey).build());
-            return head.contentLength();
-          } catch (Exception ignored) {
-          }
-        }
-      } catch (Exception e) {
-        log.debug("Error listing parts for object {}", objectKey, e);
+        StatObjectResponse stat =
+            minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(pk).build());
+        offset += stat.size();
+      } catch (Exception ignored) {
+      }
+    }
+
+    if (objectExists(objectKey)) {
+      try {
+        StatObjectResponse head =
+            minioClient.statObject(
+                StatObjectArgs.builder().bucket(bucket).object(objectKey).build());
+        return head.size();
+      } catch (Exception ignored) {
       }
     }
 
     try {
-      HeadObjectResponse partHead =
-          s3Client.headObject(HeadObjectRequest.builder().bucket(bucket).key(partKey).build());
-      if (partHead != null && partHead.contentLength() != null) {
-        offset += partHead.contentLength();
+      StatObjectResponse partHead =
+          minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(partKey).build());
+      if (partHead != null) {
+        offset += partHead.size();
       }
-    } catch (NoSuchKeyException ignored) {
+    } catch (ErrorResponseException ignored) {
     } catch (Exception e) {
       log.debug("Error reading head for incomplete part object {}", partKey, e);
     }
@@ -862,90 +900,73 @@ public class S3StorageService implements UploadStorageService {
     return offset;
   }
 
-  /** Lists completed parts for an active S3 multipart upload. */
-  private List<CompletedPart> fetchCompletedParts(String objectKey, String multipartUploadId) {
-    if (multipartUploadId == null) {
-      return Collections.emptyList();
-    }
+  private List<String> fetchExistingPartKeys(String id) {
+    String prefix = metadataPrefix + id + ".part.";
+    List<String> partKeys = new ArrayList<>();
     try {
-      ListPartsResponse response =
-          s3Client.listParts(
-              ListPartsRequest.builder()
-                  .bucket(bucket)
-                  .key(objectKey)
-                  .uploadId(multipartUploadId)
-                  .build());
-      List<CompletedPart> parts = new ArrayList<>();
-      for (Part p : response.parts()) {
-        parts.add(CompletedPart.builder().partNumber(p.partNumber()).eTag(p.eTag()).build());
+      Iterable<Result<Item>> results =
+          minioClient.listObjects(ListObjectsArgs.builder().bucket(bucket).prefix(prefix).build());
+      for (Result<Item> res : results) {
+        partKeys.add(res.get().objectName());
       }
-      return parts;
-    } catch (Exception e) {
-      return Collections.emptyList();
+    } catch (Exception ignored) {
+    }
+    return partKeys;
+  }
+
+  private void deleteAllPartObjectsQuietly(String id) {
+    List<String> partKeys = fetchExistingPartKeys(id);
+    for (String pk : partKeys) {
+      deleteObjectQuietly(pk);
     }
   }
 
-  /** Computes optimal part size up to 5GB max based on total upload length. */
   private long calcOptimalPartSize(long totalSize) {
     long partSize = preferredPartSize;
-    if (totalSize > 0 && totalSize / partSize >= MAX_MULTIPART_PARTS) {
-      partSize = (totalSize / MAX_MULTIPART_PARTS) + 1;
+    if (totalSize > 0 && totalSize / partSize >= 10000) {
+      partSize = (totalSize / 10000) + 1;
     }
     return Math.max(minPartSize, Math.min(partSize, DEFAULT_MAX_PART_SIZE));
   }
 
-  /** Writes a checksum index object to S3 for deduplication lookups. */
   private void putChecksumIndex(String checksum, ChecksumAlgorithm algorithm, String parentId) {
     String key = buildChecksumKey(checksum, algorithm);
     try {
-      s3Client.putObject(
-          PutObjectRequest.builder().bucket(bucket).key(key).build(),
-          RequestBody.fromString(parentId, StandardCharsets.UTF_8));
+      byte[] parentIdBytes = parentId.getBytes(StandardCharsets.UTF_8);
+      minioClient.putObject(
+          PutObjectArgs.builder().bucket(bucket).object(key).stream(
+                  new ByteArrayInputStream(parentIdBytes), (long) parentIdBytes.length, -1L)
+              .build());
     } catch (Exception e) {
       log.warn("Failed to write checksum index object to S3 key {}", key, e);
     }
   }
 
-  /** Checks if an S3 object exists. */
   private boolean objectExists(String key) {
     try {
-      s3Client.headObject(HeadObjectRequest.builder().bucket(bucket).key(key).build());
+      minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(key).build());
       return true;
-    } catch (NoSuchKeyException e) {
+    } catch (ErrorResponseException e) {
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
+        return false;
+      }
       return false;
     } catch (Exception e) {
       return false;
     }
   }
 
-  /** Aborts an active S3 multipart upload quietly. */
-  private void abortMultipartUploadQuietly(String objectKey, String multipartUploadId) {
-    try {
-      s3Client.abortMultipartUpload(
-          AbortMultipartUploadRequest.builder()
-              .bucket(bucket)
-              .key(objectKey)
-              .uploadId(multipartUploadId)
-              .build());
-    } catch (Exception e) {
-      log.debug(
-          "Abort multipart upload for object {} failed (may already be completed)", objectKey, e);
-    }
-  }
-
-  /** Deletes an object quietly from S3 without throwing exceptions. */
   private void deleteObjectQuietly(String key) {
     if (key == null) {
       return;
     }
     try {
-      s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build());
+      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
     } catch (Exception e) {
       log.debug("Failed to delete S3 object key {}", key, e);
     }
   }
 
-  /** Ensures key prefixes are relative and end with a trailing slash. */
   private String sanitizePrefix(String prefix) {
     if (prefix == null || prefix.isEmpty()) {
       return "";
@@ -966,18 +987,21 @@ public class S3StorageService implements UploadStorageService {
     return metadataPrefix + id + ".part";
   }
 
+  private String buildChunkPartKey(String id, int partNumber) {
+    return metadataPrefix + id + ".part." + String.format("%05d", partNumber);
+  }
+
   private String buildChecksumKey(String checksum, ChecksumAlgorithm algorithm) {
     return checksumsPrefix + algorithm.getTusName().toLowerCase() + "/" + checksum;
   }
 
-  /** Internal value object holding result of payload chunk append processing. */
   private static class AppendResult {
     final long totalBytesAppended;
-    final List<CompletedPart> allParts;
+    final List<String> allPartKeys;
 
-    AppendResult(long totalBytesAppended, List<CompletedPart> allParts) {
+    AppendResult(long totalBytesAppended, List<String> allPartKeys) {
       this.totalBytesAppended = totalBytesAppended;
-      this.allParts = allParts;
+      this.allPartKeys = allPartKeys;
     }
   }
 }

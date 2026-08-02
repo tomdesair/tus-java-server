@@ -1,5 +1,6 @@
 package me.desair.tus.server.upload.s3;
 
+import io.minio.MinioClient;
 import me.desair.tus.server.AbstractITRufhProtocol;
 import me.desair.tus.server.TestUtils;
 import me.desair.tus.server.TusFileUploadService;
@@ -8,12 +9,13 @@ import org.junit.BeforeClass;
 
 /**
  * End-to-end integration test suite verifying the IETF Resumable Uploads for HTTP (RUFH) protocol
- * implementation backed by {@link S3StorageService} and {@link S3LockingService} on MinIO.
+ * implementation backed by {@link S3StorageService} and {@link S3LockingService} on MinIO using the
+ * MinIO Java SDK.
  */
 public class ITS3RufhProtocol extends AbstractITRufhProtocol {
 
   private static org.testcontainers.containers.GenericContainer<?> minio;
-  private static software.amazon.awssdk.services.s3.S3Client s3Client;
+  private static MinioClient minioClient;
   private static final String BUCKET = "test-rufh-s3-bucket";
 
   @BeforeClass
@@ -25,8 +27,8 @@ public class ITS3RufhProtocol extends AbstractITRufhProtocol {
     minio = TestUtils.createMinioContainer();
     minio.start();
 
-    s3Client = TestUtils.createS3Client(minio);
-    TestUtils.createBucket(s3Client, BUCKET);
+    minioClient = TestUtils.createMinioClient(minio);
+    TestUtils.createBucket(minioClient, BUCKET);
   }
 
   @AfterClass
@@ -40,9 +42,9 @@ public class ITS3RufhProtocol extends AbstractITRufhProtocol {
   protected TusFileUploadService createTusFileUploadService() {
     org.junit.Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable());
 
-    S3StorageService s3Storage = new S3StorageService(s3Client, BUCKET);
-    S3LockingService s3Locking = new S3LockingService(s3Client, BUCKET);
-    S3ConcatenationService s3Concat = new S3ConcatenationService(s3Client, BUCKET, s3Storage);
+    S3StorageService s3Storage = new S3StorageService(minioClient, BUCKET);
+    S3LockingService s3Locking = new S3LockingService(minioClient, BUCKET);
+    S3ConcatenationService s3Concat = new S3ConcatenationService(minioClient, BUCKET, s3Storage);
     s3Storage.setUploadConcatenationService(s3Concat);
 
     return new TusFileUploadService()

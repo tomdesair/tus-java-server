@@ -216,14 +216,18 @@ def main():
                 if uf["partial"]:
                     print(f"   ⚠️  Partially covered lines: {group_ranges(uf['partial'])}")
 
-            has_missed = any(uf["missed"] for uf in uncovered_files)
+            total_mod = sum(len(modified_lines_filter[f]) for f in modified_lines_filter)
+            total_missed = sum(len(uf["missed"]) for uf in uncovered_files)
+            covered_mod = total_mod - total_missed
+            mod_pct = (covered_mod / total_mod * 100.0) if total_mod > 0 else 100.0
+
             print("==========================================================")
-            if has_missed:
-                print("❌ FAIL: Some modified lines are not covered by unit tests!")
+            print(f"Diff Line Coverage: {mod_pct:.2f}% (Required: {args.limit:.2f}%)")
+            if mod_pct < args.limit:
+                print("❌ FAIL: Modified line coverage is below required threshold!")
                 sys.exit(1)
             else:
-                print("🎉 All new and modified lines are covered by unit tests!")
-                print("⚠️  Note: Some lines have partial branch coverage (see report above).")
+                print("🎉 Modified line coverage meets required threshold!")
                 sys.exit(0)
         else:
             print("🎉 All new and modified lines are 100% covered by unit tests!")

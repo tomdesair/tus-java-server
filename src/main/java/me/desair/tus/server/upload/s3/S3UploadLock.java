@@ -1,5 +1,9 @@
 package me.desair.tus.server.upload.s3;
 
+import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -9,20 +13,17 @@ import java.util.concurrent.TimeUnit;
 import me.desair.tus.server.upload.UploadLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 /**
- * An S3-backed implementation of {@link UploadLock} that holds an exclusive lock lease on an upload
- * resource using S3 objects. Spawns a heartbeat thread to auto-renew the lock lease until closed.
+ * A MinIO S3-backed implementation of {@link UploadLock} that holds an exclusive lock lease on an
+ * upload resource using S3 objects. Spawns a heartbeat thread to auto-renew the lock lease until
+ * closed.
  */
 public class S3UploadLock implements UploadLock {
 
   private static final Logger log = LoggerFactory.getLogger(S3UploadLock.class);
 
-  private final S3Client s3Client;
+  private final MinioClient minioClient;
   private final String bucket;
   private final String lockKey;
   private final String stopKey;
@@ -33,9 +34,9 @@ public class S3UploadLock implements UploadLock {
   private final Map<String, InputStream> inputStreamMap;
 
   /**
-   * Constructs a new S3UploadLock instance.
+   * Constructs a new S3UploadLock instance using MinIO Java SDK.
    *
-   * @param s3Client The S3 client
+   * @param minioClient The MinIO client
    * @param bucket The S3 bucket
    * @param lockKey The S3 object key for the lock lease
    * @param stopKey The S3 object key for the interrupt stop signal
@@ -45,7 +46,7 @@ public class S3UploadLock implements UploadLock {
    * @param inputStreamMap Map of active request input streams
    */
   public S3UploadLock(
-      S3Client s3Client,
+      MinioClient minioClient,
       String bucket,
       String lockKey,
       String stopKey,
@@ -53,7 +54,7 @@ public class S3UploadLock implements UploadLock {
       long leaseDurationMs,
       String requestUri,
       Map<String, InputStream> inputStreamMap) {
-    this.s3Client = s3Client;
+    this.minioClient = minioClient;
     this.bucket = bucket;
     this.lockKey = lockKey;
     this.stopKey = stopKey;
@@ -105,17 +106,19 @@ public class S3UploadLock implements UploadLock {
     deleteS3ObjectQuietly(stopKey);
   }
 
-  private void renewLease() {
+  void renewLease() {
     try {
       long newExpiry = System.currentTimeMillis() + leaseDurationMs;
       String lockContent =
           String.format(
               "{\"holder\":\"%s\",\"expiresAt\":%d,\"acquiredAt\":%d}",
               holderId, newExpiry, System.currentTimeMillis());
+      byte[] lockContentBytes = lockContent.getBytes(StandardCharsets.UTF_8);
 
-      s3Client.putObject(
-          PutObjectRequest.builder().bucket(bucket).key(lockKey).build(),
-          RequestBody.fromString(lockContent, StandardCharsets.UTF_8));
+      minioClient.putObject(
+          PutObjectArgs.builder().bucket(bucket).object(lockKey).stream(
+                  new ByteArrayInputStream(lockContentBytes), (long) lockContentBytes.length, -1L)
+              .build());
     } catch (Exception e) {
       log.warn("Failed to renew S3 lock lease for key {}", lockKey, e);
     }
@@ -126,7 +129,7 @@ public class S3UploadLock implements UploadLock {
       return;
     }
     try {
-      s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build());
+      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
     } catch (Exception e) {
       log.debug("Failed to delete S3 lock object {}", key, e);
     }

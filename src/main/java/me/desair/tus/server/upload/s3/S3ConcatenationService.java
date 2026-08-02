@@ -1,8 +1,9 @@
 package me.desair.tus.server.upload.s3;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import io.minio.ComposeObjectArgs;
+import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import io.minio.SourceObject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.SequenceInputStream;
@@ -18,29 +19,19 @@ import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.concatenation.UploadInputStreamEnumeration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.CompletedPart;
-import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
-import software.amazon.awssdk.services.s3.model.UploadPartCopyRequest;
-import software.amazon.awssdk.services.s3.model.UploadPartCopyResponse;
-import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 /**
- * S3-native implementation of {@link UploadConcatenationService}. Uses server-side S3 {@code
- * UploadPartCopy} when all partial uploads meet S3's minimum part size constraint ($\ge$ 5 MB), and
- * streams via {@link SequenceInputStream} to re-upload to S3 as a fallback when smaller partial
- * uploads are present.
+ * S3-native implementation of {@link UploadConcatenationService} using MinIO Java SDK. Uses
+ * server-side S3 object composition ({@code composeObject}) when all partial uploads meet S3's
+ * minimum part size constraint ($\ge$ 5 MB), and streams via {@link SequenceInputStream} to
+ * re-upload to S3 as a fallback when smaller partial uploads are present.
  */
 public class S3ConcatenationService implements UploadConcatenationService {
 
   private static final Logger log = LoggerFactory.getLogger(S3ConcatenationService.class);
   private static final long DEFAULT_MIN_PART_SIZE = 5L * 1024 * 1024; // 5 MB
 
-  private final S3Client s3Client;
+  private final MinioClient minioClient;
   private final String bucket;
   private final String objectPrefix;
   private final long minPartSize;
@@ -50,42 +41,42 @@ public class S3ConcatenationService implements UploadConcatenationService {
   /**
    * Basic constructor using default object prefix ("tus-uploads/") and Java temp directory.
    *
-   * @param s3Client The S3 client
+   * @param minioClient The MinIO client
    * @param bucket The S3 bucket name
    */
-  public S3ConcatenationService(S3Client s3Client, String bucket) {
-    this(s3Client, bucket, "tus-uploads/", null, null);
+  public S3ConcatenationService(MinioClient minioClient, String bucket) {
+    this(minioClient, bucket, "tus-uploads/", null, null);
   }
 
   /**
-   * Convenient constructor taking S3Client, bucket, and UploadStorageService.
+   * Convenient constructor taking MinioClient, bucket, and UploadStorageService.
    *
-   * @param s3Client The S3 client
+   * @param minioClient The MinIO client
    * @param bucket The S3 bucket name
    * @param uploadStorageService Underlying storage service
    */
   public S3ConcatenationService(
-      S3Client s3Client, String bucket, UploadStorageService uploadStorageService) {
-    this(s3Client, bucket, "tus-uploads/", uploadStorageService, null);
+      MinioClient minioClient, String bucket, UploadStorageService uploadStorageService) {
+    this(minioClient, bucket, "tus-uploads/", uploadStorageService, null);
   }
 
   /**
    * Constructs an S3ConcatenationService.
    *
-   * @param s3Client The S3 client
+   * @param minioClient The MinIO client
    * @param bucket The S3 bucket name
    * @param objectPrefix Key prefix for data objects
    * @param uploadStorageService Underlying storage service
    * @param temporaryDirectory Directory for temporary buffer files
    */
   public S3ConcatenationService(
-      S3Client s3Client,
+      MinioClient minioClient,
       String bucket,
       String objectPrefix,
       UploadStorageService uploadStorageService,
       Path temporaryDirectory) {
     this(
-        s3Client,
+        minioClient,
         bucket,
         objectPrefix,
         uploadStorageService,
@@ -95,13 +86,13 @@ public class S3ConcatenationService implements UploadConcatenationService {
 
   /** Full constructor allowing custom minimum part size. */
   public S3ConcatenationService(
-      S3Client s3Client,
+      MinioClient minioClient,
       String bucket,
       String objectPrefix,
       UploadStorageService uploadStorageService,
       Path temporaryDirectory,
       long minPartSize) {
-    this.s3Client = Objects.requireNonNull(s3Client, "S3Client must not be null");
+    this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
     this.objectPrefix = objectPrefix != null ? objectPrefix : "";
     this.uploadStorageService = uploadStorageService;
@@ -137,12 +128,11 @@ public class S3ConcatenationService implements UploadConcatenationService {
               .allMatch(p -> p.getLength() != null && p.getLength() >= minPartSize);
 
       String targetObjectKey = buildObjectKey(uploadInfo.getId().toString());
-      String multipartUploadId;
 
       if (canUseServerSideCopy) {
-        multipartUploadId = mergeUsingServerSideCopy(targetObjectKey, partialUploads);
+        mergeUsingServerSideCopy(targetObjectKey, partialUploads);
       } else {
-        multipartUploadId = mergeUsingStreamingReupload(targetObjectKey, partialUploads);
+        mergeUsingStreamingReupload(targetObjectKey, partialUploads, totalLength);
       }
 
       uploadInfo.setLength(totalLength);
@@ -150,7 +140,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
       if (expirationPeriod != null) {
         uploadInfo.updateExpiration(expirationPeriod);
       }
-      uploadInfo.setStorageUploadId(multipartUploadId);
+      uploadInfo.setStorageUploadId(targetObjectKey);
 
       if (uploadStorageService != null) {
         try {
@@ -178,13 +168,8 @@ public class S3ConcatenationService implements UploadConcatenationService {
       return uploadStorageService.getUploadedBytes(uploadInfo.getId());
     }
 
-    String objectKey = buildObjectKey(uploadInfo.getId().toString());
-    try {
-      return s3Client.getObject(GetObjectRequest.builder().bucket(bucket).key(objectKey).build());
-    } catch (NoSuchKeyException e) {
-      throw new UploadNotFoundException(
-          "Uploaded concatenated object not found for ID " + uploadInfo.getId());
-    }
+    throw new IOException(
+        "UploadStorageService must be configured to retrieve concatenated upload bytes");
   }
 
   @Override
@@ -211,134 +196,37 @@ public class S3ConcatenationService implements UploadConcatenationService {
     return output;
   }
 
-  private String mergeUsingServerSideCopy(String targetKey, List<UploadInfo> partialUploads)
+  private void mergeUsingServerSideCopy(String targetKey, List<UploadInfo> partialUploads)
       throws IOException {
-    CreateMultipartUploadResponse createResponse =
-        s3Client.createMultipartUpload(
-            CreateMultipartUploadRequest.builder().bucket(bucket).key(targetKey).build());
-    String uploadId = createResponse.uploadId();
-
-    List<CompletedPart> completedParts = new ArrayList<>();
-    int partNumber = 1;
-
     try {
+      List<SourceObject> sources = new ArrayList<>();
       for (UploadInfo partial : partialUploads) {
-        String sourceKey = buildObjectKey(partial.getId().toString());
-
-        UploadPartCopyResponse copyResponse =
-            s3Client.uploadPartCopy(
-                UploadPartCopyRequest.builder()
-                    .destinationBucket(bucket)
-                    .destinationKey(targetKey)
-                    .sourceBucket(bucket)
-                    .sourceKey(sourceKey)
-                    .uploadId(uploadId)
-                    .partNumber(partNumber)
-                    .build());
-
-        completedParts.add(
-            CompletedPart.builder()
-                .partNumber(partNumber)
-                .eTag(copyResponse.copyPartResult().eTag())
-                .build());
-        partNumber++;
+        String partKey =
+            partial.getStorageUploadId() != null
+                ? partial.getStorageUploadId()
+                : buildObjectKey(partial.getId().toString());
+        sources.add(SourceObject.builder().bucket(bucket).object(partKey).build());
       }
 
-      s3Client.completeMultipartUpload(
-          software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest.builder()
-              .bucket(bucket)
-              .key(targetKey)
-              .uploadId(uploadId)
-              .multipartUpload(
-                  software.amazon.awssdk.services.s3.model.CompletedMultipartUpload.builder()
-                      .parts(completedParts)
-                      .build())
-              .build());
-      return uploadId;
+      minioClient.composeObject(
+          ComposeObjectArgs.builder().bucket(bucket).object(targetKey).sources(sources).build());
     } catch (Exception e) {
-      s3Client.abortMultipartUpload(
-          software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest.builder()
-              .bucket(bucket)
-              .key(targetKey)
-              .uploadId(uploadId)
-              .build());
-      throw new IOException("Failed server-side S3 UploadPartCopy merge for key " + targetKey, e);
+      throw new IOException("Failed server-side S3 composeObject merge for key " + targetKey, e);
     }
   }
 
-  private String mergeUsingStreamingReupload(String targetKey, List<UploadInfo> partialUploads)
-      throws IOException {
-    InputStream combinedStream =
-        new SequenceInputStream(
-            new UploadInputStreamEnumeration(partialUploads, uploadStorageService));
-
-    CreateMultipartUploadResponse createResponse =
-        s3Client.createMultipartUpload(
-            CreateMultipartUploadRequest.builder().bucket(bucket).key(targetKey).build());
-    String uploadId = createResponse.uploadId();
-
-    List<CompletedPart> completedParts = new ArrayList<>();
-    int partNumber = 1;
-    byte[] buffer = new byte[8192];
-
+  private void mergeUsingStreamingReupload(
+      String targetKey, List<UploadInfo> partialUploads, long totalLength) throws IOException {
     try {
-      boolean done = false;
-      while (!done) {
-        File tempFile = File.createTempFile("tus-s3-concat-", ".tmp", temporaryDirectory.toFile());
-        tempFile.deleteOnExit();
+      InputStream combinedStream =
+          new SequenceInputStream(
+              new UploadInputStreamEnumeration(partialUploads, uploadStorageService));
 
-        long bytesWritten = 0;
-        try (FileOutputStream fos = new FileOutputStream(tempFile)) {
-          int bytesRead;
-          while (bytesWritten < minPartSize && (bytesRead = combinedStream.read(buffer)) != -1) {
-            fos.write(buffer, 0, bytesRead);
-            bytesWritten += bytesRead;
-          }
-          if (bytesWritten < minPartSize) {
-            done = true;
-          }
-        }
-
-        if (bytesWritten > 0) {
-          try (FileInputStream fis = new FileInputStream(tempFile)) {
-            software.amazon.awssdk.services.s3.model.UploadPartResponse partResponse =
-                s3Client.uploadPart(
-                    UploadPartRequest.builder()
-                        .bucket(bucket)
-                        .key(targetKey)
-                        .uploadId(uploadId)
-                        .partNumber(partNumber)
-                        .contentLength(bytesWritten)
-                        .build(),
-                    RequestBody.fromInputStream(fis, bytesWritten));
-
-            completedParts.add(
-                CompletedPart.builder().partNumber(partNumber).eTag(partResponse.eTag()).build());
-            partNumber++;
-          }
-        }
-
-        tempFile.delete();
-      }
-
-      s3Client.completeMultipartUpload(
-          software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest.builder()
-              .bucket(bucket)
-              .key(targetKey)
-              .uploadId(uploadId)
-              .multipartUpload(
-                  software.amazon.awssdk.services.s3.model.CompletedMultipartUpload.builder()
-                      .parts(completedParts)
-                      .build())
+      minioClient.putObject(
+          PutObjectArgs.builder().bucket(bucket).object(targetKey).stream(
+                  combinedStream, totalLength, -1L)
               .build());
-      return uploadId;
     } catch (Exception e) {
-      s3Client.abortMultipartUpload(
-          software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest.builder()
-              .bucket(bucket)
-              .key(targetKey)
-              .uploadId(uploadId)
-              .build());
       throw new IOException("Failed streaming re-upload merge for key " + targetKey, e);
     }
   }

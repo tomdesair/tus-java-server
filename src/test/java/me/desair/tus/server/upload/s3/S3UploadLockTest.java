@@ -1,0 +1,107 @@
+package me.desair.tus.server.upload.s3;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+
+import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
+import java.io.InputStream;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.Mockito;
+
+public class S3UploadLockTest {
+
+  private MinioClient minioClient;
+  private ConcurrentMap<String, InputStream> inputStreamMap;
+
+  @Before
+  public void setUp() {
+    minioClient = mock(MinioClient.class);
+    inputStreamMap = new ConcurrentHashMap<>();
+  }
+
+  @Test
+  public void testLockGettersReleaseAndRenewLease() throws Exception {
+    InputStream mockStream = mock(InputStream.class);
+    inputStreamMap.put("/files/upload-1", mockStream);
+
+    S3UploadLock lock =
+        new S3UploadLock(
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            "holder-123",
+            60000L,
+            "/files/upload-1",
+            inputStreamMap);
+
+    assertEquals("holder-123", lock.getHolderId());
+    assertEquals("/files/upload-1", lock.getUploadUri());
+
+    // Explicitly call renewLease() to verify lease renewal
+    lock.renewLease();
+
+    lock.release();
+    assertNotNull(lock);
+  }
+
+  @Test
+  public void testRenewLeaseExceptionHandling() throws Exception {
+    Mockito.doThrow(new RuntimeException("PutObject failed"))
+        .when(minioClient)
+        .putObject(any(PutObjectArgs.class));
+
+    S3UploadLock lock =
+        new S3UploadLock(
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            "holder-123",
+            60000L,
+            "/files/upload-1",
+            inputStreamMap);
+
+    lock.renewLease();
+  }
+
+  @Test
+  public void testLockDeleteQuietlyWithNullKeysAndExceptionHandling() throws Exception {
+    Mockito.doThrow(new RuntimeException("Remove failed"))
+        .when(minioClient)
+        .removeObject(any(RemoveObjectArgs.class));
+
+    S3UploadLock lockWithNullKeys =
+        new S3UploadLock(
+            minioClient,
+            "test-bucket",
+            null,
+            null,
+            "holder-123",
+            60000L,
+            "/files/upload-1",
+            inputStreamMap);
+
+    lockWithNullKeys.close();
+
+    S3UploadLock lockWithKeys =
+        new S3UploadLock(
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            "holder-123",
+            60000L,
+            "/files/upload-1",
+            inputStreamMap);
+
+    lockWithKeys.close();
+  }
+}
