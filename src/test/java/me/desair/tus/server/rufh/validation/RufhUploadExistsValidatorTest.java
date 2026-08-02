@@ -51,6 +51,14 @@ public class RufhUploadExistsValidatorTest {
     validator.validate(HttpMethod.HEAD, request, storageService, "owner");
   }
 
+  @Test
+  public void testValidateNullRequestOrStorageService() throws Exception {
+    validator.validate(HttpMethod.HEAD, null, storageService, "owner");
+    validator.validate(HttpMethod.HEAD, request, null, "owner");
+    validator.validate(HttpMethod.HEAD, null, null, "owner");
+    // Should return without exceptions
+  }
+
   /**
    * Section 4.4 (Upload Append): "If the upload resource does not exist, the server MUST reject the
    * request with a 404 (Not Found) status code."
