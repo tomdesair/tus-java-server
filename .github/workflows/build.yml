@@ -64,7 +64,7 @@ jobs:
 
       - if: ${{ matrix.run-coveralls }}
         name: Coveralls
-        uses: coverallsapp/github-action@v2
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329
         with:
           # *base-path* is prepended to all paths in order to correctly reference source files on coveralls.io
           base-path: src/main/java
