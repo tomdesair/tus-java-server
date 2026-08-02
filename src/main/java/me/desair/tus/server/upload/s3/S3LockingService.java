@@ -34,17 +34,24 @@ import org.slf4j.LoggerFactory;
 /**
  * Distributed S3-backed implementation of {@link UploadLockingService} using the MinIO Java SDK.
  *
- * <p>Key Architecture Features:
+ * <p>Key Architecture Features & S3/MinIO Developer Guide:
  *
  * <ul>
- *   <li><b>Distributed Conditional Locking</b>: Uses S3 conditional writes ({@code If-None-Match:
- *       "*"}) to atomically acquire locks across multi-replica application pods without requiring
- *       external storage like Redis.
- *   <li><b>Heartbeat & Lease Auto-Renewal</b>: Managed locks spawn background daemon threads to
- *       auto-renew lease TTLs.
- *   <li><b>Cross-Pod Lock Contention Resolution</b>: Supports concurrent request cancellation (e.g.
- *       HEAD/DELETE during PATCH) by writing {@code .stop} signal files in S3 and periodically
- *       inspecting them with a watchdog poller thread.
+ *   <li><b>Distributed Lock Lease Objects</b>: Locks are represented as small JSON lease objects
+ *       written to S3 under {@code <locksPrefix>/<UploadId>.lock}. Each lease object records a
+ *       unique {@code holderId} and an absolute timestamp {@code expiresAt}.
+ *   <li><b>Atomic Lock Acquisition</b>: When an upload request arrives, the server checks whether
+ *       an unexpired lock object already exists in S3. If no active lock is found, a new lock
+ *       object is written to S3, granting exclusive ownership to the current thread/pod without
+ *       requiring Redis or an external database.
+ *   <li><b>Heartbeat & Lease Auto-Renewal</b>: Managed locks spawn background daemon threads that
+ *       periodically update the lock object in S3, keeping the lease active while long uploads run.
+ *   <li><b>Cross-Pod Lock Contention & Interrupt Signals</b>: When a concurrent request arrives for
+ *       a locked upload (e.g., HEAD or DELETE while a PATCH is streaming data on another pod), the
+ *       service writes a {@code <locksPrefix>/<UploadId>.stop} signal object to S3. A background
+ *       watchdog thread on the pod holding the lock detects the {@code .stop} file and interrupts
+ *       the active input stream immediately, resolving lock contention cleanly across Kubernetes
+ *       pods.
  * </ul>
  */
 public class S3LockingService implements UploadLockingService {
@@ -103,6 +110,7 @@ public class S3LockingService implements UploadLockingService {
     this.leaseDurationMs = leaseDurationMs;
     this.pollIntervalMs = pollIntervalMs;
 
+    // Background watchdog thread to poll S3 for .stop contention signals across pods
     this.watchdogExecutor =
         Executors.newSingleThreadScheduledExecutor(
             r -> {
@@ -128,11 +136,13 @@ public class S3LockingService implements UploadLockingService {
     String stopKey = buildStopKey(uploadId);
     String holderId = UUID.randomUUID().toString();
 
+    // Attempt lock acquisition or clear expired lock
     boolean acquired = acquireOrEvictExpiredLock(lockKey, holderId);
     if (!acquired) {
       throw new UploadAlreadyLockedException("Upload " + uploadId + " is currently locked");
     }
 
+    // Create and return S3UploadLock instance with heartbeat lease auto-renewal
     return new S3UploadLock(
         minioClient,
         bucket,
@@ -147,12 +157,14 @@ public class S3LockingService implements UploadLockingService {
   @Override
   public void cleanupStaleLocks() throws IOException {
     try {
+      // List all object keys under locksPrefix in S3
       Iterable<Result<Item>> results =
           minioClient.listObjects(
               ListObjectsArgs.builder().bucket(bucket).prefix(locksPrefix).build());
 
       for (Result<Item> result : results) {
         Item item = result.get();
+        // Remove expired .lock lease objects
         if (item.objectName().endsWith(".lock") && isLockExpired(item.objectName())) {
           deleteObjectQuietly(item.objectName());
         }
@@ -204,7 +216,7 @@ public class S3LockingService implements UploadLockingService {
     }
   }
 
-  // HELPER METHODS
+  // HELPER METHODS & LOCK MANAGEMENT LOGIC
 
   private boolean acquireOrEvictExpiredLock(String lockKey, String holderId) {
     boolean acquired = attemptLockAcquisition(lockKey, holderId);
@@ -224,6 +236,7 @@ public class S3LockingService implements UploadLockingService {
     try {
       byte[] lockContentBytes = OBJECT_MAPPER.writeValueAsBytes(new LockData(holderId, expiresAt));
 
+      // Put lock lease object to S3
       minioClient.putObject(
           PutObjectArgs.builder().bucket(bucket).object(lockKey).stream(
                   new ByteArrayInputStream(lockContentBytes), (long) lockContentBytes.length, -1L)
@@ -243,11 +256,10 @@ public class S3LockingService implements UploadLockingService {
       return lockData.expiresAt < System.currentTimeMillis();
     } catch (ErrorResponseException e) {
       if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
-        return true; // Not locked
+        return true; // Key missing -> Not locked
       }
       return true;
     } catch (Exception e) {
-      // exception
       log.debug("Failed to read lock object {}, treating as expired", lockKey, e);
       return true;
     }
@@ -257,6 +269,7 @@ public class S3LockingService implements UploadLockingService {
     String stopKey = buildStopKey(uploadId);
     try {
       byte[] empty = new byte[0];
+      // Write empty .stop signal object to S3
       minioClient.putObject(
           PutObjectArgs.builder().bucket(bucket).object(stopKey).stream(
                   new ByteArrayInputStream(empty), 0L, -1L)
@@ -280,12 +293,13 @@ public class S3LockingService implements UploadLockingService {
 
     String stopKey = buildStopKey(uploadId);
     try {
+      // Check if a .stop signal object was written by another pod requesting lock release
       minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(stopKey).build());
       // Remote stop signal object found! Interrupt local byte stream immediately
       interruptStream(inputStream);
     } catch (ErrorResponseException e) {
       if ("NoSuchKey".equalsIgnoreCase(e.errorResponse().code())) {
-        // Normal state: no stop signal
+        // Normal state: no stop signal object in S3
         return;
       }
     } catch (Exception e) {
@@ -300,7 +314,6 @@ public class S3LockingService implements UploadLockingService {
       try {
         is.close();
       } catch (Exception ignored) {
-        // Stream close failure ignored defensively
       }
     }
   }

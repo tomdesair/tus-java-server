@@ -31,6 +31,7 @@ import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
+import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -82,7 +83,7 @@ public class S3StorageServiceTest {
     info.setStorageUploadId("tus-uploads/custom-key-123");
     info.setOwnerKey("owner-1");
 
-    String json = UploadInfoSerializer.serialize(info);
+    String json = UploadInfoJsonSerializer.serialize(info);
     when(minioClient.getObject(any(GetObjectArgs.class)))
         .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
 
@@ -130,8 +131,8 @@ public class S3StorageServiceTest {
     UploadInfo parent = new UploadInfo();
     parent.setId(new UploadId("parent-456"));
 
-    String childJson = UploadInfoSerializer.serialize(child);
-    String parentJson = UploadInfoSerializer.serialize(parent);
+    String childJson = UploadInfoJsonSerializer.serialize(child);
+    String parentJson = UploadInfoJsonSerializer.serialize(parent);
 
     when(minioClient.getObject(any(GetObjectArgs.class)))
         .thenAnswer(
@@ -161,8 +162,8 @@ public class S3StorageServiceTest {
     mergedInfo.setId(new UploadId("concat-123"));
     mergedInfo.setStorageUploadId("tus-uploads/concat-123");
 
-    String jsonBefore = UploadInfoSerializer.serialize(info);
-    String jsonAfter = UploadInfoSerializer.serialize(mergedInfo);
+    String jsonBefore = UploadInfoJsonSerializer.serialize(info);
+    String jsonAfter = UploadInfoJsonSerializer.serialize(mergedInfo);
 
     java.util.concurrent.atomic.AtomicInteger infoCallCount =
         new java.util.concurrent.atomic.AtomicInteger();
@@ -193,7 +194,7 @@ public class S3StorageServiceTest {
     info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
     info.setLength(10000L);
 
-    String json = UploadInfoSerializer.serialize(info);
+    String json = UploadInfoJsonSerializer.serialize(info);
     when(minioClient.getObject(any(GetObjectArgs.class)))
         .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
 
@@ -207,7 +208,7 @@ public class S3StorageServiceTest {
     info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
     info.setLength(1000L);
 
-    String json = UploadInfoSerializer.serialize(info);
+    String json = UploadInfoJsonSerializer.serialize(info);
     GetObjectResponse stream = mockGetObjectResponse(json.getBytes());
 
     when(minioClient.getObject(any(GetObjectArgs.class))).thenReturn(stream);
@@ -222,7 +223,7 @@ public class S3StorageServiceTest {
     info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
     info.setLength(1000L);
 
-    String json = UploadInfoSerializer.serialize(info);
+    String json = UploadInfoJsonSerializer.serialize(info);
     when(minioClient.getObject(any(GetObjectArgs.class)))
         .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
 
@@ -272,7 +273,7 @@ public class S3StorageServiceTest {
     info.setLength(100L);
     info.setOffset(100L);
 
-    String json = UploadInfoSerializer.serialize(info);
+    String json = UploadInfoJsonSerializer.serialize(info);
     byte[] payload = new byte[100];
 
     when(minioClient.getObject(any(GetObjectArgs.class)))
@@ -372,9 +373,9 @@ public class S3StorageServiceTest {
     info.setLength(100L);
     info.setOffset(50L);
 
-    String jsonBefore = UploadInfoSerializer.serialize(info);
+    String jsonBefore = UploadInfoJsonSerializer.serialize(info);
     info.setOffset(100L);
-    String jsonAfter = UploadInfoSerializer.serialize(info);
+    String jsonAfter = UploadInfoJsonSerializer.serialize(info);
     info.setOffset(50L);
 
     byte[] payload = new byte[50];
@@ -415,7 +416,7 @@ public class S3StorageServiceTest {
   public void testFetchS3ByteStreamWithOffsetAndLengthRange() throws Exception {
     UploadInfo info = new UploadInfo();
     info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
-    String json = UploadInfoSerializer.serialize(info);
+    String json = UploadInfoJsonSerializer.serialize(info);
 
     when(minioClient.getObject(any(GetObjectArgs.class)))
         .thenAnswer(
@@ -479,7 +480,7 @@ public class S3StorageServiceTest {
     parentInfo.setId(new UploadId("parent-123"));
     parentInfo.setLength(5000L);
 
-    String json = UploadInfoSerializer.serialize(parentInfo);
+    String json = UploadInfoJsonSerializer.serialize(parentInfo);
 
     java.util.Map<String, byte[]> objectData = new java.util.HashMap<>();
     objectData.put("checksums/sha256/abc123hash", "parent-123".getBytes());
@@ -556,7 +557,7 @@ public class S3StorageServiceTest {
     info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
     info.setLength(1000L);
 
-    String json = UploadInfoSerializer.serialize(info);
+    String json = UploadInfoJsonSerializer.serialize(info);
     when(minioClient.getObject(any(GetObjectArgs.class)))
         .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
 
@@ -570,7 +571,7 @@ public class S3StorageServiceTest {
     info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
     info.setLength(2000L);
 
-    String json = UploadInfoSerializer.serialize(info);
+    String json = UploadInfoJsonSerializer.serialize(info);
     when(minioClient.getObject(any(GetObjectArgs.class)))
         .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
 
@@ -623,7 +624,7 @@ public class S3StorageServiceTest {
     expiredInfo.setId(expiredId);
     expiredInfo.setExpirationTimestamp(System.currentTimeMillis() - 10000L);
 
-    String json = UploadInfoSerializer.serialize(expiredInfo);
+    String json = UploadInfoJsonSerializer.serialize(expiredInfo);
 
     Item item = mock(Item.class);
     when(item.objectName()).thenReturn("tus-uploads/expired-123.info");
@@ -656,7 +657,7 @@ public class S3StorageServiceTest {
     info.setLength(100L);
     info.setOffset(0L);
 
-    String json = UploadInfoSerializer.serialize(info);
+    String json = UploadInfoJsonSerializer.serialize(info);
 
     Item item1 = mock(Item.class);
     when(item1.objectName()).thenReturn("tus-uploads/multi-part-123.part.00001");
@@ -680,7 +681,7 @@ public class S3StorageServiceTest {
     info.setLength(50L);
     info.setOffset(0L);
 
-    String json = UploadInfoSerializer.serialize(info);
+    String json = UploadInfoJsonSerializer.serialize(info);
 
     StatObjectResponse leftoverHead = mock(StatObjectResponse.class);
     when(leftoverHead.size()).thenReturn(50L);
@@ -718,7 +719,7 @@ public class S3StorageServiceTest {
     info.setLength(0L);
     info.setOffset(0L);
 
-    String json = UploadInfoSerializer.serialize(info);
+    String json = UploadInfoJsonSerializer.serialize(info);
     when(minioClient.getObject(any(GetObjectArgs.class)))
         .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
 
@@ -835,7 +836,7 @@ public class S3StorageServiceTest {
             invocation -> {
               GetObjectArgs args = invocation.getArgument(0);
               if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(UploadInfoSerializer.serialize(info).getBytes());
+                return mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes());
               }
               if (args.object().endsWith(".part")) {
                 return mockGetObjectResponse("part-data".getBytes());
@@ -863,7 +864,7 @@ public class S3StorageServiceTest {
             invocation -> {
               GetObjectArgs args = invocation.getArgument(0);
               if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(UploadInfoSerializer.serialize(info).getBytes());
+                return mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes());
               }
               throw noSuchKeyEx;
             });
@@ -952,7 +953,7 @@ public class S3StorageServiceTest {
             inv -> {
               GetObjectArgs args = inv.getArgument(0);
               if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(UploadInfoSerializer.serialize(info).getBytes());
+                return mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes());
               }
               throw new RuntimeException("GetObject error");
             });
@@ -976,7 +977,7 @@ public class S3StorageServiceTest {
             inv -> {
               GetObjectArgs args = inv.getArgument(0);
               if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(UploadInfoSerializer.serialize(info).getBytes());
+                return mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes());
               }
               throw new RuntimeException("GetObject error");
             });
@@ -1010,7 +1011,7 @@ public class S3StorageServiceTest {
             inv -> {
               GetObjectArgs args = inv.getArgument(0);
               if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(UploadInfoSerializer.serialize(info).getBytes());
+                return mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes());
               }
               throw noSuchKeyEx;
             });
@@ -1056,7 +1057,7 @@ public class S3StorageServiceTest {
             inv -> {
               GetObjectArgs args = inv.getArgument(0);
               if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(UploadInfoSerializer.serialize(info).getBytes());
+                return mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes());
               }
               throw noSuchKeyEx;
             });
@@ -1101,7 +1102,7 @@ public class S3StorageServiceTest {
             inv -> {
               GetObjectArgs args = inv.getArgument(0);
               if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(UploadInfoSerializer.serialize(info).getBytes());
+                return mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes());
               }
               throw new RuntimeException("GetObject error");
             });
@@ -1131,7 +1132,7 @@ public class S3StorageServiceTest {
             inv -> {
               GetObjectArgs args = inv.getArgument(0);
               if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(UploadInfoSerializer.serialize(info).getBytes());
+                return mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes());
               }
               throw new RuntimeException("GetObject failure");
             });
@@ -1151,7 +1152,7 @@ public class S3StorageServiceTest {
             inv -> {
               GetObjectArgs args = inv.getArgument(0);
               if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(UploadInfoSerializer.serialize(info).getBytes());
+                return mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes());
               }
               throw new RuntimeException("GetObject completed object failure");
             });
@@ -1183,7 +1184,7 @@ public class S3StorageServiceTest {
             inv -> {
               GetObjectArgs args = inv.getArgument(0);
               if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(UploadInfoSerializer.serialize(info).getBytes());
+                return mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes());
               }
               throw new RuntimeException("GetObject error");
             });
@@ -1206,7 +1207,7 @@ public class S3StorageServiceTest {
             inv -> {
               GetObjectArgs args = inv.getArgument(0);
               if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(UploadInfoSerializer.serialize(info).getBytes());
+                return mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes());
               }
               throw new RuntimeException("GetObject error");
             });

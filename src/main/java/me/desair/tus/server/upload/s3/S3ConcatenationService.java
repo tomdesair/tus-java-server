@@ -21,10 +21,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * S3-native implementation of {@link UploadConcatenationService} using MinIO Java SDK. Uses
- * server-side S3 object composition ({@code composeObject}) when all partial uploads meet S3's
- * minimum part size constraint ($\ge$ 5 MB), and streams via {@link SequenceInputStream} to
- * re-upload to S3 as a fallback when smaller partial uploads are present.
+ * S3-native implementation of {@link UploadConcatenationService} using MinIO Java SDK.
+ *
+ * <p>Concatenation Strategy for Developers:
+ *
+ * <ul>
+ *   <li><b>Server-Side S3 Object Composition ({@code composeObject})</b>: When all partial upload
+ *       parts meet S3's minimum part size constraint ($\ge$ 5 MB), concatenation is executed
+ *       entirely on the S3 storage cluster using {@code composeObject}. This avoids downloading any
+ *       bytes to the server, enabling instant multi-GB file stitching with zero bandwidth or RAM
+ *       overhead.
+ *   <li><b>Streaming Re-upload Fallback</b>: If any partial upload is under 5 MB (sub-5MB parts
+ *       cannot be composed via S3's native compose API), the service streams bytes sequentially
+ *       using {@link SequenceInputStream} and re-uploads the concatenated stream directly to S3.
+ * </ul>
  */
 public class S3ConcatenationService implements UploadConcatenationService {
 
@@ -123,6 +133,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
     boolean completed = checkAllCompleted(expirationPeriod, partialUploads);
 
     if (totalLength != null && totalLength > 0 && completed) {
+      // S3 Constraint Check: Server-side composeObject requires all source parts to be >= 5 MB
       boolean canUseServerSideCopy =
           partialUploads.stream()
               .allMatch(p -> p.getLength() != null && p.getLength() >= minPartSize);
@@ -130,8 +141,10 @@ public class S3ConcatenationService implements UploadConcatenationService {
       String targetObjectKey = buildObjectKey(uploadInfo.getId().toString());
 
       if (canUseServerSideCopy) {
+        // Fast path: Compose S3 objects on cluster server-side without downloading data
         mergeUsingServerSideCopy(targetObjectKey, partialUploads);
       } else {
+        // Fallback path: Sequential stream re-upload for sub-5MB parts
         mergeUsingStreamingReupload(targetObjectKey, partialUploads, totalLength);
       }
 
@@ -208,6 +221,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
         sources.add(SourceObject.builder().bucket(bucket).object(partKey).build());
       }
 
+      // Execute S3 server-side object composition
       minioClient.composeObject(
           ComposeObjectArgs.builder().bucket(bucket).object(targetKey).sources(sources).build());
     } catch (Exception e) {

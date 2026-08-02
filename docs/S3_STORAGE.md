@@ -1,11 +1,11 @@
 # S3-Compatible Storage Support for `tus-java-server`
 
-`tus-java-server` provides native support for storing resumable file uploads in AWS S3 and any S3-compatible object storage service (such as MinIO, Cloudflare R2, Ceph, or Google Cloud Storage).
+`tus-java-server` provides native support for storing resumable file uploads in AWS S3 and any S3-compatible object storage service (such as MinIO, Cloudflare R2, Ceph, or Google Cloud Storage) using the lightweight MinIO Java SDK.
 
 The implementation consists of three primary components:
-- **`S3StorageService`** (implements `UploadStorageService`) — handles multipart upload creation, chunk appends, incomplete part persistence, expiration, and checksum deduplication.
-- **`S3LockingService`** (implements `UploadLockingService`) — provides distributed locking using S3 conditional writes (`If-None-Match: "*"`) and TTL leases, enabling multi-replica container deployments without requiring Redis or external databases.
-- **`S3ConcatenationService`** (implements `UploadConcatenationService`) — provides S3-native concatenation using server-side `UploadPartCopy` (for parts $\ge$ 5 MB) with a streaming re-upload fallback.
+- **`S3StorageService`** (implements `UploadStorageService`) — handles server-side object composition (`composeObject`), chunk appends, sub-5MB incomplete part persistence (`.part`), expiration, and checksum deduplication.
+- **`S3LockingService`** (implements `UploadLockingService`) — provides distributed locking using S3 object leases (`.lock`) and TTL leases, enabling multi-replica container deployments without requiring Redis or external databases.
+- **`S3ConcatenationService`** (implements `UploadConcatenationService`) — provides S3-native concatenation using server-side `composeObject` (for parts $\ge$ 5 MB) with a streaming re-upload fallback.
 
 ---
 
@@ -13,22 +13,27 @@ The implementation consists of three primary components:
 
 ### Step 1: Add Dependencies
 
-Add the AWS SDK v2 for S3 and Jackson `ObjectMapper` to your application's `pom.xml`:
+Add the MinIO Java SDK and Jackson `ObjectMapper` dependencies to your application's `pom.xml` (matching `pom.xml` versions):
 
 ```xml
 <dependencies>
-    <!-- AWS SDK v2 for Java (S3) -->
+    <!-- MinIO Java SDK for S3 & S3-compatible storage -->
     <dependency>
-        <groupId>software.amazon.awssdk</groupId>
-        <artifactId>s3</artifactId>
-        <version>2.30.22</version>
+        <groupId>io.minio</groupId>
+        <artifactId>minio</artifactId>
+        <version>9.0.3</version>
     </dependency>
 
-    <!-- Jackson databind for UploadInfo JSON serialization -->
+    <!-- Jackson databind & annotations for UploadInfo JSON serialization -->
     <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-databind</artifactId>
-        <version>2.18.2</version>
+        <version>2.22.1</version>
+    </dependency>
+    <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-annotations</artifactId>
+        <version>2.22</version>
     </dependency>
 </dependencies>
 ```
@@ -36,19 +41,22 @@ Add the AWS SDK v2 for S3 and Jackson `ObjectMapper` to your application's `pom.
 ### Step 2: Configure `TusFileUploadService`
 
 ```java
-import software.amazon.awssdk.services.s3.S3Client;
+import io.minio.MinioClient;
 import me.desair.tus.server.TusFileUploadService;
 import me.desair.tus.server.upload.s3.S3StorageService;
 import me.desair.tus.server.upload.s3.S3LockingService;
 
-// 1. Instantiate S3 client
-S3Client s3Client = S3Client.create(); // Uses standard AWS credential chain
+// 1. Instantiate MinIO Client for AWS S3 or S3-compatible storage
+MinioClient minioClient = MinioClient.builder()
+    .endpoint("https://s3.amazonaws.com")
+    .credentials("YOUR_ACCESS_KEY", "YOUR_SECRET_KEY")
+    .build();
 
 // 2. Configure TusFileUploadService with S3 storage and locking
 TusFileUploadService tusService = new TusFileUploadService()
     .withUploadUri("/files/upload")
-    .withUploadStorageService(new S3StorageService(s3Client, "my-upload-bucket"))
-    .withUploadLockingService(new S3LockingService(s3Client, "my-upload-bucket"));
+    .withUploadStorageService(new S3StorageService(minioClient, "my-upload-bucket"))
+    .withUploadLockingService(new S3LockingService(minioClient, "my-upload-bucket"));
 ```
 
 ---
@@ -59,7 +67,7 @@ TusFileUploadService tusService = new TusFileUploadService()
 > **Why `ThreadLocalCachedStorageAndLockingService` is Recommended for S3**:
 > By default, `TusFileUploadService` automatically wraps your custom `UploadStorageService` and `UploadLockingService` in a `ThreadLocalCachedStorageAndLockingService`.
 >
-> During a single HTTP request lifecycle (POST, PATCH, HEAD, DELETE), the tus server validates request headers, reads upload state, appends data, and constructs response headers. Without caching, retrieving `UploadInfo` and calculating offsets would require multiple redundant network roundtrips to S3 (`GetObject` on `.info`, `ListParts`, `HeadObject`).
+> During a single HTTP request lifecycle (POST, PATCH, HEAD, DELETE), the tus server validates request headers, reads upload state, appends data, and constructs response headers. Without caching, retrieving `UploadInfo` and calculating offsets would require multiple redundant network roundtrips to S3 (`GetObject` on `.info`, `ListObjects`, `StatObject`).
 >
 > `ThreadLocalCachedStorageAndLockingService` caches the `UploadInfo` in thread-local memory for the duration of a single HTTP request, releasing the cache automatically when the upload lock is closed at the end of the request. This dramatically reduces S3 network latency and cost per request.
 
@@ -70,10 +78,10 @@ TusFileUploadService tusService = new TusFileUploadService()
 `S3StorageService` uses a clean, flat object key structure:
 
 ```
-<objectPrefix>/<UploadId>                        # Final data object (created upon completion)
-<metadataPrefix>/<UploadId>.info                 # JSON-serialized UploadInfo
-<metadataPrefix>/<UploadId>.part                 # Incomplete part buffer (< 5 MB)
-<checksumsPrefix>/<algorithm>/<hex_checksum>     # Deduplication checksum index
+<objectPrefix>/<UploadId>                        # Final completed data object
+<metadataPrefix>/<UploadId>.info                 # JSON-serialized UploadInfo metadata
+<metadataPrefix>/<UploadId>.part                 # Incomplete sub-5MB part buffer
+<checksumsPrefix>/<algorithm>/<hex_checksum>     # Deduplication checksum index object
 <locksPrefix>/<UploadId>.lock                    # Lock lease object (JSON: holder + expiry)
 <locksPrefix>/<UploadId>.stop                    # Cross-pod contention interrupt signal
 ```
@@ -91,43 +99,57 @@ TusFileUploadService tusService = new TusFileUploadService()
 
 ## 4. Post-Upload Processing (`getS3ObjectKey`)
 
-After an upload completes, downstream services can obtain the direct S3 key of the final object using `getS3ObjectKey(UploadInfo)`. This enables zero-download server-side copying (`CopyObject`) or triggering asynchronous processing workflows directly in S3:
+After an upload completes, downstream services can obtain the direct S3 key of the final object using `getS3ObjectKey(uploadUri, ownerKey)` (or `getS3ObjectKey(uploadUri)`). This enables zero-download server-side copying (`copyObject`) or direct byte processing with `MinioClient`:
 
 ```java
+import io.minio.CopyObjectArgs;
+import io.minio.CopySource;
+import io.minio.GetObjectArgs;
+import java.io.InputStream;
+
 S3StorageService s3Storage = (S3StorageService) tusService.getUploadStorageService();
 
-// Obtain full S3 key after upload completion
-String s3ObjectKey = s3Storage.getS3ObjectKey(uploadInfo);
+String uploadUri = "/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e";
+String ownerKey = "user-123";
+
+// 1. Obtain full S3 key after upload completion using uploadUri and ownerKey
+String s3ObjectKey = s3Storage.getS3ObjectKey(uploadUri, ownerKey);
 // e.g. "tus-uploads/24249a5b-01a4-4bf8-b67a-364273bb5a2e"
 
-// Server-side S3 copy to an archive bucket (no server data transfer required)
-s3Client.copyObject(CopyObjectRequest.builder()
-    .sourceBucket("my-upload-bucket")
-    .sourceKey(s3ObjectKey)
-    .destinationBucket("my-archive-bucket")
-    .destinationKey("archive/" + uploadInfo.getFileName())
-    .build());
+// 2. Example: Storage-side processing using MinioClient (server-side object copy)
+minioClient.copyObject(
+    CopyObjectArgs.builder()
+        .bucket("my-archive-bucket")
+        .object("archive/processed-file.bin")
+        .source(
+            CopySource.builder()
+                .bucket("my-upload-bucket")
+                .object(s3ObjectKey)
+                .build())
+        .build());
+
+// 3. Example: Direct byte stream reading using MinioClient
+try (InputStream stream = minioClient.getObject(
+    GetObjectArgs.builder()
+        .bucket("my-upload-bucket")
+        .object(s3ObjectKey)
+        .build())) {
+    // Process stream bytes directly on backend
+}
 ```
 
 ---
 
 ## 5. Configuring Custom S3 Endpoints (MinIO, R2, Ceph, GCS)
 
-`S3StorageService` accepts any pre-configured `S3Client`. To connect to an S3-compatible backend (such as MinIO or Cloudflare R2), override the endpoint and enable path-style access on the `S3Client`:
+`S3StorageService` accepts any pre-configured `MinioClient`. To connect to an S3-compatible backend (such as local MinIO or Cloudflare R2), override the endpoint when building the `MinioClient`:
 
 ```java
-import java.net.URI;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.s3.S3Client;
+import io.minio.MinioClient;
 
-S3Client minioClient = S3Client.builder()
-    .endpointOverride(URI.create("http://minio.local:9000"))
-    .credentialsProvider(StaticCredentialsProvider.create(
-        AwsBasicCredentials.create("minioadmin", "minioadmin")))
-    .region(Region.US_EAST_1)
-    .forcePathStyle(true)
+MinioClient minioClient = MinioClient.builder()
+    .endpoint("http://minio.local:9000")
+    .credentials("minioadmin", "minioadmin")
     .build();
 
 S3StorageService s3Storage = new S3StorageService(minioClient, "my-bucket");
@@ -137,9 +159,9 @@ S3StorageService s3Storage = new S3StorageService(minioClient, "my-bucket");
 
 ## 6. Local Disk Buffer & Multipart Constraints
 
-S3 requires every part of a multipart upload to be at least 5 MB (except the final part).
+S3 requires every part chunk of a multipart upload to be at least 5 MB (except the final part).
 
-- **Disk Buffering**: `S3StorageService` buffers incoming bytes to local disk in chunks (default 50 MB) before uploading them to S3 via `UploadPart`.
+- **Disk Buffering**: `S3StorageService` buffers incoming bytes to local disk in chunks (default 50 MB) before uploading them to S3.
 - **Incomplete Parts**: If a client upload stream ends before reaching 5 MB and the upload is not complete, the sub-5MB chunk is saved as a `<metadataPrefix>/<UploadId>.part` object in S3. On the next `PATCH` request, this chunk is downloaded, prepended to the incoming stream, and upload proceeds seamlessly.
 - **Configurable Temp Directory**: The temporary buffer directory can be configured in the constructor or builder:
 
@@ -147,7 +169,7 @@ S3 requires every part of a multipart upload to be at least 5 MB (except the fin
 Path customTempDir = Paths.get("/var/tmp/tus-buffer");
 
 S3StorageService s3Storage = new S3StorageService(
-    s3Client,
+    minioClient,
     "my-bucket",
     "uploads/",
     "metadata/",
@@ -161,7 +183,7 @@ S3StorageService s3Storage = new S3StorageService(
 
 ## 7. Multi-Replica Container Deployments
 
-`S3LockingService` uses atomic S3 conditional writes (`If-None-Match: "*"`) and short-lived lock leases (auto-renewed via a background heartbeat daemon).
+`S3LockingService` uses atomic S3 lock leases and short-lived lock leases (auto-renewed via a background heartbeat daemon).
 
 - When multiple container replicas (e.g. pods in Kubernetes) process requests behind a load balancer, any replica can acquire a lock on an upload resource safely.
 - If lock contention occurs across replicas, `S3LockingService` writes a `.stop` signal object in S3, signaling the active request on another pod to interrupt its input stream cleanly.
@@ -237,7 +259,7 @@ mvn verify -Dtest="me.desair.tus.server.upload.s3.IT*"
 When the test suite executes:
 
 1. **Automatic Container Lifecycle**: Testcontainers automatically pulls the official `minio/minio` Docker image (if not already cached) and starts a container on a dynamic local port.
-2. **Dynamic Endpoint Override**: The base test class queries `minio.getHost()` and `minio.getMappedPort(9000)` to configure the AWS S3 SDK v2 client (`S3Client`) with `endpointOverride(...)` and path-style access (`forcePathStyle(true)`).
+2. **Dynamic Endpoint Override**: The base test class queries `minio.getHost()` and `minio.getMappedPort(9000)` to configure `MinioClient` with `endpoint(...)`.
 3. **Bucket Setup**: An isolated test bucket (`test-tus-bucket`) is automatically created in MinIO before tests begin.
 4. **Execution & Teardown**: The integration tests execute full HTTP request lifecycles (`POST`, `PATCH`, `HEAD`, `DELETE`, deduplication, and locking) against the live local MinIO container. Once tests finish, the container is stopped and cleaned up automatically.
 
@@ -245,10 +267,10 @@ When the test suite executes:
 
 | Test Class | Purpose | Execution Mode |
 |------------|---------|----------------|
-| `UploadInfoSerializerTest` | Unit test for Jackson JSON serialization | Mocked / JVM |
-| `S3StorageServiceTest` | Fast unit test for S3 storage logic | Mocked `S3Client` |
-| `S3LockingServiceTest` | Fast unit test for S3 distributed locking | Mocked `S3Client` |
-| `S3ConcatenationServiceTest` | Fast unit test for S3 concatenation logic | Mocked `S3Client` |
+| `UploadInfoJsonSerializerTest` | Unit test for Jackson JSON serialization (`me.desair.tus.server.util`) | Mocked / JVM |
+| `S3StorageServiceTest` | Fast unit test for S3 storage logic | Mocked `MinioClient` |
+| `S3LockingServiceTest` | Fast unit test for S3 distributed locking | Mocked `MinioClient` |
+| `S3ConcatenationServiceTest` | Fast unit test for S3 concatenation logic | Mocked `MinioClient` |
 | `ITS3StorageServiceTest` | Integration test for S3 storage | Live MinIO Testcontainer |
 | `ITS3LockingServiceTest` | Integration test for S3 distributed locking & contention | Live MinIO Testcontainer |
 | `ITS3TusFileUploadServiceTest` | Full end-to-end HTTP protocol lifecycle test | Live MinIO Testcontainer |
@@ -257,3 +279,5 @@ When the test suite executes:
 
 - **Test Skipped**: If you see tests reported as skipped, verify that Docker Desktop or Docker Engine is running locally.
 - **Port Conflicts**: Testcontainers dynamically binds MinIO to random available host ports, preventing port collision with existing local services.
+
+---

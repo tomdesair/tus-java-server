@@ -5,25 +5,51 @@ This library can be used to enable resumable (and potentially asynchronous) file
 
 The Javadoc of this library can be found at https://tus.desair.me/. As of version 2.0.0, this library requires Java 17+.
 
+## Storage Backend Options
+
+`tus-java-server` provides pluggable storage architecture supporting multiple backend storage options:
+
+1. **File Disk Storage** (`DiskStorageService` & `DiskLockingService`):
+   - **Local File System**: Direct disk storage on application server instance.
+   - **Shared NFS Network Drives**: Network file storage for multi-server setups.
+   - **Kubernetes Persistent Volume**: Mounted volume (`ReadWriteMany` / `ReadWriteOnce`) for containerized applications.
+2. **S3-Compatible Object Storage** (`S3StorageService`, `S3LockingService`, & `S3ConcatenationService`):
+   - **Cloud & On-Premise S3**: AWS S3, MinIO, Cloudflare R2, Ceph, or Google Cloud Storage.
+   - **Multi-Replica Support**: Uses distributed S3 object locking (`If-None-Match: "*"`) and TTL leases, enabling multi-replica container deployments without requiring Redis or external databases.
+
 ## Quick Start and Examples
 The tus-java-server library only depends on Jakarta Servlet API 6.0 and some Apache Commons utility libraries. This
 means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on the file system of the application server, or natively in S3-compatible object storage (see [S3 Storage Guide](docs/S3_STORAGE.md) and [configuration section](#usage-and-configuration)).
 
 You can add the latest stable version of this library to your application using Maven by adding the following dependency:
 
-    <dependency>
-      <groupId>me.desair.tus</groupId>
-      <artifactId>tus-java-server</artifactId>
-      <version>2.0.0-SNAPSHOT</version>
-    </dependency>
+```xml
+<dependency>
+  <groupId>me.desair.tus</groupId>
+  <artifactId>tus-java-server</artifactId>
+  <version>2.0.0-SNAPSHOT</version>
+</dependency>
+```
 
-When using S3 storage (`S3StorageService`) or enabling JSON metadata serialization (`withJsonSerialization()`), also include Jackson databind:
+When using S3 storage (`S3StorageService`) using the MinIO Java SDK or enabling JSON metadata serialization (`withJsonSerialization()`), also include the Jackson and MinIO dependencies matching `pom.xml`:
 
-    <dependency>
-      <groupId>com.fasterxml.jackson.core</groupId>
-      <artifactId>jackson-databind</artifactId>
-      <version>2.18.2</version>
-    </dependency>
+```xml
+<dependency>
+  <groupId>io.minio</groupId>
+  <artifactId>minio</artifactId>
+  <version>9.0.3</version>
+</dependency>
+<dependency>
+  <groupId>com.fasterxml.jackson.core</groupId>
+  <artifactId>jackson-databind</artifactId>
+  <version>2.22.1</version>
+</dependency>
+<dependency>
+  <groupId>com.fasterxml.jackson.core</groupId>
+  <artifactId>jackson-annotations</artifactId>
+  <version>2.22</version>
+</dependency>
+```
 
 The main entry point of the library is the `me.desair.tus.server.TusFileUploadService.process(jakarta.servlet.http.HttpServletRequest, jakarta.servlet.http.HttpServletResponse)` method. You can call this method inside a `jakarta.servlet.http.HttpServlet`, a `jakarta.servlet.Filter` or any REST API controller of a framework that gives you access to `HttpServletRequest` and `HttpServletResponse` objects. In the following list, you can find some example implementations:
 

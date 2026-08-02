@@ -18,6 +18,17 @@ import org.slf4j.LoggerFactory;
  * A MinIO S3-backed implementation of {@link UploadLock} that holds an exclusive lock lease on an
  * upload resource using S3 objects. Spawns a heartbeat thread to auto-renew the lock lease until
  * closed.
+ *
+ * <p>Lock Lease Mechanics for Developers:
+ *
+ * <ul>
+ *   <li><b>Heartbeat Lease Renewal</b>: When initialized, a background daemon thread executes
+ *       {@link #renewLease()} at a periodic interval (one-third of {@code leaseDurationMs}, e.g.
+ *       every 10s for a 30s lease).
+ *   <li><b>Clean Lock Release</b>: When the HTTP request finishes, {@link #close()} shuts down the
+ *       heartbeat thread and deletes both the {@code .lock} lease object and any lingering {@code
+ *       .stop} signal objects from S3.
+ * </ul>
  */
 public class S3UploadLock implements UploadLock {
 
@@ -34,7 +45,8 @@ public class S3UploadLock implements UploadLock {
   private final Map<String, InputStream> inputStreamMap;
 
   /**
-   * Constructs a new S3UploadLock instance using MinIO Java SDK.
+   * Constructs a new S3UploadLock instance using MinIO Java SDK and starts the lease renewal
+   * daemon.
    *
    * @param minioClient The MinIO client
    * @param bucket The S3 bucket
@@ -63,6 +75,8 @@ public class S3UploadLock implements UploadLock {
     this.requestUri = requestUri;
     this.inputStreamMap = inputStreamMap;
 
+    // Run heartbeat lease renewal at 1/3 of the lease duration (e.g., every 10 seconds for a 30s
+    // lease)
     long heartbeatPeriodMs = Math.max(1000L, leaseDurationMs / 3);
     this.heartbeatExecutor =
         Executors.newSingleThreadScheduledExecutor(
@@ -113,20 +127,24 @@ public class S3UploadLock implements UploadLock {
 
   @Override
   public void close() {
+    // Step 1: Stop the background heartbeat daemon thread
     try {
       heartbeatExecutor.shutdownNow();
     } catch (Exception e) {
       log.debug("Error shutting down lock heartbeat executor", e);
     }
 
+    // Step 2: Remove active request stream registration
     if (inputStreamMap != null && requestUri != null) {
       inputStreamMap.remove(requestUri);
     }
 
+    // Step 3: Delete .lock lease object and .stop contention signal object from S3
     deleteS3ObjectQuietly(lockKey);
     deleteS3ObjectQuietly(stopKey);
   }
 
+  /** Renew the lock lease in S3 by updating the expiration timestamp. */
   void renewLease() {
     try {
       long newExpiry = System.currentTimeMillis() + leaseDurationMs;

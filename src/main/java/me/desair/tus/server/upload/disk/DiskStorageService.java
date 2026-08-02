@@ -195,8 +195,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
   private void saveUploadInfo(UploadInfo info, Path path) throws IOException {
     if (isJsonSerializationEnabled()) {
-      String json = me.desair.tus.server.upload.s3.UploadInfoSerializer.serialize(info);
-      Files.write(path, json.getBytes(StandardCharsets.UTF_8));
+      Utils.writeJson(info, path);
     } else {
       Utils.writeSerializable(info, path);
     }
@@ -204,12 +203,8 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
   private UploadInfo loadUploadInfo(Path path) throws IOException {
     if (isJsonSerializationEnabled()) {
-      try {
-        String json = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
-        return me.desair.tus.server.upload.s3.UploadInfoSerializer.deserialize(json);
-      } catch (Exception e) {
-        return Utils.readSerializable(path, UploadInfo.class);
-      }
+      UploadInfo info = Utils.readJson(path, UploadInfo.class);
+      return info != null ? info : Utils.readSerializable(path, UploadInfo.class);
     } else {
       return Utils.readSerializable(path, UploadInfo.class);
     }

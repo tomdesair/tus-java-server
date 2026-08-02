@@ -126,6 +126,59 @@ public class Utils {
     }
   }
 
+  /**
+   * Reads an object from a JSON file on disk, acquiring a shared file lock during the read
+   * operation.
+   *
+   * @param <T> Target object type
+   * @param path The file path to read from
+   * @param clazz The target object class
+   * @return Deserialized object instance, or null if reading fails or file does not exist
+   * @throws IOException If file access or locking fails
+   */
+  public static <T> T readJson(Path path, Class<T> clazz) throws IOException {
+    T info = null;
+    if (path != null && java.nio.file.Files.exists(path)) {
+      try (FileChannel channel = FileChannel.open(path, READ)) {
+        // Lock will be released when the channel is closed
+        if (lockFileShared(channel) != null) {
+          try (java.io.InputStream is = Channels.newInputStream(channel)) {
+            info = UploadInfoJsonSerializer.deserialize(is, clazz);
+          } catch (Exception e) {
+            log.warn("Unable to read JSON file {}: {}", path, e.getMessage());
+            info = null;
+          }
+        } else {
+          throw new IOException("Unable to lock file " + path);
+        }
+      }
+    }
+    return info;
+  }
+
+  /**
+   * Writes an object to a file in JSON format, acquiring an exclusive file lock during the write
+   * operation.
+   *
+   * @param object The object to serialize to JSON
+   * @param path The file path to write to
+   * @throws IOException If file access or locking fails
+   */
+  public static void writeJson(Object object, Path path) throws IOException {
+    if (path != null) {
+      try (FileChannel channel = FileChannel.open(path, WRITE, CREATE, TRUNCATE_EXISTING)) {
+        // Lock will be released when the channel is closed
+        if (lockFileExclusively(channel) != null) {
+          try (OutputStream buffer = new BufferedOutputStream(Channels.newOutputStream(channel))) {
+            UploadInfoJsonSerializer.serializeToStream(object, buffer);
+          }
+        } else {
+          throw new IOException("Unable to lock file " + path);
+        }
+      }
+    }
+  }
+
   public static FileLock lockFileExclusively(FileChannel channel) throws IOException {
     return lockFile(channel, false);
   }

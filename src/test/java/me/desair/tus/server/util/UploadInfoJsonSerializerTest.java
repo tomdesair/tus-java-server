@@ -1,17 +1,18 @@
-package me.desair.tus.server.upload.s3;
+package me.desair.tus.server.util;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import org.junit.Test;
 
-public class UploadInfoSerializerTest {
+public class UploadInfoJsonSerializerTest {
 
   @Test
   public void testSerializeAndDeserializeUploadInfo() throws Exception {
@@ -22,10 +23,10 @@ public class UploadInfoSerializerTest {
     info.setOwnerKey("owner-1");
     info.setStorageUploadId("custom-storage-id");
 
-    String json = UploadInfoSerializer.serialize(info);
+    String json = UploadInfoJsonSerializer.serialize(info);
     assertNotNull(json);
 
-    UploadInfo deserialized = UploadInfoSerializer.deserialize(json);
+    UploadInfo deserialized = UploadInfoJsonSerializer.deserialize(json);
     assertNotNull(deserialized);
     assertEquals("24249a5b-01a4-4bf8-b67a-364273bb5a2e", deserialized.getId().toString());
     assertEquals(Long.valueOf(1024L), deserialized.getLength());
@@ -35,25 +36,33 @@ public class UploadInfoSerializerTest {
 
     // Test InputStream overload
     UploadInfo fromStream =
-        UploadInfoSerializer.deserialize(
+        UploadInfoJsonSerializer.deserialize(
             new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8)));
     assertNotNull(fromStream);
     assertEquals("24249a5b-01a4-4bf8-b67a-364273bb5a2e", fromStream.getId().toString());
+
+    // Test OutputStream overload
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    UploadInfoJsonSerializer.serializeToStream(info, baos);
+    UploadInfo fromStream2 =
+        UploadInfoJsonSerializer.deserialize(new ByteArrayInputStream(baos.toByteArray()));
+    assertNotNull(fromStream2);
+    assertEquals("24249a5b-01a4-4bf8-b67a-364273bb5a2e", fromStream2.getId().toString());
   }
 
   @Test
   public void testNullAndEmptyHandling() throws Exception {
-    assertNull(UploadInfoSerializer.serialize(null));
-    assertNull(UploadInfoSerializer.deserialize((String) null));
-    assertNull(UploadInfoSerializer.deserialize((InputStream) null));
-    assertNull(UploadInfoSerializer.deserialize(""));
+    assertNull(UploadInfoJsonSerializer.serialize(null));
+    assertNull(UploadInfoJsonSerializer.deserialize((String) null));
+    assertNull(UploadInfoJsonSerializer.deserialize((InputStream) null));
+    assertNull(UploadInfoJsonSerializer.deserialize(""));
 
-    UploadInfo emptyIdInfo = UploadInfoSerializer.deserialize("{\"id\":\"\"}");
+    UploadInfo emptyIdInfo = UploadInfoJsonSerializer.deserialize("{\"id\":\"\"}");
     assertNotNull(emptyIdInfo);
     assertNull(emptyIdInfo.getId());
 
     try {
-      UploadInfoSerializer.deserialize("invalid-json");
+      UploadInfoJsonSerializer.deserialize("invalid-json");
     } catch (Exception expected) {
       // expected
     }
