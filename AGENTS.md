@@ -116,6 +116,12 @@ Whenever a new setter or configuration property (such as `setMinAppendSize`, `se
 - If a new error condition is introduced, create a new typed exception class in `me.desair.tus.server.exception` that extends `TusException`.
 - Typed exception constructors MUST use `jakarta.servlet.http.HttpServletResponse` HTTP status code constants (e.g., `HttpServletResponse.SC_BAD_REQUEST`, `HttpServletResponse.SC_CONFLICT`, `HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE`) when calling `super(status, message)`.
 
+### 16. Multi-Backend Integration Test Hierarchy
+To avoid duplicate test code and ensure all protocol integration tests run consistently across all storage backends (Disk, S3, Azure Blob, etc.):
+- **Abstract Base Classes**: End-to-end integration test suites (e.g. for RUFH protocol or Tus 1.0.0 `TusFileUploadService`) MUST be written as abstract base classes (`AbstractITRufhProtocol`, `AbstractITTusFileUploadService`).
+- **Template Factory Method**: Base test classes declare an abstract method `protected abstract TusFileUploadService createTusFileUploadService() throws Exception;` which subclasses implement to supply the backend-configured service instance.
+- **Backend Subclasses**: Create concrete test subclasses per storage backend (e.g., `ITRufhProtocol` / `ITTusFileUploadService` for Disk, `ITS3RufhProtocol` / `ITS3TusFileUploadService` for S3, `ITAzureBlobRufhProtocol` / `ITAzureBlobTusFileUploadService` for Azure Blob). Subclasses handle backend-specific `@BeforeClass` / `@AfterClass` setup (such as starting Testcontainers) and storage-specific assertion tests.
+
 ## IETF Resumable Uploads for HTTP (RUFH) Spec Maintenance & Update Playbook
 
 ### 1. Spec Diff Review

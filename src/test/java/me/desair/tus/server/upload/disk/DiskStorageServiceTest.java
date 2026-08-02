@@ -972,5 +972,47 @@ public class DiskStorageServiceTest {
     assertThat(anonymousService.getMinSize(), is(nullValue()));
     anonymousService.setMinAppendSize(100L);
     anonymousService.setMinSize(100L);
+    assertThat(anonymousService.isJsonSerializationEnabled(), is(false));
+    anonymousService.setJsonSerializationEnabled(true);
+  }
+
+  @Test
+  public void testJsonSerialization() throws Exception {
+    storageService.setJsonSerializationEnabled(true);
+    assertThat(storageService.isJsonSerializationEnabled(), is(true));
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(1024L);
+    info.setEncodedMetadata("filename d29ybGQudHh0");
+
+    info = storageService.create(info, "owner-json");
+    UploadInfo retrieved = storageService.getUploadInfo(info.getId());
+
+    assertThat(retrieved, is(notNullValue()));
+    assertThat(retrieved.getLength(), is(1024L));
+    assertThat(retrieved.getOwnerKey(), is("owner-json"));
+    assertThat(retrieved.getFileName(), is("world.txt"));
+
+    Path infoPath = getUploadInfoPath(info.getId());
+    String fileContent = new String(Files.readAllBytes(infoPath), StandardCharsets.UTF_8);
+    assertThat(fileContent.contains("\"ownerKey\":\"owner-json\""), is(true));
+  }
+
+  @Test
+  public void testJsonSerializationFallbackAndInvalidFile() throws Exception {
+    storageService.setJsonSerializationEnabled(false);
+    UploadInfo info = new UploadInfo();
+    info.setLength(2048L);
+    info = storageService.create(info, "owner-legacy");
+
+    storageService.setJsonSerializationEnabled(true);
+    UploadInfo fallbackRetrieved = storageService.getUploadInfo(info.getId());
+    assertThat(fallbackRetrieved, is(notNullValue()));
+    assertThat(fallbackRetrieved.getLength(), is(2048L));
+
+    Path infoPath = getUploadInfoPath(info.getId());
+    Files.write(infoPath, "corrupted-data".getBytes(StandardCharsets.UTF_8));
+    UploadInfo corruptedRetrieved = storageService.getUploadInfo(info.getId());
+    assertThat(corruptedRetrieved, is(nullValue()));
   }
 }

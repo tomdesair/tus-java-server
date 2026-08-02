@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [2.0.0]
 
 ### Added
+- **S3-Compatible Storage & Distributed Locking**: Added native S3 storage support via `S3StorageService` (AWS SDK v2), distributed locking via `S3LockingService` (S3 conditional writes with TTL leases and interrupt signals for multi-replica container deployments), S3-native concatenation via `S3ConcatenationService`, and complete documentation in `docs/S3_STORAGE.md`.
 - **IETF Resumable Uploads for HTTP (RUFH) Protocol**: Implemented full support for the official IETF Resumable Uploads for HTTP specification (`draft-ietf-httpbis-resumable-upload-12`).
 - **Dual Protocol Auto-Detection**: Added transparent protocol routing in `TusFileUploadService` supporting both legacy `TUS_1_0_0` (`Tus-Resumable: 1.0.0`) and `RUFH` (`ProtocolVersion.RUFH`) clients concurrently on the same endpoint.
 - **RFC 9651 Structured Header Fields**: Implemented RFC 9651 parsing and serialization for `Upload-Offset`, `Upload-Complete`, `Upload-Length`, and `Upload-Limit` dictionary headers.

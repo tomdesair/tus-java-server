@@ -230,10 +230,33 @@ public class TusFileUploadService {
         this.uploadStorageService.getUploadExpirationPeriod());
     uploadStorageService.setUploadDeduplicationEnabled(
         this.uploadStorageService.isUploadDeduplicationEnabled());
+    uploadStorageService.setJsonSerializationEnabled(
+        this.uploadStorageService.isJsonSerializationEnabled());
     uploadStorageService.setIdFactory(this.idFactory);
     // Update the upload storage service
     this.uploadStorageService = uploadStorageService;
     prepareCacheIfEnabled();
+    return this;
+  }
+
+  /**
+   * Instruct the upload service to use JSON serialization for upload metadata ({@link UploadInfo})
+   * instead of default Java object serialization.
+   *
+   * @return The current service
+   */
+  public TusFileUploadService withJsonSerialization() {
+    return withJsonSerialization(true);
+  }
+
+  /**
+   * Enable or disable JSON serialization for upload metadata ({@link UploadInfo}).
+   *
+   * @param enabled True to enable JSON serialization, false otherwise
+   * @return The current service
+   */
+  public TusFileUploadService withJsonSerialization(boolean enabled) {
+    this.uploadStorageService.setJsonSerializationEnabled(enabled);
     return this;
   }
 

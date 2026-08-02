@@ -53,6 +53,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   private UploadIdFactory idFactory;
   private UploadConcatenationService uploadConcatenationService;
   private boolean isUploadDeduplicationEnabled = false;
+  private boolean jsonSerializationEnabled = false;
 
   public DiskStorageService(String storagePath) {
     super(storagePath + File.separator + UPLOAD_SUB_DIRECTORY);
@@ -167,6 +168,16 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   }
 
   @Override
+  public void setJsonSerializationEnabled(boolean enabled) {
+    this.jsonSerializationEnabled = enabled;
+  }
+
+  @Override
+  public boolean isJsonSerializationEnabled() {
+    return this.jsonSerializationEnabled;
+  }
+
+  @Override
   public UploadInfo getUploadInfo(UploadId id) throws IOException {
     if (id == null) {
       return null;
@@ -176,9 +187,31 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
       if (infoPath == null || !Files.exists(infoPath)) {
         return null;
       }
-      return Utils.readSerializable(infoPath, UploadInfo.class);
+      return loadUploadInfo(infoPath);
     } catch (UploadNotFoundException e) {
       return null;
+    }
+  }
+
+  private void saveUploadInfo(UploadInfo info, Path path) throws IOException {
+    if (isJsonSerializationEnabled()) {
+      String json = me.desair.tus.server.upload.s3.UploadInfoSerializer.serialize(info);
+      Files.write(path, json.getBytes(StandardCharsets.UTF_8));
+    } else {
+      Utils.writeSerializable(info, path);
+    }
+  }
+
+  private UploadInfo loadUploadInfo(Path path) throws IOException {
+    if (isJsonSerializationEnabled()) {
+      try {
+        String json = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+        return me.desair.tus.server.upload.s3.UploadInfoSerializer.deserialize(json);
+      } catch (Exception e) {
+        return Utils.readSerializable(path, UploadInfo.class);
+      }
+    } else {
+      return Utils.readSerializable(path, UploadInfo.class);
     }
   }
 
@@ -245,13 +278,13 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
               if (parentExpire != null) {
                 parentInfo.setExpirationTimestamp(null);
                 Path parentInfoPath = getInfoPath(parentId);
-                Utils.writeSerializable(parentInfo, parentInfoPath);
+                saveUploadInfo(parentInfo, parentInfoPath);
               }
             } else {
               if (parentExpire != null && parentExpire < childExpire) {
                 parentInfo.setExpirationTimestamp(childExpire);
                 Path parentInfoPath = getInfoPath(parentId);
-                Utils.writeSerializable(parentInfo, parentInfoPath);
+                saveUploadInfo(parentInfo, parentInfoPath);
               }
             }
           }
@@ -268,7 +301,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
       }
 
       Path infoPath = getInfoPath(uploadInfo.getId());
-      Utils.writeSerializable(uploadInfo, infoPath);
+      saveUploadInfo(uploadInfo, infoPath);
     }
   }
 
