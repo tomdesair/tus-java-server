@@ -320,7 +320,6 @@ public class S3StorageService implements UploadStorageService {
 
     if (isUploadDeduplicationEnabled()
         && uploadInfo.getChecksum() != null
-        && uploadInfo.getChecksumAlgorithm() != null
         && !uploadInfo.isUploadInProgress()
         && uploadInfo.getDuplicatesUploadId() == null) {
       putChecksumIndex(
@@ -754,22 +753,10 @@ public class S3StorageService implements UploadStorageService {
         for (String pk : partKeys) {
           deleteObjectQuietly(pk);
         }
-      } else if (info.getLength() == 0L) {
-        // Zero-byte completed upload
-        byte[] empty = new byte[0];
-        try {
-          minioClient.putObject(
-              PutObjectArgs.builder().bucket(bucket).object(objectKey).stream(
-                      new ByteArrayInputStream(empty), 0L, -1L)
-                  .build());
-        } catch (Exception e) {
-          throw new IOException("Failed to put 0-byte object " + objectKey, e);
-        }
       }
 
       if (isUploadDeduplicationEnabled()
           && info.getChecksum() != null
-          && info.getChecksumAlgorithm() != null
           && info.getDuplicatesUploadId() == null) {
         putChecksumIndex(info.getChecksum(), info.getChecksumAlgorithm(), info.getId().toString());
       }
@@ -995,7 +982,8 @@ public class S3StorageService implements UploadStorageService {
   }
 
   private String buildChecksumKey(String checksum, ChecksumAlgorithm algorithm) {
-    return checksumsPrefix + algorithm.getTusName().toLowerCase() + "/" + checksum;
+    String algorithmName = algorithm != null ? algorithm.getTusName().toLowerCase() : "unknown";
+    return checksumsPrefix + algorithmName + "/" + checksum;
   }
 
   private static class AppendResult {
