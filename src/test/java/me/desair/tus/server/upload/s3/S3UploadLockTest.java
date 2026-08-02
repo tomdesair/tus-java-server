@@ -104,4 +104,25 @@ public class S3UploadLockTest {
 
     lockWithKeys.close();
   }
+
+  @Test
+  public void testCloseHeartbeatExecutorShutdownException() throws Exception {
+    java.util.concurrent.ScheduledExecutorService mockExecutor =
+        mock(java.util.concurrent.ScheduledExecutorService.class);
+    Mockito.doThrow(new RuntimeException("Shutdown error")).when(mockExecutor).shutdownNow();
+
+    S3UploadLock lock =
+        new S3UploadLock(
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            "holder-123",
+            60000L,
+            "/files/upload-1",
+            inputStreamMap,
+            mockExecutor);
+
+    lock.close();
+  }
 }

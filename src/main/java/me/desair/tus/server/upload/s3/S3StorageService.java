@@ -242,7 +242,6 @@ public class S3StorageService implements UploadStorageService {
       return null;
     }
 
-    info.setId(id);
     if (info.getOffset() == null) {
       calculateAndSetOffset(info);
     }
@@ -866,6 +865,16 @@ public class S3StorageService implements UploadStorageService {
   private long calculateCurrentOffset(String objectKey, String id, String partKey) {
     long offset = 0;
 
+    if (objectExists(objectKey)) {
+      try {
+        StatObjectResponse head =
+            minioClient.statObject(
+                StatObjectArgs.builder().bucket(bucket).object(objectKey).build());
+        offset += head.size();
+      } catch (Exception ignored) {
+      }
+    }
+
     List<String> partKeys = fetchExistingPartKeys(id);
     for (String pk : partKeys) {
       try {
@@ -876,25 +885,19 @@ public class S3StorageService implements UploadStorageService {
       }
     }
 
-    if (objectExists(objectKey)) {
+    // If partKey is not part of the partKeys list, check if it exists and add its size to the
+    // offset
+    if (!partKeys.contains(partKey)) {
       try {
-        StatObjectResponse head =
-            minioClient.statObject(
-                StatObjectArgs.builder().bucket(bucket).object(objectKey).build());
-        return head.size();
-      } catch (Exception ignored) {
+        StatObjectResponse partHead =
+            minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(partKey).build());
+        if (partHead != null) {
+          offset += partHead.size();
+        }
+      } catch (ErrorResponseException ignored) {
+      } catch (Exception e) {
+        log.debug("Error reading head for incomplete part object {}", partKey, e);
       }
-    }
-
-    try {
-      StatObjectResponse partHead =
-          minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(partKey).build());
-      if (partHead != null) {
-        offset += partHead.size();
-      }
-    } catch (ErrorResponseException ignored) {
-    } catch (Exception e) {
-      log.debug("Error reading head for incomplete part object {}", partKey, e);
     }
 
     return offset;

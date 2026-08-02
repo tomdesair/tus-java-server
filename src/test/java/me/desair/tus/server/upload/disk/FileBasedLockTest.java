@@ -91,6 +91,41 @@ public class FileBasedLockTest {
     lock.close();
   }
 
+  @Test(expected = UploadAlreadyLockedException.class)
+  public void testOverlappingLockFileChannelCloseException() throws Exception {
+    UUID test = UUID.randomUUID();
+    Path path = storagePath.resolve(test.toString());
+    FileBasedLock lock =
+        new FileBasedLock("/test/upload/" + test.toString(), path) {
+          @Override
+          protected FileChannel createFileChannel() throws IOException {
+            FileChannel mockChannel = createFileChannelMock();
+            doReturn(null).when(mockChannel).tryLock(anyLong(), anyLong(), anyBoolean());
+            org.mockito.Mockito.doThrow(new IOException("Close error")).when(mockChannel).close();
+            return mockChannel;
+          }
+        };
+  }
+
+  @Test
+  public void testReleaseIOException() throws Exception {
+    UUID test = UUID.randomUUID();
+    Path path = storagePath.resolve(test.toString());
+    FileBasedLock lock =
+        new FileBasedLock("/test/upload/" + test.toString(), path) {
+          @Override
+          protected FileChannel createFileChannel() throws IOException {
+            FileChannel mockChannel = createFileChannelMock();
+            doReturn(org.mockito.Mockito.mock(java.nio.channels.FileLock.class))
+                .when(mockChannel)
+                .tryLock(anyLong(), anyLong(), anyBoolean());
+            org.mockito.Mockito.doThrow(new IOException("Close error")).when(mockChannel).close();
+            return mockChannel;
+          }
+        };
+    lock.release();
+  }
+
   private FileChannel createFileChannelMock() throws IOException {
     return spy(FileChannel.class);
   }

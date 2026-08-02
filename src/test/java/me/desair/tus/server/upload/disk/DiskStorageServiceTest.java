@@ -1039,4 +1039,54 @@ public class DiskStorageServiceTest {
     info.setId(new UploadId(".."));
     storageService.append(info, new java.io.ByteArrayInputStream(new byte[10]));
   }
+
+  @Test(expected = UploadNotFoundException.class)
+  public void testGetUploadedBytesMissingDataFileThrowsUploadNotFoundException() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(100L);
+    info = storageService.create(info, null);
+
+    info.setOffset(100L);
+    storageService.update(info);
+
+    Path bytesPath =
+        storagePath.resolve("uploads").resolve(info.getId().toString()).resolve("data");
+    Files.deleteIfExists(bytesPath);
+
+    storageService.getUploadedBytes(info.getId());
+  }
+
+  @Test
+  public void testCopyUploadToWithNullOrInProgressOrMissingDataFile() throws Exception {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+
+    // Case 1: In-progress upload
+    UploadInfo inProgress = new UploadInfo();
+    inProgress.setLength(100L);
+    inProgress.setOffset(50L);
+    inProgress = storageService.create(inProgress, null);
+    storageService.copyUploadTo(inProgress, baos);
+
+    // Case 2: Missing data file for completed upload
+    UploadInfo missingData = new UploadInfo();
+    missingData.setLength(10L);
+    missingData.setOffset(10L);
+    missingData = storageService.create(missingData, null);
+    Path dataPath = storagePath.resolve(missingData.getId().toString()).resolve("data");
+    Files.deleteIfExists(dataPath);
+
+    try {
+      storageService.copyUploadTo(missingData, baos);
+    } catch (UploadNotFoundException expected) {
+    }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testUnsafeChildDataFileDeletionThrowsIllegalArgumentException() throws Exception {
+    UploadInfo child = new UploadInfo();
+    child.setId(new UploadId(".."));
+    child.setDuplicatesUploadId(new UploadId("parent-123"));
+
+    storageService.update(child);
+  }
 }

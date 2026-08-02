@@ -19,6 +19,7 @@ import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadLock;
@@ -216,5 +217,56 @@ public class S3LockingServiceTest {
     if (lock != null) {
       lock.close();
     }
+  }
+
+  @Test
+  public void testCheckStopSignalForEntryWithNullUploadId() throws Exception {
+    lockingService.setIdFactory(
+        new me.desair.tus.server.upload.UploadIdFactory() {
+          @Override
+          public me.desair.tus.server.upload.UploadId readUploadId(String text) {
+            return null;
+          }
+
+          @Override
+          public me.desair.tus.server.upload.UploadId createId() {
+            return null;
+          }
+
+          @Override
+          public String getUploadUri() {
+            return "/";
+          }
+
+          @Override
+          protected Serializable getIdValueIfValid(String extractedUrlId) {
+            throw new UnsupportedOperationException("Unimplemented method 'getIdValueIfValid'");
+          }
+        });
+    InputStream mockStream = Mockito.mock(InputStream.class);
+    lockingService.registerInputStream("/invalid-uri", mockStream);
+    lockingService.requestLockRelease("/invalid-uri");
+  }
+
+  @Test
+  public void testInterruptStreamStandardStreamCloseException() throws Exception {
+    lockingService.setIdFactory(new me.desair.tus.server.upload.UuidUploadIdFactory());
+    InputStream brokenStream = Mockito.mock(InputStream.class);
+    Mockito.doThrow(new IOException("Close error")).when(brokenStream).close();
+
+    lockingService.registerInputStream(
+        "/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e", brokenStream);
+    lockingService.requestLockRelease("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
+  }
+
+  @Test
+  public void testSanitizePrefixNullOrEmpty() throws Exception {
+    S3LockingService serviceWithEmptyPrefix =
+        new S3LockingService(minioClient, "test-bucket", "", 30000L, 0L);
+    assertNotNull(serviceWithEmptyPrefix);
+
+    S3LockingService serviceWithNullPrefix =
+        new S3LockingService(minioClient, "test-bucket", null, 30000L, 0L);
+    assertNotNull(serviceWithNullPrefix);
   }
 }

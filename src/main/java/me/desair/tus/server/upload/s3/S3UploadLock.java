@@ -75,6 +75,27 @@ public class S3UploadLock implements UploadLock {
         this::renewLease, heartbeatPeriodMs, heartbeatPeriodMs, TimeUnit.MILLISECONDS);
   }
 
+  S3UploadLock(
+      MinioClient minioClient,
+      String bucket,
+      String lockKey,
+      String stopKey,
+      String holderId,
+      long leaseDurationMs,
+      String requestUri,
+      Map<String, InputStream> inputStreamMap,
+      ScheduledExecutorService heartbeatExecutor) {
+    this.minioClient = minioClient;
+    this.bucket = bucket;
+    this.lockKey = lockKey;
+    this.stopKey = stopKey;
+    this.holderId = holderId;
+    this.leaseDurationMs = leaseDurationMs;
+    this.requestUri = requestUri;
+    this.inputStreamMap = inputStreamMap;
+    this.heartbeatExecutor = heartbeatExecutor;
+  }
+
   /** Gets the holder ID for this lock. */
   public String getHolderId() {
     return holderId;

@@ -39,9 +39,7 @@ public class ExpiredUploadFilter implements DirectoryStream.Filter<Path> {
       }
 
     } catch (Exception ex) {
-      if (log.isDebugEnabled()) {
-        log.debug("Not able to determine state of upload " + Objects.toString(id), ex);
-      }
+      log.warn("Not able to determine state of upload " + Objects.toString(id), ex);
     }
 
     return false;
