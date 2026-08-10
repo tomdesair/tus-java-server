@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
@@ -49,13 +50,13 @@ public class S3ConcatenationService implements UploadConcatenationService {
   private UploadStorageService uploadStorageService;
 
   /**
-   * Basic constructor using default object prefix ("tus-uploads/") and Java temp directory.
+   * Basic constructor using default object prefix ("uploads/") and Java temp directory.
    *
    * @param minioClient The MinIO client
    * @param bucket The S3 bucket name
    */
   public S3ConcatenationService(MinioClient minioClient, String bucket) {
-    this(minioClient, bucket, "tus-uploads/", null, null);
+    this(minioClient, bucket, "uploads/", null, null);
   }
 
   /**
@@ -67,7 +68,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
    */
   public S3ConcatenationService(
       MinioClient minioClient, String bucket, UploadStorageService uploadStorageService) {
-    this(minioClient, bucket, "tus-uploads/", uploadStorageService, null);
+    this(minioClient, bucket, "uploads/", uploadStorageService, null);
   }
 
   /**
@@ -138,7 +139,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
           partialUploads.stream()
               .allMatch(p -> p.getLength() != null && p.getLength() >= minPartSize);
 
-      String targetObjectKey = buildObjectKey(uploadInfo.getId().toString());
+      String targetObjectKey = buildObjectKey(uploadInfo.getId());
 
       if (canUseServerSideCopy) {
         // Fast path: Compose S3 objects on cluster server-side without downloading data
@@ -204,6 +205,19 @@ public class S3ConcatenationService implements UploadConcatenationService {
         throw new UploadNotFoundException(
             "Upload with URI " + childUri + " was not found for owner " + info.getOwnerKey());
       }
+
+      // Ensure only uploads with the same owner key can be merged (either equal or both null)
+      if (!Objects.equals(childInfo.getOwnerKey(), info.getOwnerKey())) {
+        log.warn(
+            "Owner key mismatch during S3 concatenation merge check. Parent upload ID {} has owner key '{}', "
+                + "but partial child upload ID {} has owner key '{}'. Merging disallowed.",
+            info.getId(),
+            info.getOwnerKey(),
+            childInfo.getId(),
+            childInfo.getOwnerKey());
+        throw new UploadNotFoundException(
+            "Upload with URI " + childUri + " has a mismatching owner key");
+      }
       output.add(childInfo);
     }
     return output;
@@ -214,10 +228,14 @@ public class S3ConcatenationService implements UploadConcatenationService {
     try {
       List<SourceObject> sources = new ArrayList<>();
       for (UploadInfo partial : partialUploads) {
+        // Restore partKey fallback logic:
+        // In unit tests or mock storage environments, storageUploadId may be null.
+        // Falling back to buildObjectKey(partial.getId()) ensures we can still resolve
+        // the S3 object key for the part, maintaining test compatibility and robustness.
         String partKey =
             partial.getStorageUploadId() != null
                 ? partial.getStorageUploadId()
-                : buildObjectKey(partial.getId().toString());
+                : buildObjectKey(partial.getId());
         sources.add(SourceObject.builder().bucket(bucket).object(partKey).build());
       }
 
@@ -276,7 +294,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
     return completed;
   }
 
-  private String buildObjectKey(String id) {
-    return objectPrefix + id;
+  private String buildObjectKey(UploadId id) {
+    return objectPrefix + id.toString();
   }
 }

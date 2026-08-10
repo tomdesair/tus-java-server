@@ -85,6 +85,18 @@ public class VirtualConcatenationService implements UploadConcatenationService {
           throw new UploadNotFoundException(
               "Upload with URI " + childUri + " was not found for owner " + info.getOwnerKey());
         } else {
+          // Ensure only uploads with the same owner key can be merged (either equal or both null)
+          if (!java.util.Objects.equals(childInfo.getOwnerKey(), info.getOwnerKey())) {
+            log.warn(
+                "Owner key mismatch during concatenation merge check. Parent upload ID {} has owner key '{}', "
+                    + "but partial child upload ID {} has owner key '{}'. Merging disallowed.",
+                info.getId(),
+                info.getOwnerKey(),
+                childInfo.getId(),
+                childInfo.getOwnerKey());
+            throw new UploadNotFoundException(
+                "Upload with URI " + childUri + " has a mismatching owner key");
+          }
           output.add(childInfo);
         }
       }

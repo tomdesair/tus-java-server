@@ -74,7 +74,7 @@ public class S3StorageService implements UploadStorageService {
   private static final Logger log = LoggerFactory.getLogger(S3StorageService.class);
 
   // Key Prefixes for S3 object layout separation
-  public static final String DEFAULT_OBJECT_PREFIX = "tus-uploads/";
+  public static final String DEFAULT_OBJECT_PREFIX = "uploads/";
   public static final String DEFAULT_METADATA_PREFIX = "metadata/";
   public static final String DEFAULT_CHECKSUMS_PREFIX = "checksums/";
   public static final String DEFAULT_LOCKS_PREFIX = "locks/";
@@ -171,11 +171,12 @@ public class S3StorageService implements UploadStorageService {
     if (uploadInfo == null || uploadInfo.getId() == null) {
       return null;
     }
-    String id = uploadInfo.getId().toString();
-    if (uploadInfo.getStorageUploadId() != null && !uploadInfo.getStorageUploadId().equals(id)) {
+
+    if (uploadInfo.getStorageUploadId() != null) {
       return uploadInfo.getStorageUploadId();
+    } else {
+      return buildObjectKey(uploadInfo.getId());
     }
-    return buildObjectKey(id);
   }
 
   /**
@@ -185,17 +186,7 @@ public class S3StorageService implements UploadStorageService {
    * @return The target S3 object key or null if upload not found
    */
   public String getS3ObjectKey(String uploadUri) {
-    try {
-      UploadId uploadId = idFactory.readUploadId(uploadUri);
-      if (uploadId == null) {
-        return null;
-      }
-      UploadInfo uploadInfo = getUploadInfo(uploadId);
-      return getS3ObjectKey(uploadInfo);
-    } catch (IOException e) {
-      log.debug("Error retrieving upload info for URI {}", uploadUri, e);
-      return null;
-    }
+    return getS3ObjectKey(uploadUri, null);
   }
 
   /**
@@ -224,7 +215,9 @@ public class S3StorageService implements UploadStorageService {
     }
     UploadInfo info = getUploadInfo(uploadId);
     // Enforce strict owner isolation if ownerKey is configured
-    if (info != null && info.getOwnerKey() != null && !info.getOwnerKey().equals(ownerKey)) {
+    if (info != null
+        && ((info.getOwnerKey() != null && !info.getOwnerKey().equals(ownerKey))
+            || (ownerKey != null && info.getOwnerKey() == null))) {
       return null;
     }
     return info;
@@ -236,7 +229,7 @@ public class S3StorageService implements UploadStorageService {
       return null;
     }
 
-    String metadataKey = buildMetadataKey(id.toString());
+    String metadataKey = buildMetadataKey(id);
     String json;
     // Step 1: Read JSON metadata object from S3 (<metadataPrefix>/<UploadId>.info)
     try (InputStream stream =
@@ -279,7 +272,7 @@ public class S3StorageService implements UploadStorageService {
       info.setId(idFactory.createId());
     }
     info.setOwnerKey(ownerKey);
-    info.setStorageUploadId(info.getId().toString());
+    info.setStorageUploadId(buildObjectKey(info.getId()));
 
     // Persist initial UploadInfo metadata object (.info) to S3
     try {
@@ -295,16 +288,16 @@ public class S3StorageService implements UploadStorageService {
       throws IOException, TusException {
     // Step 1: Verify upload existence and check configured size limits
     UploadInfo info = fetchAndValidateUpload(upload.getId());
-    String id = info.getId().toString();
     String objectKey = getS3ObjectKey(info);
-    String partObjectKey = buildIncompletePartKey(id);
+    String partObjectKey = buildIncompletePartKey(info.getId());
 
     // Step 2: If a previous sub-5MB .part buffer exists in S3, download & prepend it to incoming
     // stream
     InputStream streamToRead = prepareStreamWithExistingIncompletePart(partObjectKey, inputStream);
 
     // Step 3: Process payload stream in optimal chunk parts and upload to S3
-    AppendResult appendResult = processPayloadChunks(info, streamToRead, id, partObjectKey);
+    AppendResult appendResult =
+        processPayloadChunks(info, streamToRead, info.getId(), partObjectKey);
 
     // Step 4: Validate minimum append size constraints if configured
     if (minAppendSize != null && appendResult.totalBytesAppended < minAppendSize) {
@@ -316,11 +309,11 @@ public class S3StorageService implements UploadStorageService {
     }
 
     // Step 5: Recalculate total uploaded byte offset across all uploaded part objects in S3
-    long newOffset = calculateCurrentOffset(objectKey, id, partObjectKey);
+    long newOffset = calculateCurrentOffset(objectKey, info.getId(), partObjectKey);
     info.setOffset(newOffset);
 
     // Step 6: If all expected bytes are uploaded, compose all part chunks into final S3 object
-    finalizeCompletedUploadIfFinished(info, objectKey, id, appendResult, newOffset);
+    finalizeCompletedUploadIfFinished(info, objectKey, info.getId(), appendResult, newOffset);
     update(info);
     return info;
   }
@@ -330,7 +323,7 @@ public class S3StorageService implements UploadStorageService {
     if (uploadInfo == null || uploadInfo.getId() == null) {
       return;
     }
-    String metadataKey = buildMetadataKey(uploadInfo.getId().toString());
+    String metadataKey = buildMetadataKey(uploadInfo.getId());
     String json = UploadInfoJsonSerializer.serialize(uploadInfo);
     byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
 
@@ -352,9 +345,7 @@ public class S3StorageService implements UploadStorageService {
         && !uploadInfo.isUploadInProgress()
         && uploadInfo.getDuplicatesUploadId() == null) {
       putChecksumIndex(
-          uploadInfo.getChecksum(),
-          uploadInfo.getChecksumAlgorithm(),
-          uploadInfo.getId().toString());
+          uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm(), uploadInfo.getId());
     }
   }
 
@@ -436,9 +427,8 @@ public class S3StorageService implements UploadStorageService {
     if (uploadInfo == null || byteCount <= 0) {
       return;
     }
-    String id = uploadInfo.getId().toString();
     String objectKey = getS3ObjectKey(uploadInfo);
-    String partKey = buildIncompletePartKey(id);
+    String partKey = buildIncompletePartKey(uploadInfo.getId());
 
     long newOffset = Math.max(0L, uploadInfo.getOffset() - byteCount);
     uploadInfo.setOffset(newOffset);
@@ -459,10 +449,9 @@ public class S3StorageService implements UploadStorageService {
     if (uploadInfo == null || uploadInfo.getId() == null) {
       return;
     }
-    String id = uploadInfo.getId().toString();
     String objectKey = getS3ObjectKey(uploadInfo);
-    String metadataKey = buildMetadataKey(id);
-    String partKey = buildIncompletePartKey(id);
+    String metadataKey = buildMetadataKey(uploadInfo.getId());
+    String partKey = buildIncompletePartKey(uploadInfo.getId());
 
     // Delete final object, metadata object, and incomplete part object from S3
     deleteObjectQuietly(objectKey);
@@ -470,7 +459,7 @@ public class S3StorageService implements UploadStorageService {
     deleteObjectQuietly(partKey);
 
     // Delete all temporary part chunk objects (e.g. metadata/<id>.part.00001)
-    deleteAllPartObjectsQuietly(id);
+    deleteAllPartObjectsQuietly(uploadInfo.getId());
 
     // Delete checksum deduplication index object if present
     if (uploadInfo.getChecksum() != null && uploadInfo.getChecksumAlgorithm() != null) {
@@ -500,9 +489,10 @@ public class S3StorageService implements UploadStorageService {
       throw new IOException("Failed to read checksum index object from S3", e);
     }
 
-    UploadInfo parentInfo = getUploadInfo(new UploadId(parentIdStr));
+    UploadId parentId = new UploadId(parentIdStr);
+    UploadInfo parentInfo = getUploadInfo(parentId);
     // Self-cleaning: if index points to missing parent upload or object, prune stale index
-    if (parentInfo == null || !objectExists(buildObjectKey(parentIdStr))) {
+    if (parentInfo == null || !objectExists(buildObjectKey(parentId))) {
       deleteObjectQuietly(checksumKey);
       return null;
     }
@@ -654,7 +644,7 @@ public class S3StorageService implements UploadStorageService {
    * under 5MB is saved as a temporary .part object unless it completes the overall upload.
    */
   private AppendResult processPayloadChunks(
-      UploadInfo info, InputStream streamToRead, String id, String partObjectKey)
+      UploadInfo info, InputStream streamToRead, UploadId id, String partObjectKey)
       throws IOException, MaxAppendSizeExceededException {
 
     List<String> partKeys = fetchExistingPartKeys(id);
@@ -745,7 +735,7 @@ public class S3StorageService implements UploadStorageService {
    * into the final destination object key using MinIO's {@code composeObject} API.
    */
   private void finalizeCompletedUploadIfFinished(
-      UploadInfo info, String objectKey, String id, AppendResult appendResult, long newOffset)
+      UploadInfo info, String objectKey, UploadId id, AppendResult appendResult, long newOffset)
       throws IOException {
 
     if (info.getLength() != null && newOffset >= info.getLength()) {
@@ -799,7 +789,7 @@ public class S3StorageService implements UploadStorageService {
       if (isUploadDeduplicationEnabled()
           && info.getChecksum() != null
           && info.getDuplicatesUploadId() == null) {
-        putChecksumIndex(info.getChecksum(), info.getChecksumAlgorithm(), info.getId().toString());
+        putChecksumIndex(info.getChecksum(), info.getChecksumAlgorithm(), info.getId());
       }
     }
   }
@@ -807,9 +797,7 @@ public class S3StorageService implements UploadStorageService {
   private InputStream fetchS3ByteStream(UploadId id, UploadInfo info)
       throws UploadNotFoundException {
     String objectKey = getS3ObjectKey(info);
-    if (objectKey == null && id != null) {
-      objectKey = buildObjectKey(id.toString());
-    }
+
     try {
       // Step 1: Attempt to read from completed object key in S3
       return minioClient.getObject(
@@ -817,17 +805,22 @@ public class S3StorageService implements UploadStorageService {
     } catch (ErrorResponseException e) {
       if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
         // Step 2: Fallback to reading from incomplete .part object if upload is in-progress
-        String partKey = buildIncompletePartKey(id.toString());
+        String partKey = buildIncompletePartKey(id);
         try {
           return minioClient.getObject(
               GetObjectArgs.builder().bucket(bucket).object(partKey).build());
         } catch (ErrorResponseException ex) {
+          // If the incomplete .part object is also missing (NoSuchKey) and the offset is
+          // zero or null, it means no bytes have been uploaded yet (e.g. immediately after
+          // creation). In this case, we return an empty stream rather than throwing an exception.
           if (S3Utils.parseErrorResponse(ex) == S3ErrorType.NO_SUCH_KEY) {
             if (info != null && (info.getOffset() == null || info.getOffset() == 0L)) {
               return new ByteArrayInputStream(new byte[0]);
             }
           }
-        } catch (Exception ignored) {
+          log.debug("Failed to read incomplete .part object {}", partKey, ex);
+        } catch (Exception exception) {
+          log.debug("Failed to read incomplete .part object {}", partKey, exception);
         }
       }
       throw new UploadNotFoundException("Uploaded bytes object not found for ID " + id);
@@ -881,15 +874,14 @@ public class S3StorageService implements UploadStorageService {
   }
 
   private void calculateAndSetOffset(UploadInfo info) {
-    String id = info.getId().toString();
     String objectKey = getS3ObjectKey(info);
-    String partKey = buildIncompletePartKey(id);
+    String partKey = buildIncompletePartKey(info.getId());
 
-    long offset = calculateCurrentOffset(objectKey, id, partKey);
+    long offset = calculateCurrentOffset(objectKey, info.getId(), partKey);
     info.setOffset(offset);
   }
 
-  private long calculateCurrentOffset(String objectKey, String id, String partKey) {
+  private long calculateCurrentOffset(String objectKey, UploadId id, String partKey) {
     long offset = 0;
 
     if (objectExists(objectKey)) {
@@ -928,8 +920,8 @@ public class S3StorageService implements UploadStorageService {
     return offset;
   }
 
-  private List<String> fetchExistingPartKeys(String id) {
-    String prefix = metadataPrefix + id + ".part.";
+  private List<String> fetchExistingPartKeys(UploadId id) {
+    String prefix = metadataPrefix + id.toString() + ".part.";
     List<String> partKeys = new ArrayList<>();
     try {
       Iterable<Result<Item>> results =
@@ -942,7 +934,7 @@ public class S3StorageService implements UploadStorageService {
     return partKeys;
   }
 
-  private void deleteAllPartObjectsQuietly(String id) {
+  private void deleteAllPartObjectsQuietly(UploadId id) {
     List<String> partKeys = fetchExistingPartKeys(id);
     for (String pk : partKeys) {
       deleteObjectQuietly(pk);
@@ -957,10 +949,10 @@ public class S3StorageService implements UploadStorageService {
     return Math.max(minPartSize, Math.min(partSize, DEFAULT_MAX_PART_SIZE));
   }
 
-  private void putChecksumIndex(String checksum, ChecksumAlgorithm algorithm, String parentId) {
+  private void putChecksumIndex(String checksum, ChecksumAlgorithm algorithm, UploadId parentId) {
     String key = buildChecksumKey(checksum, algorithm);
     try {
-      byte[] parentIdBytes = parentId.getBytes(StandardCharsets.UTF_8);
+      byte[] parentIdBytes = parentId.toString().getBytes(StandardCharsets.UTF_8);
       minioClient.putObject(
           PutObjectArgs.builder().bucket(bucket).object(key).stream(
                   new ByteArrayInputStream(parentIdBytes), (long) parentIdBytes.length, -1L)
@@ -1003,20 +995,20 @@ public class S3StorageService implements UploadStorageService {
     return result.endsWith("/") ? result : result + "/";
   }
 
-  private String buildObjectKey(String id) {
-    return objectPrefix + id;
+  private String buildObjectKey(UploadId id) {
+    return objectPrefix + id.toString();
   }
 
-  private String buildMetadataKey(String id) {
-    return metadataPrefix + id + ".info";
+  private String buildMetadataKey(UploadId id) {
+    return metadataPrefix + id.toString() + ".info";
   }
 
-  private String buildIncompletePartKey(String id) {
-    return metadataPrefix + id + ".part";
+  private String buildIncompletePartKey(UploadId id) {
+    return metadataPrefix + id.toString() + ".part";
   }
 
-  private String buildChunkPartKey(String id, int partNumber) {
-    return metadataPrefix + id + ".part." + String.format("%05d", partNumber);
+  private String buildChunkPartKey(UploadId id, int partNumber) {
+    return metadataPrefix + id.toString() + ".part." + String.format("%05d", partNumber);
   }
 
   private String buildChecksumKey(String checksum, ChecksumAlgorithm algorithm) {

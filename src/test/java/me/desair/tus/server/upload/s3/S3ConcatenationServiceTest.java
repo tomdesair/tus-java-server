@@ -37,7 +37,7 @@ public class S3ConcatenationServiceTest {
         new S3ConcatenationService(
             minioClient,
             "test-bucket",
-            "tus-uploads/",
+            "uploads/",
             storageService,
             Paths.get(System.getProperty("java.io.tmpdir")));
   }
@@ -77,10 +77,12 @@ public class S3ConcatenationServiceTest {
   public void testGetPartialUploads() throws Exception {
     UploadInfo p1 = new UploadInfo();
     p1.setId(new UploadId("part-1"));
+    p1.setOwnerKey("owner-1");
     p1.setLength(10L * 1024 * 1024);
 
     UploadInfo p2 = new UploadInfo();
     p2.setId(new UploadId("part-2"));
+    p2.setOwnerKey("owner-1");
     p2.setLength(10L * 1024 * 1024);
 
     Mockito.when(storageService.getUploadInfo("/part-1", "owner-1")).thenReturn(p1);
@@ -116,6 +118,7 @@ public class S3ConcatenationServiceTest {
   public void testMergePartialUploadsServerSideCopy() throws Exception {
     UploadInfo p1 = new UploadInfo();
     p1.setId(new UploadId("part-1"));
+    p1.setOwnerKey("owner-1");
     p1.setLength(10L * 1024 * 1024);
     p1.setOffset(10L * 1024 * 1024);
     p1.setStorageUploadId("custom-part-1-key");
@@ -130,13 +133,14 @@ public class S3ConcatenationServiceTest {
     concatenationService.merge(finalUpload);
     assertEquals(Long.valueOf(10L * 1024 * 1024), finalUpload.getLength());
     assertEquals(Long.valueOf(10L * 1024 * 1024), finalUpload.getOffset());
-    assertEquals("tus-uploads/final-1", finalUpload.getStorageUploadId());
+    assertEquals("uploads/final-1", finalUpload.getStorageUploadId());
   }
 
   @Test
   public void testMergePartialUploadsStreamingReupload() throws Exception {
     UploadInfo p1 = new UploadInfo();
     p1.setId(new UploadId("small-part-1"));
+    p1.setOwnerKey("owner-1");
     p1.setLength(100L); // < 5MB minPartSize
     p1.setOffset(100L);
 
@@ -157,6 +161,7 @@ public class S3ConcatenationServiceTest {
   public void testMergeServerSideCopyFails() throws Exception {
     UploadInfo p1 = new UploadInfo();
     p1.setId(new UploadId("part-1"));
+    p1.setOwnerKey("owner-1");
     p1.setLength(10L * 1024 * 1024);
     p1.setOffset(10L * 1024 * 1024);
 
@@ -176,6 +181,7 @@ public class S3ConcatenationServiceTest {
   public void testMergeStreamingReuploadFails() throws Exception {
     UploadInfo p1 = new UploadInfo();
     p1.setId(new UploadId("small-part-1"));
+    p1.setOwnerKey("owner-1");
     p1.setLength(100L);
     p1.setOffset(100L);
 
@@ -195,6 +201,7 @@ public class S3ConcatenationServiceTest {
   public void testMergeHandlesStorageServiceUpdateException() throws Exception {
     UploadInfo p1 = new UploadInfo();
     p1.setId(new UploadId("part-1"));
+    p1.setOwnerKey("owner-1");
     p1.setLength(10L * 1024 * 1024);
     p1.setOffset(10L * 1024 * 1024);
 
@@ -215,6 +222,7 @@ public class S3ConcatenationServiceTest {
   public void testGetConcatenatedBytesTriggersMergeWhenStorageUploadIdIsNull() throws Exception {
     UploadInfo p1 = new UploadInfo();
     p1.setId(new UploadId("part-1"));
+    p1.setOwnerKey("owner-1");
     p1.setLength(10L * 1024 * 1024);
     p1.setOffset(10L * 1024 * 1024);
 
@@ -236,7 +244,7 @@ public class S3ConcatenationServiceTest {
     S3ConcatenationService standalone = new S3ConcatenationService(minioClient, "test-bucket");
     UploadInfo info = new UploadInfo();
     info.setId(new UploadId("concat-1"));
-    info.setStorageUploadId("tus-uploads/concat-1");
+    info.setStorageUploadId("uploads/concat-1");
 
     standalone.getConcatenatedBytes(info);
   }
@@ -244,5 +252,123 @@ public class S3ConcatenationServiceTest {
   @Test
   public void testGetConcatenatedBytesNull() throws Exception {
     assertNull(concatenationService.getConcatenatedBytes(null));
+  }
+
+  /**
+   * Tests that merging fails and throws an UploadNotFoundException when the child upload has a
+   * different owner key than the parent/final upload in S3 storage.
+   */
+  @Test(expected = UploadNotFoundException.class)
+  public void testMergeOwnerKeyMismatch() throws Exception {
+    UploadInfo child = new UploadInfo();
+    child.setId(new UploadId("part-1"));
+    child.setOwnerKey("owner-child");
+    child.setLength(10L * 1024 * 1024);
+    child.setOffset(10L * 1024 * 1024);
+
+    UploadInfo parent = new UploadInfo();
+    parent.setId(new UploadId("final-1"));
+    parent.setOwnerKey("owner-parent");
+    parent.setConcatenationPartIds(Collections.singletonList("/part-1"));
+
+    Mockito.when(storageService.getUploadInfo("/part-1", parent.getOwnerKey())).thenReturn(child);
+
+    concatenationService.merge(parent);
+  }
+
+  /**
+   * Tests that merging fails and throws an UploadNotFoundException when the child upload has a
+   * non-null owner key but the parent/final upload has a null owner key in S3 storage.
+   */
+  @Test(expected = UploadNotFoundException.class)
+  public void testMergeParentNullChildNonNullOwnerKey() throws Exception {
+    UploadInfo child = new UploadInfo();
+    child.setId(new UploadId("part-1"));
+    child.setOwnerKey("owner-child");
+    child.setLength(10L * 1024 * 1024);
+    child.setOffset(10L * 1024 * 1024);
+
+    UploadInfo parent = new UploadInfo();
+    parent.setId(new UploadId("final-1"));
+    parent.setOwnerKey(null);
+    parent.setConcatenationPartIds(Collections.singletonList("/part-1"));
+
+    Mockito.when(storageService.getUploadInfo("/part-1", parent.getOwnerKey())).thenReturn(child);
+
+    concatenationService.merge(parent);
+  }
+
+  /**
+   * Tests that merging fails and throws an UploadNotFoundException when the child upload has a null
+   * owner key but the parent/final upload has a non-null owner key in S3 storage.
+   */
+  @Test(expected = UploadNotFoundException.class)
+  public void testMergeParentNonNullChildNullOwnerKey() throws Exception {
+    UploadInfo child = new UploadInfo();
+    child.setId(new UploadId("part-1"));
+    child.setOwnerKey(null);
+    child.setLength(10L * 1024 * 1024);
+    child.setOffset(10L * 1024 * 1024);
+
+    UploadInfo parent = new UploadInfo();
+    parent.setId(new UploadId("final-1"));
+    parent.setOwnerKey("owner-parent");
+    parent.setConcatenationPartIds(Collections.singletonList("/part-1"));
+
+    Mockito.when(storageService.getUploadInfo("/part-1", parent.getOwnerKey())).thenReturn(child);
+
+    concatenationService.merge(parent);
+  }
+
+  /**
+   * Tests that merging succeeds when both the parent and child upload have matching non-null owner
+   * keys in S3 storage.
+   */
+  @Test
+  public void testMergeMatchingNonNullOwnerKeys() throws Exception {
+    UploadInfo child = new UploadInfo();
+    child.setId(new UploadId("part-1"));
+    child.setOwnerKey("matching-owner");
+    child.setLength(10L * 1024 * 1024);
+    child.setOffset(10L * 1024 * 1024);
+    child.setStorageUploadId("uploads/part-1");
+
+    UploadInfo parent = new UploadInfo();
+    parent.setId(new UploadId("final-1"));
+    parent.setOwnerKey("matching-owner");
+    parent.setConcatenationPartIds(Collections.singletonList("/part-1"));
+
+    Mockito.when(storageService.getUploadInfo("/part-1", parent.getOwnerKey())).thenReturn(child);
+
+    concatenationService.merge(parent);
+
+    assertEquals(Long.valueOf(10L * 1024 * 1024), parent.getLength());
+    assertEquals(Long.valueOf(10L * 1024 * 1024), parent.getOffset());
+  }
+
+  /**
+   * Tests that merging succeeds when both the parent and child upload have null owner keys in S3
+   * storage.
+   */
+  @Test
+  public void testMergeBothNullOwnerKeys() throws Exception {
+    UploadInfo child = new UploadInfo();
+    child.setId(new UploadId("part-1"));
+    child.setOwnerKey(null);
+    child.setLength(10L * 1024 * 1024);
+    child.setOffset(10L * 1024 * 1024);
+    child.setStorageUploadId("uploads/part-1");
+
+    UploadInfo parent = new UploadInfo();
+    parent.setId(new UploadId("final-1"));
+    parent.setOwnerKey(null);
+    parent.setConcatenationPartIds(Collections.singletonList("/part-1"));
+
+    Mockito.when(storageService.getUploadInfo("/part-1", parent.getOwnerKey())).thenReturn(child);
+
+    concatenationService.merge(parent);
+
+    assertEquals(Long.valueOf(10L * 1024 * 1024), parent.getLength());
+    assertEquals(Long.valueOf(10L * 1024 * 1024), parent.getOffset());
   }
 }

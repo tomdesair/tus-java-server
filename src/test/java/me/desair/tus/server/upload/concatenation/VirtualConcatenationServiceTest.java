@@ -380,4 +380,122 @@ public class VirtualConcatenationServiceTest {
     concatenationService.merge(infoParent);
     assertThat(infoParent.getLength(), is(5L));
   }
+
+  /**
+   * Tests that merging fails and throws an UploadNotFoundException when the child upload has a
+   * different owner key than the parent upload.
+   */
+  @Test(expected = UploadNotFoundException.class)
+  public void mergeOwnerKeyMismatch() throws Exception {
+    UploadInfo child = new UploadInfo();
+    child.setId(new UploadId(UUID.randomUUID()));
+    child.setOwnerKey("owner-child");
+    child.setLength(5L);
+    child.setOffset(5L);
+
+    UploadInfo parent = new UploadInfo();
+    parent.setId(new UploadId(UUID.randomUUID()));
+    parent.setOwnerKey("owner-parent");
+    parent.setConcatenationPartIds(java.util.Collections.singletonList(child.getId().toString()));
+
+    when(uploadStorageService.getUploadInfo(child.getId().toString(), parent.getOwnerKey()))
+        .thenReturn(child);
+
+    concatenationService.merge(parent);
+  }
+
+  /**
+   * Tests that merging fails and throws an UploadNotFoundException when the child upload has a
+   * non-null owner key but the parent upload has a null owner key.
+   */
+  @Test(expected = UploadNotFoundException.class)
+  public void mergeParentNullChildNonNullOwnerKey() throws Exception {
+    UploadInfo child = new UploadInfo();
+    child.setId(new UploadId(UUID.randomUUID()));
+    child.setOwnerKey("owner-child");
+    child.setLength(5L);
+    child.setOffset(5L);
+
+    UploadInfo parent = new UploadInfo();
+    parent.setId(new UploadId(UUID.randomUUID()));
+    parent.setOwnerKey(null);
+    parent.setConcatenationPartIds(java.util.Collections.singletonList(child.getId().toString()));
+
+    when(uploadStorageService.getUploadInfo(child.getId().toString(), parent.getOwnerKey()))
+        .thenReturn(child);
+
+    concatenationService.merge(parent);
+  }
+
+  /**
+   * Tests that merging fails and throws an UploadNotFoundException when the child upload has a null
+   * owner key but the parent upload has a non-null owner key.
+   */
+  @Test(expected = UploadNotFoundException.class)
+  public void mergeParentNonNullChildNullOwnerKey() throws Exception {
+    UploadInfo child = new UploadInfo();
+    child.setId(new UploadId(UUID.randomUUID()));
+    child.setOwnerKey(null);
+    child.setLength(5L);
+    child.setOffset(5L);
+
+    UploadInfo parent = new UploadInfo();
+    parent.setId(new UploadId(UUID.randomUUID()));
+    parent.setOwnerKey("owner-parent");
+    parent.setConcatenationPartIds(java.util.Collections.singletonList(child.getId().toString()));
+
+    when(uploadStorageService.getUploadInfo(child.getId().toString(), parent.getOwnerKey()))
+        .thenReturn(child);
+
+    concatenationService.merge(parent);
+  }
+
+  /**
+   * Tests that merging succeeds when both the parent and child upload have matching non-null owner
+   * keys.
+   */
+  @Test
+  public void mergeMatchingNonNullOwnerKeys() throws Exception {
+    UploadInfo child = new UploadInfo();
+    child.setId(new UploadId(UUID.randomUUID()));
+    child.setOwnerKey("matching-owner");
+    child.setLength(5L);
+    child.setOffset(5L);
+
+    UploadInfo parent = new UploadInfo();
+    parent.setId(new UploadId(UUID.randomUUID()));
+    parent.setOwnerKey("matching-owner");
+    parent.setConcatenationPartIds(java.util.Collections.singletonList(child.getId().toString()));
+
+    when(uploadStorageService.getUploadInfo(child.getId().toString(), parent.getOwnerKey()))
+        .thenReturn(child);
+
+    concatenationService.merge(parent);
+
+    assertThat(parent.getLength(), is(5L));
+    assertThat(parent.getOffset(), is(5L));
+  }
+
+  /** Tests that merging succeeds when both the parent and child upload have null owner keys. */
+  @Test
+  public void mergeBothNullOwnerKeys() throws Exception {
+    UploadInfo child = new UploadInfo();
+    child.setId(new UploadId(UUID.randomUUID()));
+    child.setOwnerKey(null);
+    child.setLength(5L);
+    child.setOffset(5L);
+
+    UploadInfo parent = new UploadInfo();
+    parent.setId(new UploadId(UUID.randomUUID()));
+    parent.setOwnerKey(null);
+    parent.setConcatenationPartIds(java.util.Collections.singletonList(child.getId().toString()));
+
+    when(uploadStorageService.getUploadInfo(child.getId().toString(), parent.getOwnerKey()))
+        .thenReturn(child);
+
+    concatenationService.merge(parent);
+
+    assertThat(parent.getLength(), is(5L));
+    assertThat(parent.getOffset(), is(5L));
+  }
 }

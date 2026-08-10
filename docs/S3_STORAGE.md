@@ -90,7 +90,7 @@ TusFileUploadService tusService = new TusFileUploadService()
 
 | Setting | Default Value | Description |
 |---------|---------------|-------------|
-| `objectPrefix` | `"tus-uploads/"` | Key prefix for final completed file objects |
+| `objectPrefix` | `"uploads/"` | Key prefix for final completed file objects |
 | `metadataPrefix` | `"metadata/"` | Key prefix for `.info` JSON and `.part` buffers |
 | `checksumsPrefix` | `"checksums/"` | Key prefix for deduplication index objects |
 | `locksPrefix` | `"locks/"` | Key prefix for distributed lock lease objects |
@@ -114,7 +114,7 @@ String ownerKey = "user-123";
 
 // 1. Obtain full S3 key after upload completion using uploadUri and ownerKey
 String s3ObjectKey = s3Storage.getS3ObjectKey(uploadUri, ownerKey);
-// e.g. "tus-uploads/24249a5b-01a4-4bf8-b67a-364273bb5a2e"
+// e.g. "uploads/24249a5b-01a4-4bf8-b67a-364273bb5a2e"
 
 // 2. Example: Storage-side processing using MinioClient (server-side object copy)
 minioClient.copyObject(

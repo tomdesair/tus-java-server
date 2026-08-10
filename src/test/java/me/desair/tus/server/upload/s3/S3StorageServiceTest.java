@@ -55,10 +55,10 @@ public class S3StorageServiceTest {
     UploadInfo created = storageService.create(info, "owner-1");
 
     assertNotNull(created);
-    assertEquals("24249a5b-01a4-4bf8-b67a-364273bb5a2e", created.getStorageUploadId());
+    assertEquals("uploads/24249a5b-01a4-4bf8-b67a-364273bb5a2e", created.getStorageUploadId());
     assertEquals("owner-1", created.getOwnerKey());
     assertEquals(
-        "tus-uploads/24249a5b-01a4-4bf8-b67a-364273bb5a2e", storageService.getS3ObjectKey(created));
+        "uploads/24249a5b-01a4-4bf8-b67a-364273bb5a2e", storageService.getS3ObjectKey(created));
   }
 
   @Test
@@ -66,13 +66,7 @@ public class S3StorageServiceTest {
     java.nio.file.Path nullPath = null;
     S3StorageService serviceWithNullTmp =
         new S3StorageService(
-            minioClient,
-            "test-bucket",
-            "tus-uploads/",
-            "tus-uploads/",
-            "checksums/",
-            "locks/",
-            nullPath);
+            minioClient, "test-bucket", "uploads/", "uploads/", "checksums/", "locks/", nullPath);
     assertNotNull(serviceWithNullTmp);
   }
 
@@ -80,7 +74,7 @@ public class S3StorageServiceTest {
   public void testGetS3ObjectKeyByUri() throws Exception {
     UploadInfo info = new UploadInfo();
     info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
-    info.setStorageUploadId("tus-uploads/custom-key-123");
+    info.setStorageUploadId("uploads/custom-key-123");
     info.setOwnerKey("owner-1");
 
     String json = UploadInfoJsonSerializer.serialize(info);
@@ -91,12 +85,18 @@ public class S3StorageServiceTest {
 
     String keyByUri =
         storageService.getS3ObjectKey("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
-    assertEquals("tus-uploads/custom-key-123", keyByUri);
+    // Upload belongs to specific owner, so without owner key it should return null
+    assertNull(keyByUri);
 
     String keyByUriAndOwner =
         storageService.getS3ObjectKey(
             "/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e", "owner-1");
-    assertEquals("tus-uploads/custom-key-123", keyByUriAndOwner);
+    assertEquals("uploads/custom-key-123", keyByUriAndOwner);
+
+    String keyByUriAndOtherOwner =
+        storageService.getS3ObjectKey(
+            "/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e", "owner-2");
+    assertNull(keyByUriAndOtherOwner);
   }
 
   @Test
@@ -160,7 +160,7 @@ public class S3StorageServiceTest {
 
     UploadInfo mergedInfo = new UploadInfo();
     mergedInfo.setId(new UploadId("concat-123"));
-    mergedInfo.setStorageUploadId("tus-uploads/concat-123");
+    mergedInfo.setStorageUploadId("uploads/concat-123");
 
     String jsonBefore = UploadInfoJsonSerializer.serialize(info);
     String jsonAfter = UploadInfoJsonSerializer.serialize(mergedInfo);
@@ -484,8 +484,8 @@ public class S3StorageServiceTest {
 
     java.util.Map<String, byte[]> objectData = new java.util.HashMap<>();
     objectData.put("checksums/sha256/abc123hash", "parent-123".getBytes());
-    objectData.put("tus-uploads/checksums/sha256/abc123hash", "parent-123".getBytes());
-    objectData.put("tus-uploads/parent-123.info", json.getBytes());
+    objectData.put("uploads/checksums/sha256/abc123hash", "parent-123".getBytes());
+    objectData.put("uploads/parent-123.info", json.getBytes());
 
     when(minioClient.getObject(any(GetObjectArgs.class)))
         .thenAnswer(
@@ -627,7 +627,7 @@ public class S3StorageServiceTest {
     String json = UploadInfoJsonSerializer.serialize(expiredInfo);
 
     Item item = mock(Item.class);
-    when(item.objectName()).thenReturn("tus-uploads/expired-123.info");
+    when(item.objectName()).thenReturn("uploads/expired-123.info");
     Result<Item> result = new Result<>(item);
     when(minioClient.listObjects(any(ListObjectsArgs.class)))
         .thenReturn(java.util.Collections.singletonList(result));
@@ -660,9 +660,9 @@ public class S3StorageServiceTest {
     String json = UploadInfoJsonSerializer.serialize(info);
 
     Item item1 = mock(Item.class);
-    when(item1.objectName()).thenReturn("tus-uploads/multi-part-123.part.00001");
+    when(item1.objectName()).thenReturn("uploads/multi-part-123.part.00001");
     Item item2 = mock(Item.class);
-    when(item2.objectName()).thenReturn("tus-uploads/multi-part-123.part.00002");
+    when(item2.objectName()).thenReturn("uploads/multi-part-123.part.00002");
 
     when(minioClient.listObjects(any(ListObjectsArgs.class)))
         .thenReturn(Arrays.asList(new Result<>(item1), new Result<>(item2)));
@@ -813,7 +813,7 @@ public class S3StorageServiceTest {
     info.setChecksumAlgorithm(ChecksumAlgorithm.SHA256);
 
     Item item1 = mock(Item.class);
-    when(item1.objectName()).thenReturn("tus-uploads/term-123.part.00001");
+    when(item1.objectName()).thenReturn("uploads/term-123.part.00001");
     when(minioClient.listObjects(any(ListObjectsArgs.class)))
         .thenReturn(java.util.Collections.singletonList(new Result<>(item1)));
 
@@ -1030,7 +1030,7 @@ public class S3StorageServiceTest {
             });
 
     Item item1 = mock(Item.class);
-    when(item1.objectName()).thenReturn("tus-uploads/single-compose-err.part.00001");
+    when(item1.objectName()).thenReturn("uploads/single-compose-err.part.00001");
     when(minioClient.listObjects(any(ListObjectsArgs.class)))
         .thenReturn(Arrays.asList(new Result<>(item1)));
 
@@ -1076,9 +1076,9 @@ public class S3StorageServiceTest {
             });
 
     Item item1 = mock(Item.class);
-    when(item1.objectName()).thenReturn("tus-uploads/multi-compose-err.part.00001");
+    when(item1.objectName()).thenReturn("uploads/multi-compose-err.part.00001");
     Item item2 = mock(Item.class);
-    when(item2.objectName()).thenReturn("tus-uploads/multi-compose-err.part.00002");
+    when(item2.objectName()).thenReturn("uploads/multi-compose-err.part.00002");
 
     when(minioClient.listObjects(any(ListObjectsArgs.class)))
         .thenReturn(Arrays.asList(new Result<>(item1), new Result<>(item2)));
