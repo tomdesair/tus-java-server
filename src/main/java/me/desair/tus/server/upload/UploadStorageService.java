@@ -252,4 +252,23 @@ public interface UploadStorageService {
   default void setMinSize(Long minSize) {
     // No-op for backward compatibility
   }
+
+  /**
+   * Set whether JSON serialization should be used for {@link UploadInfo} metadata instead of
+   * standard Java object serialization.
+   *
+   * @param enabled True to enable JSON serialization, false to use default serialization
+   */
+  default void setJsonSerializationEnabled(boolean enabled) {
+    // No-op for backward compatibility
+  }
+
+  /**
+   * Check if JSON serialization is enabled for {@link UploadInfo} metadata.
+   *
+   * @return True if JSON serialization is enabled, false otherwise
+   */
+  default boolean isJsonSerializationEnabled() {
+    return false;
+  }
 }

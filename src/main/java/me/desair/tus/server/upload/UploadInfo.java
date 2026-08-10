@@ -42,6 +42,7 @@ public class UploadInfo implements Serializable {
   private ChecksumAlgorithm checksumAlgorithm;
   private String representationDigest;
   private String requestedRepresentationDigests;
+  private String storageUploadId;
 
   /** Default constructor to use if an upload is created without HTTP request. */
   public UploadInfo() {
@@ -439,6 +440,26 @@ public class UploadInfo implements Serializable {
     this.requestedRepresentationDigests = requestedRepresentationDigests;
   }
 
+  /**
+   * Get the backend-specific upload session/multipart ID (e.g., S3 multipart upload ID or Azure
+   * block upload session ID).
+   *
+   * @return The storage upload session ID
+   */
+  public String getStorageUploadId() {
+    return storageUploadId;
+  }
+
+  /**
+   * Set the backend-specific upload session/multipart ID (e.g., S3 multipart upload ID or Azure
+   * block upload session ID).
+   *
+   * @param storageUploadId The storage upload session ID
+   */
+  public void setStorageUploadId(String storageUploadId) {
+    this.storageUploadId = storageUploadId;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -467,6 +488,7 @@ public class UploadInfo implements Serializable {
         .append(getChecksumAlgorithm(), that.getChecksumAlgorithm())
         .append(getRepresentationDigest(), that.getRepresentationDigest())
         .append(getRequestedRepresentationDigests(), that.getRequestedRepresentationDigests())
+        .append(getStorageUploadId(), that.getStorageUploadId())
         .isEquals();
   }
 
@@ -488,6 +510,7 @@ public class UploadInfo implements Serializable {
         .append(getChecksumAlgorithm())
         .append(getRepresentationDigest())
         .append(getRequestedRepresentationDigests())
+        .append(getStorageUploadId())
         .toHashCode();
   }
 

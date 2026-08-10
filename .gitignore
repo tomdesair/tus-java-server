@@ -173,3 +173,4 @@ __pycache__/
 .venv/
 *.pyc
 CONFORMITY_TEST_IMPROVEMENTS.md
+S3_STORAGE_ANALYSIS.md

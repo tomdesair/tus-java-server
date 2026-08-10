@@ -5,17 +5,51 @@ This library can be used to enable resumable (and potentially asynchronous) file
 
 The Javadoc of this library can be found at https://tus.desair.me/. As of version 2.0.0, this library requires Java 17+.
 
+## Storage Backend Options
+
+`tus-java-server` provides pluggable storage architecture supporting multiple backend storage options:
+
+1. **File Disk Storage** (`DiskStorageService` & `DiskLockingService`):
+   - **Local File System**: Direct disk storage on application server instance.
+   - **Shared NFS Network Drives**: Network file storage for multi-server setups.
+   - **Kubernetes Persistent Volume**: Mounted volume (`ReadWriteMany` / `ReadWriteOnce`) for containerized applications.
+2. **S3-Compatible Object Storage** (`S3StorageService`, `S3LockingService`, & `S3ConcatenationService`):
+   - **Cloud & On-Premise S3**: AWS S3, MinIO, Cloudflare R2, Ceph, or Google Cloud Storage.
+   - **Multi-Replica Support**: Uses distributed S3 object locking and TTL leases, enabling multi-replica container deployments without requiring Redis or external databases.
+
 ## Quick Start and Examples
 The tus-java-server library only depends on Jakarta Servlet API 6.0 and some Apache Commons utility libraries. This
-means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on the file system of the application server (and currently this is the only option, see [configuration section](#usage-and-configuration)).
+means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on the file system of the application server, or natively in S3-compatible object storage (see [S3 Storage Guide](docs/S3_STORAGE.md) and [configuration section](#usage-and-configuration)).
 
 You can add the latest stable version of this library to your application using Maven by adding the following dependency:
 
-    <dependency>
-      <groupId>me.desair.tus</groupId>
-      <artifactId>tus-java-server</artifactId>
-      <version>2.0.0-SNAPSHOT</version>
-    </dependency>
+```xml
+<dependency>
+  <groupId>me.desair.tus</groupId>
+  <artifactId>tus-java-server</artifactId>
+  <version>2.0.0-SNAPSHOT</version>
+</dependency>
+```
+
+When using S3 storage (`S3StorageService`) using the MinIO Java SDK or enabling JSON metadata serialization (`withJsonSerialization()`), also include the Jackson and MinIO dependencies matching `pom.xml`:
+
+```xml
+<dependency>
+  <groupId>io.minio</groupId>
+  <artifactId>minio</artifactId>
+  <version>9.0.3</version>
+</dependency>
+<dependency>
+  <groupId>com.fasterxml.jackson.core</groupId>
+  <artifactId>jackson-databind</artifactId>
+  <version>2.22.1</version>
+</dependency>
+<dependency>
+  <groupId>com.fasterxml.jackson.core</groupId>
+  <artifactId>jackson-annotations</artifactId>
+  <version>2.22</version>
+</dependency>
+```
 
 The main entry point of the library is the `me.desair.tus.server.TusFileUploadService.process(jakarta.servlet.http.HttpServletRequest, jakarta.servlet.http.HttpServletResponse)` method. You can call this method inside a `jakarta.servlet.http.HttpServlet`, a `jakarta.servlet.Filter` or any REST API controller of a framework that gives you access to `HttpServletRequest` and `HttpServletResponse` objects. In the following list, you can find some example implementations:
 
@@ -93,6 +127,7 @@ The first step is to create a `TusFileUploadService` object using its constructo
 * `addTusExtension(TusExtension)`: Add a custom (application-specific) extension that implements the `me.desair.tus.server.TusExtension` interface. For example you can add your own extension that checks authentication and authorization policies within your application for the user doing the upload.
 * `disableTusExtension(String)`: Disable the `TusExtension` for which the `getName()` method matches the provided string. The default extensions have names "creation", "creation-with-upload", "checksum", "expiration", "concatenation", "termination", "download" and "cors". You cannot disable the "core" feature.
 * `withUploadIdFactory(UploadIdFactory)`: Provide a custom `UploadIdFactory` implementation that should be used to generate identifiers for the different uploads. The default implementation generates identifiers using a UUID (`UuidUploadIdFactory`). Another example implementation of a custom ID factory is the system-time based `TimeBasedUploadIdFactory` class.
+* `withJsonSerialization()`: Instruct the storage service (`DiskStorageService` or `S3StorageService`) to serialize upload metadata (`UploadInfo`) in JSON format instead of standard Java serialization. Requires Jackson databind on the application classpath (see below).
 
 ### HTTP Digests ([RFC 9530](https://www.rfc-editor.org/rfc/rfc9530.html))
 The `http-digests` extension implements RFC 9530 to support data integrity checks for both individual data chunks (`Content-Digest`) and the entire file (`Repr-Digest`).
@@ -118,7 +153,7 @@ public TomcatServletWebServerFactory tomcatFactory(TusFileUploadService tusFileU
 ```
 
 
-For now this library only provides filesystem based storage and locking options. You can however provide your own implementation of a `UploadStorageService` and `UploadLockingService` using the methods `withUploadStorageService(UploadStorageService)` and `withUploadLockingService(UploadLockingService)` in order to support different types of upload storage.
+The library provides both filesystem-based storage (`DiskStorageService` / `DiskLockingService`) and S3-compatible object storage (`S3StorageService` / `S3LockingService`). See the **[S3 Storage Guide](docs/S3_STORAGE.md)** for detailed instructions on using AWS S3, MinIO, Cloudflare R2, multi-replica container deployments in Kubernetes, and post-upload processing. You can also provide custom implementations of `UploadStorageService` and `UploadLockingService` using `withUploadStorageService(UploadStorageService)` and `withUploadLockingService(UploadLockingService)`.
 
 ### 2. Processing an upload
 To process an upload request you have to pass the current `jakarta.servlet.http.HttpServletRequest` and `jakarta.servlet.http.HttpServletResponse` objects to the `me.desair.tus.server.TusFileUploadService.process()` method. Typical places were you can do this are inside Servlets, Filters or REST API Controllers (see [examples](#quick-start-and-examples)).

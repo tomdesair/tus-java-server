@@ -513,4 +513,13 @@ public class TusFileUploadServiceTest {
     org.junit.Assert.assertNull(
         service.getRawInterimResponse((jakarta.servlet.http.HttpServletRequest) null, "owner-123"));
   }
+
+  @Test
+  public void testWithJsonSerialization() {
+    TusFileUploadService service = new TusFileUploadService().withJsonSerialization();
+    org.junit.Assert.assertTrue(service.getUploadStorageService().isJsonSerializationEnabled());
+
+    service.withJsonSerialization(false);
+    org.junit.Assert.assertFalse(service.getUploadStorageService().isJsonSerializationEnabled());
+  }
 }

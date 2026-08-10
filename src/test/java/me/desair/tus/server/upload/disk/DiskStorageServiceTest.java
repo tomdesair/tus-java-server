@@ -972,5 +972,121 @@ public class DiskStorageServiceTest {
     assertThat(anonymousService.getMinSize(), is(nullValue()));
     anonymousService.setMinAppendSize(100L);
     anonymousService.setMinSize(100L);
+    assertThat(anonymousService.isJsonSerializationEnabled(), is(false));
+    anonymousService.setJsonSerializationEnabled(true);
+  }
+
+  @Test
+  public void testJsonSerialization() throws Exception {
+    storageService.setJsonSerializationEnabled(true);
+    assertThat(storageService.isJsonSerializationEnabled(), is(true));
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(1024L);
+    info.setEncodedMetadata("filename d29ybGQudHh0");
+
+    info = storageService.create(info, "owner-json");
+    UploadInfo retrieved = storageService.getUploadInfo(info.getId());
+
+    assertThat(retrieved, is(notNullValue()));
+    assertThat(retrieved.getLength(), is(1024L));
+    assertThat(retrieved.getOwnerKey(), is("owner-json"));
+    assertThat(retrieved.getFileName(), is("world.txt"));
+
+    Path infoPath = getUploadInfoPath(info.getId());
+    String fileContent = new String(Files.readAllBytes(infoPath), StandardCharsets.UTF_8);
+    assertThat(fileContent.contains("\"ownerKey\":\"owner-json\""), is(true));
+  }
+
+  @Test
+  public void testJsonSerializationFallbackAndInvalidFile() throws Exception {
+    storageService.setJsonSerializationEnabled(false);
+    UploadInfo info = new UploadInfo();
+    info.setLength(2048L);
+    info = storageService.create(info, "owner-legacy");
+
+    storageService.setJsonSerializationEnabled(true);
+    UploadInfo fallbackRetrieved = storageService.getUploadInfo(info.getId());
+    assertThat(fallbackRetrieved, is(notNullValue()));
+    assertThat(fallbackRetrieved.getLength(), is(2048L));
+
+    Path infoPath = getUploadInfoPath(info.getId());
+    Files.write(infoPath, "corrupted-data".getBytes(StandardCharsets.UTF_8));
+    UploadInfo corruptedRetrieved = storageService.getUploadInfo(info.getId());
+    assertThat(corruptedRetrieved, is(nullValue()));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testGetUploadInfoWithUnsafePathTraversalUploadId() throws Exception {
+    storageService.getUploadInfo(new UploadId(".."));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testGetUploadedBytesWithUnsafePathTraversalUploadId() throws Exception {
+    storageService.getUploadedBytes(new UploadId(".."));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testTerminateUploadWithUnsafePathTraversalUploadId() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId(".."));
+    storageService.terminateUpload(info);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testAppendWithUnsafePathTraversalUploadId() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId(".."));
+    storageService.append(info, new java.io.ByteArrayInputStream(new byte[10]));
+  }
+
+  @Test(expected = UploadNotFoundException.class)
+  public void testGetUploadedBytesMissingDataFileThrowsUploadNotFoundException() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(100L);
+    info = storageService.create(info, null);
+
+    info.setOffset(100L);
+    storageService.update(info);
+
+    Path bytesPath =
+        storagePath.resolve("uploads").resolve(info.getId().toString()).resolve("data");
+    Files.deleteIfExists(bytesPath);
+
+    storageService.getUploadedBytes(info.getId());
+  }
+
+  @Test
+  public void testCopyUploadToWithNullOrInProgressOrMissingDataFile() throws Exception {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+
+    // Case 1: In-progress upload
+    UploadInfo inProgress = new UploadInfo();
+    inProgress.setLength(100L);
+    inProgress.setOffset(50L);
+    inProgress = storageService.create(inProgress, null);
+    storageService.copyUploadTo(inProgress, baos);
+
+    // Case 2: Missing data file for completed upload
+    UploadInfo missingData = new UploadInfo();
+    missingData.setLength(10L);
+    missingData.setOffset(10L);
+    missingData = storageService.create(missingData, null);
+    Path dataPath = storagePath.resolve(missingData.getId().toString()).resolve("data");
+    Files.deleteIfExists(dataPath);
+
+    try {
+      storageService.copyUploadTo(missingData, baos);
+    } catch (UploadNotFoundException expected) {
+    }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testUnsafeChildDataFileDeletionThrowsIllegalArgumentException() throws Exception {
+    UploadInfo child = new UploadInfo();
+    child.setId(new UploadId(".."));
+    child.setDuplicatesUploadId(new UploadId("parent-123"));
+
+    storageService.update(child);
   }
 }

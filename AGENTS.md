@@ -116,6 +116,22 @@ Whenever a new setter or configuration property (such as `setMinAppendSize`, `se
 - If a new error condition is introduced, create a new typed exception class in `me.desair.tus.server.exception` that extends `TusException`.
 - Typed exception constructors MUST use `jakarta.servlet.http.HttpServletResponse` HTTP status code constants (e.g., `HttpServletResponse.SC_BAD_REQUEST`, `HttpServletResponse.SC_CONFLICT`, `HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE`) when calling `super(status, message)`.
 
+### 16. Multi-Backend Integration Test Hierarchy
+To avoid duplicate test code and ensure all protocol integration tests run consistently across all storage backends (Disk, S3, Azure Blob, etc.):
+- **Abstract Base Classes**: End-to-end integration test suites (e.g. for RUFH protocol or Tus 1.0.0 `TusFileUploadService`) MUST be written as abstract base classes (`AbstractITRufhProtocol`, `AbstractITTusFileUploadService`).
+- **Template Factory Method**: Base test classes declare an abstract method `protected abstract TusFileUploadService createTusFileUploadService() throws Exception;` which subclasses implement to supply the backend-configured service instance.
+- **Backend Subclasses**: Create concrete test subclasses per storage backend (e.g., `ITRufhProtocol` / `ITTusFileUploadService` for Disk, `ITS3RufhProtocol` / `ITS3TusFileUploadService` for S3, `ITAzureBlobRufhProtocol` / `ITAzureBlobTusFileUploadService` for Azure Blob). Subclasses handle backend-specific `@BeforeClass` / `@AfterClass` setup (such as starting Testcontainers) and storage-specific assertion tests.
+
+### 17. Mandatory Inline Comments & Code Readability
+- Always write and preserve thorough inline comments across all main and test Java source files to explain non-obvious algorithms, multi-step operations, and complex logic.
+- Ensure all function implementations remain short, clean, well-documented, and stick to the same level of abstraction.
+
+### 18. Efficient Batch Test & Code Coverage Verification Strategy
+To maximize developer velocity and minimize test execution overhead when increasing code coverage:
+- **Batch Test Updates**: When addressing missing line/branch coverage reported by JaCoCo, batch multiple test additions across all relevant test classes (`S3StorageServiceTest`, `S3LockingServiceTest`, `S3UploadLockTest`, `S3ConcatenationServiceTest`, `UploadInfoSerializerTest`) at once rather than running test-by-test iterations.
+- **Fast Unit Test Execution**: Verify all local unit tests rapidly using target wildcard patterns (e.g. `mvn test -Dtest="S3*" -q` or `mvn test -Dtest="*Test" -q`). Unit tests run in under 2 seconds without launching test containers.
+- **Single Verification Gate**: Only run the full JaCoCo diff coverage verification command (`mvn verify -Pcheck-coverage -Djacoco.compare.branch=master -q`) after all batched unit test updates have been applied and locally validated.
+
 ## IETF Resumable Uploads for HTTP (RUFH) Spec Maintenance & Update Playbook
 
 ### 1. Spec Diff Review

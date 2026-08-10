@@ -218,6 +218,16 @@ public class ThreadLocalCachedStorageAndLockingService
   }
 
   @Override
+  public void setJsonSerializationEnabled(boolean enabled) {
+    storageServiceDelegate.setJsonSerializationEnabled(enabled);
+  }
+
+  @Override
+  public boolean isJsonSerializationEnabled() {
+    return storageServiceDelegate.isJsonSerializationEnabled();
+  }
+
+  @Override
   public UploadInfo getUploadInfoByChecksum(String checksum, ChecksumAlgorithm algorithm)
       throws IOException {
     return storageServiceDelegate.getUploadInfoByChecksum(checksum, algorithm);
