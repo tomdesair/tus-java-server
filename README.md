@@ -15,7 +15,7 @@ The Javadoc of this library can be found at https://tus.desair.me/. As of versio
    - **Kubernetes Persistent Volume**: Mounted volume (`ReadWriteMany` / `ReadWriteOnce`) for containerized applications.
 2. **S3-Compatible Object Storage** (`S3StorageService`, `S3LockingService`, & `S3ConcatenationService`):
    - **Cloud & On-Premise S3**: AWS S3, MinIO, Cloudflare R2, Ceph, or Google Cloud Storage.
-   - **Multi-Replica Support**: Uses distributed S3 object locking (`If-None-Match: "*"`) and TTL leases, enabling multi-replica container deployments without requiring Redis or external databases.
+   - **Multi-Replica Support**: Uses distributed S3 object locking and TTL leases, enabling multi-replica container deployments without requiring Redis or external databases.
 
 ## Quick Start and Examples
 The tus-java-server library only depends on Jakarta Servlet API 6.0 and some Apache Commons utility libraries. This

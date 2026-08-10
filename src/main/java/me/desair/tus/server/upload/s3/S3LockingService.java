@@ -1,6 +1,5 @@
 package me.desair.tus.server.upload.s3;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
@@ -28,6 +27,7 @@ import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.util.InterruptibleInputStream;
+import me.desair.tus.server.util.S3UploadLockJsonSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,7 +57,6 @@ import org.slf4j.LoggerFactory;
 public class S3LockingService implements UploadLockingService {
 
   private static final Logger log = LoggerFactory.getLogger(S3LockingService.class);
-  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   public static final String DEFAULT_LOCKS_PREFIX = "locks/";
   public static final long DEFAULT_LEASE_DURATION_MS = 30_000L; // 30 seconds
@@ -137,7 +136,7 @@ public class S3LockingService implements UploadLockingService {
     String holderId = UUID.randomUUID().toString();
 
     // Attempt lock acquisition or clear expired lock
-    boolean acquired = acquireOrEvictExpiredLock(lockKey, holderId);
+    boolean acquired = acquireOrEvictExpiredLock(lockKey, holderId, requestUri, stopKey);
     if (!acquired) {
       throw new UploadAlreadyLockedException("Upload " + uploadId + " is currently locked");
     }
@@ -218,23 +217,28 @@ public class S3LockingService implements UploadLockingService {
 
   // HELPER METHODS & LOCK MANAGEMENT LOGIC
 
-  private boolean acquireOrEvictExpiredLock(String lockKey, String holderId) {
-    boolean acquired = attemptLockAcquisition(lockKey, holderId);
+  private boolean acquireOrEvictExpiredLock(
+      String lockKey, String holderId, String requestUri, String stopKey) {
+    boolean acquired = attemptLockAcquisition(lockKey, holderId, requestUri, stopKey);
     if (!acquired && isLockExpired(lockKey)) {
       deleteObjectQuietly(lockKey);
-      acquired = attemptLockAcquisition(lockKey, holderId);
+      acquired = attemptLockAcquisition(lockKey, holderId, requestUri, stopKey);
     }
     return acquired;
   }
 
-  private boolean attemptLockAcquisition(String lockKey, String holderId) {
+  private boolean attemptLockAcquisition(
+      String lockKey, String holderId, String requestUri, String stopKey) {
     if (!isLockExpired(lockKey)) {
       return false;
     }
 
     long expiresAt = System.currentTimeMillis() + leaseDurationMs;
     try {
-      byte[] lockContentBytes = OBJECT_MAPPER.writeValueAsBytes(new LockData(holderId, expiresAt));
+      S3UploadLock lock =
+          new S3UploadLock(
+              holderId, requestUri, bucket, lockKey, stopKey, leaseDurationMs, expiresAt);
+      byte[] lockContentBytes = S3UploadLockJsonSerializer.serializeToBytes(lock);
 
       // Put lock lease object to S3
       minioClient.putObject(
@@ -252,8 +256,11 @@ public class S3LockingService implements UploadLockingService {
     try (InputStream stream =
         minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
 
-      LockData lockData = OBJECT_MAPPER.readValue(stream, LockData.class);
-      return lockData.expiresAt < System.currentTimeMillis();
+      S3UploadLock lock = S3UploadLockJsonSerializer.deserialize(stream);
+      if (lock == null) {
+        return true;
+      }
+      return lock.getExpiresAt() < System.currentTimeMillis();
     } catch (ErrorResponseException e) {
       if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
         return true; // Key missing -> Not locked
@@ -340,43 +347,5 @@ public class S3LockingService implements UploadLockingService {
 
   private String buildStopKey(UploadId uploadId) {
     return locksPrefix + uploadId.toString() + ".stop";
-  }
-
-  public static class LockData {
-    private String holderId;
-    private long expiresAt;
-    private long acquiredAt;
-
-    public LockData() {}
-
-    public LockData(String holderId, long expiresAt) {
-      this.holderId = holderId;
-      this.expiresAt = expiresAt;
-      this.acquiredAt = System.currentTimeMillis();
-    }
-
-    public String getHolderId() {
-      return holderId;
-    }
-
-    public void setHolderId(String holderId) {
-      this.holderId = holderId;
-    }
-
-    public long getExpiresAt() {
-      return expiresAt;
-    }
-
-    public void setExpiresAt(long expiresAt) {
-      this.expiresAt = expiresAt;
-    }
-
-    public long getAcquiredAt() {
-      return acquiredAt;
-    }
-
-    public void setAcquiredAt(long acquiredAt) {
-      this.acquiredAt = acquiredAt;
-    }
   }
 }

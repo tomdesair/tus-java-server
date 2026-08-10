@@ -189,6 +189,18 @@ S3StorageService s3Storage = new S3StorageService(
 - If lock contention occurs across replicas, `S3LockingService` writes a `.stop` signal object in S3, signaling the active request on another pod to interrupt its input stream cleanly.
 - No external database or Redis cache is required for distributed locking.
 
+### Why Lease Renewal is Required (`S3Lock` vs `FileBasedLock`)
+
+Understanding the architectural distinction between disk/file locking and S3 distributed locking is essential:
+
+- **File-Based Locks (`FileBasedLock`)**: Uses OS kernel-level file channel locks (`java.nio.channels.FileLock`). When a JVM process crashes or is killed, the OS kernel automatically closes open file descriptors and drops the lock. Because process termination triggers automatic OS lock cleanup, file locks do not need a Time-To-Live (TTL) or lease renewal.
+- **S3 Distributed Locks (`S3UploadLock`)**: S3 is a stateless HTTP service with no concept of OS file descriptors or process lifetimes. Locks are represented as S3 metadata objects (`.lock`).
+  - **Crash Safety**: To prevent a crashed pod from permanently bricking an upload ID, S3 lock objects use a short Time-To-Live (TTL) lease (e.g. 30 seconds) so crashed locks expire automatically.
+  - **Heartbeat Renewal**: Because TUS upload requests stream payload data over HTTP and can last for minutes or hours, a background daemon thread periodically renews the lease (`expiresAt`) while the upload is active.
+  - **Why Renewal Cannot Be Removed**:
+    - Removing renewal with a short TTL would cause locks to expire mid-upload during long transfers, leading to race conditions and data corruption.
+    - Removing renewal with an infinite/static lock would mean a single pod crash (`kill -9`, node OOM) leaves behind an orphaned `.lock` object in S3, permanently deadlocking that upload ID.
+
 ---
 
 ## 8. Minimal IAM Permissions Policy
@@ -268,6 +280,7 @@ When the test suite executes:
 | Test Class | Purpose | Execution Mode |
 |------------|---------|----------------|
 | `UploadInfoJsonSerializerTest` | Unit test for Jackson JSON serialization (`me.desair.tus.server.util`) | Mocked / JVM |
+| `S3UploadLockJsonSerializerTest` | Unit test for S3 lock object JSON serialization (`me.desair.tus.server.util`) | Mocked / JVM |
 | `S3StorageServiceTest` | Fast unit test for S3 storage logic | Mocked `MinioClient` |
 | `S3LockingServiceTest` | Fast unit test for S3 distributed locking | Mocked `MinioClient` |
 | `S3ConcatenationServiceTest` | Fast unit test for S3 concatenation logic | Mocked `MinioClient` |

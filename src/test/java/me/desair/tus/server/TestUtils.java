@@ -70,7 +70,7 @@ public final class TestUtils {
    * @return A configured GenericContainer instance (not started yet)
    */
   public static GenericContainer<?> createMinioContainer() {
-    return new GenericContainer<>("minio/minio:RELEASE.2024-01-16T16-07-38Z")
+    return new GenericContainer<>("minio/minio:RELEASE.2025-09-07T16-13-09Z")
         .withExposedPorts(9000)
         .withEnv("MINIO_ROOT_USER", "minioadmin")
         .withEnv("MINIO_ROOT_PASSWORD", "minioadmin")
