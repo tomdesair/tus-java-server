@@ -164,6 +164,7 @@ public class S3ConcatenationServiceTest {
     p1.setOwnerKey("owner-1");
     p1.setLength(10L * 1024 * 1024);
     p1.setOffset(10L * 1024 * 1024);
+    p1.setStorageUploadId("uploads/part-1");
 
     Mockito.when(storageService.getUploadInfo("/part-1", "owner-1")).thenReturn(p1);
     Mockito.when(minioClient.composeObject(Mockito.any(ComposeObjectArgs.class)))
@@ -204,6 +205,7 @@ public class S3ConcatenationServiceTest {
     p1.setOwnerKey("owner-1");
     p1.setLength(10L * 1024 * 1024);
     p1.setOffset(10L * 1024 * 1024);
+    p1.setStorageUploadId("uploads/part-1");
 
     Mockito.when(storageService.getUploadInfo("/part-1", "owner-1")).thenReturn(p1);
     Mockito.doThrow(new UploadNotFoundException("Not found"))
@@ -225,6 +227,7 @@ public class S3ConcatenationServiceTest {
     p1.setOwnerKey("owner-1");
     p1.setLength(10L * 1024 * 1024);
     p1.setOffset(10L * 1024 * 1024);
+    p1.setStorageUploadId("uploads/part-1");
 
     Mockito.when(storageService.getUploadInfo("/part-1", "owner-1")).thenReturn(p1);
     Mockito.when(storageService.getUploadedBytes(new UploadId("final-1")))

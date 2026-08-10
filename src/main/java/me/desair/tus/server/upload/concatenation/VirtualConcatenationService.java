@@ -6,6 +6,7 @@ import java.io.SequenceInputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -86,10 +87,11 @@ public class VirtualConcatenationService implements UploadConcatenationService {
               "Upload with URI " + childUri + " was not found for owner " + info.getOwnerKey());
         } else {
           // Ensure only uploads with the same owner key can be merged (either equal or both null)
-          if (!java.util.Objects.equals(childInfo.getOwnerKey(), info.getOwnerKey())) {
+          if (!Objects.equals(childInfo.getOwnerKey(), info.getOwnerKey())) {
             log.warn(
-                "Owner key mismatch during concatenation merge check. Parent upload ID {} has owner key '{}', "
-                    + "but partial child upload ID {} has owner key '{}'. Merging disallowed.",
+                "Owner key mismatch during concatenation merge check. Parent upload ID {} has owner"
+                    + " key '{}', but partial child upload ID {} has owner key '{}'. Merging"
+                    + " disallowed.",
                 info.getId(),
                 info.getOwnerKey(),
                 childInfo.getId(),

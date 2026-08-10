@@ -209,8 +209,9 @@ public class S3ConcatenationService implements UploadConcatenationService {
       // Ensure only uploads with the same owner key can be merged (either equal or both null)
       if (!Objects.equals(childInfo.getOwnerKey(), info.getOwnerKey())) {
         log.warn(
-            "Owner key mismatch during S3 concatenation merge check. Parent upload ID {} has owner key '{}', "
-                + "but partial child upload ID {} has owner key '{}'. Merging disallowed.",
+            "Owner key mismatch during S3 concatenation merge check. Parent upload ID {} has owner"
+                + " key '{}', but partial child upload ID {} has owner key '{}'. Merging"
+                + " disallowed.",
             info.getId(),
             info.getOwnerKey(),
             childInfo.getId(),
@@ -228,14 +229,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
     try {
       List<SourceObject> sources = new ArrayList<>();
       for (UploadInfo partial : partialUploads) {
-        // Restore partKey fallback logic:
-        // In unit tests or mock storage environments, storageUploadId may be null.
-        // Falling back to buildObjectKey(partial.getId()) ensures we can still resolve
-        // the S3 object key for the part, maintaining test compatibility and robustness.
-        String partKey =
-            partial.getStorageUploadId() != null
-                ? partial.getStorageUploadId()
-                : buildObjectKey(partial.getId());
+        String partKey = partial.getStorageUploadId();
         sources.add(SourceObject.builder().bucket(bucket).object(partKey).build());
       }
 
