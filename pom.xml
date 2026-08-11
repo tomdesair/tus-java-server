@@ -277,7 +277,7 @@
                 <version>3.2.5</version>
                 <configuration>
                     <!-- Sets the VM argument line used when unit tests are run. -->
-                    <argLine>${surefireArgLine} --enable-final-field-mutation=ALL-UNNAMED</argLine>
+                    <argLine>${surefireArgLine} --enable-final-field-mutation=ALL-UNNAMED --enable-native-access=ALL-UNNAMED</argLine>
                     <!-- Sonar test count workaround -->
                     <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
                     <systemPropertyVariables>
@@ -296,7 +296,7 @@
                 <version>3.2.5</version>
                 <configuration>
                     <!-- Sets the VM argument line used when integration tests are run. -->
-                    <argLine>${failsafeArgLine} --enable-final-field-mutation=ALL-UNNAMED</argLine>
+                    <argLine>${failsafeArgLine} --enable-final-field-mutation=ALL-UNNAMED --enable-native-access=ALL-UNNAMED</argLine>
                     <!-- Sonar test count workaround -->
                     <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
                     <systemPropertyVariables>

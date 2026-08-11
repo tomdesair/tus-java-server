@@ -248,7 +248,7 @@ public class AzureBlobLockingService implements UploadLockingService, Closeable 
   }
 
   /** Ensures the lock target blob exists on Azure Blob Storage. */
-  private void ensureLockBlobExists(BlobClient lockBlob) {
+  void ensureLockBlobExists(BlobClient lockBlob) {
     try {
       if (!lockBlob.exists()) {
         lockBlob.upload(BinaryData.fromBytes("lock".getBytes(StandardCharsets.UTF_8)), false);

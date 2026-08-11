@@ -132,6 +132,18 @@ To maximize developer velocity and minimize test execution overhead when increas
 - **Fast Unit Test Execution**: Verify all local unit tests rapidly using target wildcard patterns (e.g. `mvn test -Dtest="S3*" -q` or `mvn test -Dtest="*Test" -q`). Unit tests run in under 2 seconds without launching test containers.
 - **Single Verification Gate**: Only run the full JaCoCo diff coverage verification command (`mvn verify -Pcheck-coverage -Djacoco.compare.branch=master -q`) after all batched unit test updates have been applied and locally validated.
 
+### 19. Consolidated UT + IT Code Coverage Verification & Preventing GitHub CI Failures
+To ensure code coverage checks never fail in GitHub Actions CI or PR validation pipelines:
+- **Consolidated Coverage Script (`scripts/check-coverage.py`)**:
+  - The coverage verification script automatically discovers and aggregates coverage across **both** unit tests (`target/site/jacoco-ut/jacoco.xml`) and integration tests (`target/site/jacoco-it/jacoco.xml`).
+  - Supports `--filter` (e.g., `--filter azure`), `--per-file-limit` (e.g., `--per-file-limit 90`), `--limit` (overall threshold), and `--compare-branch` (checking diff coverage on modified lines against a base git branch).
+  - Outlines exact uncovered and partially covered line number ranges (e.g., `103, 112, 160-165`) for fast diagnostic and test creation.
+- **Local Verification Gate**: Before committing or pushing changes to GitHub, always execute:
+  ```bash
+  mvn verify -Pcheck-coverage -Djacoco.compare.branch=master -q
+  ```
+- **Integration Test Class Naming & Handling**: Integration test classes (classes that rely on containers or Testcontainers) MUST start with `IT` and MUST NOT end with `Test` or `Test.java` (e.g., `ITAzureBlobStorageService.java`, `ITAzureBlobConcatenationService.java`). This ensures Maven Surefire skips them during `mvn test` and Maven Failsafe runs them during `mvn verify`. When a container runtime is unavailable, integration test classes must be cleanly skipped via `Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable())`. Do not duplicate unit tests or introduce unnecessary mocking inside integration test classes.
+
 ## IETF Resumable Uploads for HTTP (RUFH) Spec Maintenance & Update Playbook
 
 ### 1. Spec Diff Review

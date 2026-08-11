@@ -54,7 +54,7 @@ public class AzureBlobUploadLock implements UploadLock {
   }
 
   /** Attempts to renew the lease with Azure Blob Storage. */
-  private void renewLease() {
+  void renewLease() {
     if (released) {
       return;
     }
