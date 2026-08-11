@@ -654,4 +654,12 @@ public class DiskLockingServiceTest {
     tempDir.toFile().setWritable(true);
     FileUtils.deleteDirectory(tempDir.toFile());
   }
+
+  @Test
+  public void testClose() throws Exception {
+    DiskLockingService service = new DiskLockingService(storagePath.toString());
+    service.close();
+    // Subsequent close should be idempotent no-op
+    service.close();
+  }
 }

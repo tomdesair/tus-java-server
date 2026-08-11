@@ -16,6 +16,9 @@ public enum S3ErrorType {
   /** Permission denied or invalid credentials (HTTP 403 / AccessDenied). */
   ACCESS_DENIED,
 
+  /** Operation or API method not implemented by server/emulator (HTTP 501 / APINotImplemented). */
+  API_NOT_IMPLEMENTED,
+
   /** Unknown or unmapped S3 error response. */
   UNKNOWN
 }

@@ -172,6 +172,11 @@ public class S3StorageService implements UploadStorageService {
       return null;
     }
 
+    // Resolve duplicate child upload dynamically to parent S3 object key per AGENTS.md §7
+    if (uploadInfo.getDuplicatesUploadId() != null) {
+      return buildObjectKey(uploadInfo.getDuplicatesUploadId());
+    }
+
     if (uploadInfo.getStorageUploadId() != null) {
       return uploadInfo.getStorageUploadId();
     } else {
@@ -372,7 +377,7 @@ public class S3StorageService implements UploadStorageService {
     }
 
     // Handle concatenated upload resolution if applicable
-    if (UploadType.CONCATENATED.equals(info.getUploadType()) && info.getStorageUploadId() == null) {
+    if (UploadType.CONCATENATED.equals(info.getUploadType()) && info.isUploadInProgress()) {
       if (concatenationService != null) {
         concatenationService.merge(info);
         info = getUploadInfo(id);
@@ -466,6 +471,10 @@ public class S3StorageService implements UploadStorageService {
       deleteObjectQuietly(
           buildChecksumKey(uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm()));
     }
+
+    // Delete lock target and stop signal objects
+    deleteObjectQuietly(buildLockKey(uploadInfo.getId()));
+    deleteObjectQuietly(buildStopKey(uploadInfo.getId()));
   }
 
   @Override
@@ -630,7 +639,7 @@ public class S3StorageService implements UploadStorageService {
         return new SequenceInputStream(new FileInputStream(tempPrependedFile), inputStream);
       }
     } catch (ErrorResponseException e) {
-      if ("NoSuchKey".equalsIgnoreCase(e.errorResponse().code())) {
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
         // Normal case: no leftover .part object present in S3
       }
     } catch (Exception ignored) {
@@ -1014,6 +1023,14 @@ public class S3StorageService implements UploadStorageService {
   private String buildChecksumKey(String checksum, ChecksumAlgorithm algorithm) {
     String algorithmName = algorithm != null ? algorithm.getTusName().toLowerCase() : "unknown";
     return checksumsPrefix + algorithmName + "/" + checksum;
+  }
+
+  private String buildLockKey(UploadId id) {
+    return locksPrefix + id.toString() + ".lock";
+  }
+
+  private String buildStopKey(UploadId id) {
+    return locksPrefix + id.toString() + ".stop";
   }
 
   private static class AppendResult {

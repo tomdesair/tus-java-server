@@ -1,5 +1,6 @@
 package me.desair.tus.server.upload.disk;
 
+import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -29,7 +30,8 @@ import org.slf4j.LoggerFactory;
  * File locks are also automatically released on application (JVM) shutdown. This means the file
  * locking is not persistent and prevents cleanup and stale lock issues.
  */
-public class DiskLockingService extends AbstractDiskBasedService implements UploadLockingService {
+public class DiskLockingService extends AbstractDiskBasedService
+    implements UploadLockingService, Closeable {
 
   private static final Logger log = LoggerFactory.getLogger(DiskLockingService.class);
   private static final String LOCK_SUB_DIRECTORY = "locks";
@@ -41,10 +43,15 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
   private static Thread watchdogThread = null;
   private static final Object watchdogLock = new Object();
 
+  private final Thread shutdownHook;
+  private volatile boolean closed = false;
+
   private UploadIdFactory idFactory;
 
   public DiskLockingService(String storagePath) {
     super(storagePath + File.separator + LOCK_SUB_DIRECTORY);
+    this.shutdownHook = new Thread(this::closeQuietly, "disk-lock-shutdown-hook");
+    registerShutdownHook();
   }
 
   /** Constructor to use custom UploadIdFactory. */
@@ -52,6 +59,44 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     this(storagePath);
     Objects.requireNonNull(idFactory, "The IdFactory cannot be null");
     this.idFactory = idFactory;
+  }
+
+  private void registerShutdownHook() {
+    try {
+      Runtime.getRuntime().addShutdownHook(shutdownHook);
+    } catch (IllegalStateException ignored) {
+      // JVM is already shutting down
+    }
+  }
+
+  private void deregisterShutdownHook() {
+    try {
+      Runtime.getRuntime().removeShutdownHook(shutdownHook);
+    } catch (IllegalStateException ignored) {
+      // JVM is already shutting down
+    }
+  }
+
+  private void closeQuietly() {
+    try {
+      close();
+    } catch (Exception ignored) {
+    }
+  }
+
+  @Override
+  public void close() throws IOException {
+    if (!closed) {
+      closed = true;
+      deregisterShutdownHook();
+      synchronized (watchdogLock) {
+        if (watchdogThread != null) {
+          watchdogThread.interrupt();
+          watchdogThread = null;
+        }
+      }
+      activeLocks.clear();
+    }
   }
 
   /**

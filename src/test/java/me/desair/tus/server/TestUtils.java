@@ -104,4 +104,47 @@ public final class TestUtils {
       throw new RuntimeException("Failed to create bucket " + bucket, e);
     }
   }
+
+  /**
+   * Create and configure a GenericContainer running Azurite for Azure integration testing.
+   *
+   * @return A configured GenericContainer instance (not started yet)
+   */
+  public static GenericContainer<?> createAzuriteContainer() {
+    return new GenericContainer<>("mcr.microsoft.com/azure-storage/azurite:latest")
+        .withExposedPorts(10000)
+        .withCommand("azurite-blob", "--blobHost", "0.0.0.0", "--skipApiVersionCheck");
+  }
+
+  /**
+   * Create a {@link com.azure.storage.blob.BlobContainerClient} connected to Azurite Testcontainer.
+   *
+   * @param azurite The active Azurite Testcontainer
+   * @param containerName Target container name
+   * @return Pre-configured BlobContainerClient
+   */
+  public static com.azure.storage.blob.BlobContainerClient createBlobContainerClient(
+      GenericContainer<?> azurite, String containerName) {
+    String connectionString =
+        String.format(
+            "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;"
+                + "AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/"
+                + "K1SZFPTOtr/KBHBeksoGMGw==;"
+                + "BlobEndpoint=http://%s:%d/devstoreaccount1",
+            azurite.getHost(), azurite.getMappedPort(10000));
+
+    com.azure.storage.blob.BlobServiceClient serviceClient =
+        new com.azure.storage.blob.BlobServiceClientBuilder()
+            .connectionString(connectionString)
+            .buildClient();
+
+    com.azure.storage.blob.BlobContainerClient containerClient =
+        serviceClient.getBlobContainerClient(containerName);
+
+    if (!containerClient.exists()) {
+      containerClient.create();
+    }
+
+    return containerClient;
+  }
 }

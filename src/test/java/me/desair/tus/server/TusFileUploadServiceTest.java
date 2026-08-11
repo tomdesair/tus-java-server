@@ -522,4 +522,15 @@ public class TusFileUploadServiceTest {
     service.withJsonSerialization(false);
     org.junit.Assert.assertFalse(service.getUploadStorageService().isJsonSerializationEnabled());
   }
+
+  @Test
+  public void testClose() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    TusFileUploadService service =
+        new TusFileUploadService().withUploadLockingService(mockLockingService);
+
+    service.close();
+
+    verify(mockLockingService).close();
+  }
 }

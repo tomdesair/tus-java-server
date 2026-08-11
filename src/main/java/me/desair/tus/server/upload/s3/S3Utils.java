@@ -22,9 +22,11 @@ public final class S3Utils {
     }
 
     ErrorResponse response = exception.errorResponse();
-    String code = response != null ? response.code() : "";
+    String code = response != null && response.code() != null ? response.code() : "";
 
-    if ("NoSuchKey".equalsIgnoreCase(code) || "NoSuchBucket".equalsIgnoreCase(code)) {
+    if ("NoSuchKey".equalsIgnoreCase(code)
+        || "NoSuchBucket".equalsIgnoreCase(code)
+        || "NoSuchUpload".equalsIgnoreCase(code)) {
       return S3ErrorType.NO_SUCH_KEY;
     }
 
@@ -39,6 +41,10 @@ public final class S3Utils {
 
     if ("AccessDenied".equalsIgnoreCase(code)) {
       return S3ErrorType.ACCESS_DENIED;
+    }
+
+    if ("APINotImplemented".equalsIgnoreCase(code) || "NotImplemented".equalsIgnoreCase(code)) {
+      return S3ErrorType.API_NOT_IMPLEMENTED;
     }
 
     return S3ErrorType.UNKNOWN;

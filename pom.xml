@@ -59,6 +59,16 @@
             <version>9.0.3</version>
             <scope>provided</scope>
         </dependency>
+
+        <!-- AZURE BLOB STORAGE DEPENDENCY (PROVIDED) -->
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-blob</artifactId>
+            <version>12.35.0</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- SHARED DEPENDENCIES (PROVIDED) -->
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>okhttp</artifactId>

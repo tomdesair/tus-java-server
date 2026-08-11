@@ -255,6 +255,17 @@ public class S3StorageServiceTest {
     storageService.getUploadInfo(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
   }
 
+  @Test
+  public void testGetS3ObjectKeyWithDuplicatesUploadId() {
+    UploadInfo info = new UploadInfo();
+    UploadId childId = new UploadId("child-id");
+    UploadId parentId = new UploadId("parent-id");
+    info.setId(childId);
+    info.setDuplicatesUploadId(parentId);
+
+    assertEquals("uploads/parent-id", storageService.getS3ObjectKey(info));
+  }
+
   @Test(expected = IOException.class)
   public void testGetUploadInfoThrowsIOExceptionOnErrorResponseNon404() throws Exception {
     ErrorResponse errorResponse = mock(ErrorResponse.class);

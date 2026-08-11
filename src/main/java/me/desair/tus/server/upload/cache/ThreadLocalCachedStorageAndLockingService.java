@@ -260,6 +260,13 @@ public class ThreadLocalCachedStorageAndLockingService
     lockingServiceDelegate.requestLockRelease(requestUri);
   }
 
+  @Override
+  public void close() throws IOException {
+    lockingServiceDelegate.close();
+    storageServiceDelegate.close();
+    cleanupCache();
+  }
+
   private void cleanupCache() {
     WeakReference<UploadInfo> ref = uploadInfoCache.get();
     if (ref != null) {

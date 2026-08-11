@@ -46,17 +46,28 @@ import me.desair.tus.server.TusFileUploadService;
 import me.desair.tus.server.upload.s3.S3StorageService;
 import me.desair.tus.server.upload.s3.S3LockingService;
 
-// 1. Instantiate MinIO Client for AWS S3 or S3-compatible storage
+// 1. Production Configuration: Load S3 parameters securely from environment variables
+String endpoint = System.getenv().getOrDefault("S3_ENDPOINT", "https://s3.us-east-1.amazonaws.com");
+String bucketName = System.getenv().getOrDefault("S3_BUCKET_NAME", "my-upload-bucket");
+String accessKey = System.getenv("AWS_ACCESS_KEY_ID");
+String secretKey = System.getenv("AWS_SECRET_ACCESS_KEY");
+
 MinioClient minioClient = MinioClient.builder()
-    .endpoint("https://s3.amazonaws.com")
-    .credentials("YOUR_ACCESS_KEY", "YOUR_SECRET_KEY")
+    .endpoint(endpoint)
+    .credentials(accessKey, secretKey)
     .build();
 
-// 2. Configure TusFileUploadService with S3 storage and locking
+// 2. Instantiate S3 Storage and Distributed Locking services
+S3StorageService s3StorageService = new S3StorageService(minioClient, bucketName);
+S3LockingService s3LockingService = new S3LockingService(minioClient, bucketName);
+
+// 3. Configure TusFileUploadService with S3 storage and locking
+// Note: Automatic JVM shutdown hooks are built-in by default to terminate watchdog threads on pod exit.
+// Manual call to tusService.close() or s3LockingService.close() is optional for custom container lifecycles.
 TusFileUploadService tusService = new TusFileUploadService()
     .withUploadUri("/files/upload")
-    .withUploadStorageService(new S3StorageService(minioClient, "my-upload-bucket"))
-    .withUploadLockingService(new S3LockingService(minioClient, "my-upload-bucket"));
+    .withUploadStorageService(s3StorageService)
+    .withUploadLockingService(s3LockingService);
 ```
 
 ---
@@ -294,3 +305,26 @@ When the test suite executes:
 - **Port Conflicts**: Testcontainers dynamically binds MinIO to random available host ports, preventing port collision with existing local services.
 
 ---
+
+## 10. Troubleshooting Guide
+
+| Issue / Error | Root Cause | Solution |
+|---------------|------------|----------|
+| `UploadAlreadyLockedException` | Concurrent request to an active upload ID | Wait for current request to finish or ensure single-client sequencing |
+| `NoSuchKey` / 404 on `.info` | Expiration or upload terminated | Client must re-initiate upload creation via `POST` |
+| High S3 Request Costs | Uncached `UploadInfo` lookups | Ensure `ThreadLocalCachedStorageAndLockingService` wrapper is enabled |
+| Thread leak on app shutdown | `S3LockingService` watchdog executor active | Call `s3LockingService.close()` on application shutdown |
+
+---
+
+## 11. Operational Hardening & S3 Cost Guidelines
+
+### S3 Bucket Lifecycle Rules
+To automatically clean up abandoned partial uploads or lock files in case of sudden server crashes, configure S3 Lifecycle Rules on your bucket:
+
+- **Expire Incomplete Multipart Uploads**: Set rule to abort incomplete multipart uploads after 1–7 days.
+- **Expire `metadata/*.part` Objects**: Configure lifecycle expiration for objects under `metadata/` prefix matching `*.part` older than 7 days.
+- **Expire `locks/*` Objects**: Configure lifecycle expiration for objects under `locks/` prefix older than 1 day.
+
+### IAM Data Action Summary
+Ensure your IAM role or service account is granted `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, and `s3:ListBucket` permissions on your target bucket path.

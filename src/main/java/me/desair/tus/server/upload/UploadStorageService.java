@@ -271,4 +271,13 @@ public interface UploadStorageService {
   default boolean isJsonSerializationEnabled() {
     return false;
   }
+
+  /**
+   * Closes any underlying storage resources.
+   *
+   * @throws IOException If closing fails
+   */
+  default void close() throws IOException {
+    // No-op by default for backward compatibility
+  }
 }

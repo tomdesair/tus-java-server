@@ -269,4 +269,9 @@ public class S3LockingServiceTest {
         new S3LockingService(minioClient, "test-bucket", null, 30000L, 0L);
     assertNotNull(serviceWithNullPrefix);
   }
+
+  @Test
+  public void testClose() throws Exception {
+    lockingService.close();
+  }
 }

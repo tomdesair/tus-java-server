@@ -10,6 +10,7 @@ import io.minio.StatObjectArgs;
 import io.minio.errors.ErrorResponseException;
 import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Map;
@@ -54,7 +55,7 @@ import org.slf4j.LoggerFactory;
  *       pods.
  * </ul>
  */
-public class S3LockingService implements UploadLockingService {
+public class S3LockingService implements UploadLockingService, Closeable {
 
   private static final Logger log = LoggerFactory.getLogger(S3LockingService.class);
 
@@ -71,6 +72,9 @@ public class S3LockingService implements UploadLockingService {
   private UploadIdFactory idFactory = new UuidUploadIdFactory();
   private final Map<String, InputStream> activeInputStreams = new ConcurrentHashMap<>();
   private final ScheduledExecutorService watchdogExecutor;
+
+  private final Thread shutdownHook;
+  private volatile boolean closed = false;
 
   /**
    * Basic constructor using default lock prefix ("locks/"), 30s lease duration, and 2s polling
@@ -121,6 +125,33 @@ public class S3LockingService implements UploadLockingService {
     if (pollIntervalMs > 0) {
       this.watchdogExecutor.scheduleAtFixedRate(
           this::checkStopSignals, pollIntervalMs, pollIntervalMs, TimeUnit.MILLISECONDS);
+    }
+
+    // Register automatic JVM shutdown hook to clean up watchdog thread pool on app/pod shutdown
+    this.shutdownHook = new Thread(this::closeQuietly, "s3-lock-shutdown-hook");
+    registerShutdownHook();
+  }
+
+  private void registerShutdownHook() {
+    try {
+      Runtime.getRuntime().addShutdownHook(shutdownHook);
+    } catch (IllegalStateException ignored) {
+      // JVM is already shutting down
+    }
+  }
+
+  private void deregisterShutdownHook() {
+    try {
+      Runtime.getRuntime().removeShutdownHook(shutdownHook);
+    } catch (IllegalStateException ignored) {
+      // JVM is already shutting down
+    }
+  }
+
+  private void closeQuietly() {
+    try {
+      close();
+    } catch (Exception ignored) {
     }
   }
 
@@ -286,6 +317,19 @@ public class S3LockingService implements UploadLockingService {
     }
   }
 
+  @Override
+  public void close() throws IOException {
+    if (!closed) {
+      closed = true;
+      deregisterShutdownHook();
+      try {
+        watchdogExecutor.shutdownNow();
+      } catch (Exception ignored) {
+      }
+      activeInputStreams.clear();
+    }
+  }
+
   private void checkStopSignals() {
     for (Map.Entry<String, InputStream> entry : activeInputStreams.entrySet()) {
       checkStopSignalForEntry(entry.getKey(), entry.getValue());
@@ -305,7 +349,7 @@ public class S3LockingService implements UploadLockingService {
       // Remote stop signal object found! Interrupt local byte stream immediately
       interruptStream(inputStream);
     } catch (ErrorResponseException e) {
-      if ("NoSuchKey".equalsIgnoreCase(e.errorResponse().code())) {
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
         // Normal state: no stop signal object in S3
         return;
       }

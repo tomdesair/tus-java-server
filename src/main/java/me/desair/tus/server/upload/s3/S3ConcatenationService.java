@@ -169,21 +169,24 @@ public class S3ConcatenationService implements UploadConcatenationService {
   @Override
   public InputStream getConcatenatedBytes(UploadInfo uploadInfo)
       throws IOException, UploadNotFoundException {
-
     if (uploadInfo == null) {
       return null;
     }
 
-    if (uploadInfo.getStorageUploadId() == null) {
+    if (uploadStorageService == null) {
+      throw new IOException(
+          "UploadStorageService must be configured to retrieve concatenated upload bytes");
+    }
+
+    if (uploadInfo.isUploadInProgress()) {
       merge(uploadInfo);
     }
 
-    if (uploadStorageService != null) {
+    if (!uploadInfo.isUploadInProgress()) {
       return uploadStorageService.getUploadedBytes(uploadInfo.getId());
     }
 
-    throw new IOException(
-        "UploadStorageService must be configured to retrieve concatenated upload bytes");
+    return new java.io.ByteArrayInputStream(new byte[0]);
   }
 
   @Override

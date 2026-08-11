@@ -2,6 +2,7 @@ package me.desair.tus.server;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -42,7 +43,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Helper class that implements the server side tus v1.0.0 upload protocol */
-public class TusFileUploadService {
+public class TusFileUploadService implements Closeable {
 
   public static final String TUS_API_VERSION = "1.0.0";
 
@@ -732,6 +733,21 @@ public class TusFileUploadService {
       service.setIdFactory(this.idFactory);
       this.uploadStorageService = service;
       this.uploadLockingService = service;
+    }
+  }
+
+  /**
+   * Closes underlying storage and locking services, releasing background threads and resources.
+   *
+   * @throws IOException If closing fails
+   */
+  @Override
+  public void close() throws IOException {
+    if (uploadLockingService != null) {
+      uploadLockingService.close();
+    }
+    if (uploadStorageService != null) {
+      uploadStorageService.close();
     }
   }
 }
