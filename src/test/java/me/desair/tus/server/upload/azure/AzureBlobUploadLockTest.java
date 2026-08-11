@@ -8,16 +8,32 @@ import com.azure.storage.blob.specialized.BlobLeaseClient;
 import com.azure.storage.blob.specialized.BlobLeaseClientBuilder;
 import me.desair.tus.server.TestUtils;
 import me.desair.tus.server.upload.UploadLock;
+import org.junit.AfterClass;
 import org.junit.Assume;
 import org.junit.Before;
-import org.junit.ClassRule;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.testcontainers.containers.GenericContainer;
 
 public class AzureBlobUploadLockTest {
 
-  @ClassRule
-  public static GenericContainer<?> azuriteContainer = TestUtils.createAzuriteContainer();
+  private static GenericContainer<?> azuriteContainer;
+
+  @BeforeClass
+  public static void setUpClass() {
+    Assume.assumeTrue(
+        "Container runtime is not available; skipping Testcontainers Azurite test",
+        TestUtils.isContainerRuntimeAvailable());
+    azuriteContainer = TestUtils.createAzuriteContainer();
+    azuriteContainer.start();
+  }
+
+  @AfterClass
+  public static void tearDownClass() {
+    if (azuriteContainer != null) {
+      azuriteContainer.stop();
+    }
+  }
 
   private BlobContainerClient containerClient;
   private String uploadUri;

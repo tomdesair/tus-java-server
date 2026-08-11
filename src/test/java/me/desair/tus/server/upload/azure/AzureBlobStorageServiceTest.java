@@ -12,16 +12,32 @@ import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
+import org.junit.AfterClass;
 import org.junit.Assume;
 import org.junit.Before;
-import org.junit.ClassRule;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.testcontainers.containers.GenericContainer;
 
 public class AzureBlobStorageServiceTest {
 
-  @ClassRule
-  public static GenericContainer<?> azuriteContainer = TestUtils.createAzuriteContainer();
+  private static GenericContainer<?> azuriteContainer;
+
+  @BeforeClass
+  public static void setUpClass() {
+    Assume.assumeTrue(
+        "Container runtime is not available; skipping Testcontainers Azurite test",
+        TestUtils.isContainerRuntimeAvailable());
+    azuriteContainer = TestUtils.createAzuriteContainer();
+    azuriteContainer.start();
+  }
+
+  @AfterClass
+  public static void tearDownClass() {
+    if (azuriteContainer != null) {
+      azuriteContainer.stop();
+    }
+  }
 
   private BlobContainerClient containerClient;
   private AzureBlobStorageService storageService;
