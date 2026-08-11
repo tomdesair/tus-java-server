@@ -19,6 +19,9 @@ import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -388,5 +391,56 @@ public class Utils {
     String idStr =
         uploadInfo != null && uploadInfo.getId() != null ? uploadInfo.getId().toString() : "";
     return baseUri + (baseUri.endsWith("/") ? "" : "/") + idStr;
+  }
+
+  /**
+   * Creates a single-thread scheduled executor service with a daemon thread of the given name.
+   *
+   * @param threadName The name for the background daemon thread
+   * @return A new single-thread ScheduledExecutorService
+   */
+  public static ScheduledExecutorService createScheduledDaemonExecutor(String threadName) {
+    return Executors.newSingleThreadScheduledExecutor(
+        runnable -> {
+          Thread thread = new Thread(runnable, threadName);
+          thread.setDaemon(true);
+          return thread;
+        });
+  }
+
+  /**
+   * Creates a daemon scheduled executor and immediately schedules a task to run periodically at a
+   * fixed rate.
+   *
+   * @param threadName The name for the background daemon thread
+   * @param task The task to execute periodically
+   * @param initialDelay The initial delay before the first execution
+   * @param period The period between successive executions
+   * @param unit The time unit of the initialDelay and period parameters
+   * @return The created ScheduledExecutorService
+   */
+  public static ScheduledExecutorService scheduleWatchdog(
+      String threadName, Runnable task, long initialDelay, long period, TimeUnit unit) {
+    ScheduledExecutorService executor = createScheduledDaemonExecutor(threadName);
+    if (period > 0 && task != null) {
+      executor.scheduleAtFixedRate(task, initialDelay, period, unit);
+    }
+    return executor;
+  }
+
+  /**
+   * Safely shuts down a ScheduledExecutorService using {@link
+   * ScheduledExecutorService#shutdownNow()}.
+   *
+   * @param executor The ScheduledExecutorService to shut down
+   */
+  public static void shutdownExecutor(ScheduledExecutorService executor) {
+    if (executor != null && !executor.isShutdown()) {
+      try {
+        executor.shutdownNow();
+      } catch (Exception e) {
+        log.debug("Error shutting down executor: {}", e.getMessage());
+      }
+    }
   }
 }

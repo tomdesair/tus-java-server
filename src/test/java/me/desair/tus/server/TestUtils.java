@@ -111,7 +111,7 @@ public final class TestUtils {
    * @return A configured GenericContainer instance (not started yet)
    */
   public static GenericContainer<?> createAzuriteContainer() {
-    return new GenericContainer<>("mcr.microsoft.com/azure-storage/azurite:latest")
+    return new GenericContainer<>("mcr.microsoft.com/azure-storage/azurite:3.36.0")
         .withExposedPorts(10000)
         .withCommand("azurite-blob", "--blobHost", "0.0.0.0", "--skipApiVersionCheck");
   }

@@ -4,10 +4,10 @@ import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.specialized.BlobLeaseClient;
 import java.io.IOException;
 import java.util.Objects;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import me.desair.tus.server.upload.UploadLock;
+import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,20 +45,12 @@ public class AzureBlobUploadLock implements UploadLock {
 
     // Initialize background daemon thread to renew lease periodically during upload
     this.renewalExecutor =
-        Executors.newSingleThreadScheduledExecutor(
-            runnable -> {
-              Thread thread = new Thread(runnable, "azure-lease-renewal-" + uploadUri);
-              thread.setDaemon(true);
-              return thread;
-            });
-
-    scheduleLeaseRenewal();
-  }
-
-  /** Schedules periodic background renewal of the active lease. */
-  private void scheduleLeaseRenewal() {
-    renewalExecutor.scheduleAtFixedRate(
-        this::renewLease, RENEWAL_INTERVAL_SECONDS, RENEWAL_INTERVAL_SECONDS, TimeUnit.SECONDS);
+        Utils.scheduleWatchdog(
+            "azure-lease-renewal-" + uploadUri,
+            this::renewLease,
+            RENEWAL_INTERVAL_SECONDS,
+            RENEWAL_INTERVAL_SECONDS,
+            TimeUnit.SECONDS);
   }
 
   /** Attempts to renew the lease with Azure Blob Storage. */
@@ -106,10 +98,6 @@ public class AzureBlobUploadLock implements UploadLock {
 
   /** Shuts down the renewal executor cleanly. */
   private void shutdownExecutor() {
-    try {
-      renewalExecutor.shutdownNow();
-    } catch (Exception ignored) {
-      // Ignore shutdown interrupts
-    }
+    Utils.shutdownExecutor(renewalExecutor);
   }
 }

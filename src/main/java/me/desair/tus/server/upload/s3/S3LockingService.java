@@ -17,7 +17,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import me.desair.tus.server.exception.TusException;
@@ -29,6 +28,7 @@ import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.S3UploadLockJsonSerializer;
+import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -115,17 +115,12 @@ public class S3LockingService implements UploadLockingService, Closeable {
 
     // Background watchdog thread to poll S3 for .stop contention signals across pods
     this.watchdogExecutor =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              Thread t = new Thread(r, "s3-lock-watchdog");
-              t.setDaemon(true);
-              return t;
-            });
-
-    if (pollIntervalMs > 0) {
-      this.watchdogExecutor.scheduleAtFixedRate(
-          this::checkStopSignals, pollIntervalMs, pollIntervalMs, TimeUnit.MILLISECONDS);
-    }
+        Utils.scheduleWatchdog(
+            "s3-lock-watchdog",
+            this::checkStopSignals,
+            pollIntervalMs,
+            pollIntervalMs,
+            TimeUnit.MILLISECONDS);
 
     // Register automatic JVM shutdown hook to clean up watchdog thread pool on app/pod shutdown
     this.shutdownHook = new Thread(this::closeQuietly, "s3-lock-shutdown-hook");
@@ -322,10 +317,7 @@ public class S3LockingService implements UploadLockingService, Closeable {
     if (!closed) {
       closed = true;
       deregisterShutdownHook();
-      try {
-        watchdogExecutor.shutdownNow();
-      } catch (Exception ignored) {
-      }
+      Utils.shutdownExecutor(watchdogExecutor);
       activeInputStreams.clear();
     }
   }

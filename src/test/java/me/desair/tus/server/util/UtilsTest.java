@@ -512,6 +512,66 @@ public class UtilsTest {
     assertThat(Utils.isExistingUploadResource(request, storageService, "owner"), is(false));
   }
 
+  @Test
+  public void testCreateScheduledDaemonExecutorAndScheduleWatchdog() throws Exception {
+    java.util.concurrent.atomic.AtomicBoolean executed =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    java.util.concurrent.ScheduledExecutorService executor =
+        Utils.scheduleWatchdog(
+            "test-watchdog",
+            () -> executed.set(true),
+            10,
+            10,
+            java.util.concurrent.TimeUnit.MILLISECONDS);
+
+    assertThat(executor, is(notNullValue()));
+    assertThat(executor.isShutdown(), is(false));
+
+    Thread.sleep(50);
+    assertThat(executed.get(), is(true));
+
+    Utils.shutdownExecutor(executor);
+    assertThat(executor.isShutdown(), is(true));
+  }
+
+  @Test
+  public void testShutdownExecutorNullOrShutdown() {
+    Utils.shutdownExecutor(null);
+
+    java.util.concurrent.ScheduledExecutorService executor =
+        Utils.createScheduledDaemonExecutor("test-shutdown");
+    Utils.shutdownExecutor(executor);
+    assertThat(executor.isShutdown(), is(true));
+
+    Utils.shutdownExecutor(executor);
+    assertThat(executor.isShutdown(), is(true));
+  }
+
+  @Test
+  public void testScheduleWatchdogWithZeroPeriodOrNullTask() {
+    java.util.concurrent.ScheduledExecutorService executor1 =
+        Utils.scheduleWatchdog(
+            "test-zero-period", () -> {}, 0, 0, java.util.concurrent.TimeUnit.SECONDS);
+    assertThat(executor1, is(notNullValue()));
+    Utils.shutdownExecutor(executor1);
+
+    java.util.concurrent.ScheduledExecutorService executor2 =
+        Utils.scheduleWatchdog(
+            "test-null-task", null, 10, 10, java.util.concurrent.TimeUnit.SECONDS);
+    assertThat(executor2, is(notNullValue()));
+    Utils.shutdownExecutor(executor2);
+  }
+
+  @Test
+  public void testShutdownExecutorWithException() {
+    java.util.concurrent.ScheduledExecutorService mockExecutor =
+        mock(java.util.concurrent.ScheduledExecutorService.class);
+    when(mockExecutor.isShutdown()).thenReturn(false);
+    when(mockExecutor.shutdownNow()).thenThrow(new RuntimeException("Shutdown error"));
+
+    Utils.shutdownExecutor(mockExecutor);
+  }
+
   /** Simple serializable class for testing. */
   public static class TestSerializable implements Serializable {
     private static final long serialVersionUID = 1L;
