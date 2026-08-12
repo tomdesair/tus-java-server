@@ -336,16 +336,6 @@
 
     <profiles>
         <profile>
-            <id>jdk-24-plus</id>
-            <activation>
-                <jdk>[24,)</jdk>
-            </activation>
-            <properties>
-                <surefireJvmArgs>--enable-final-field-mutation=ALL-UNNAMED --enable-native-access=ALL-UNNAMED</surefireJvmArgs>
-                <failsafeJvmArgs>--enable-final-field-mutation=ALL-UNNAMED --enable-native-access=ALL-UNNAMED</failsafeJvmArgs>
-            </properties>
-        </profile>
-        <profile>
             <id>skiptests</id>
             <activation>
                 <!-- This profile should be active at all times, unless the user
