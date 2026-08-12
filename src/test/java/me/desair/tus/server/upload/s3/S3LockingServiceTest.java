@@ -274,4 +274,28 @@ public class S3LockingServiceTest {
   public void testClose() throws Exception {
     lockingService.close();
   }
+
+  @Test
+  public void testCheckStopSignalForEntryExceptionAndNullId() throws Exception {
+    lockingService.setIdFactory(new me.desair.tus.server.upload.TimeBasedUploadIdFactory());
+    io.minio.MinioClient mockClient = Mockito.mock(io.minio.MinioClient.class);
+    Mockito.when(mockClient.statObject(Mockito.any(io.minio.StatObjectArgs.class)))
+        .thenThrow(new RuntimeException("General S3 Exception"));
+    Mockito.doThrow(new RuntimeException("Remove object failed"))
+        .when(mockClient)
+        .removeObject(Mockito.any(io.minio.RemoveObjectArgs.class));
+
+    S3LockingService service = new S3LockingService(mockClient, "test-bucket");
+    me.desair.tus.server.upload.TimeBasedUploadIdFactory idFactory =
+        new me.desair.tus.server.upload.TimeBasedUploadIdFactory();
+    idFactory.setUploadUri("/files/upload");
+    service.setIdFactory(idFactory);
+
+    ByteArrayInputStream bais = new ByteArrayInputStream("test".getBytes());
+    InterruptibleInputStream stream = new InterruptibleInputStream(bais);
+
+    service.registerInputStream("/files/upload/12345", stream);
+    // Triggers checkStopSignalForEntry & deleteObjectQuietly which catch RuntimeException
+    service.requestLockRelease("/files/upload/12345");
+  }
 }

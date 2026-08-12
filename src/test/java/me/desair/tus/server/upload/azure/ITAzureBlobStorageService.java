@@ -493,4 +493,38 @@ public class ITAzureBlobStorageService {
     assertNull(
         storage.getUploadInfoByChecksum("5d41402abc4b2a76b9719d911017c592", ChecksumAlgorithm.MD5));
   }
+
+  @Test
+  public void appendConsecutiveCommittedBlocksShouldRetrieveCommittedBlockIds() throws Exception {
+    storageService.setPreferredBlockSize(4L * 1024 * 1024); // 4MB block size
+
+    byte[] block1 = new byte[4 * 1024 * 1024];
+    java.util.Arrays.fill(block1, (byte) 'X');
+
+    byte[] block2 = new byte[4 * 1024 * 1024];
+    java.util.Arrays.fill(block2, (byte) 'Y');
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L * 1024 * 1024);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    // 1st append commits block 1 (4MB)
+    storageService.append(created, new ByteArrayInputStream(block1));
+    assertEquals(Long.valueOf(4L * 1024 * 1024), created.getOffset());
+
+    // 2nd append calls getCommittedBlockIds(blockBlobClient) and commits block 2 (4MB)
+    storageService.append(created, new ByteArrayInputStream(block2));
+    assertEquals(Long.valueOf(8L * 1024 * 1024), created.getOffset());
+
+    // 3rd append calls getCommittedBlockIds(blockBlobClient) which retrieves 2 committed block IDs
+    // from Azurite
+    storageService.append(created, new ByteArrayInputStream("extra".getBytes()));
+    assertEquals(Long.valueOf(8L * 1024 * 1024 + 5), created.getOffset());
+
+    try (InputStream is = storageService.getUploadedBytes(created.getId())) {
+      assertNotNull(is);
+      byte[] readBytes = org.apache.commons.io.IOUtils.toByteArray(is);
+      assertEquals(8 * 1024 * 1024 + 5, readBytes.length);
+    }
+  }
 }

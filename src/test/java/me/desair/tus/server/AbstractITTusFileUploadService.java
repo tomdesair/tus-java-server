@@ -1055,6 +1055,105 @@ public abstract class AbstractITTusFileUploadService {
   }
 
   @Test
+  public void testConcatenationOutOfOrderCompleted() throws Exception {
+    String part1 = "This is the first part of my test upload ";
+    String part2 = "and this is the second part.";
+
+    // 1. Create the SECOND upload part FIRST
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "28");
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "partial");
+    servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename cGFydDIudHh0");
+
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String location2 =
+        UPLOAD_URI
+            + StringUtils.substringAfter(
+                servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+    // Upload part 2 bytes first
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(location2);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, "28");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(part2.getBytes());
+
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+    // 2. Create the FIRST upload part SECOND
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "41");
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "partial");
+    servletRequest.addHeader(HttpHeader.UPLOAD_METADATA, "filename cGFydDEudHh0");
+
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String location1 =
+        UPLOAD_URI
+            + StringUtils.substringAfter(
+                servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+    // Upload part 1 bytes second
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(location1);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, "41");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(part1.getBytes());
+
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+    // 3. Create final concatenated upload referencing part 1 then part 2 in correct order
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "final ; " + location1 + " " + location2);
+
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String finalLocation =
+        UPLOAD_URI
+            + StringUtils.substringAfter(
+                servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+    // Download and verify content is in the correct concatenated order (part1 + part2)
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(finalLocation);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertThat(
+        servletResponse.getContentAsString(),
+        is("This is the first part of my test upload and this is the second part."));
+
+    try (InputStream uploadedBytes =
+        tusFileUploadService.getUploadedBytes(finalLocation, OWNER_KEY)) {
+      assertThat(
+          IOUtils.toString(uploadedBytes, StandardCharsets.UTF_8),
+          is("This is the first part of my test upload and this is the second part."));
+    }
+  }
+
+  @Test
   public void testConcatenationUnfinished() throws Exception {
     String part1 = "When sending this part, the final upload was already created. ";
     String part2 = "This is the second part of our concatenated upload. ";

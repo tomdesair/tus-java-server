@@ -207,4 +207,24 @@ public class ITAzureBlobLockingService {
 
     service.lockUploadByUri("/test/upload/12345");
   }
+
+  @Test
+  public void testCreateAndDeleteStopSignalBlobExceptionHandling() {
+    com.azure.storage.blob.BlobServiceClient serviceClient = containerClient.getServiceClient();
+    BlobContainerClient invalidContainer =
+        serviceClient.getBlobContainerClient("invalid-container-" + System.currentTimeMillis());
+
+    AzureBlobLockingService invalidLocking = new AzureBlobLockingService(invalidContainer);
+    TimeBasedUploadIdFactory idFactory = new TimeBasedUploadIdFactory();
+    idFactory.setUploadUri("/test/upload");
+    invalidLocking.setIdFactory(idFactory);
+
+    ByteArrayInputStream bais = new ByteArrayInputStream("data".getBytes());
+    InterruptibleInputStream stream = new InterruptibleInputStream(bais);
+    invalidLocking.registerInputStream("/test/upload/12345", stream);
+
+    // Requesting lock release triggers createStopSignalBlob & deleteStopSignalBlob on invalid
+    // container
+    invalidLocking.requestLockRelease("/test/upload/12345");
+  }
 }
