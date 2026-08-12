@@ -23,8 +23,6 @@
         <jacoco.compare.branch />
         <surefireJvmArgs />
         <failsafeJvmArgs />
-        <surefireArgLine />
-        <failsafeArgLine />
     </properties>
 
     <dependencies>
