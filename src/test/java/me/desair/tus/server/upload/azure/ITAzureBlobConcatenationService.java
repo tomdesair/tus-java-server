@@ -241,4 +241,32 @@ public class ITAzureBlobConcatenationService {
     assertNotNull(service2);
     assertNotNull(service3);
   }
+
+  @Test
+  public void getConcatenatedBytesShouldReturnEmptyStreamForInProgressUploadWithIncompletePartials()
+      throws Exception {
+    UploadInfo part1Info = new UploadInfo();
+    part1Info.setLength(10L); // length 10, offset 0 (incomplete)
+    UploadInfo part1 = storageService.create(part1Info, null);
+
+    UploadInfo finalInfo = new UploadInfo();
+    finalInfo.setConcatenationPartIds(Arrays.asList("/test/upload/" + part1.getId()));
+    finalInfo.setUploadType(UploadType.CONCATENATED);
+    UploadInfo createdFinal = storageService.create(finalInfo, null);
+
+    InputStream is = concatenationService.getConcatenatedBytes(createdFinal);
+    assertNotNull(is);
+    assertEquals(0, is.available());
+  }
+
+  @Test
+  public void mergeWithEmptyPartIdsListShouldDoNothing() throws Exception {
+    UploadInfo finalInfo = new UploadInfo();
+    finalInfo.setConcatenationPartIds(java.util.Collections.emptyList());
+    finalInfo.setUploadType(UploadType.CONCATENATED);
+    UploadInfo createdFinal = storageService.create(finalInfo, null);
+
+    concatenationService.merge(createdFinal);
+    assertEquals(Long.valueOf(0L), createdFinal.getOffset());
+  }
 }
