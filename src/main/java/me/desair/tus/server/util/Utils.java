@@ -443,4 +443,26 @@ public class Utils {
       }
     }
   }
+
+  /**
+   * Safely interrupts an input stream if it is an instance of {@link InterruptibleInputStream}, or
+   * closes it quietly if it is a standard input stream. Any exceptions encountered during
+   * interruption or closing are caught and logged without propagating.
+   *
+   * @param inputStream The InputStream to interrupt or close
+   */
+  public static void interruptStream(java.io.InputStream inputStream) {
+    if (inputStream == null) {
+      return;
+    }
+    try {
+      if (inputStream instanceof InterruptibleInputStream) {
+        ((InterruptibleInputStream) inputStream).interrupt();
+      } else {
+        inputStream.close();
+      }
+    } catch (Throwable t) {
+      log.warn("Error interrupting input stream: {}", t.getMessage(), t);
+    }
+  }
 }

@@ -23,6 +23,7 @@ import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.util.InterruptibleInputStream;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -222,7 +223,7 @@ public class AzureBlobLockingService implements UploadLockingService, Closeable 
       InterruptibleInputStream stream = streamRef.get();
       if (stream != null) {
         log.info("Interrupting JVM-local stream for upload ID {}", idStr);
-        stream.interrupt();
+        Utils.interruptStream(stream);
       }
     }
   }

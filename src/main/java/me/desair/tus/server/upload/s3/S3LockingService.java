@@ -26,7 +26,6 @@ import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
-import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.S3UploadLockJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
@@ -229,9 +228,9 @@ public class S3LockingService implements UploadLockingService, Closeable {
     }
 
     // Step 1: Interrupt local active payload byte stream if hosted on this node
-    InputStream activeStream = activeInputStreams.get(requestUri);
+    InputStream activeStream = activeInputStreams.remove(requestUri);
     if (activeStream != null) {
-      interruptStream(activeStream);
+      Utils.interruptStream(activeStream);
     }
 
     // Step 2: Write a .stop signal object to S3 to signal lock contention across remote nodes/pods
@@ -351,14 +350,7 @@ public class S3LockingService implements UploadLockingService, Closeable {
   }
 
   private void interruptStream(InputStream is) {
-    if (is instanceof InterruptibleInputStream) {
-      ((InterruptibleInputStream) is).interrupt();
-    } else {
-      try {
-        is.close();
-      } catch (Exception ignored) {
-      }
-    }
+    Utils.interruptStream(is);
   }
 
   private void deleteObjectQuietly(String key) {

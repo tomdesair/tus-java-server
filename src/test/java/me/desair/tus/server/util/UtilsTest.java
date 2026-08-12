@@ -572,6 +572,37 @@ public class UtilsTest {
     Utils.shutdownExecutor(mockExecutor);
   }
 
+  @Test
+  public void testInterruptStreamNull() {
+    Utils.interruptStream(null);
+  }
+
+  @Test
+  public void testInterruptStreamStandardInputStream() throws Exception {
+    java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(new byte[0]);
+    Utils.interruptStream(bis);
+  }
+
+  @Test
+  public void testInterruptStreamInterruptibleInputStream() {
+    InterruptibleInputStream iis =
+        new InterruptibleInputStream(new java.io.ByteArrayInputStream(new byte[0]));
+    Utils.interruptStream(iis);
+    assertThat(iis.isInterrupted(), is(true));
+  }
+
+  @Test
+  public void testInterruptStreamWithException() {
+    InterruptibleInputStream faultyStream =
+        new InterruptibleInputStream(new java.io.ByteArrayInputStream(new byte[0])) {
+          @Override
+          public void interrupt() {
+            throw new RuntimeException("Error during interrupt");
+          }
+        };
+    Utils.interruptStream(faultyStream);
+  }
+
   /** Simple serializable class for testing. */
   public static class TestSerializable implements Serializable {
     private static final long serialVersionUID = 1L;

@@ -144,6 +144,9 @@ To ensure code coverage checks never fail in GitHub Actions CI or PR validation 
   ```
 - **Integration Test Class Naming & Handling**: Integration test classes (classes that rely on containers or Testcontainers) MUST start with `IT` and MUST NOT end with `Test` or `Test.java` (e.g., `ITAzureBlobStorageService.java`, `ITAzureBlobConcatenationService.java`). This ensures Maven Surefire skips them during `mvn test` and Maven Failsafe runs them during `mvn verify`. When a container runtime is unavailable, integration test classes must be cleanly skipped via `Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable())`. Do not duplicate unit tests or introduce unnecessary mocking inside integration test classes.
 
+### 20. Explicit Top-Level Class Imports
+- Always use top-level `import` statements at the top of Java files instead of writing fully qualified package class names inline in method signatures or method bodies (e.g. add `import me.desair.tus.server.util.Utils;` at the top of the file and call `Utils.interruptStream(...)` instead of writing `me.desair.tus.server.util.Utils.interruptStream(...)`).
+
 ## IETF Resumable Uploads for HTTP (RUFH) Spec Maintenance & Update Playbook
 
 ### 1. Spec Diff Review

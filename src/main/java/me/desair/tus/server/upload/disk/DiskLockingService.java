@@ -19,6 +19,7 @@ import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.util.InterruptibleInputStream;
+import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -86,16 +87,16 @@ public class DiskLockingService extends AbstractDiskBasedService
 
   @Override
   public void close() throws IOException {
+    synchronized (watchdogLock) {
+      if (watchdogThread != null) {
+        watchdogThread.interrupt();
+        watchdogThread = null;
+      }
+    }
+    activeLocks.clear();
     if (!closed) {
       closed = true;
       deregisterShutdownHook();
-      synchronized (watchdogLock) {
-        if (watchdogThread != null) {
-          watchdogThread.interrupt();
-          watchdogThread = null;
-        }
-      }
-      activeLocks.clear();
     }
   }
 
@@ -206,11 +207,14 @@ public class DiskLockingService extends AbstractDiskBasedService
     // 1. Release JVM-local lock if active
     WeakReference<InterruptibleInputStream> streamRef = activeLocks.get(idStr);
     if (streamRef != null) {
-      InterruptibleInputStream stream = streamRef.get();
-      if (stream != null) {
-        stream.interrupt();
+      try {
+        InterruptibleInputStream stream = streamRef.get();
+        if (stream != null) {
+          Utils.interruptStream(stream);
+        }
+      } finally {
+        activeLocks.remove(idStr);
       }
-      activeLocks.remove(idStr);
     }
 
     // 2. Create the stop file to signal other replicas
@@ -290,31 +294,32 @@ public class DiskLockingService extends AbstractDiskBasedService
     }
 
     private void checkActiveLocks() {
-      // Check stop files for each active lock
+      // Check stop files for each active lock safely per entry
       for (Map.Entry<String, WeakReference<InterruptibleInputStream>> entry :
           activeLocks.entrySet()) {
         String idStr = entry.getKey();
-        WeakReference<InterruptibleInputStream> ref = entry.getValue();
-        InterruptibleInputStream stream = ref.get();
+        try {
+          WeakReference<InterruptibleInputStream> ref = entry.getValue();
+          InterruptibleInputStream stream = ref != null ? ref.get() : null;
 
-        if (stream == null) {
+          if (stream == null) {
+            activeLocks.remove(idStr);
+            continue;
+          }
+
+          checkStopFileAndInterrupt(idStr, stream);
+        } catch (Throwable t) {
+          log.warn("Error checking active lock for ID " + idStr, t);
           activeLocks.remove(idStr);
-          continue;
         }
-
-        checkStopFileAndInterrupt(idStr, stream);
       }
     }
 
     private void checkStopFileAndInterrupt(String idStr, InterruptibleInputStream stream) {
       Path stopFilePath = getStopPath(new UploadId(idStr));
       if (stopFilePath != null && Files.exists(stopFilePath)) {
-        try {
-          log.info("Watchdog detected stop file for upload ID {}. Interrupting stream.", idStr);
-          stream.interrupt();
-        } catch (Throwable t) {
-          log.warn("Error interrupting stream for ID " + idStr, t);
-        }
+        log.info("Watchdog detected stop file for upload ID {}. Interrupting stream.", idStr);
+        Utils.interruptStream(stream);
         activeLocks.remove(idStr);
         try {
           Files.deleteIfExists(stopFilePath);
