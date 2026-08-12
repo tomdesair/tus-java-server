@@ -301,12 +301,12 @@ public class S3LockingServiceTest {
 
   @Test
   public void testCheckStopSignalForEntryHappyPath() throws Exception {
-    io.minio.MinioClient mockClient = Mockito.mock(io.minio.MinioClient.class);
+    MinioClient mockClient = Mockito.mock(MinioClient.class);
     io.minio.StatObjectResponse mockStat = Mockito.mock(io.minio.StatObjectResponse.class);
-    Mockito.when(mockClient.statObject(Mockito.any(io.minio.StatObjectArgs.class)))
-        .thenReturn(mockStat);
+    Mockito.when(mockClient.statObject(Mockito.any(StatObjectArgs.class))).thenReturn(mockStat);
 
-    S3LockingService service = new S3LockingService(mockClient, "test-bucket");
+    S3LockingService service =
+        new S3LockingService(mockClient, "test-bucket", "locks", 30000L, 50L);
     me.desair.tus.server.upload.TimeBasedUploadIdFactory idFactory =
         new me.desair.tus.server.upload.TimeBasedUploadIdFactory();
     idFactory.setUploadUri("/files/upload");
@@ -316,9 +316,49 @@ public class S3LockingServiceTest {
     InterruptibleInputStream stream = new InterruptibleInputStream(bais);
 
     service.registerInputStream("/files/upload/12345", stream);
-    service.requestLockRelease("/files/upload/12345");
 
-    org.junit.Assert.assertTrue(stream.isInterrupted());
+    // Wait for background watchdog thread to execute checkStopSignals()
+    long deadline = System.currentTimeMillis() + 2000L;
+    while (!stream.isInterrupted() && System.currentTimeMillis() < deadline) {
+      Thread.sleep(50L);
+    }
+
+    assertTrue(stream.isInterrupted());
+    Mockito.verify(mockClient, Mockito.atLeastOnce()).statObject(Mockito.any(StatObjectArgs.class));
+
+    service.close();
+  }
+
+  @Test
+  public void testCheckStopSignalForEntryNoSuchKey() throws Exception {
+    MinioClient mockClient = Mockito.mock(MinioClient.class);
+    ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
+    Mockito.when(errorResponse.code()).thenReturn("NoSuchKey");
+    ErrorResponseException noSuchKeyException =
+        new ErrorResponseException(errorResponse, null, "NoSuchKey");
+
+    Mockito.when(mockClient.statObject(Mockito.any(StatObjectArgs.class)))
+        .thenThrow(noSuchKeyException);
+
+    S3LockingService service =
+        new S3LockingService(mockClient, "test-bucket", "locks", 30000L, 50L);
+    me.desair.tus.server.upload.TimeBasedUploadIdFactory idFactory =
+        new me.desair.tus.server.upload.TimeBasedUploadIdFactory();
+    idFactory.setUploadUri("/files/upload");
+    service.setIdFactory(idFactory);
+
+    ByteArrayInputStream bais = new ByteArrayInputStream("test".getBytes());
+    InterruptibleInputStream stream = new InterruptibleInputStream(bais);
+
+    service.registerInputStream("/files/upload/12345", stream);
+
+    // Wait for background watchdog thread to run checkStopSignals()
+    Thread.sleep(200L);
+
+    Mockito.verify(mockClient, Mockito.atLeastOnce()).statObject(Mockito.any(StatObjectArgs.class));
+    assertFalse(stream.isInterrupted());
+
+    service.close();
   }
 
   @Test
