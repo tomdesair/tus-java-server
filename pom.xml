@@ -22,6 +22,10 @@
         <maven.compiler.target>17</maven.compiler.target>
         <jacoco.coverage.limit>95</jacoco.coverage.limit>
         <jacoco.compare.branch />
+        <surefireJvmArgs />
+        <failsafeJvmArgs />
+        <surefireArgLine />
+        <failsafeArgLine />
     </properties>
 
     <dependencies>
@@ -277,7 +281,7 @@
                 <version>3.2.5</version>
                 <configuration>
                     <!-- Sets the VM argument line used when unit tests are run. -->
-                    <argLine>${surefireArgLine} --enable-final-field-mutation=ALL-UNNAMED --enable-native-access=ALL-UNNAMED</argLine>
+                    <argLine>${surefireArgLine} ${surefireJvmArgs}</argLine>
                     <!-- Sonar test count workaround -->
                     <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
                     <systemPropertyVariables>
@@ -296,7 +300,7 @@
                 <version>3.2.5</version>
                 <configuration>
                     <!-- Sets the VM argument line used when integration tests are run. -->
-                    <argLine>${failsafeArgLine} --enable-final-field-mutation=ALL-UNNAMED --enable-native-access=ALL-UNNAMED</argLine>
+                    <argLine>${failsafeArgLine} ${failsafeJvmArgs}</argLine>
                     <!-- Sonar test count workaround -->
                     <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
                     <systemPropertyVariables>
@@ -331,6 +335,16 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>jdk-24-plus</id>
+            <activation>
+                <jdk>[24,)</jdk>
+            </activation>
+            <properties>
+                <surefireJvmArgs>--enable-final-field-mutation=ALL-UNNAMED --enable-native-access=ALL-UNNAMED</surefireJvmArgs>
+                <failsafeJvmArgs>--enable-final-field-mutation=ALL-UNNAMED --enable-native-access=ALL-UNNAMED</failsafeJvmArgs>
+            </properties>
+        </profile>
         <profile>
             <id>skiptests</id>
             <activation>
