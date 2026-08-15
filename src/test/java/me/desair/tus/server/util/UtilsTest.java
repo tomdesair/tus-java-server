@@ -641,6 +641,73 @@ public class UtilsTest {
     Utils.interruptThread(unstartedThread);
   }
 
+  @Test
+  public void ensureDirectoryExistsWithNullPathShouldDoNothing() throws Exception {
+    Utils.ensureDirectoryExists(null);
+  }
+
+  @Test
+  public void ensureDirectoryExistsWithNewDirectoryShouldCreateDirs() throws Exception {
+    Path nestedDir = storagePath.resolve("nested").resolve("sub").resolve("dir");
+    assertThat(Files.exists(nestedDir), is(false));
+
+    Utils.ensureDirectoryExists(nestedDir);
+    assertThat(Files.exists(nestedDir), is(true));
+    assertThat(Files.isDirectory(nestedDir), is(true));
+  }
+
+  @Test
+  public void ensureDirectoryExistsWithExistingDirectoryShouldBeNoOp() throws Exception {
+    Path existingDir = storagePath.resolve("existing-dir");
+    Files.createDirectories(existingDir);
+    assertThat(Files.exists(existingDir), is(true));
+
+    Utils.ensureDirectoryExists(existingDir);
+    assertThat(Files.exists(existingDir), is(true));
+  }
+
+  @Test(expected = IOException.class)
+  public void ensureDirectoryExistsOnFileConflictShouldThrowIOException() throws Exception {
+    Path filePath = storagePath.resolve("file-conflict");
+    Files.write(filePath, "content".getBytes());
+
+    // Attempting to create directory where a file already exists should fail
+    Path conflictChildDir = filePath.resolve("child");
+    Utils.ensureDirectoryExists(conflictChildDir);
+  }
+
+  @Test
+  public void cleanupTempFilesWithNullOrNonExistentDirShouldDoNothing() {
+    Utils.cleanupTempFiles(null, "*.tmp", 1000L);
+    Utils.cleanupTempFiles(storagePath.resolve("non-existent-dir"), "*.tmp", 1000L);
+    Utils.cleanupTempFiles(storagePath, null, 1000L);
+  }
+
+  @Test
+  public void cleanupTempFilesShouldDeleteStaleFilesAndRetainFreshFiles() throws Exception {
+    Path tempDir = storagePath.resolve("temp-cleanup-test");
+    Utils.ensureDirectoryExists(tempDir);
+
+    Path staleFile = tempDir.resolve("tus-azure-chunk-stale.tmp");
+    Path freshFile = tempDir.resolve("tus-azure-chunk-fresh.tmp");
+    Path unrelatedFile = tempDir.resolve("other-file.txt");
+
+    Files.write(staleFile, "stale".getBytes());
+    Files.write(freshFile, "fresh".getBytes());
+    Files.write(unrelatedFile, "unrelated".getBytes());
+
+    // Set staleFile modification time to 1 hour ago
+    long oneHourAgo = System.currentTimeMillis() - 3600_000L;
+    Files.setLastModifiedTime(staleFile, java.nio.file.attribute.FileTime.fromMillis(oneHourAgo));
+
+    // Run cleanup for files older than 30 minutes
+    Utils.cleanupTempFiles(tempDir, "tus-azure-chunk-*.tmp", 1800_000L);
+
+    assertThat(Files.exists(staleFile), is(false));
+    assertThat(Files.exists(freshFile), is(true));
+    assertThat(Files.exists(unrelatedFile), is(true));
+  }
+
   /** Simple serializable class for testing. */
   public static class TestSerializable implements Serializable {
     private static final long serialVersionUID = 1L;

@@ -42,6 +42,7 @@ import me.desair.tus.server.upload.UploadType;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -154,6 +155,11 @@ public class S3StorageService implements UploadStorageService {
         temporaryDirectory != null
             ? temporaryDirectory
             : Paths.get(System.getProperty("java.io.tmpdir"));
+    try {
+      Utils.ensureDirectoryExists(this.temporaryDirectory);
+    } catch (IOException e) {
+      log.debug("Unable to ensure temporary directory exists: {}", e.getMessage());
+    }
 
     this.concatenationService =
         new S3ConcatenationService(

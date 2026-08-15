@@ -41,6 +41,8 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
 
   private static final Logger log = LoggerFactory.getLogger(AzureBlobConcatenationService.class);
 
+  public static final int MAX_BLOCKS_PER_BLOB = 50_000;
+
   private final BlobContainerClient containerClient;
   private final String uploadPrefix;
   private final UploadStorageService storageService;
@@ -84,6 +86,14 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
     Long expirationPeriod =
         storageService != null ? storageService.getUploadExpirationPeriod() : null;
     List<UploadInfo> partialUploads = getPartialUploads(finalUpload);
+
+    if (partialUploads.size() > MAX_BLOCKS_PER_BLOB) {
+      throw new IOException(
+          "Concatenation exceeds Azure limit of "
+              + MAX_BLOCKS_PER_BLOB
+              + " blocks: requested "
+              + partialUploads.size());
+    }
 
     Long totalLength = calculateTotalLength(partialUploads);
     boolean completed = checkAllCompleted(expirationPeriod, partialUploads);

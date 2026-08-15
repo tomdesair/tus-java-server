@@ -39,6 +39,7 @@ import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.BoundedInputStream;
 import org.slf4j.Logger;
@@ -137,7 +138,12 @@ public class AzureBlobStorageService implements UploadStorageService {
     this.locksPrefix = sanitizePrefix(locksPrefix);
     this.tempBufferDir = Objects.requireNonNull(tempBufferDir, "tempBufferDir must not be null");
 
-    ensureDirectoryExists(this.tempBufferDir);
+    try {
+      Utils.ensureDirectoryExists(this.tempBufferDir);
+    } catch (IOException e) {
+      log.debug("Unable to ensure tempBufferDir exists: {}", e.getMessage());
+    }
+    Utils.cleanupTempFiles(this.tempBufferDir, "tus-azure-chunk-*.tmp", 24L * 3600_000L);
 
     this.concatenationService =
         new AzureBlobConcatenationService(containerClient, this.uploadPrefix, this);
@@ -557,10 +563,7 @@ public class AzureBlobStorageService implements UploadStorageService {
 
   @Override
   public void cleanupExpiredUploads(UploadLockingService lockingService) throws IOException {
-    cleanupExpiredUploads();
-  }
-
-  public void cleanupExpiredUploads() throws IOException {
+    Utils.cleanupTempFiles(this.tempBufferDir, "tus-azure-chunk-*.tmp", 24L * 3600_000L);
     ListBlobsOptions options = new ListBlobsOptions().setPrefix(metadataPrefix);
     for (BlobItem item : containerClient.listBlobs(options, null)) {
       if (item.getName().endsWith(".info")) {
@@ -570,6 +573,10 @@ public class AzureBlobStorageService implements UploadStorageService {
         UploadId id = new UploadId(idStr);
         UploadInfo info = getUploadInfo(id);
         if (info != null && info.isExpired()) {
+          if (lockingService != null && lockingService.isLocked(id)) {
+            log.debug("Skipping cleanup of expired upload {} because it is currently locked", id);
+            continue;
+          }
           log.info("Cleaning up expired upload with ID {}", id);
           try {
             terminateUpload(info);
@@ -578,6 +585,10 @@ public class AzureBlobStorageService implements UploadStorageService {
         }
       }
     }
+  }
+
+  public void cleanupExpiredUploads() throws IOException {
+    cleanupExpiredUploads(null);
   }
 
   // --- Configuration Getters & Setters ---
@@ -902,17 +913,6 @@ public class AzureBlobStorageService implements UploadStorageService {
         Files.delete(file.toPath());
       } catch (Exception ignored) {
       }
-    }
-  }
-
-  /** Ensures local directory exists. */
-  private void ensureDirectoryExists(Path dir) {
-    try {
-      if (!Files.exists(dir)) {
-        Files.createDirectories(dir);
-      }
-    } catch (IOException e) {
-      throw new RuntimeException("Could not create buffer directory " + dir, e);
     }
   }
 }

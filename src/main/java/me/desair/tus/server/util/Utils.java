@@ -15,6 +15,8 @@ import java.io.Serializable;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.LinkedList;
@@ -478,6 +480,49 @@ public class Utils {
       } catch (Exception e) {
         log.debug("Error interrupting thread {}: {}", thread.getName(), e.getMessage());
       }
+    }
+  }
+
+  /**
+   * Ensures that the specified directory exists, creating it and any necessary parent directories.
+   * If the directory already exists, this method is a safe no-op. If the path is null, this method
+   * does nothing.
+   *
+   * @param dir The directory path to ensure exists
+   * @throws IOException If creating the directory hierarchy fails
+   */
+  public static void ensureDirectoryExists(Path dir) throws IOException {
+    if (dir != null && !Files.exists(dir)) {
+      Files.createDirectories(dir);
+    }
+  }
+
+  /**
+   * Cleans up temporary files in the specified directory matching a glob pattern and older than
+   * maxAgeMillis.
+   *
+   * @param dir The directory containing temporary files
+   * @param globPattern The glob pattern for temporary files to inspect (e.g. "*.tmp")
+   * @param maxAgeMillis The maximum age in milliseconds before a file is considered stale and
+   *     deleted
+   */
+  public static void cleanupTempFiles(Path dir, String globPattern, long maxAgeMillis) {
+    if (dir == null || !Files.exists(dir) || !Files.isDirectory(dir) || globPattern == null) {
+      return;
+    }
+    long cutoff = System.currentTimeMillis() - maxAgeMillis;
+    try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, globPattern)) {
+      for (Path file : stream) {
+        try {
+          if (Files.isRegularFile(file) && Files.getLastModifiedTime(file).toMillis() < cutoff) {
+            Files.deleteIfExists(file);
+          }
+        } catch (Exception e) {
+          log.debug("Error deleting stale temporary file {}: {}", file, e.getMessage());
+        }
+      }
+    } catch (Exception e) {
+      log.debug("Error scanning directory {} for stale temporary files: {}", dir, e.getMessage());
     }
   }
 }

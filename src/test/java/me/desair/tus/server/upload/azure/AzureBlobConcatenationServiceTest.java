@@ -9,7 +9,9 @@ import static org.mockito.Mockito.when;
 
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
+import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -173,5 +175,25 @@ public class AzureBlobConcatenationServiceTest {
     InputStream is = concatenationService.getConcatenatedBytes(finalInfo);
     assertNotNull(is);
     assertEquals(0, is.available());
+  }
+
+  @Test(expected = IOException.class)
+  public void mergeShouldThrowIOExceptionWhenBlockCountExceedsAzureLimit() throws Exception {
+    UploadInfo partInfo = new UploadInfo();
+    partInfo.setId(new UploadId("part-1"));
+    partInfo.setLength(10L);
+    partInfo.setOffset(10L);
+    when(storageService.getUploadInfo(any(String.class), any())).thenReturn(partInfo);
+
+    List<String> tooManyParts = new ArrayList<>();
+    for (int i = 0; i <= 50_000; i++) {
+      tooManyParts.add("/test/upload/part-" + i);
+    }
+
+    UploadInfo finalInfo = new UploadInfo();
+    finalInfo.setConcatenationPartIds(tooManyParts);
+    finalInfo.setUploadType(UploadType.CONCATENATED);
+
+    concatenationService.merge(finalInfo);
   }
 }

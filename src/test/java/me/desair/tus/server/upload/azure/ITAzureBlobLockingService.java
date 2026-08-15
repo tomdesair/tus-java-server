@@ -101,8 +101,20 @@ public class ITAzureBlobLockingService {
     // Calling renewLease on an externally released lease triggers catch block
     azureLock.renewLease();
 
-    // Calling release on an already broken/released lease triggers catch block
-    azureLock.release();
+    // Acquire another lock and delete the blob with lease ID to test direct release catch block
+    UploadLock lock2 = lockingService.lockUploadByUri("/test/upload/998878");
+    assertNotNull(lock2);
+    AzureBlobUploadLock azureLock2 = (AzureBlobUploadLock) lock2;
+    com.azure.storage.blob.BlobClient lockBlob2 =
+        containerClient.getBlobClient("locks/998878.lock");
+    String leaseId = azureLock2.getLeaseClient().getLeaseId();
+    lockBlob2.deleteWithResponse(
+        com.azure.storage.blob.models.DeleteSnapshotsOptionType.INCLUDE,
+        new com.azure.storage.blob.models.BlobRequestConditions().setLeaseId(leaseId),
+        null,
+        null);
+    // Direct release on deleted blob triggers catch block in release()
+    azureLock2.release();
   }
 
   @Test(expected = UploadAlreadyLockedException.class)

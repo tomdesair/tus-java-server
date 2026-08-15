@@ -183,9 +183,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     if (stopFilePath != null) {
       try {
         Path parentDir = stopFilePath.getParent();
-        if (parentDir != null && !Files.exists(parentDir)) {
-          Files.createDirectories(parentDir);
-        }
+        Utils.ensureDirectoryExists(parentDir);
         Files.write(stopFilePath, new byte[0]);
       } catch (IOException e) {
         log.warn("Unable to create stop file " + stopFilePath, e);

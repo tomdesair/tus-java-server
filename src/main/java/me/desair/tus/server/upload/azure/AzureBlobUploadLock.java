@@ -64,6 +64,10 @@ public class AzureBlobUploadLock implements UploadLock {
     this.renewalExecutor = renewalExecutor;
   }
 
+  BlobLeaseClient getLeaseClient() {
+    return leaseClient;
+  }
+
   /** Attempts to renew the lease with Azure Blob Storage. */
   void renewLease() {
     if (released) {

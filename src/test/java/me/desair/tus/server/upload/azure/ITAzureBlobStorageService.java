@@ -17,6 +17,7 @@ import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
+import me.desair.tus.server.upload.UuidUploadIdFactory;
 import org.junit.AfterClass;
 import org.junit.Assume;
 import org.junit.Before;
@@ -431,6 +432,41 @@ public class ITAzureBlobStorageService {
       assertNotNull(is);
       byte[] readBytes = org.apache.commons.io.IOUtils.toByteArray(is);
       assertEquals(8 * 1024 * 1024 + 5, readBytes.length);
+    }
+  }
+
+  @Test
+  public void testCleanupExpiredUploadsSkipsCurrentlyLockedUploads() throws Exception {
+    UuidUploadIdFactory idFactory = new UuidUploadIdFactory();
+    idFactory.setUploadUri("/test/upload");
+
+    AzureBlobLockingService lockingService = new AzureBlobLockingService(containerClient);
+    lockingService.setIdFactory(idFactory);
+    storageService.setIdFactory(idFactory);
+
+    UploadInfo expiredLocked = new UploadInfo();
+    expiredLocked.setLength(100L);
+    expiredLocked.setExpirationTimestamp(System.currentTimeMillis() - 10_000L);
+    expiredLocked = storageService.create(expiredLocked, "owner1");
+
+    UploadInfo expiredUnlocked = new UploadInfo();
+    expiredUnlocked.setLength(100L);
+    expiredUnlocked.setExpirationTimestamp(System.currentTimeMillis() - 10_000L);
+    expiredUnlocked = storageService.create(expiredUnlocked, "owner1");
+
+    UploadLock lock = lockingService.lockUploadByUri("/test/upload/" + expiredLocked.getId());
+    assertNotNull(lock);
+
+    try {
+      storageService.cleanupExpiredUploads(lockingService);
+
+      // Locked upload should NOT have been deleted
+      assertNotNull(storageService.getUploadInfo(expiredLocked.getId()));
+
+      // Unlocked upload SHOULD have been cleaned up
+      assertNull(storageService.getUploadInfo(expiredUnlocked.getId()));
+    } finally {
+      lock.release();
     }
   }
 }

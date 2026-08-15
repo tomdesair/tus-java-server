@@ -291,7 +291,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         // Index the checksum
         Path checksumFile =
             getChecksumPath(uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm());
-        Files.createDirectories(checksumFile.getParent());
+        Utils.ensureDirectoryExists(checksumFile.getParent());
         Files.write(checksumFile, uploadInfo.getId().toString().getBytes(StandardCharsets.UTF_8));
       }
 
@@ -585,7 +585,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   }
 
   private Path createUploadDirectory(UploadId id) throws IOException {
-    return Files.createDirectories(getPathInStorageDirectory(id));
+    Path dir = getPathInStorageDirectory(id);
+    Utils.ensureDirectoryExists(dir);
+    return dir;
   }
 
   private Path getPathInUploadDir(UploadId id, String fileName) throws UploadNotFoundException {
