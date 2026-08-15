@@ -204,13 +204,16 @@ Lock contention resolution operates on two levels:
 
 | Test Suite Class | Type | Dependencies | Execution Time | Description |
 |---|---|---|---|---|
-| `AzureBlobStorageServiceTest` | Unit Test | Mockito (Offline) | < 1s | Fast unit tests for storage CRUD, chunk streaming, and deduplication. |
-| `AzureBlobLockingServiceTest` | Unit Test | Mockito (Offline) | < 1s | Unit tests for lease acquisition, lock contention, and stream interruption. |
-| `AzureBlobUploadLockTest` | Unit Test | Mockito (Offline) | < 1s | Unit tests for lease release and background renewal. |
-| `AzureBlobConcatenationServiceTest` | Unit Test | Mockito (Offline) | < 1s | Unit tests for zero-copy concatenation merging. |
-| `ITAzureBlobStorageServiceTest` | Integration | Azurite (Docker) | ~ 5s | Live end-to-end storage integration test against Azurite emulator. |
-| `ITAzureBlobRufhProtocol` | Integration | Azurite (Docker) | ~ 8s | IETF RUFH protocol integration suite for Azure backend. |
-| `ITAzureBlobTusFileUploadService` | Integration | Azurite (Docker) | ~ 8s | Tus 1.0.0 protocol integration suite for Azure backend. |
+| `AzureUtilsTest` | Unit Test | Offline | < 1s | Fast unit tests for Azure error parsing and response mapping. |
+| `AzureBlobStorageServiceTest` | Unit Test | Offline | < 1s | Pure offline unit tests for Azure storage service parameters, POJO configuration, bounds checking, and defensive validation. |
+| `AzureBlobLockingServiceTest` | Unit Test | Offline | < 1s | Pure offline unit tests for Azure locking service parameters, prefix normalization, URI parsing, and defensive handling. |
+| `AzureBlobUploadLockTest` | Unit Test | Offline | < 1s | Pure offline unit tests for Azure upload lock parameters, getters, and daemon executor lifecycle. |
+| `AzureBlobConcatenationServiceTest` | Unit Test | Offline | < 1s | Pure offline unit tests for Azure concatenation service parameters, prefix sanitization, guard clauses, and partial upload handling. |
+| `ITAzureBlobStorageService` | Integration | Azurite (Docker) | ~ 3s | Live end-to-end storage integration test against Azurite emulator (Block Blob staging, `.part` buffer commits, truncations, deduplication, and expiration). |
+| `ITAzureBlobLockingService` | Integration | Azurite (Docker) | ~ 2s | Distributed locking, Azure Blob Leases, lease renewals, lock contention (409 Conflict), stream interruption, & stop signal integration tests. |
+| `ITAzureBlobConcatenationService` | Integration | Azurite (Docker) | ~ 2s | Server-side zero-copy block concatenation (`stageBlockFromUrl`) integration tests. |
+| `ITAzureBlobRufhProtocol` | Integration | Azurite (Docker) | ~ 3s | IETF RUFH protocol integration suite for Azure backend. |
+| `ITAzureBlobTusFileUploadService` | Integration | Azurite (Docker) | ~ 3s | Tus 1.0.0 protocol integration suite for Azure backend. |
 
 ---
 
@@ -261,8 +264,8 @@ Lock contention resolution operates on two levels:
 
 ```bash
 # Run fast offline unit tests
-mvn test -Dtest="*Azure*Test" -q
+mvn test -Dtest="Azure*" -q
 
 # Run integration tests against Azurite container
-mvn test -Dtest="ITAzureBlob*" -q
+mvn verify -Dtest="ITAzureBlob*" -q
 ```

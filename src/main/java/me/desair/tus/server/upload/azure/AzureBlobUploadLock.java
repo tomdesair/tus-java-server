@@ -53,19 +53,33 @@ public class AzureBlobUploadLock implements UploadLock {
             TimeUnit.SECONDS);
   }
 
+  AzureBlobUploadLock(
+      BlobLeaseClient leaseClient,
+      BlobClient lockBlob,
+      String uploadUri,
+      ScheduledExecutorService renewalExecutor) {
+    this.leaseClient = leaseClient;
+    this.lockBlob = lockBlob;
+    this.uploadUri = Objects.requireNonNull(uploadUri, "uploadUri must not be null");
+    this.renewalExecutor = renewalExecutor;
+  }
+
   /** Attempts to renew the lease with Azure Blob Storage. */
   void renewLease() {
     if (released) {
       return;
     }
-    try {
-      leaseClient.renewLease();
-      log.trace("Successfully renewed Azure blob lease for upload URI {}", uploadUri);
-    } catch (Exception e) {
-      log.warn("Failed to renew Azure blob lease for upload URI {}: {}", uploadUri, e.getMessage());
-      // ponytail: lease was broken externally or expired, shutdown executor
-      released = true;
-      shutdownExecutor();
+    if (leaseClient != null) {
+      try {
+        leaseClient.renewLease();
+        log.trace("Successfully renewed Azure blob lease for upload URI {}", uploadUri);
+      } catch (Exception e) {
+        log.warn(
+            "Failed to renew Azure blob lease for upload URI {}: {}", uploadUri, e.getMessage());
+        // KISS: lease was broken externally or expired, shutdown executor
+        released = true;
+        shutdownExecutor();
+      }
     }
   }
 
@@ -74,14 +88,16 @@ public class AzureBlobUploadLock implements UploadLock {
     if (!released) {
       released = true;
       shutdownExecutor();
-      try {
-        leaseClient.releaseLease();
-        log.trace("Released Azure blob lease for upload URI {}", uploadUri);
-      } catch (Exception e) {
-        log.debug(
-            "Azure blob lease release failed (may have already expired/broken) for URI {}: {}",
-            uploadUri,
-            e.getMessage());
+      if (leaseClient != null) {
+        try {
+          leaseClient.releaseLease();
+          log.trace("Released Azure blob lease for upload URI {}", uploadUri);
+        } catch (Exception e) {
+          log.debug(
+              "Azure blob lease release failed (may have already expired/broken) for URI {}: {}",
+              uploadUri,
+              e.getMessage());
+        }
       }
     }
   }

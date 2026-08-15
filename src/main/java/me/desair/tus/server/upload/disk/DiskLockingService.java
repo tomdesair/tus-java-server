@@ -1,6 +1,5 @@
 package me.desair.tus.server.upload.disk;
 
-import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -31,8 +30,7 @@ import org.slf4j.LoggerFactory;
  * File locks are also automatically released on application (JVM) shutdown. This means the file
  * locking is not persistent and prevents cleanup and stale lock issues.
  */
-public class DiskLockingService extends AbstractDiskBasedService
-    implements UploadLockingService, Closeable {
+public class DiskLockingService extends AbstractDiskBasedService implements UploadLockingService {
 
   private static final Logger log = LoggerFactory.getLogger(DiskLockingService.class);
   private static final String LOCK_SUB_DIRECTORY = "locks";
@@ -44,15 +42,10 @@ public class DiskLockingService extends AbstractDiskBasedService
   private static Thread watchdogThread = null;
   private static final Object watchdogLock = new Object();
 
-  private final Thread shutdownHook;
-  private volatile boolean closed = false;
-
   private UploadIdFactory idFactory;
 
   public DiskLockingService(String storagePath) {
-    super(storagePath + File.separator + LOCK_SUB_DIRECTORY);
-    this.shutdownHook = new Thread(this::closeQuietly, "disk-lock-shutdown-hook");
-    registerShutdownHook();
+    super(storagePath + File.separator + LOCK_SUB_DIRECTORY, "disk-lock-shutdown-hook");
   }
 
   /** Constructor to use custom UploadIdFactory. */
@@ -62,42 +55,13 @@ public class DiskLockingService extends AbstractDiskBasedService
     this.idFactory = idFactory;
   }
 
-  private void registerShutdownHook() {
-    try {
-      Runtime.getRuntime().addShutdownHook(shutdownHook);
-    } catch (IllegalStateException ignored) {
-      // JVM is already shutting down
-    }
-  }
-
-  private void deregisterShutdownHook() {
-    try {
-      Runtime.getRuntime().removeShutdownHook(shutdownHook);
-    } catch (IllegalStateException ignored) {
-      // JVM is already shutting down
-    }
-  }
-
-  private void closeQuietly() {
-    try {
-      close();
-    } catch (Exception ignored) {
-    }
-  }
-
   @Override
-  public void close() throws IOException {
+  protected void cleanupOnClose() throws IOException {
     synchronized (watchdogLock) {
-      if (watchdogThread != null) {
-        watchdogThread.interrupt();
-        watchdogThread = null;
-      }
+      Utils.interruptThread(watchdogThread);
+      watchdogThread = null;
     }
     activeLocks.clear();
-    if (!closed) {
-      closed = true;
-      deregisterShutdownHook();
-    }
   }
 
   /**
@@ -208,10 +172,7 @@ public class DiskLockingService extends AbstractDiskBasedService
     WeakReference<InterruptibleInputStream> streamRef = activeLocks.get(idStr);
     if (streamRef != null) {
       try {
-        InterruptibleInputStream stream = streamRef.get();
-        if (stream != null) {
-          Utils.interruptStream(stream);
-        }
+        Utils.interruptStream(streamRef.get());
       } finally {
         activeLocks.remove(idStr);
       }

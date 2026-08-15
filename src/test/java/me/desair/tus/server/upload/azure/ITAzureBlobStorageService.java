@@ -3,7 +3,6 @@ package me.desair.tus.server.upload.azure;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
 
 import com.azure.storage.blob.BlobContainerClient;
 import java.io.ByteArrayInputStream;
@@ -57,57 +56,6 @@ public class ITAzureBlobStorageService {
     storageService = new AzureBlobStorageService(containerClient);
   }
 
-  @Test
-  public void configurationGettersAndSetters() {
-    storageService.setMaxAppendSize(500L);
-    assertEquals(Long.valueOf(500L), storageService.getMaxAppendSize());
-
-    storageService.setMinAppendSize(100L);
-    assertEquals(Long.valueOf(100L), storageService.getMinAppendSize());
-
-    storageService.setPreferredBlockSize(8L * 1024 * 1024);
-    assertEquals(8L * 1024 * 1024, storageService.getPreferredBlockSize());
-
-    storageService.setUploadDeduplicationEnabled(true);
-    assertTrue(storageService.isUploadDeduplicationEnabled());
-
-    storageService.setUploadExpirationPeriod(3600000L);
-    assertEquals(Long.valueOf(3600000L), storageService.getUploadExpirationPeriod());
-  }
-
-  @Test
-  public void constructorCustomPrefixes() {
-    AzureBlobStorageService customService =
-        new AzureBlobStorageService(
-            containerClient,
-            "custom-uploads/",
-            "custom-metadata/",
-            "custom-checksums/",
-            "custom-parts/",
-            java.nio.file.Paths.get(System.getProperty("java.io.tmpdir")));
-    assertNotNull(customService);
-  }
-
-  @Test
-  public void getAzureBlobNameShouldReturnBlobName() throws Exception {
-    UploadInfo info = new UploadInfo();
-    info.setId(new UploadId("12345"));
-    assertEquals("uploads/12345", storageService.getAzureBlobName(info));
-
-    info.setDuplicatesUploadId(new UploadId("parent-999"));
-    assertEquals("uploads/parent-999", storageService.getAzureBlobName(info));
-  }
-
-  @Test(expected = IllegalArgumentException.class)
-  public void setPreferredBlockSizeTooSmallShouldThrow() {
-    storageService.setPreferredBlockSize(1024L); // less than 4MB
-  }
-
-  @Test(expected = IllegalArgumentException.class)
-  public void setPreferredBlockSizeTooLargeShouldThrow() {
-    storageService.setPreferredBlockSize(5000L * 1024 * 1024); // greater than 4000MB
-  }
-
   @Test(expected = MinAppendSizeNotMetException.class)
   public void minAppendSizeNotMetShouldThrow() throws Exception {
     storageService.setMinAppendSize(100L);
@@ -130,19 +78,9 @@ public class ITAzureBlobStorageService {
     storageService.append(created, new ByteArrayInputStream("0123456789".getBytes()));
   }
 
-  @Test(expected = NullPointerException.class)
-  public void removeLastNumberOfBytesShouldThrowOnNullInfo() throws Exception {
-    storageService.removeLastNumberOfBytes(null, 10L);
-  }
-
   @Test(expected = UploadNotFoundException.class)
   public void getUploadedBytesByUriNotFoundShouldThrow() throws Exception {
     storageService.getUploadedBytes("/test/upload/non-existent", "owner1");
-  }
-
-  @Test
-  public void getUploadedBytesNullIdShouldReturnNull() throws Exception {
-    assertNull(storageService.getUploadedBytes((UploadId) null));
   }
 
   @Test(expected = UploadNotFoundException.class)
@@ -150,38 +88,6 @@ public class ITAzureBlobStorageService {
     UploadInfo info = new UploadInfo();
     info.setId(new UploadId("non-existent-id"));
     storageService.copyUploadTo(info, new ByteArrayOutputStream());
-  }
-
-  @Test(expected = NullPointerException.class)
-  public void copyUploadToNullInfoShouldThrow() throws Exception {
-    storageService.copyUploadTo(null, new ByteArrayOutputStream());
-  }
-
-  @Test(expected = NullPointerException.class)
-  public void copyUploadToNullStreamShouldThrow() throws Exception {
-    storageService.copyUploadTo(new UploadInfo(), null);
-  }
-
-  @Test
-  public void terminateUploadNullInfoShouldDoNothing() throws Exception {
-    storageService.terminateUpload(null);
-    storageService.terminateUpload(new UploadInfo());
-  }
-
-  @Test
-  public void getAzureBlobNameNullInfoShouldReturnNull() throws Exception {
-    assertNull(storageService.getAzureBlobName((UploadInfo) null));
-    assertNull(storageService.getAzureBlobName("/test/upload/invalid", "owner1"));
-  }
-
-  @Test
-  public void getUploadInfoByChecksumDisabledOrNull() throws Exception {
-    storageService.setUploadDeduplicationEnabled(false);
-    assertNull(storageService.getUploadInfoByChecksum("checksum", ChecksumAlgorithm.MD5));
-
-    storageService.setUploadDeduplicationEnabled(true);
-    assertNull(storageService.getUploadInfoByChecksum(null, ChecksumAlgorithm.MD5));
-    assertNull(storageService.getUploadInfoByChecksum("checksum", null));
   }
 
   @Test

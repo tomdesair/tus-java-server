@@ -465,4 +465,19 @@ public class Utils {
       log.warn("Error interrupting input stream: {}", t.getMessage(), t);
     }
   }
+
+  /**
+   * Safely interrupts and stops a thread, catching and logging any exceptions that occur.
+   *
+   * @param thread The Thread to interrupt
+   */
+  public static void interruptThread(Thread thread) {
+    if (thread != null) {
+      try {
+        thread.interrupt();
+      } catch (Exception e) {
+        log.debug("Error interrupting thread {}: {}", thread.getName(), e.getMessage());
+      }
+    }
+  }
 }

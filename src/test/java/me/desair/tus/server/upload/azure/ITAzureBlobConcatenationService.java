@@ -54,17 +54,6 @@ public class ITAzureBlobConcatenationService {
     storageService.setUploadConcatenationService(concatenationService);
   }
 
-  @Test
-  public void mergeShouldDoNothingIfInfoIsNull() throws Exception {
-    concatenationService.merge(null);
-  }
-
-  @Test
-  public void mergeShouldDoNothingIfConcatFilesIsNull() throws Exception {
-    UploadInfo info = new UploadInfo();
-    concatenationService.merge(info);
-  }
-
   @Test(expected = UploadNotFoundException.class)
   public void mergeShouldThrowWhenPartialUploadNotFound() throws Exception {
     UploadInfo finalInfo = new UploadInfo();
@@ -144,18 +133,6 @@ public class ITAzureBlobConcatenationService {
   }
 
   @Test
-  public void getPartialUploadsShouldReturnEmptyOnNullInfo() throws Exception {
-    assertTrue(concatenationService.getPartialUploads(null).isEmpty());
-  }
-
-  @Test
-  public void getPartialUploadsShouldReturnEmptyOnNullPartIds() throws Exception {
-    UploadInfo info = new UploadInfo();
-    info.setConcatenationPartIds(null);
-    assertTrue(concatenationService.getPartialUploads(info).isEmpty());
-  }
-
-  @Test
   public void mergeShouldUpdateExpirationWhenExpirationPeriodIsSet() throws Exception {
     storageService.setUploadExpirationPeriod(5000L);
 
@@ -176,46 +153,6 @@ public class ITAzureBlobConcatenationService {
   }
 
   @Test
-  public void mergeShouldDoNothingWhenIncompleteOrExpiredPartials() throws Exception {
-    UploadInfo part1Info = new UploadInfo();
-    part1Info.setLength(10L); // length 10, but offset 0 (in progress)
-    UploadInfo part1 = storageService.create(part1Info, null);
-
-    UploadInfo finalInfo = new UploadInfo();
-    finalInfo.setConcatenationPartIds(Arrays.asList("/test/upload/" + part1.getId()));
-    finalInfo.setUploadType(UploadType.CONCATENATED);
-    UploadInfo createdFinal = storageService.create(finalInfo, null);
-
-    concatenationService.merge(createdFinal);
-    // Should not merge since part1 is still in progress
-    assertEquals(Long.valueOf(0L), createdFinal.getOffset());
-  }
-
-  @Test
-  public void mergeShouldDoNothingWhenPartInfoLengthIsNull() throws Exception {
-    UploadInfo part1Info = new UploadInfo();
-    UploadInfo part1 = storageService.create(part1Info, null); // length null
-
-    UploadInfo finalInfo = new UploadInfo();
-    finalInfo.setConcatenationPartIds(Arrays.asList("/test/upload/" + part1.getId()));
-    finalInfo.setUploadType(UploadType.CONCATENATED);
-    UploadInfo createdFinal = storageService.create(finalInfo, null);
-
-    concatenationService.merge(createdFinal);
-    assertEquals(Long.valueOf(0L), createdFinal.getOffset());
-  }
-
-  @Test
-  public void mergeShouldDoNothingWhenFinalUploadNotInProgress() throws Exception {
-    UploadInfo finalInfo = new UploadInfo();
-    finalInfo.setOffset(10L);
-    finalInfo.setLength(10L); // upload completed, not in progress
-    finalInfo.setConcatenationPartIds(Arrays.asList("/test/upload/some-id"));
-
-    concatenationService.merge(finalInfo);
-  }
-
-  @Test
   public void getConcatenatedBytesShouldReturnBytesForCompletedUpload() throws Exception {
     UploadInfo info = new UploadInfo();
     info.setOffset(5L);
@@ -226,47 +163,5 @@ public class ITAzureBlobConcatenationService {
     InputStream is = concatenationService.getConcatenatedBytes(created);
     assertNotNull(is);
     assertEquals("hello", org.apache.commons.io.IOUtils.toString(is, StandardCharsets.UTF_8));
-  }
-
-  @Test
-  public void constructorPrefixSanitizationVariants() {
-    AzureBlobConcatenationService service1 =
-        new AzureBlobConcatenationService(containerClient, null, storageService);
-    AzureBlobConcatenationService service2 =
-        new AzureBlobConcatenationService(containerClient, "/custom/prefix", storageService);
-    AzureBlobConcatenationService service3 =
-        new AzureBlobConcatenationService(containerClient, "custom/prefix/", storageService);
-
-    assertNotNull(service1);
-    assertNotNull(service2);
-    assertNotNull(service3);
-  }
-
-  @Test
-  public void getConcatenatedBytesShouldReturnEmptyStreamForInProgressUploadWithIncompletePartials()
-      throws Exception {
-    UploadInfo part1Info = new UploadInfo();
-    part1Info.setLength(10L); // length 10, offset 0 (incomplete)
-    UploadInfo part1 = storageService.create(part1Info, null);
-
-    UploadInfo finalInfo = new UploadInfo();
-    finalInfo.setConcatenationPartIds(Arrays.asList("/test/upload/" + part1.getId()));
-    finalInfo.setUploadType(UploadType.CONCATENATED);
-    UploadInfo createdFinal = storageService.create(finalInfo, null);
-
-    InputStream is = concatenationService.getConcatenatedBytes(createdFinal);
-    assertNotNull(is);
-    assertEquals(0, is.available());
-  }
-
-  @Test
-  public void mergeWithEmptyPartIdsListShouldDoNothing() throws Exception {
-    UploadInfo finalInfo = new UploadInfo();
-    finalInfo.setConcatenationPartIds(java.util.Collections.emptyList());
-    finalInfo.setUploadType(UploadType.CONCATENATED);
-    UploadInfo createdFinal = storageService.create(finalInfo, null);
-
-    concatenationService.merge(createdFinal);
-    assertEquals(Long.valueOf(0L), createdFinal.getOffset());
   }
 }

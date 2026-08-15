@@ -10,7 +10,6 @@ import io.minio.StatObjectArgs;
 import io.minio.errors.ErrorResponseException;
 import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
-import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Map;
@@ -21,6 +20,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
+import me.desair.tus.server.upload.AbstractCloseableResourceService;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
@@ -54,7 +54,8 @@ import org.slf4j.LoggerFactory;
  *       pods.
  * </ul>
  */
-public class S3LockingService implements UploadLockingService, Closeable {
+public class S3LockingService extends AbstractCloseableResourceService
+    implements UploadLockingService {
 
   private static final Logger log = LoggerFactory.getLogger(S3LockingService.class);
 
@@ -71,9 +72,6 @@ public class S3LockingService implements UploadLockingService, Closeable {
   private UploadIdFactory idFactory = new UuidUploadIdFactory();
   private final Map<String, InputStream> activeInputStreams = new ConcurrentHashMap<>();
   private final ScheduledExecutorService watchdogExecutor;
-
-  private final Thread shutdownHook;
-  private volatile boolean closed = false;
 
   /**
    * Basic constructor using default lock prefix ("locks/"), 30s lease duration, and 2s polling
@@ -106,11 +104,39 @@ public class S3LockingService implements UploadLockingService, Closeable {
       String locksPrefix,
       long leaseDurationMs,
       long pollIntervalMs) {
+    this(
+        minioClient,
+        bucket,
+        locksPrefix,
+        leaseDurationMs,
+        pollIntervalMs,
+        new UuidUploadIdFactory());
+  }
+
+  /**
+   * Full constructor allowing custom configuration including a custom {@link UploadIdFactory}.
+   *
+   * @param minioClient Pre-configured MinIO Client
+   * @param bucket Target S3 bucket name
+   * @param locksPrefix Object key prefix for locks and stop signals
+   * @param leaseDurationMs Lock lease duration in milliseconds
+   * @param pollIntervalMs Watchdog poll interval for lock contention interrupt signals
+   * @param idFactory Custom {@link UploadIdFactory}
+   */
+  public S3LockingService(
+      MinioClient minioClient,
+      String bucket,
+      String locksPrefix,
+      long leaseDurationMs,
+      long pollIntervalMs,
+      UploadIdFactory idFactory) {
+    super("s3-lock-shutdown-hook");
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
     this.locksPrefix = sanitizePrefix(locksPrefix);
     this.leaseDurationMs = leaseDurationMs;
     this.pollIntervalMs = pollIntervalMs;
+    this.idFactory = Objects.requireNonNull(idFactory, "idFactory must not be null");
 
     // Background watchdog thread to poll S3 for .stop contention signals across pods
     this.watchdogExecutor =
@@ -120,33 +146,6 @@ public class S3LockingService implements UploadLockingService, Closeable {
             pollIntervalMs,
             pollIntervalMs,
             TimeUnit.MILLISECONDS);
-
-    // Register automatic JVM shutdown hook to clean up watchdog thread pool on app/pod shutdown
-    this.shutdownHook = new Thread(this::closeQuietly, "s3-lock-shutdown-hook");
-    registerShutdownHook();
-  }
-
-  private void registerShutdownHook() {
-    try {
-      Runtime.getRuntime().addShutdownHook(shutdownHook);
-    } catch (IllegalStateException ignored) {
-      // JVM is already shutting down
-    }
-  }
-
-  private void deregisterShutdownHook() {
-    try {
-      Runtime.getRuntime().removeShutdownHook(shutdownHook);
-    } catch (IllegalStateException ignored) {
-      // JVM is already shutting down
-    }
-  }
-
-  private void closeQuietly() {
-    try {
-      close();
-    } catch (Exception ignored) {
-    }
   }
 
   @Override
@@ -312,13 +311,9 @@ public class S3LockingService implements UploadLockingService, Closeable {
   }
 
   @Override
-  public void close() throws IOException {
-    if (!closed) {
-      closed = true;
-      deregisterShutdownHook();
-      Utils.shutdownExecutor(watchdogExecutor);
-      activeInputStreams.clear();
-    }
+  protected void cleanupOnClose() throws IOException {
+    Utils.shutdownExecutor(watchdogExecutor);
+    activeInputStreams.clear();
   }
 
   private void checkStopSignals() {
@@ -338,7 +333,7 @@ public class S3LockingService implements UploadLockingService, Closeable {
       // Check if a .stop signal object was written by another pod requesting lock release
       minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(stopKey).build());
       // Remote stop signal object found! Interrupt local byte stream immediately
-      interruptStream(inputStream);
+      Utils.interruptStream(inputStream);
     } catch (ErrorResponseException e) {
       if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
         // Normal state: no stop signal object in S3
@@ -347,10 +342,6 @@ public class S3LockingService implements UploadLockingService, Closeable {
     } catch (Exception e) {
       log.debug("Error checking stop signal for {}", stopKey, e);
     }
-  }
-
-  private void interruptStream(InputStream is) {
-    Utils.interruptStream(is);
   }
 
   private void deleteObjectQuietly(String key) {

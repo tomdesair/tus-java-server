@@ -438,7 +438,7 @@ public class AzureBlobStorageService implements UploadStorageService {
       return;
     }
 
-    // Note: Per AGENTS.md §7, write/modify operations MUST NOT resolve duplicates to parent.
+    // Write/modify operations MUST NOT resolve duplicates to parent.
     long currentOffset = uploadInfo.getOffset();
     long targetOffset = Math.max(0L, currentOffset - byteCount);
 

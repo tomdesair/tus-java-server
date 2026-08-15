@@ -603,6 +603,44 @@ public class UtilsTest {
     Utils.interruptStream(faultyStream);
   }
 
+  @Test
+  public void testInterruptThreadNull() {
+    // Should do nothing without exception
+    Utils.interruptThread(null);
+  }
+
+  @Test
+  public void testInterruptThreadAlive() throws Exception {
+    java.util.concurrent.atomic.AtomicBoolean wasInterrupted =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    Thread thread =
+        new Thread(
+            () -> {
+              try {
+                Thread.sleep(5000L);
+              } catch (InterruptedException e) {
+                wasInterrupted.set(true);
+              }
+            },
+            "test-interruptible-thread");
+    thread.start();
+
+    // Give the thread a moment to start
+    Thread.sleep(50L);
+
+    Utils.interruptThread(thread);
+    thread.join(2000L);
+
+    assertThat(wasInterrupted.get(), is(true));
+  }
+
+  @Test
+  public void testInterruptThreadDead() {
+    Thread unstartedThread = new Thread(() -> {}, "test-unstarted");
+    // Should handle cleanly without exception
+    Utils.interruptThread(unstartedThread);
+  }
+
   /** Simple serializable class for testing. */
   public static class TestSerializable implements Serializable {
     private static final long serialVersionUID = 1L;

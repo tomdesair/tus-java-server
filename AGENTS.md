@@ -73,12 +73,12 @@ Completed parent uploads are indexed by checksum under the `<storagePath>/checks
 - **Mandatory Test Addition Rule**: Whenever any functional change, feature implementation, or protocol fix is added, corresponding unit tests MUST ALWAYS be added automatically to prove the fix/feature. Compliance unit tests MUST contain section references and verbatim specification quotes in method Javadocs based on the official specification.
 - Do not use reflection to test private helper methods. Always test code through public API boundaries instead of bypassing encapsulation.
 - Compliance unit tests in `me.desair.tus.server.rufh` MUST contain verbatim specification quotes in method Javadocs based on the official specification.
-- Coverage should focus on meaningful domain logic and contract behavior. Do not over-complicate test suites, write brittle reflection hacks, or add unnatural code structures solely to hit 100% JaCoCo coverage on defensive catch blocks or trivial fallbacks.
-- After finalizing implementation, verify test coverage on new/modified lines using:
+- **Meaningful Assertions Rule**: Every test method in both unit and integration test suites MUST include meaningful assertion statements (`assertEquals`, `assertTrue`, `assertNotNull`, `@Test(expected = ...)`) verifying return values or state mutations. If an assertion is genuinely not possible (e.g. verifying a void cleanup method executes cleanly) and the test only verifies that no exception is thrown, an explicit inline comment (e.g. `// KISS: verifying method executes cleanly without throwing an exception`) MUST be added to document this rationale.
+- After finalizing implementation, verify test coverage on updated files using:
   ```bash
-  mvn verify -Pcheck-coverage -Djacoco.compare.branch=master -q
+  python3 scripts/check-coverage.py --per-file-limit 90
   ```
-  If meaningful feature logic is reported as uncovered, add clean unit tests to cover it before submitting.
+  Ensure that coverage of all updated files is more than 90% and that all important business logic in those classes is covered.
 
 ### 11. Efficient Build Execution & Token Reduction
 When running builds, tests, or coverage checks via Maven:
@@ -130,19 +130,30 @@ To avoid duplicate test code and ensure all protocol integration tests run consi
 To maximize developer velocity and minimize test execution overhead when increasing code coverage:
 - **Batch Test Updates**: When addressing missing line/branch coverage reported by JaCoCo, batch multiple test additions across all relevant test classes (`S3StorageServiceTest`, `S3LockingServiceTest`, `S3UploadLockTest`, `S3ConcatenationServiceTest`, `UploadInfoSerializerTest`) at once rather than running test-by-test iterations.
 - **Fast Unit Test Execution**: Verify all local unit tests rapidly using target wildcard patterns (e.g. `mvn test -Dtest="S3*" -q` or `mvn test -Dtest="*Test" -q`). Unit tests run in under 2 seconds without launching test containers.
-- **Single Verification Gate**: Only run the full JaCoCo diff coverage verification command (`mvn verify -Pcheck-coverage -Djacoco.compare.branch=master -q`) after all batched unit test updates have been applied and locally validated.
+- **Single Verification Gate**: Only run the python coverage script (`python3 scripts/check-coverage.py --per-file-limit 90`) after all batched unit test updates have been applied and locally validated.
 
-### 19. Consolidated UT + IT Code Coverage Verification & Preventing GitHub CI Failures
-To ensure code coverage checks never fail in GitHub Actions CI or PR validation pipelines:
+### 19. Unit Tests vs. Integration Tests Distinction & Scope
+To maintain a clear separation between fast, offline unit tests and containerized integration tests:
+- **Pure Offline Unit Tests (`*Test.java`)**:
+  - Target specific class/component logic, edge cases, input validation, and boundary conditions in isolation using unit test frameworks and mocks.
+  - MUST NOT launch Testcontainers (Docker/Podman) or require external network services.
+  - Every primary service and component (e.g., `AzureBlobStorageService`, `AzureBlobLockingService`, `AzureBlobUploadLock`, `AzureBlobConcatenationService`) MUST have corresponding offline unit test classes ending with `Test.java` (e.g. `AzureBlobStorageServiceTest.java`, `AzureBlobLockingServiceTest.java`, `AzureBlobUploadLockTest.java`, `AzureBlobConcatenationServiceTest.java`).
+- **End-to-End Integration Tests (`IT*`)**:
+  - Focus strictly on business processes, end-to-end user flows, protocol interactions, and backend service capability flows (such as `ITAzureBlobStorageService`, `ITAzureBlobLockingService`, `ITAzureBlobConcatenationService`, `ITAzureBlobRufhProtocol`, `ITAzureBlobTusFileUploadService`).
+  - StorageService, LockingService, and ConcatenationService integration tests are maintained because they represent key capability flows that can be combined across different backend types (e.g. Azure storage combined with S3 locking).
+  - Internal helper objects or component handles that do NOT represent an independent business process (such as `UploadLock` handles) MUST NOT have dedicated `IT*` integration test classes (e.g. `ITAzureBlobUploadLock` is omitted in favor of testing `AzureBlobUploadLockTest` offline and testing lock lifecycles end-to-end via `ITAzureBlobLockingService` / `ITAzureBlobTusFileUploadService`).
+- **Naming & Execution Rules**:
+  - Unit test classes MUST end with `Test.java` (executed during `mvn test`).
+  - Integration test classes MUST start with `IT` and MUST NOT end with `Test` or `Test.java` (executed during `mvn verify`).
+  - When container runtime is unavailable, integration test classes MUST be cleanly skipped via `Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable())`.
 - **Consolidated Coverage Script (`scripts/check-coverage.py`)**:
-  - The coverage verification script automatically discovers and aggregates coverage across **both** unit tests (`target/site/jacoco-ut/jacoco.xml`) and integration tests (`target/site/jacoco-it/jacoco.xml`).
+  - Automatically discovers and aggregates coverage across **both** unit tests (`target/site/jacoco-ut/jacoco.xml`) and integration tests (`target/site/jacoco-it/jacoco.xml`).
   - Supports `--filter` (e.g., `--filter azure`), `--per-file-limit` (e.g., `--per-file-limit 90`), `--limit` (overall threshold), and `--compare-branch` (checking diff coverage on modified lines against a base git branch).
-  - Outlines exact uncovered and partially covered line number ranges (e.g., `103, 112, 160-165`) for fast diagnostic and test creation.
+  - Always verify that the coverage of all updated files is more than 90% (`python3 scripts/check-coverage.py --per-file-limit 90`) and that all important business logic in those classes is covered.
 - **Local Verification Gate**: Before committing or pushing changes to GitHub, always execute:
   ```bash
-  mvn verify -Pcheck-coverage -Djacoco.compare.branch=master -q
+  python3 scripts/check-coverage.py --per-file-limit 90
   ```
-- **Integration Test Class Naming & Handling**: Integration test classes (classes that rely on containers or Testcontainers) MUST start with `IT` and MUST NOT end with `Test` or `Test.java` (e.g., `ITAzureBlobStorageService.java`, `ITAzureBlobConcatenationService.java`). This ensures Maven Surefire skips them during `mvn test` and Maven Failsafe runs them during `mvn verify`. When a container runtime is unavailable, integration test classes must be cleanly skipped via `Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable())`. Do not duplicate unit tests or introduce unnecessary mocking inside integration test classes.
 
 ### 20. Explicit Top-Level Class Imports
 - Always use top-level `import` statements at the top of Java files instead of writing fully qualified package class names inline in method signatures or method bodies (e.g. add `import me.desair.tus.server.util.Utils;` at the top of the file and call `Utils.interruptStream(...)` instead of writing `me.desair.tus.server.util.Utils.interruptStream(...)`).
@@ -171,7 +182,7 @@ When updating the IETF protocol implementation for a new draft revision, follow 
 5. **Protocol Logic**: Update `ResumableUploadsForHttpProtocol.java` validation and processing logic.
 6. **Coverage Verification**: Verify code coverage and unit tests pass:
    ```bash
-   mvn verify -Pcheck-coverage -Djacoco.compare.branch=master -q
+   python3 scripts/check-coverage.py --per-file-limit 90
    ```
 
 ### 4. Conformity Test Suite Maintenance & Subagent Isolation

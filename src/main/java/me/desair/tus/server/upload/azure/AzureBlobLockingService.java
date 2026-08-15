@@ -7,7 +7,6 @@ import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.specialized.BlobLeaseClient;
 import com.azure.storage.blob.specialized.BlobLeaseClientBuilder;
-import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
@@ -17,6 +16,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
+import me.desair.tus.server.upload.AbstractCloseableResourceService;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
@@ -50,7 +50,8 @@ import org.slf4j.LoggerFactory;
  *       the {@code .stop} file and interrupts streaming on remote pods.
  * </ul>
  */
-public class AzureBlobLockingService implements UploadLockingService, Closeable {
+public class AzureBlobLockingService extends AbstractCloseableResourceService
+    implements UploadLockingService {
 
   private static final Logger log = LoggerFactory.getLogger(AzureBlobLockingService.class);
 
@@ -66,9 +67,6 @@ public class AzureBlobLockingService implements UploadLockingService, Closeable 
 
   private Thread watchdogThread = null;
   private final Object watchdogLock = new Object();
-
-  private final Thread shutdownHook;
-  private volatile boolean closed = false;
 
   /**
    * Constructs an {@link AzureBlobLockingService} with default lock key prefix.
@@ -86,51 +84,19 @@ public class AzureBlobLockingService implements UploadLockingService, Closeable 
    * @param locksPrefix Blob name prefix for lock objects
    */
   public AzureBlobLockingService(BlobContainerClient containerClient, String locksPrefix) {
+    super("azure-lock-shutdown-hook");
     this.containerClient =
         Objects.requireNonNull(containerClient, "containerClient must not be null");
     this.locksPrefix = sanitizePrefix(locksPrefix);
-
-    // Register automatic JVM shutdown hook to clean up watchdog threads on app/pod shutdown
-    this.shutdownHook = new Thread(this::closeQuietly, "azure-lock-shutdown-hook");
-    registerShutdownHook();
-  }
-
-  private void registerShutdownHook() {
-    try {
-      Runtime.getRuntime().addShutdownHook(shutdownHook);
-    } catch (IllegalStateException ignored) {
-      // JVM is already shutting down
-    }
-  }
-
-  private void deregisterShutdownHook() {
-    try {
-      Runtime.getRuntime().removeShutdownHook(shutdownHook);
-    } catch (IllegalStateException ignored) {
-      // JVM is already shutting down
-    }
-  }
-
-  private void closeQuietly() {
-    try {
-      close();
-    } catch (Exception ignored) {
-    }
   }
 
   @Override
-  public void close() throws IOException {
-    if (!closed) {
-      closed = true;
-      deregisterShutdownHook();
-      synchronized (watchdogLock) {
-        if (watchdogThread != null) {
-          watchdogThread.interrupt();
-          watchdogThread = null;
-        }
-      }
-      activeStreams.clear();
+  protected void cleanupOnClose() throws IOException {
+    synchronized (watchdogLock) {
+      Utils.interruptThread(watchdogThread);
+      watchdogThread = null;
     }
+    activeStreams.clear();
   }
 
   @Override
@@ -220,11 +186,8 @@ public class AzureBlobLockingService implements UploadLockingService, Closeable 
   private void interruptLocalStream(String idStr) {
     WeakReference<InterruptibleInputStream> streamRef = activeStreams.remove(idStr);
     if (streamRef != null) {
-      InterruptibleInputStream stream = streamRef.get();
-      if (stream != null) {
-        log.info("Interrupting JVM-local stream for upload ID {}", idStr);
-        Utils.interruptStream(stream);
-      }
+      log.info("Interrupting JVM-local stream for upload ID {}", idStr);
+      Utils.interruptStream(streamRef.get());
     }
   }
 

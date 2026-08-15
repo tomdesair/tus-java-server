@@ -5,21 +5,32 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import me.desair.tus.server.TusFileUploadService;
+import me.desair.tus.server.upload.AbstractCloseableResourceService;
 import me.desair.tus.server.upload.UploadId;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Common abstract super class to implement service that use the disk file system */
-public class AbstractDiskBasedService {
+public class AbstractDiskBasedService extends AbstractCloseableResourceService {
 
   private static final Logger log = LoggerFactory.getLogger(TusFileUploadService.class);
 
   private Path storagePath;
 
   public AbstractDiskBasedService(String path) {
+    this(path, null);
+  }
+
+  public AbstractDiskBasedService(String path, String shutdownHookName) {
+    super(shutdownHookName);
     Validate.notBlank(path, "The storage path cannot be blank");
     this.storagePath = Paths.get(path);
+  }
+
+  @Override
+  protected void cleanupOnClose() throws IOException {
+    // Default implementation does nothing for simple disk services
   }
 
   protected Path getStoragePath() {
