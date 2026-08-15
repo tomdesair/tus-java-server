@@ -151,9 +151,16 @@ To maintain a clear separation between fast, offline unit tests and containerize
   - Supports `--filter` (e.g., `--filter azure`), `--per-file-limit` (e.g., `--per-file-limit 90`), `--limit` (overall threshold), and `--compare-branch` (checking diff coverage on modified lines against a base git branch).
   - Always verify that the coverage of all updated files is more than 90% (`python3 scripts/check-coverage.py --per-file-limit 90`) and that all important business logic in those classes is covered.
 - **Local Verification Gate**: Before committing or pushing changes to GitHub, always execute:
-  ```bash
-  python3 scripts/check-coverage.py --per-file-limit 90
-  ```
+  1. Clean build and integration verification:
+     ```bash
+     mvn clean install -q
+     ```
+  2. Code coverage gate:
+     ```bash
+     python3 scripts/check-coverage.py --per-file-limit 90
+     ```
+- **Offline Unit Test Network Isolation**:
+  - `*Test.java` unit tests MUST NOT invoke SDK network methods (e.g. `listBlobs()`, `getProperties()`, `downloadContent()`, `releaseLease()`) on dummy or un-mocked clients. Doing so triggers default cloud SDK retry loops (e.g. 3 retries x 60s timeout) against non-existent endpoints, causing test hangs and build delays. All real container interactions belong exclusively in `IT*` integration tests.
 
 ### 20. Explicit Top-Level Class Imports
 - Always use top-level `import` statements at the top of Java files instead of writing fully qualified package class names inline in method signatures or method bodies (e.g. add `import me.desair.tus.server.util.Utils;` at the top of the file and call `Utils.interruptStream(...)` instead of writing `me.desair.tus.server.util.Utils.interruptStream(...)`).

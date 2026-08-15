@@ -196,4 +196,42 @@ public class AzureBlobConcatenationServiceTest {
 
     concatenationService.merge(finalInfo);
   }
+
+  @Test(expected = UploadNotFoundException.class)
+  public void getPartialUploadsNotFoundShouldThrow() throws Exception {
+    when(storageService.getUploadInfo("/test/upload/part-missing", null)).thenReturn(null);
+
+    UploadInfo finalInfo = new UploadInfo();
+    finalInfo.setConcatenationPartIds(Arrays.asList("/test/upload/part-missing"));
+
+    concatenationService.getPartialUploads(finalInfo);
+  }
+
+  @Test
+  public void mergeShouldDoNothingWhenPartialIsExpired() throws Exception {
+    UploadInfo part1Info = new UploadInfo();
+    part1Info.setId(new UploadId("part-1"));
+    part1Info.setLength(10L);
+    part1Info.setOffset(10L);
+    part1Info.setExpirationTimestamp(System.currentTimeMillis() - 10_000L); // expired
+
+    when(storageService.getUploadInfo(any(String.class), any())).thenReturn(part1Info);
+
+    UploadInfo finalInfo = new UploadInfo();
+    finalInfo.setConcatenationPartIds(Arrays.asList("/test/upload/part-1"));
+    finalInfo.setUploadType(UploadType.CONCATENATED);
+
+    concatenationService.merge(finalInfo);
+    assertEquals(Long.valueOf(0L), finalInfo.getOffset());
+  }
+
+  @Test
+  public void mergeShouldDoNothingWhenPartialListIsEmpty() throws Exception {
+    UploadInfo finalInfo = new UploadInfo();
+    finalInfo.setConcatenationPartIds(Collections.emptyList());
+    finalInfo.setUploadType(UploadType.CONCATENATED);
+
+    concatenationService.merge(finalInfo);
+    assertEquals(Long.valueOf(0L), finalInfo.getOffset());
+  }
 }

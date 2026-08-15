@@ -4,9 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
@@ -17,7 +14,8 @@ import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
-import me.desair.tus.server.upload.UploadLockingService;
+import org.junit.Before;
+import org.junit.Test;
 
 /**
  * Offline unit tests for {@link AzureBlobStorageService} verifying parameter validation, POJO
@@ -180,13 +178,17 @@ public class AzureBlobStorageServiceTest {
   }
 
   @Test
-  public void cleanupExpiredUploadsWithNullOrMockLockingService() throws Exception {
-    UploadLockingService mockLockingService = mock(UploadLockingService.class);
-    when(mockLockingService.isLocked(any(UploadId.class))).thenReturn(true);
+  public void getUploadInfoNullIdShouldReturnNull() throws Exception {
+    assertNull(storageService.getUploadInfo((UploadId) null));
+    assertNull(storageService.getUploadInfo("invalid-uri", "owner1"));
+    assertNull(storageService.getUploadInfo(null, "owner1"));
+  }
 
-    // KISS: verifying cleanup methods handle null, mock locking service safely
-    storageService.cleanupExpiredUploads(mockLockingService);
-    storageService.cleanupExpiredUploads(null);
-    storageService.cleanupExpiredUploads();
+  @Test
+  public void constructorEmptyPrefixSanitization() {
+    AzureBlobStorageService service =
+        new AzureBlobStorageService(
+            containerClient, "", "", "", "", Paths.get(System.getProperty("java.io.tmpdir")));
+    assertNotNull(service);
   }
 }

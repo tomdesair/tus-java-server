@@ -106,6 +106,30 @@ public class ITAzureBlobStorageService {
   }
 
   @Test
+  public void getUploadInfoShouldReturnNullWhenInfoBlobIsCorruptJson() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(100L);
+    UploadInfo created = storageService.create(info, "owner1");
+    assertNotNull(created);
+
+    // Overwrite the metadata .info blob with corrupted/invalid JSON data
+    com.azure.storage.blob.BlobClient infoBlob =
+        containerClient.getBlobClient("metadata/" + created.getId() + ".info");
+    byte[] corruptBytes =
+        "{invalid-json-structure: true, corrupted".getBytes(StandardCharsets.UTF_8);
+    infoBlob.upload(new ByteArrayInputStream(corruptBytes), corruptBytes.length, true);
+
+    // getUploadInfo should catch the deserialization failure and return null
+    UploadInfo result = storageService.getUploadInfo(created.getId());
+    assertNull(result);
+
+    // Also verify getUploadInfo by URI and ownerKey returns null
+    UploadInfo uriResult =
+        storageService.getUploadInfo("/test/upload/" + created.getId(), "owner1");
+    assertNull(uriResult);
+  }
+
+  @Test
   public void appendConsecutiveSubThresholdChunksToPartBlob() throws Exception {
     storageService.setPreferredBlockSize(4L * 1024 * 1024); // 4MB
 
@@ -467,6 +491,76 @@ public class ITAzureBlobStorageService {
       assertNull(storageService.getUploadInfo(expiredUnlocked.getId()));
     } finally {
       lock.release();
+    }
+  }
+
+  @Test
+  public void testAutoCalibrationOptimalBlockSize() throws Exception {
+    UploadInfo info = new UploadInfo();
+    // 500 GB total length triggers auto-calibration scaling block size above preferred size
+    info.setLength(500_000_000_000L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    byte[] chunk = "sample-chunk-data".getBytes(StandardCharsets.UTF_8);
+    storageService.append(created, new ByteArrayInputStream(chunk));
+    assertEquals(Long.valueOf(chunk.length), created.getOffset());
+  }
+
+  @Test
+  public void testAppendMultiChunkWithSubThresholdRemainder() throws Exception {
+    storageService.setPreferredBlockSize(4L * 1024 * 1024); // 4MB
+
+    // 4.5 MB payload on 10MB upload: 4MB stages as block, 500KB buffers into .part
+    byte[] data = new byte[(4 * 1024 + 500) * 1024];
+    java.util.Arrays.fill(data, (byte) 'M');
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L * 1024 * 1024);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    storageService.append(created, new ByteArrayInputStream(data));
+    assertEquals(Long.valueOf(data.length), created.getOffset());
+
+    try (InputStream is = storageService.getUploadedBytes(created.getId())) {
+      assertNotNull(is);
+      byte[] readBytes = org.apache.commons.io.IOUtils.toByteArray(is);
+      assertEquals(data.length, readBytes.length);
+    }
+  }
+
+  @Test
+  public void testTruncatePartBlobDownToZeroDeletesPartBlob() throws Exception {
+    storageService.setPreferredBlockSize(4L * 1024 * 1024); // 4MB
+
+    byte[] data = new byte[(4 * 1024 + 500) * 1024]; // 4.5MB
+    java.util.Arrays.fill(data, (byte) 'T');
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L * 1024 * 1024);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    storageService.append(created, new ByteArrayInputStream(data));
+    assertEquals(Long.valueOf(data.length), created.getOffset());
+
+    // Truncate by exactly 500KB down to 4MB (block boundary)
+    storageService.removeLastNumberOfBytes(created, 500 * 1024L);
+    assertEquals(Long.valueOf(4L * 1024 * 1024), created.getOffset());
+
+    // .part blob should be deleted
+    com.azure.storage.blob.BlobClient partBlob =
+        containerClient.getBlobClient("metadata/" + created.getId() + ".part");
+    org.junit.Assert.assertFalse(partBlob.exists());
+  }
+
+  @Test
+  public void testEmptyStreamFallbackForUnstartedUpload() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(1000L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    try (InputStream is = storageService.getUploadedBytes(created.getId())) {
+      assertNotNull(is);
+      assertEquals(0, is.available());
     }
   }
 }

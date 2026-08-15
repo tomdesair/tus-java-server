@@ -76,4 +76,18 @@ public class AzureUtilsTest {
     BlobStorageException ex = createException(500, null);
     assertEquals(AzureErrorType.UNKNOWN, AzureUtils.parseErrorResponse(ex));
   }
+
+  @Test
+  public void testParseErrorResponseErrorCodeStringMatching() {
+    BlobStorageException exContainer = createException(404, BlobErrorCode.CONTAINER_NOT_FOUND);
+    assertEquals(AzureErrorType.BLOB_NOT_FOUND, AzureUtils.parseErrorResponse(exContainer));
+
+    BlobStorageException exLeaseMismatch =
+        createException(409, BlobErrorCode.LEASE_ID_MISMATCH_WITH_LEASE_OPERATION);
+    assertEquals(
+        AzureErrorType.LEASE_ALREADY_PRESENT, AzureUtils.parseErrorResponse(exLeaseMismatch));
+
+    BlobStorageException exLeaseMissing = createException(409, BlobErrorCode.LEASE_ID_MISSING);
+    assertEquals(AzureErrorType.LEASE_NOT_PRESENT, AzureUtils.parseErrorResponse(exLeaseMissing));
+  }
 }
