@@ -74,11 +74,13 @@ Completed parent uploads are indexed by checksum under the `<storagePath>/checks
 - Do not use reflection to test private helper methods. Always test code through public API boundaries instead of bypassing encapsulation.
 - Compliance unit tests in `me.desair.tus.server.rufh` MUST contain verbatim specification quotes in method Javadocs based on the official specification.
 - **Meaningful Assertions Rule**: Every test method in both unit and integration test suites MUST include meaningful assertion statements (`assertEquals`, `assertTrue`, `assertNotNull`, `@Test(expected = ...)`) verifying return values or state mutations. If an assertion is genuinely not possible (e.g. verifying a void cleanup method executes cleanly) and the test only verifies that no exception is thrown, an explicit inline comment (e.g. `// KISS: verifying method executes cleanly without throwing an exception`) MUST be added to document this rationale.
-- After finalizing implementation, verify test coverage on updated files using:
-  ```bash
-  python3 scripts/check-coverage.py --per-file-limit 90
-  ```
-  Ensure that coverage of all updated files is more than 90% and that all important business logic in those classes is covered.
+- **Mandatory Coverage Script Line Inspection**:
+  - After making changes and running tests, agents MUST execute the code coverage script:
+    ```bash
+    python3 scripts/check-coverage.py --per-file-limit 90
+    ```
+  - Agents MUST NOT only rely on the percentage number or subjective interpretation of the code. Agents MUST actively inspect the script output for reported uncovered lines (`❌ Uncovered lines`) and partially covered branches (`⚠️ Partially covered lines`) across all modified files.
+  - For every uncovered or partially covered line, determine whether it implements important business logic, state mutation, boundary conditions, edge cases, or exception handling. If so, corresponding unit tests (or integration tests if external capability is required) MUST be added to cover those lines.
 
 ### 11. Efficient Build Execution & Token Reduction
 When running builds, tests, or coverage checks via Maven:
@@ -155,10 +157,11 @@ To maintain a clear separation between fast, offline unit tests and containerize
      ```bash
      mvn clean install -q
      ```
-  2. Code coverage gate:
+  2. Code coverage gate & line-by-line inspection:
      ```bash
      python3 scripts/check-coverage.py --per-file-limit 90
      ```
+     Review the script output and verify that no uncovered lines (`❌`) or partial branches (`⚠️`) representing important business logic remain untested in modified files.
 - **Offline Unit Test Network Isolation**:
   - `*Test.java` unit tests MUST NOT invoke SDK network methods (e.g. `listBlobs()`, `getProperties()`, `downloadContent()`, `releaseLease()`) on dummy or un-mocked clients. Doing so triggers default cloud SDK retry loops (e.g. 3 retries x 60s timeout) against non-existent endpoints, causing test hangs and build delays. All real container interactions belong exclusively in `IT*` integration tests.
 
