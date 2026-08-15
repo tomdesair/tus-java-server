@@ -114,16 +114,16 @@ public class S3UploadLock implements UploadLock {
       long leaseDurationMs,
       String requestUri,
       Map<String, InputStream> inputStreamMap) {
-    this.minioClient = minioClient;
-    this.bucket = bucket;
-    this.lockKey = lockKey;
-    this.stopKey = stopKey;
-    this.holderId = holderId;
-    this.leaseDurationMs = leaseDurationMs;
-    this.requestUri = requestUri;
-    this.inputStreamMap = inputStreamMap;
-    this.acquiredAt = System.currentTimeMillis();
-    this.expiresAt = this.acquiredAt + leaseDurationMs;
+    this(
+        minioClient,
+        bucket,
+        lockKey,
+        stopKey,
+        holderId,
+        leaseDurationMs,
+        requestUri,
+        inputStreamMap,
+        null);
 
     // Run heartbeat lease renewal at 1/3 of the lease duration (e.g., every 10 seconds for a 30s
     // lease)
