@@ -61,4 +61,14 @@ public interface UploadLockingService {
   default void requestLockRelease(String requestUri) {
     // No-op by default for backwards compatibility
   }
+
+  /**
+   * Closes resources and shuts down any background watchdog threads associated with this locking
+   * service.
+   *
+   * @throws IOException If closing fails
+   */
+  default void close() throws IOException {
+    // No-op by default for backwards compatibility
+  }
 }

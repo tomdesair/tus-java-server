@@ -522,4 +522,54 @@ public class TusFileUploadServiceTest {
     service.withJsonSerialization(false);
     org.junit.Assert.assertFalse(service.getUploadStorageService().isJsonSerializationEnabled());
   }
+
+  @Test
+  public void testClose() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    TusFileUploadService service =
+        new TusFileUploadService().withUploadLockingService(mockLockingService);
+
+    service.close();
+
+    verify(mockLockingService).close();
+  }
+
+  @Test
+  public void testGetUploadInfoSingleArg() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadStorageService mockStorageService = mock(UploadStorageService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    UploadInfo mockInfo = new UploadInfo();
+
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+    when(mockStorageService.getUploadInfo("/files/123", null)).thenReturn(mockInfo);
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorageService);
+
+    UploadInfo result = service.getUploadInfo("/files/123");
+    assertNotNull(result);
+    verify(mockStorageService).getUploadInfo("/files/123", null);
+  }
+
+  @Test
+  public void testDeleteUploadSingleArg() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadStorageService mockStorageService = mock(UploadStorageService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    UploadInfo mockInfo = new UploadInfo();
+
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+    when(mockStorageService.getUploadInfo("/files/123", null)).thenReturn(mockInfo);
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorageService);
+
+    service.deleteUpload("/files/123");
+    verify(mockStorageService).terminateUpload(mockInfo);
+  }
 }

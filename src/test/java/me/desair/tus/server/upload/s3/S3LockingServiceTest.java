@@ -269,4 +269,181 @@ public class S3LockingServiceTest {
         new S3LockingService(minioClient, "test-bucket", null, 30000L, 0L);
     assertNotNull(serviceWithNullPrefix);
   }
+
+  @Test
+  public void testClose() throws Exception {
+    lockingService.close();
+  }
+
+  @Test
+  public void testCheckStopSignalForEntryExceptionAndNullId() throws Exception {
+    lockingService.setIdFactory(new me.desair.tus.server.upload.TimeBasedUploadIdFactory());
+    io.minio.MinioClient mockClient = Mockito.mock(io.minio.MinioClient.class);
+    Mockito.when(mockClient.statObject(Mockito.any(io.minio.StatObjectArgs.class)))
+        .thenThrow(new RuntimeException("General S3 Exception"));
+    Mockito.doThrow(new RuntimeException("Remove object failed"))
+        .when(mockClient)
+        .removeObject(Mockito.any(io.minio.RemoveObjectArgs.class));
+
+    S3LockingService service = new S3LockingService(mockClient, "test-bucket");
+    me.desair.tus.server.upload.TimeBasedUploadIdFactory idFactory =
+        new me.desair.tus.server.upload.TimeBasedUploadIdFactory();
+    idFactory.setUploadUri("/files/upload");
+    service.setIdFactory(idFactory);
+
+    ByteArrayInputStream bais = new ByteArrayInputStream("test".getBytes());
+    InterruptibleInputStream stream = new InterruptibleInputStream(bais);
+
+    service.registerInputStream("/files/upload/12345", stream);
+    // Triggers checkStopSignalForEntry & deleteObjectQuietly which catch RuntimeException
+    service.requestLockRelease("/files/upload/12345");
+  }
+
+  @Test
+  public void testCheckStopSignalForEntryHappyPath() throws Exception {
+    MinioClient mockClient = Mockito.mock(MinioClient.class);
+    io.minio.StatObjectResponse mockStat = Mockito.mock(io.minio.StatObjectResponse.class);
+    Mockito.when(mockClient.statObject(Mockito.any(StatObjectArgs.class))).thenReturn(mockStat);
+
+    S3LockingService service =
+        new S3LockingService(mockClient, "test-bucket", "locks", 30000L, 50L);
+    me.desair.tus.server.upload.TimeBasedUploadIdFactory idFactory =
+        new me.desair.tus.server.upload.TimeBasedUploadIdFactory();
+    idFactory.setUploadUri("/files/upload");
+    service.setIdFactory(idFactory);
+
+    ByteArrayInputStream bais = new ByteArrayInputStream("test".getBytes());
+    InterruptibleInputStream stream = new InterruptibleInputStream(bais);
+
+    service.registerInputStream("/files/upload/12345", stream);
+
+    // Wait for background watchdog thread to execute checkStopSignals()
+    long deadline = System.currentTimeMillis() + 2000L;
+    while (!stream.isInterrupted() && System.currentTimeMillis() < deadline) {
+      Thread.sleep(50L);
+    }
+
+    assertTrue(stream.isInterrupted());
+    Mockito.verify(mockClient, Mockito.atLeastOnce()).statObject(Mockito.any(StatObjectArgs.class));
+
+    service.close();
+  }
+
+  @Test
+  public void testCheckStopSignalForEntryNoSuchKey() throws Exception {
+    MinioClient mockClient = Mockito.mock(MinioClient.class);
+    ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
+    Mockito.when(errorResponse.code()).thenReturn("NoSuchKey");
+    ErrorResponseException noSuchKeyException =
+        new ErrorResponseException(errorResponse, null, "NoSuchKey");
+
+    Mockito.when(mockClient.statObject(Mockito.any(StatObjectArgs.class)))
+        .thenThrow(noSuchKeyException);
+
+    S3LockingService service =
+        new S3LockingService(mockClient, "test-bucket", "locks", 30000L, 50L);
+    me.desair.tus.server.upload.TimeBasedUploadIdFactory idFactory =
+        new me.desair.tus.server.upload.TimeBasedUploadIdFactory();
+    idFactory.setUploadUri("/files/upload");
+    service.setIdFactory(idFactory);
+
+    ByteArrayInputStream bais = new ByteArrayInputStream("test".getBytes());
+    InterruptibleInputStream stream = new InterruptibleInputStream(bais);
+
+    service.registerInputStream("/files/upload/12345", stream);
+
+    // Wait for background watchdog thread to run checkStopSignals()
+    Thread.sleep(200L);
+
+    Mockito.verify(mockClient, Mockito.atLeastOnce()).statObject(Mockito.any(StatObjectArgs.class));
+    assertFalse(stream.isInterrupted());
+
+    service.close();
+  }
+
+  @Test
+  public void testCleanupStaleLocksWithExpiredAndNonExpiredLocks() throws Exception {
+    MinioClient mockClient = Mockito.mock(MinioClient.class);
+    Item expiredItem = Mockito.mock(Item.class);
+    Mockito.when(expiredItem.objectName()).thenReturn("locks/expired.lock");
+
+    Item validItem = Mockito.mock(Item.class);
+    Mockito.when(validItem.objectName()).thenReturn("locks/valid.lock");
+
+    Result<Item> res1 = new Result<Item>(expiredItem);
+    Result<Item> res2 = new Result<Item>(validItem);
+
+    Mockito.when(mockClient.listObjects(Mockito.any(ListObjectsArgs.class)))
+        .thenReturn(java.util.Arrays.asList(res1, res2));
+
+    S3UploadLock expiredLock =
+        new S3UploadLock(
+            "holder1",
+            "/files/upload/1",
+            "test-bucket",
+            "locks/expired.lock",
+            "locks/expired.stop",
+            30000L,
+            1000L);
+    S3UploadLock validLock =
+        new S3UploadLock(
+            "holder2",
+            "/files/upload/2",
+            "test-bucket",
+            "locks/valid.lock",
+            "locks/valid.stop",
+            30000L,
+            System.currentTimeMillis() + 1000000L);
+
+    GetObjectResponse expiredStream =
+        new GetObjectResponse(
+            null,
+            "test-bucket",
+            "us-east-1",
+            "locks/expired.lock",
+            new ByteArrayInputStream(
+                me.desair.tus.server.util.S3UploadLockJsonSerializer.serialize(expiredLock)
+                    .getBytes(StandardCharsets.UTF_8)));
+    GetObjectResponse validStream =
+        new GetObjectResponse(
+            null,
+            "test-bucket",
+            "us-east-1",
+            "locks/valid.lock",
+            new ByteArrayInputStream(
+                me.desair.tus.server.util.S3UploadLockJsonSerializer.serialize(validLock)
+                    .getBytes(StandardCharsets.UTF_8)));
+
+    Mockito.when(mockClient.getObject(Mockito.any(GetObjectArgs.class)))
+        .thenReturn(expiredStream)
+        .thenReturn(validStream);
+
+    S3LockingService service = new S3LockingService(mockClient, "test-bucket");
+    service.cleanupStaleLocks();
+
+    // Expired lock object is deleted
+    Mockito.verify(mockClient).removeObject(Mockito.any(io.minio.RemoveObjectArgs.class));
+  }
+
+  @Test
+  public void testRegisterInputStreamNullChecks() {
+    lockingService.registerInputStream(null, Mockito.mock(InputStream.class));
+    lockingService.registerInputStream("/files/upload/123", null);
+  }
+
+  @Test
+  public void testWriteStopSignalException() throws Exception {
+    MinioClient mockClient = Mockito.mock(MinioClient.class);
+    Mockito.when(mockClient.putObject(Mockito.any(PutObjectArgs.class)))
+        .thenThrow(new RuntimeException("S3 Put error"));
+
+    S3LockingService service = new S3LockingService(mockClient, "test-bucket");
+    me.desair.tus.server.upload.TimeBasedUploadIdFactory idFactory =
+        new me.desair.tus.server.upload.TimeBasedUploadIdFactory();
+    idFactory.setUploadUri("/files/upload");
+    service.setIdFactory(idFactory);
+
+    // requestLockRelease calls writeStopSignal which catches RuntimeException
+    service.requestLockRelease("/files/upload/12345");
+  }
 }

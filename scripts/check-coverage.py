@@ -3,10 +3,15 @@ import xml.etree.ElementTree as ET
 import argparse
 import subprocess
 
+import os
+import glob
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Check Jacoco coverage limits and report uncovered lines.")
-    parser.add_argument("--xml", required=True, nargs="+", help="Path(s) to jacoco.xml files")
-    parser.add_argument("--limit", type=float, default=95.0, help="Minimum line coverage percentage (0-100)")
+    parser.add_argument("--xml", required=False, nargs="*", default=None, help="Path(s) or glob(s) to jacoco.xml files. If omitted, auto-discovers UT and IT reports.")
+    parser.add_argument("--limit", type=float, default=95.0, help="Minimum overall line coverage percentage (0-100)")
+    parser.add_argument("--per-file-limit", type=float, default=None, help="Minimum per-file line coverage percentage (0-100)")
+    parser.add_argument("--filter", type=str, default=None, help="Filter file paths by substring (e.g., 'azure')")
     parser.add_argument("--compare-branch", help="Compare against a git branch and check coverage of new/modified lines only")
     return parser.parse_args()
 
@@ -78,17 +83,48 @@ def get_modified_lines(compare_branch):
             elif line.startswith("-") and not line.startswith("---"):
                 pass
             else:
-                if line.startswith(" ") or line.startswith("\\"):
-                    if line.startswith(" "):
-                        current_line += 1
+                if line.startswith(" "):
+                    current_line += 1
 
     return modified_lines
+
+def resolve_xml_paths(xml_args):
+    if xml_args:
+        resolved = []
+        for arg in xml_args:
+            matches = glob.glob(arg)
+            if matches:
+                resolved.extend(matches)
+            elif os.path.exists(arg):
+                resolved.append(arg)
+        return sorted(list(set(resolved)))
+
+    # Auto-discovery default: collect all existing Jacoco report paths (UT, IT, merged, aggregate)
+    candidate_paths = [
+        "target/site/jacoco-ut/jacoco.xml",
+        "target/site/jacoco-it/jacoco.xml",
+        "target/site/jacoco/jacoco.xml",
+        "target/site/jacoco-aggregate/jacoco.xml"
+    ]
+    return [p for p in candidate_paths if os.path.exists(p)]
 
 def main():
     args = parse_args()
 
+    xml_files = resolve_xml_paths(args.xml)
+    if not xml_files:
+        print("Error: No valid Jacoco XML reports could be found.")
+        print("Expected XML reports at 'target/site/jacoco-ut/jacoco.xml' or 'target/site/jacoco-it/jacoco.xml'.")
+        print("Please run 'mvn test' or 'mvn verify' first to generate coverage reports.")
+        sys.exit(1)
+
+    print(f"📊 Consolidating Jacoco Coverage Reports from ({len(xml_files)} files):")
+    for f in xml_files:
+        print(f"   • {f}")
+    print("----------------------------------------------------------")
+
     parsed_trees = []
-    for xml_path in args.xml:
+    for xml_path in xml_files:
         try:
             tree = ET.parse(xml_path)
             parsed_trees.append((xml_path, tree))
@@ -97,10 +133,9 @@ def main():
 
     if not parsed_trees:
         print("Error: No valid Jacoco XML reports could be parsed.")
-        print("Please ensure you run 'mvn test' or 'mvn verify' first to generate coverage reports.")
         sys.exit(1)
 
-    # Aggregate coverage data across all reports:
+    # Aggregate coverage data across all reports (UT + IT):
     # coverage_data: full_path -> { line_nr -> { "mi": [], "ci": [], "mb": [], "cb": [] } }
     coverage_data = {}
 
@@ -111,6 +146,9 @@ def main():
             for sf in pkg.findall("sourcefile"):
                 sf_name = sf.attrib.get("name", "")
                 full_path = f"src/main/java/{pkg_name}/{sf_name}"
+
+                if args.filter and args.filter.lower() not in full_path.lower():
+                    continue
 
                 if full_path not in coverage_data:
                     coverage_data[full_path] = {}
@@ -147,7 +185,7 @@ def main():
 
     total = total_covered + total_missed
     if total == 0:
-        print("No line coverage data found in report.")
+        print("No line coverage data found in reports for matching filter.")
         sys.exit(0)
 
     covered_pct = (total_covered / total) * 100.0
@@ -163,8 +201,10 @@ def main():
             print(f"Failed to get modified lines against {compare_branch}. Aborting.")
             sys.exit(1)
 
-    # Find all uncovered files and lines
+    # Find all uncovered files and lines with per-file stats
     uncovered_files = []
+    file_summaries = []
+    failed_per_file_limit = False
 
     for full_path in sorted(coverage_data.keys()):
         # If we are filtering by modified lines, check if this file is modified
@@ -173,6 +213,8 @@ def main():
 
         missed_lines = []
         partially_covered_lines = []
+        file_covered = 0
+        file_missed = 0
 
         file_lines = coverage_data[full_path]
         for nr in sorted(file_lines.keys()):
@@ -187,14 +229,36 @@ def main():
             best_mb = min(line_info["mb"])
             best_cb = max(line_info["cb"])
 
+            if best_ci > 0:
+                file_covered += 1
+            elif best_mi > 0:
+                file_missed += 1
+
             if best_mi > 0 and best_ci == 0:
                 missed_lines.append(nr)
             elif (best_mi > 0 and best_ci > 0) or (best_mb > 0 and best_cb > 0):
                 partially_covered_lines.append(nr)
 
+        file_total = file_covered + file_missed
+        file_pct = (file_covered / file_total * 100.0) if file_total > 0 else 100.0
+
+        if args.per_file_limit is not None and file_pct < args.per_file_limit:
+            failed_per_file_limit = True
+
+        file_summaries.append({
+            "file": full_path,
+            "pct": file_pct,
+            "covered": file_covered,
+            "missed_cnt": file_missed,
+            "total": file_total,
+            "missed_lines": missed_lines,
+            "partial_lines": partially_covered_lines
+        })
+
         if missed_lines or partially_covered_lines:
             uncovered_files.append({
                 "file": full_path,
+                "pct": file_pct,
                 "missed": missed_lines,
                 "partial": partially_covered_lines
             })
@@ -210,7 +274,7 @@ def main():
             print("Uncovered / Partially Covered Modified Lines:")
             for uf in uncovered_files:
                 file_path = uf["file"]
-                print(f"\n📄 {file_path}:")
+                print(f"\n📄 {file_path} ({uf['pct']:.2f}%):")
                 if uf["missed"]:
                     print(f"   ❌ Uncovered lines: {group_ranges(uf['missed'])}")
                 if uf["partial"]:
@@ -230,7 +294,7 @@ def main():
                 print("🎉 Modified line coverage meets required threshold!")
                 sys.exit(0)
         else:
-            print("🎉 All new and modified lines are 100% covered by unit tests!")
+            print("🎉 All new and modified lines are 100% covered by tests!")
             print("==========================================================")
             sys.exit(0)
     else:
@@ -240,22 +304,22 @@ def main():
         print(f"Overall Line Coverage: {covered_pct:.2f}% (Required: {args.limit:.2f}%)")
         print(f"Covered Lines: {total_covered}, Missed Lines: {total_missed}, Total Lines: {total}")
         print("----------------------------------------------------------")
-        if uncovered_files:
-            print("Uncovered / Partially Covered Files and Lines:")
-            for uf in uncovered_files:
-                file_path = uf["file"]
-                print(f"\n📄 {file_path}:")
-                if uf["missed"]:
-                    print(f"   ❌ Uncovered lines: {group_ranges(uf['missed'])}")
-                if uf["partial"]:
-                    print(f"   ⚠️  Partially covered lines: {group_ranges(uf['partial'])}")
-        else:
-            print("🎉 100% of all lines are fully covered by tests!")
+        print("Per-File Coverage Summary:")
+        for fs in file_summaries:
+            status_icon = "✅" if (args.per_file_limit is None or fs["pct"] >= args.per_file_limit) else "❌"
+            print(f"\n{status_icon} 📄 {fs['file']}: {fs['pct']:.2f}% ({fs['covered']}/{fs['total']} lines)")
+            if fs["missed_lines"]:
+                print(f"   ❌ Uncovered lines: {group_ranges(fs['missed_lines'])}")
+            if fs["partial_lines"]:
+                print(f"   ⚠️  Partially covered lines: {group_ranges(fs['partial_lines'])}")
 
         print("==========================================================")
 
         if covered_pct < args.limit:
             print(f"❌ FAIL: Line coverage is below threshold of {args.limit:.2f}%!")
+            sys.exit(1)
+        elif failed_per_file_limit:
+            print(f"❌ FAIL: One or more files are below per-file limit of {args.per_file_limit:.2f}%!")
             sys.exit(1)
         else:
             print("✅ SUCCESS: Coverage threshold check passed.")

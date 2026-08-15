@@ -16,18 +16,18 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
+import me.desair.tus.server.upload.AbstractCloseableResourceService;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
-import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.S3UploadLockJsonSerializer;
+import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,7 +54,8 @@ import org.slf4j.LoggerFactory;
  *       pods.
  * </ul>
  */
-public class S3LockingService implements UploadLockingService {
+public class S3LockingService extends AbstractCloseableResourceService
+    implements UploadLockingService {
 
   private static final Logger log = LoggerFactory.getLogger(S3LockingService.class);
 
@@ -103,25 +104,48 @@ public class S3LockingService implements UploadLockingService {
       String locksPrefix,
       long leaseDurationMs,
       long pollIntervalMs) {
+    this(
+        minioClient,
+        bucket,
+        locksPrefix,
+        leaseDurationMs,
+        pollIntervalMs,
+        new UuidUploadIdFactory());
+  }
+
+  /**
+   * Full constructor allowing custom configuration including a custom {@link UploadIdFactory}.
+   *
+   * @param minioClient Pre-configured MinIO Client
+   * @param bucket Target S3 bucket name
+   * @param locksPrefix Object key prefix for locks and stop signals
+   * @param leaseDurationMs Lock lease duration in milliseconds
+   * @param pollIntervalMs Watchdog poll interval for lock contention interrupt signals
+   * @param idFactory Custom {@link UploadIdFactory}
+   */
+  public S3LockingService(
+      MinioClient minioClient,
+      String bucket,
+      String locksPrefix,
+      long leaseDurationMs,
+      long pollIntervalMs,
+      UploadIdFactory idFactory) {
+    super("s3-lock-shutdown-hook");
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
     this.locksPrefix = sanitizePrefix(locksPrefix);
     this.leaseDurationMs = leaseDurationMs;
     this.pollIntervalMs = pollIntervalMs;
+    this.idFactory = Objects.requireNonNull(idFactory, "idFactory must not be null");
 
     // Background watchdog thread to poll S3 for .stop contention signals across pods
     this.watchdogExecutor =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              Thread t = new Thread(r, "s3-lock-watchdog");
-              t.setDaemon(true);
-              return t;
-            });
-
-    if (pollIntervalMs > 0) {
-      this.watchdogExecutor.scheduleAtFixedRate(
-          this::checkStopSignals, pollIntervalMs, pollIntervalMs, TimeUnit.MILLISECONDS);
-    }
+        Utils.scheduleWatchdog(
+            "s3-lock-watchdog",
+            this::checkStopSignals,
+            pollIntervalMs,
+            pollIntervalMs,
+            TimeUnit.MILLISECONDS);
   }
 
   @Override
@@ -203,9 +227,9 @@ public class S3LockingService implements UploadLockingService {
     }
 
     // Step 1: Interrupt local active payload byte stream if hosted on this node
-    InputStream activeStream = activeInputStreams.get(requestUri);
+    InputStream activeStream = activeInputStreams.remove(requestUri);
     if (activeStream != null) {
-      interruptStream(activeStream);
+      Utils.interruptStream(activeStream);
     }
 
     // Step 2: Write a .stop signal object to S3 to signal lock contention across remote nodes/pods
@@ -286,6 +310,12 @@ public class S3LockingService implements UploadLockingService {
     }
   }
 
+  @Override
+  protected void cleanupOnClose() throws IOException {
+    Utils.shutdownExecutor(watchdogExecutor);
+    activeInputStreams.clear();
+  }
+
   private void checkStopSignals() {
     for (Map.Entry<String, InputStream> entry : activeInputStreams.entrySet()) {
       checkStopSignalForEntry(entry.getKey(), entry.getValue());
@@ -303,25 +333,14 @@ public class S3LockingService implements UploadLockingService {
       // Check if a .stop signal object was written by another pod requesting lock release
       minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(stopKey).build());
       // Remote stop signal object found! Interrupt local byte stream immediately
-      interruptStream(inputStream);
+      Utils.interruptStream(inputStream);
     } catch (ErrorResponseException e) {
-      if ("NoSuchKey".equalsIgnoreCase(e.errorResponse().code())) {
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
         // Normal state: no stop signal object in S3
         return;
       }
     } catch (Exception e) {
       log.debug("Error checking stop signal for {}", stopKey, e);
-    }
-  }
-
-  private void interruptStream(InputStream is) {
-    if (is instanceof InterruptibleInputStream) {
-      ((InterruptibleInputStream) is).interrupt();
-    } else {
-      try {
-        is.close();
-      } catch (Exception ignored) {
-      }
     }
   }
 

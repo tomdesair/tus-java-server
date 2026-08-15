@@ -9,11 +9,11 @@ import io.minio.RemoveObjectArgs;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.Map;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.util.S3UploadLockJsonSerializer;
+import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -129,14 +129,12 @@ public class S3UploadLock implements UploadLock {
     // lease)
     long heartbeatPeriodMs = Math.max(1000L, leaseDurationMs / 3);
     this.heartbeatExecutor =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              Thread t = new Thread(r, "s3-lock-heartbeat-" + holderId);
-              t.setDaemon(true);
-              return t;
-            });
-    this.heartbeatExecutor.scheduleAtFixedRate(
-        this::renewLease, heartbeatPeriodMs, heartbeatPeriodMs, TimeUnit.MILLISECONDS);
+        Utils.scheduleWatchdog(
+            "s3-lock-heartbeat-" + holderId,
+            this::renewLease,
+            heartbeatPeriodMs,
+            heartbeatPeriodMs,
+            TimeUnit.MILLISECONDS);
   }
 
   S3UploadLock(
@@ -239,13 +237,7 @@ public class S3UploadLock implements UploadLock {
   @Override
   public void close() {
     // Step 1: Stop the background heartbeat daemon thread
-    if (heartbeatExecutor != null) {
-      try {
-        heartbeatExecutor.shutdownNow();
-      } catch (Exception e) {
-        log.debug("Error shutting down lock heartbeat executor", e);
-      }
-    }
+    Utils.shutdownExecutor(heartbeatExecutor);
 
     // Step 2: Remove active request stream registration
     if (inputStreamMap != null && requestUri != null) {

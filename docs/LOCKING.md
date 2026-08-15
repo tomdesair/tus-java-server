@@ -1,78 +1,100 @@
 # Upload Locking & Lock Contention Resolution
 
-This document describes how the `tus-java-server` library prevents concurrent modifications to uploads using locks, and how it resolves lock contention when clients resume interrupted uploads.
+This document describes why locking is necessary in the `tus-java-server` library, how the core `UploadLockingService` interface is structured, how lock contention resolution works across replicas, and where to find detailed documentation for each concrete locking mechanism implementation.
 
 ---
 
 ## 1. Why Locking is Needed
 
-In the `tus` protocol, client uploads can be resumed after network interruptions. Multiple concurrent requests targeting the same upload resource must be prevented to avoid data corruption (e.g. out-of-order writes or overlapping file offsets).
+In the `tus` protocol (and IETF Resumable Uploads for HTTP specification), client uploads can be interrupted and resumed across multiple HTTP requests. Multiple concurrent requests targeting the same upload resource must be strictly prevented to avoid data corruption (such as out-of-order byte writes or overlapping file offsets).
 
-### Stalled uploads and resume handling
-1. When a client performs an upload via a `PATCH` request, the server acquires an exclusive lock on that upload.
-2. If the client's network connection drops, the `PATCH` request connection might remain in a "half-open" state on the server (stalled socket read).
-3. The client, recognizing the disconnect, attempts to resume by sending a `HEAD` request to query the current offset (or a `DELETE` request to terminate/clean up the upload).
-4. However, the stalled `PATCH` request is still running on the server and holding the lock, preventing the client from resuming or deleting.
+### Stalled Uploads & Lock Contention Handling
 
-To solve this, we need a mechanism where a new `HEAD` or `DELETE` request can trigger the release of the lock held by the stalled request, allowing immediate resumability or deletion.
+1. **Active Streaming**: When a client sends upload bytes via a `PATCH` (or RUFH `POST`/`PATCH`) request, the server acquires an exclusive lock on that upload.
+2. **Network Interruption**: If the client's network drops, the original `PATCH` connection may remain open on the server in a "half-open" state (a stalled socket read waiting for client bytes).
+3. **Resume Attempt**: The client, recognizing the disconnect, attempts to resume by sending a `HEAD` request to query the current offset (or a `DELETE` request to terminate the upload).
+4. **Lock Conflict**: The stalled `PATCH` request is still running on the server and holding the lock, which would block the client's `HEAD` or `DELETE` request indefinitely if not resolved.
+
+To solve this, `tus-java-server` includes a **lock contention resolution mechanism** where an incoming `HEAD` or `DELETE` request signals the server to interrupt the stalled `PATCH` byte stream cleanly, releasing the lock for immediate resumption.
 
 ---
 
-## 2. High-Level Interface (`UploadLockingService`)
+## 2. Core Locking Interfaces
 
-The locking behaviour is defined by the `UploadLockingService` interface. To support backwards compatibility and lock contention resolution, the interface exposes the following high-level API:
+All locking mechanisms in `tus-java-server` implement the `UploadLockingService` interface and return handles implementing `UploadLock`.
+
+### `UploadLockingService` Interface
 
 ```java
-public interface UploadLockingService {
+public interface UploadLockingService extends Closeable {
 
-  // Acquires a lock on an upload resource
+  // Acquires an exclusive lock on an upload resource
   UploadLock lockUploadByUri(String requestUri) throws TusException, IOException;
 
   // Checks if an upload is currently locked
   boolean isLocked(UploadId id);
 
-  // Cleans up stale locks left on disk
+  // Cleans up stale or expired locks
   void cleanupStaleLocks() throws IOException;
 
-  // Registers the input stream of an active request so it can be interrupted later
+  // Registers the active request input stream so it can be interrupted cleanly
   default void registerInputStream(String requestUri, InputStream inputStream) {}
 
   // Requests that any active lock for the URI be released
   default void requestLockRelease(String requestUri) {}
+
+  // Injects the UploadIdFactory instance used to parse upload IDs from request URIs
+  default void setIdFactory(UploadIdFactory idFactory) {}
+
+  // Injects the upload expiration period in milliseconds
+  default void setUploadExpirationPeriod(Long expirationPeriod) {}
 }
 ```
 
-- **Backward Compatibility**: Both `registerInputStream` and `requestLockRelease` are `default` (no-op) methods, ensuring that third-party custom implementations of `UploadLockingService` (e.g. S3, Redis, or Database backends) do not break.
-- **Request Flow**:
-  - When a `PATCH` request stream is created, its input stream is wrapped in an `InterruptibleInputStream` and registered via `registerInputStream`.
-  - When a `HEAD` or `DELETE` request encounters a lock conflict, it invokes `requestLockRelease`, which triggers the watchdog and/or local interruption.
+### `UploadLock` Interface
+
+```java
+public interface UploadLock extends Closeable {
+
+  // Gets the request URI associated with this lock
+  String getUploadUri();
+
+  // Explicitly releases the lock
+  default void release() {
+    try {
+      close();
+    } catch (IOException ignored) {}
+  }
+}
+```
+
+### Request Flow & Contention Resolution
+
+- **Stream Registration**: When a request starts streaming payload bytes, its input stream is wrapped in an `InterruptibleInputStream` and registered via `lockingService.registerInputStream(requestUri, inputStream)`.
+- **Release Request**: When a concurrent `HEAD` or `DELETE` request encounters an active lock, `TusFileUploadService` catches `UploadAlreadyLockedException` and calls `lockingService.requestLockRelease(requestUri)`.
+- **Stream Interruption**:
+  - If the lock is held in the **same JVM**, `requestLockRelease` interrupts the local stream directly.
+  - If the lock is held on a **remote replica/pod**, `requestLockRelease` writes a `.stop` signal object or file. A background watchdog thread running on the lock-holding replica detects the `.stop` signal and calls `stream.interrupt()`, causing the stalled `PATCH` stream to abort and release its lock.
 
 ---
 
-## 3. File System Based Implementation (`DiskLockingService`)
+## 3. Concrete Locking Mechanisms & Storage Providers
 
-### 3.1. General Overview
+`tus-java-server` provides several built-in locking implementations tailored for different deployment topologies and storage backends. Refer to the dedicated documentation files below for full details:
 
-`DiskLockingService` is the default locking service. It implements locking using Java NIO `FileChannel` and exclusive `FileLock` objects.
+| Storage Backend / Environment | Locking Service Class | Key Characteristics & Architecture | Documentation File |
+|---|---|---|---|
+| **Local File System** | `DiskLockingService` | OS kernel-level exclusive POSIX `FileLock` (`fcntl`) with JVM shutdown hooks and `.stop` signal files. Best for single-node deployments on local disk. | [`README.md`](file:///Users/tom/projects/tus-java-server/README.md) |
+| **Amazon S3 / S3-Compatible** | `S3LockingService` | MinIO/S3 object-backed TTL lease objects (`.lock`), background heartbeat renewal, and cross-pod `.stop` signal object polling watchdog. | [`docs/S3_STORAGE.md`](file:///Users/tom/projects/tus-java-server/docs/S3_STORAGE.md) |
+| **Azure Blob Storage** | `AzureBlobLockingService` | Native Azure Blob Storage exclusive 30-second leases (`BlobLeaseClient`), background daemon renewal, and `.stop` signal blob polling watchdog. | [`docs/AZURE_BLOB_STORAGE.md`](file:///Users/tom/projects/tus-java-server/docs/AZURE_BLOB_STORAGE.md) |
 
-- **Lock Files**: For an upload ID `<id>`, it attempts to acquire an exclusive lock on the file `locks/<id>` in the storage directory.
-- **Cross-Replica / Multi-Process Signaling**:
-  - In a clustered or multi-container setup (e.g. Kubernetes with a shared Persistent Volume Claim (PVC)), different server instances may handle different requests.
-  - When `requestLockRelease` is called, it:
-    1. Interrupts the local stream if the lock is held in the same JVM.
-    2. Writes an empty `.stop` file named `locks/<id>.stop` in the shared locks directory.
-  - The JVM instance that currently holds the file lock detects this `.stop` file and terminates its request.
+---
 
-### 3.2. The Watchdog Process
+## 4. Implementing a Custom `UploadLockingService`
 
-The watchdog is a background daemon thread managed entirely inside `DiskLockingService`.
+Developers extending `tus-java-server` with custom lock providers (such as Redis, ZooKeeper, etcd, or Hazelcast) must implement `UploadLockingService` and `UploadLock`:
 
-### Role & Lifecycle
-- **Triggered**: Spawns automatically when a request registers its stream in the JVM-local `activeLocks` registry.
-- **Polling Loop**: Every 1 second, it scans all active locks. If a `.stop` file exists for a given upload ID, it invokes `stream.interrupt()`, which immediately terminates the stalled connection.
-- **Self-Termination**: To conserve resources, the watchdog thread terminates naturally when there are no more active locks in the registry. It will spawn a new thread if a new upload request starts.
-- **Safety**:
-  - Runs with `Thread.MIN_PRIORITY` to avoid stealing CPU cycles from request handling threads.
-  - Set as a daemon thread (`setDaemon(true)`) so it does not block application/JVM shutdown.
-  - Uses `WeakReference<InterruptibleInputStream>` for active locks to prevent memory leaks if a request thread terminates unexpectedly without cleaning up its lock.
-  - Catches `Throwable` inside the loop to ensure unexpected errors do not crash the daemon silently.
+1. **Implement `lockUploadByUri`**: Acquire an exclusive lock or throw `UploadAlreadyLockedException` if currently locked by another request.
+2. **Implement `registerInputStream` & `requestLockRelease`**: Maintain a registry of active `InterruptibleInputStream` instances. When `requestLockRelease` is invoked, interrupt the active stream to support instant client resumes.
+3. **Use Common Watchdog Helpers**: Use `Utils.scheduleWatchdog(...)` and `Utils.shutdownExecutor(...)` in `me.desair.tus.server.util.Utils` for any background daemon threads or heartbeat lease renewals.
+4. **Implement `Closeable`**: Register a JVM shutdown hook upon construction and deregister it on `close()` for idempotent resource cleanup.

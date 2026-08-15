@@ -21,6 +21,9 @@ public class S3UtilsTest {
         S3ErrorType.NO_SUCH_KEY,
         S3Utils.parseErrorResponse(createExceptionWithCode("NoSuchBucket")));
     assertEquals(
+        S3ErrorType.NO_SUCH_KEY,
+        S3Utils.parseErrorResponse(createExceptionWithCode("NoSuchUpload")));
+    assertEquals(
         S3ErrorType.PRECONDITION_FAILED,
         S3Utils.parseErrorResponse(createExceptionWithCode("PreconditionFailed")));
     assertEquals(
@@ -29,6 +32,9 @@ public class S3UtilsTest {
     assertEquals(
         S3ErrorType.ACCESS_DENIED,
         S3Utils.parseErrorResponse(createExceptionWithCode("AccessDenied")));
+    assertEquals(
+        S3ErrorType.API_NOT_IMPLEMENTED,
+        S3Utils.parseErrorResponse(createExceptionWithCode("APINotImplemented")));
     assertEquals(
         S3ErrorType.UNKNOWN, S3Utils.parseErrorResponse(createExceptionWithCode("InternalError")));
   }

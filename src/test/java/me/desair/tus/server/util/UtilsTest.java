@@ -512,6 +512,202 @@ public class UtilsTest {
     assertThat(Utils.isExistingUploadResource(request, storageService, "owner"), is(false));
   }
 
+  @Test
+  public void testCreateScheduledDaemonExecutorAndScheduleWatchdog() throws Exception {
+    java.util.concurrent.atomic.AtomicBoolean executed =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    java.util.concurrent.ScheduledExecutorService executor =
+        Utils.scheduleWatchdog(
+            "test-watchdog",
+            () -> executed.set(true),
+            10,
+            10,
+            java.util.concurrent.TimeUnit.MILLISECONDS);
+
+    assertThat(executor, is(notNullValue()));
+    assertThat(executor.isShutdown(), is(false));
+
+    Thread.sleep(50);
+    assertThat(executed.get(), is(true));
+
+    Utils.shutdownExecutor(executor);
+    assertThat(executor.isShutdown(), is(true));
+  }
+
+  @Test
+  public void testShutdownExecutorNullOrShutdown() {
+    Utils.shutdownExecutor(null);
+
+    java.util.concurrent.ScheduledExecutorService executor =
+        Utils.createScheduledDaemonExecutor("test-shutdown");
+    Utils.shutdownExecutor(executor);
+    assertThat(executor.isShutdown(), is(true));
+
+    Utils.shutdownExecutor(executor);
+    assertThat(executor.isShutdown(), is(true));
+  }
+
+  @Test
+  public void testScheduleWatchdogWithZeroPeriodOrNullTask() {
+    java.util.concurrent.ScheduledExecutorService executor1 =
+        Utils.scheduleWatchdog(
+            "test-zero-period", () -> {}, 0, 0, java.util.concurrent.TimeUnit.SECONDS);
+    assertThat(executor1, is(notNullValue()));
+    Utils.shutdownExecutor(executor1);
+
+    java.util.concurrent.ScheduledExecutorService executor2 =
+        Utils.scheduleWatchdog(
+            "test-null-task", null, 10, 10, java.util.concurrent.TimeUnit.SECONDS);
+    assertThat(executor2, is(notNullValue()));
+    Utils.shutdownExecutor(executor2);
+  }
+
+  @Test
+  public void testShutdownExecutorWithException() {
+    java.util.concurrent.ScheduledExecutorService mockExecutor =
+        mock(java.util.concurrent.ScheduledExecutorService.class);
+    when(mockExecutor.isShutdown()).thenReturn(false);
+    when(mockExecutor.shutdownNow()).thenThrow(new RuntimeException("Shutdown error"));
+
+    Utils.shutdownExecutor(mockExecutor);
+  }
+
+  @Test
+  public void testInterruptStreamNull() {
+    Utils.interruptStream(null);
+  }
+
+  @Test
+  public void testInterruptStreamStandardInputStream() throws Exception {
+    java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(new byte[0]);
+    Utils.interruptStream(bis);
+  }
+
+  @Test
+  public void testInterruptStreamInterruptibleInputStream() {
+    InterruptibleInputStream iis =
+        new InterruptibleInputStream(new java.io.ByteArrayInputStream(new byte[0]));
+    Utils.interruptStream(iis);
+    assertThat(iis.isInterrupted(), is(true));
+  }
+
+  @Test
+  public void testInterruptStreamWithException() {
+    InterruptibleInputStream faultyStream =
+        new InterruptibleInputStream(new java.io.ByteArrayInputStream(new byte[0])) {
+          @Override
+          public void interrupt() {
+            throw new RuntimeException("Error during interrupt");
+          }
+        };
+    Utils.interruptStream(faultyStream);
+  }
+
+  @Test
+  public void testInterruptThreadNull() {
+    // Should do nothing without exception
+    Utils.interruptThread(null);
+  }
+
+  @Test
+  public void testInterruptThreadAlive() throws Exception {
+    java.util.concurrent.atomic.AtomicBoolean wasInterrupted =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    Thread thread =
+        new Thread(
+            () -> {
+              try {
+                Thread.sleep(5000L);
+              } catch (InterruptedException e) {
+                wasInterrupted.set(true);
+              }
+            },
+            "test-interruptible-thread");
+    thread.start();
+
+    // Give the thread a moment to start
+    Thread.sleep(50L);
+
+    Utils.interruptThread(thread);
+    thread.join(2000L);
+
+    assertThat(wasInterrupted.get(), is(true));
+  }
+
+  @Test
+  public void testInterruptThreadDead() {
+    Thread unstartedThread = new Thread(() -> {}, "test-unstarted");
+    // Should handle cleanly without exception
+    Utils.interruptThread(unstartedThread);
+  }
+
+  @Test
+  public void ensureDirectoryExistsWithNullPathShouldDoNothing() throws Exception {
+    Utils.ensureDirectoryExists(null);
+  }
+
+  @Test
+  public void ensureDirectoryExistsWithNewDirectoryShouldCreateDirs() throws Exception {
+    Path nestedDir = storagePath.resolve("nested").resolve("sub").resolve("dir");
+    assertThat(Files.exists(nestedDir), is(false));
+
+    Utils.ensureDirectoryExists(nestedDir);
+    assertThat(Files.exists(nestedDir), is(true));
+    assertThat(Files.isDirectory(nestedDir), is(true));
+  }
+
+  @Test
+  public void ensureDirectoryExistsWithExistingDirectoryShouldBeNoOp() throws Exception {
+    Path existingDir = storagePath.resolve("existing-dir");
+    Files.createDirectories(existingDir);
+    assertThat(Files.exists(existingDir), is(true));
+
+    Utils.ensureDirectoryExists(existingDir);
+    assertThat(Files.exists(existingDir), is(true));
+  }
+
+  @Test(expected = IOException.class)
+  public void ensureDirectoryExistsOnFileConflictShouldThrowIOException() throws Exception {
+    Path filePath = storagePath.resolve("file-conflict");
+    Files.write(filePath, "content".getBytes());
+
+    // Attempting to create directory where a file already exists should fail
+    Path conflictChildDir = filePath.resolve("child");
+    Utils.ensureDirectoryExists(conflictChildDir);
+  }
+
+  @Test
+  public void cleanupTempFilesWithNullOrNonExistentDirShouldDoNothing() {
+    Utils.cleanupTempFiles(null, "*.tmp", 1000L);
+    Utils.cleanupTempFiles(storagePath.resolve("non-existent-dir"), "*.tmp", 1000L);
+    Utils.cleanupTempFiles(storagePath, null, 1000L);
+  }
+
+  @Test
+  public void cleanupTempFilesShouldDeleteStaleFilesAndRetainFreshFiles() throws Exception {
+    Path tempDir = storagePath.resolve("temp-cleanup-test");
+    Utils.ensureDirectoryExists(tempDir);
+
+    Path staleFile = tempDir.resolve("tus-azure-chunk-stale.tmp");
+    Path freshFile = tempDir.resolve("tus-azure-chunk-fresh.tmp");
+    Path unrelatedFile = tempDir.resolve("other-file.txt");
+
+    Files.write(staleFile, "stale".getBytes());
+    Files.write(freshFile, "fresh".getBytes());
+    Files.write(unrelatedFile, "unrelated".getBytes());
+
+    // Set staleFile modification time to 1 hour ago
+    long oneHourAgo = System.currentTimeMillis() - 3600_000L;
+    Files.setLastModifiedTime(staleFile, java.nio.file.attribute.FileTime.fromMillis(oneHourAgo));
+
+    // Run cleanup for files older than 30 minutes
+    Utils.cleanupTempFiles(tempDir, "tus-azure-chunk-*.tmp", 1800_000L);
+
+    assertThat(Files.exists(staleFile), is(false));
+    assertThat(Files.exists(freshFile), is(true));
+    assertThat(Files.exists(unrelatedFile), is(true));
+  }
+
   /** Simple serializable class for testing. */
   public static class TestSerializable implements Serializable {
     private static final long serialVersionUID = 1L;

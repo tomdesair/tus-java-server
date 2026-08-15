@@ -23,6 +23,7 @@ import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.util.InterruptibleInputStream;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -79,10 +80,17 @@ public class DiskLockingServiceTest {
     lockingService = new DiskLockingService(idFactory, storagePath.toString());
   }
 
+  @After
+  public void tearDown() throws Exception {
+    if (lockingService != null) {
+      lockingService.close();
+    }
+  }
+
   @Test
   public void lockUploadByUri() throws Exception {
-    UploadLock uploadLock =
-        lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
+    String uploadIdStr = UUID.randomUUID().toString();
+    UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/" + uploadIdStr);
 
     assertThat(uploadLock, not(nullValue()));
 
@@ -91,23 +99,21 @@ public class DiskLockingServiceTest {
 
   @Test
   public void isLockedTrue() throws Exception {
-    UploadLock uploadLock =
-        lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
+    String uploadIdStr = UUID.randomUUID().toString();
+    UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/" + uploadIdStr);
 
-    assertThat(
-        lockingService.isLocked(new UploadId("000003f1-a850-49de-af03-997272d834c9")), is(true));
+    assertThat(lockingService.isLocked(new UploadId(uploadIdStr)), is(true));
 
     uploadLock.release();
   }
 
   @Test
   public void isLockedFalse() throws Exception {
-    UploadLock uploadLock =
-        lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
+    String uploadIdStr = UUID.randomUUID().toString();
+    UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/" + uploadIdStr);
     uploadLock.release();
 
-    assertThat(
-        lockingService.isLocked(new UploadId("000003f1-a850-49de-af03-997272d834c9")), is(false));
+    assertThat(lockingService.isLocked(new UploadId(uploadIdStr)), is(false));
   }
 
   @Test
@@ -115,8 +121,7 @@ public class DiskLockingServiceTest {
     reset(idFactory);
     when(idFactory.readUploadId(nullable(String.class))).thenReturn(null);
 
-    UploadLock uploadLock =
-        lockingService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
+    UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/" + UUID.randomUUID());
 
     assertThat(uploadLock, nullValue());
   }
@@ -125,7 +130,7 @@ public class DiskLockingServiceTest {
   public void cleanupStaleLocks() throws Exception {
     Path locksPath = storagePath.resolve("locks");
 
-    String activeLock = "000003f1-a850-49de-af03-997272d834c9";
+    String activeLock = UUID.randomUUID().toString();
     UploadLock uploadLock = lockingService.lockUploadByUri("/upload/test/" + activeLock);
 
     assertThat(uploadLock, not(nullValue()));
@@ -156,7 +161,8 @@ public class DiskLockingServiceTest {
 
   @Test
   public void testRegisterAndRequestLockReleaseLocal() throws Exception {
-    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = "/upload/test/" + uploadIdStr;
     byte[] data = new byte[] {1, 2, 3};
     ByteArrayInputStream bis = new ByteArrayInputStream(data);
     InterruptibleInputStream iis = new InterruptibleInputStream(bis);
@@ -168,15 +174,15 @@ public class DiskLockingServiceTest {
     assertTrue(iis.isInterrupted());
 
     // Stop file should also be created
-    Path stopFilePath =
-        storagePath.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+    Path stopFilePath = storagePath.resolve("locks").resolve(uploadIdStr + ".stop");
     assertTrue(Files.exists(stopFilePath));
     Files.deleteIfExists(stopFilePath);
   }
 
   @Test
   public void testWatchdogInterruptsStreamOnStopFile() throws Exception {
-    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = "/upload/test/" + uploadIdStr;
     byte[] data = new byte[] {1, 2, 3};
     ByteArrayInputStream bis = new ByteArrayInputStream(data);
     InterruptibleInputStream iis = new InterruptibleInputStream(bis);
@@ -185,15 +191,14 @@ public class DiskLockingServiceTest {
     assertFalse(iis.isInterrupted());
 
     // Manually create the stop file (simulating cross-replica signaling)
-    Path stopFilePath =
-        storagePath.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+    Path stopFilePath = storagePath.resolve("locks").resolve(uploadIdStr + ".stop");
     Files.createDirectories(stopFilePath.getParent());
     Files.write(stopFilePath, new byte[0]);
 
-    // Wait for watchdog to poll (polls every 1000ms, wait up to 2.5s)
+    // Wait for watchdog to poll (polls every 1000ms, wait up to 5s)
     long start = System.currentTimeMillis();
-    while (!iis.isInterrupted() && System.currentTimeMillis() - start < 2500L) {
-      Thread.sleep(100L);
+    while (!iis.isInterrupted() && System.currentTimeMillis() - start < 5000L) {
+      Thread.sleep(50L);
     }
 
     assertTrue("Watchdog should have interrupted the stream", iis.isInterrupted());
@@ -202,7 +207,8 @@ public class DiskLockingServiceTest {
 
   @Test
   public void testWatchdogTerminatesWhenEmpty() throws Exception {
-    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = "/upload/test/" + uploadIdStr;
     byte[] data = new byte[] {1, 2, 3};
     ByteArrayInputStream bis = new ByteArrayInputStream(data);
     InterruptibleInputStream iis = new InterruptibleInputStream(bis);
@@ -218,14 +224,13 @@ public class DiskLockingServiceTest {
 
     // Watchdog should stop (since loop exits after activeLocks is empty)
     long start = System.currentTimeMillis();
-    while (watchdog.isAlive() && System.currentTimeMillis() - start < 2500L) {
-      Thread.sleep(100L);
+    while (watchdog.isAlive() && System.currentTimeMillis() - start < 5000L) {
+      Thread.sleep(50L);
     }
     assertFalse("Watchdog thread should have terminated", watchdog.isAlive());
 
     // Clean up stop file
-    Path stopFilePath =
-        storagePath.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+    Path stopFilePath = storagePath.resolve("locks").resolve(uploadIdStr + ".stop");
     Files.deleteIfExists(stopFilePath);
   }
 
@@ -233,17 +238,16 @@ public class DiskLockingServiceTest {
   public void testDefaultConstructor() throws Exception {
     DiskLockingService defaultService = new DiskLockingService(storagePath.toString());
     defaultService.setIdFactory(idFactory);
-    UploadLock lock =
-        defaultService.lockUploadByUri("/upload/test/000003f1-a850-49de-af03-997272d834c9");
+    UploadLock lock = defaultService.lockUploadByUri("/upload/test/" + UUID.randomUUID());
     assertThat(lock, not(nullValue()));
     lock.close();
   }
 
   @Test
   public void testRequestLockReleaseIOException() throws Exception {
-    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
-    Path stopFilePath =
-        storagePath.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = "/upload/test/" + uploadIdStr;
+    Path stopFilePath = storagePath.resolve("locks").resolve(uploadIdStr + ".stop");
     Files.createDirectories(stopFilePath);
 
     try {
@@ -322,7 +326,8 @@ public class DiskLockingServiceTest {
 
   @Test
   public void testWatchdogRobustnessOnInterruptException() throws Exception {
-    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = "/upload/test/" + uploadIdStr;
 
     InterruptibleInputStream faultyStream =
         new InterruptibleInputStream(new ByteArrayInputStream(new byte[0])) {
@@ -334,14 +339,13 @@ public class DiskLockingServiceTest {
 
     lockingService.registerInputStream(uri, faultyStream);
 
-    Path stopFilePath =
-        storagePath.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+    Path stopFilePath = storagePath.resolve("locks").resolve(uploadIdStr + ".stop");
     Files.createDirectories(stopFilePath.getParent());
     Files.write(stopFilePath, new byte[0]);
 
     long start = System.currentTimeMillis();
-    while (Files.exists(stopFilePath) && System.currentTimeMillis() - start < 2500L) {
-      Thread.sleep(100L);
+    while (Files.exists(stopFilePath) && System.currentTimeMillis() - start < 5000L) {
+      Thread.sleep(50L);
     }
 
     Files.deleteIfExists(stopFilePath);
@@ -353,15 +357,16 @@ public class DiskLockingServiceTest {
     Path nestedStorage = tempDir.resolve("nested").resolve("sub");
     DiskLockingService service = new DiskLockingService(idFactory, nestedStorage.toString());
 
-    UploadId id = new UploadId("000003f1-a850-49de-af03-997272d834c9");
+    String uploadIdStr = UUID.randomUUID().toString();
+    UploadId id = new UploadId(uploadIdStr);
     java.lang.reflect.Field urlSafeField = UploadId.class.getDeclaredField("urlSafeValue");
     urlSafeField.setAccessible(true);
-    urlSafeField.set(id, "subdir/000003f1-a850-49de-af03-997272d834c9");
+    urlSafeField.set(id, "subdir/" + uploadIdStr);
 
     reset(idFactory);
     when(idFactory.readUploadId(org.mockito.Mockito.anyString())).thenReturn(id);
 
-    String uri = "/upload/test/subdir/000003f1-a850-49de-af03-997272d834c9";
+    String uri = "/upload/test/subdir/" + uploadIdStr;
     service.requestLockRelease(uri);
 
     Path stopFilePath =
@@ -369,16 +374,18 @@ public class DiskLockingServiceTest {
             .resolve("locks")
             .resolve("subdir")
             .resolve("subdir")
-            .resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+            .resolve(uploadIdStr + ".stop");
 
     assertTrue(Files.exists(stopFilePath));
     Files.deleteIfExists(stopFilePath);
+    service.close();
     FileUtils.deleteDirectory(tempDir.toFile());
   }
 
   @Test
   public void testRequestLockReleaseWithGCedStream() throws Exception {
-    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = "/upload/test/" + uploadIdStr;
     InterruptibleInputStream iis =
         new InterruptibleInputStream(new ByteArrayInputStream(new byte[0]));
     lockingService.registerInputStream(uri, iis);
@@ -392,17 +399,17 @@ public class DiskLockingServiceTest {
                     String, java.lang.ref.WeakReference<InterruptibleInputStream>>)
                 field.get(null);
 
-    java.lang.ref.WeakReference<InterruptibleInputStream> ref =
-        map.get("000003f1-a850-49de-af03-997272d834c9");
+    java.lang.ref.WeakReference<InterruptibleInputStream> ref = map.get(uploadIdStr);
     ref.clear();
 
     lockingService.requestLockRelease(uri);
-    assertFalse(map.containsKey("000003f1-a850-49de-af03-997272d834c9"));
+    assertFalse(map.containsKey(uploadIdStr));
   }
 
   @Test
   public void testRegisteredLockGetUploadUri() throws Exception {
-    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = "/upload/test/" + uploadIdStr;
     UploadLock lock = lockingService.lockUploadByUri(uri);
     org.junit.Assert.assertNotNull(lock);
     assertThat(lock.getUploadUri(), is(uri));
@@ -411,7 +418,8 @@ public class DiskLockingServiceTest {
 
   @Test
   public void testWatchdogRemovesClearedWeakReference() throws Exception {
-    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = "/upload/test/" + uploadIdStr;
     InterruptibleInputStream iis =
         new InterruptibleInputStream(new ByteArrayInputStream(new byte[0]));
     lockingService.registerInputStream(uri, iis);
@@ -425,25 +433,24 @@ public class DiskLockingServiceTest {
                     String, java.lang.ref.WeakReference<InterruptibleInputStream>>)
                 field.get(null);
 
-    java.lang.ref.WeakReference<InterruptibleInputStream> ref =
-        map.get("000003f1-a850-49de-af03-997272d834c9");
+    java.lang.ref.WeakReference<InterruptibleInputStream> ref = map.get(uploadIdStr);
     org.junit.Assert.assertNotNull(ref);
     ref.clear();
 
     long start = System.currentTimeMillis();
-    while (map.containsKey("000003f1-a850-49de-af03-997272d834c9")
-        && System.currentTimeMillis() - start < 2500L) {
-      Thread.sleep(100L);
+    while (map.containsKey(uploadIdStr) && System.currentTimeMillis() - start < 5000L) {
+      Thread.sleep(50L);
     }
 
     assertFalse(
         "Watchdog should have removed the cleared weak reference from activeLocks",
-        map.containsKey("000003f1-a850-49de-af03-997272d834c9"));
+        map.containsKey(uploadIdStr));
   }
 
   @Test
   public void testWatchdogInterrupted() throws Exception {
-    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = "/upload/test/" + uploadIdStr;
     InterruptibleInputStream iis =
         new InterruptibleInputStream(new ByteArrayInputStream(new byte[0]));
     lockingService.registerInputStream(uri, iis);
@@ -455,8 +462,8 @@ public class DiskLockingServiceTest {
     watchdog.interrupt();
 
     long start = System.currentTimeMillis();
-    while (watchdog.isAlive() && System.currentTimeMillis() - start < 2500L) {
-      Thread.sleep(100L);
+    while (watchdog.isAlive() && System.currentTimeMillis() - start < 5000L) {
+      Thread.sleep(50L);
     }
     assertFalse("Watchdog thread should have terminated on interruption", watchdog.isAlive());
 
@@ -478,7 +485,8 @@ public class DiskLockingServiceTest {
                     String, java.lang.ref.WeakReference<InterruptibleInputStream>>)
                 field.get(null);
 
-    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = "/upload/test/" + uploadIdStr;
     InterruptibleInputStream iis =
         new InterruptibleInputStream(new ByteArrayInputStream(new byte[0]));
     lockingService.registerInputStream(uri, iis);
@@ -489,11 +497,11 @@ public class DiskLockingServiceTest {
     java.lang.ref.WeakReference<InterruptibleInputStream> mockRef =
         org.mockito.Mockito.mock(java.lang.ref.WeakReference.class);
     when(mockRef.get()).thenThrow(new RuntimeException("Simulated exception"));
-    map.put("trigger-error", mockRef);
+    map.put("trigger-error-" + UUID.randomUUID(), mockRef);
 
     long start = System.currentTimeMillis();
-    while (watchdog.isAlive() && System.currentTimeMillis() - start < 2500L) {
-      Thread.sleep(100L);
+    while (watchdog.isAlive() && System.currentTimeMillis() - start < 5000L) {
+      Thread.sleep(50L);
     }
 
     map.clear();
@@ -501,12 +509,12 @@ public class DiskLockingServiceTest {
 
   @Test
   public void testRegisteredLockDeleteStopFileIOException() throws Exception {
-    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = "/upload/test/" + uploadIdStr;
     UploadLock lock = lockingService.lockUploadByUri(uri);
     org.junit.Assert.assertNotNull(lock);
 
-    Path stopFilePath =
-        storagePath.resolve("locks").resolve("000003f1-a850-49de-af03-997272d834c9.stop");
+    Path stopFilePath = storagePath.resolve("locks").resolve(uploadIdStr + ".stop");
     Files.createDirectories(stopFilePath);
     Files.createFile(stopFilePath.resolve("dummy"));
 
@@ -558,12 +566,13 @@ public class DiskLockingServiceTest {
     assertTrue(Files.exists(nonExistentPath.resolve("locks")));
 
     // Cleanup
+    newLockingService.close();
     FileUtils.deleteDirectory(nonExistentPath.toFile());
   }
 
   @Test
   public void testRequestLockReleaseNullLockPath() throws Exception {
-    String uri = "/upload/test/000003f1-a850-49de-af03-997272d834c9";
+    String uri = "/upload/test/" + UUID.randomUUID();
 
     // Mock ID factory to return an ID that will result in a null lock path
     // We can just return a null UploadId to get null from getPathInStorageDirectory
@@ -653,5 +662,13 @@ public class DiskLockingServiceTest {
     locksDir.toFile().setWritable(true);
     tempDir.toFile().setWritable(true);
     FileUtils.deleteDirectory(tempDir.toFile());
+  }
+
+  @Test
+  public void testClose() throws Exception {
+    DiskLockingService service = new DiskLockingService(storagePath.toString());
+    service.close();
+    // Subsequent close should be idempotent no-op
+    service.close();
   }
 }

@@ -15,10 +15,15 @@ import java.io.Serializable;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -388,5 +393,136 @@ public class Utils {
     String idStr =
         uploadInfo != null && uploadInfo.getId() != null ? uploadInfo.getId().toString() : "";
     return baseUri + (baseUri.endsWith("/") ? "" : "/") + idStr;
+  }
+
+  /**
+   * Creates a single-thread scheduled executor service with a daemon thread of the given name.
+   *
+   * @param threadName The name for the background daemon thread
+   * @return A new single-thread ScheduledExecutorService
+   */
+  public static ScheduledExecutorService createScheduledDaemonExecutor(String threadName) {
+    return Executors.newSingleThreadScheduledExecutor(
+        runnable -> {
+          Thread thread = new Thread(runnable, threadName);
+          thread.setDaemon(true);
+          return thread;
+        });
+  }
+
+  /**
+   * Creates a daemon scheduled executor and immediately schedules a task to run periodically at a
+   * fixed rate.
+   *
+   * @param threadName The name for the background daemon thread
+   * @param task The task to execute periodically
+   * @param initialDelay The initial delay before the first execution
+   * @param period The period between successive executions
+   * @param unit The time unit of the initialDelay and period parameters
+   * @return The created ScheduledExecutorService
+   */
+  public static ScheduledExecutorService scheduleWatchdog(
+      String threadName, Runnable task, long initialDelay, long period, TimeUnit unit) {
+    ScheduledExecutorService executor = createScheduledDaemonExecutor(threadName);
+    if (period > 0 && task != null) {
+      executor.scheduleAtFixedRate(task, initialDelay, period, unit);
+    }
+    return executor;
+  }
+
+  /**
+   * Safely shuts down a ScheduledExecutorService using {@link
+   * ScheduledExecutorService#shutdownNow()}.
+   *
+   * @param executor The ScheduledExecutorService to shut down
+   */
+  public static void shutdownExecutor(ScheduledExecutorService executor) {
+    if (executor != null && !executor.isShutdown()) {
+      try {
+        executor.shutdownNow();
+      } catch (Exception e) {
+        log.debug("Error shutting down executor: {}", e.getMessage());
+      }
+    }
+  }
+
+  /**
+   * Safely interrupts an input stream if it is an instance of {@link InterruptibleInputStream}, or
+   * closes it quietly if it is a standard input stream. Any exceptions encountered during
+   * interruption or closing are caught and logged without propagating.
+   *
+   * @param inputStream The InputStream to interrupt or close
+   */
+  public static void interruptStream(java.io.InputStream inputStream) {
+    if (inputStream == null) {
+      return;
+    }
+    try {
+      if (inputStream instanceof InterruptibleInputStream) {
+        ((InterruptibleInputStream) inputStream).interrupt();
+      } else {
+        inputStream.close();
+      }
+    } catch (Throwable t) {
+      log.warn("Error interrupting input stream: {}", t.getMessage(), t);
+    }
+  }
+
+  /**
+   * Safely interrupts and stops a thread, catching and logging any exceptions that occur.
+   *
+   * @param thread The Thread to interrupt
+   */
+  public static void interruptThread(Thread thread) {
+    if (thread != null) {
+      try {
+        thread.interrupt();
+      } catch (Exception e) {
+        log.debug("Error interrupting thread {}: {}", thread.getName(), e.getMessage());
+      }
+    }
+  }
+
+  /**
+   * Ensures that the specified directory exists, creating it and any necessary parent directories.
+   * If the directory already exists, this method is a safe no-op. If the path is null, this method
+   * does nothing.
+   *
+   * @param dir The directory path to ensure exists
+   * @throws IOException If creating the directory hierarchy fails
+   */
+  public static void ensureDirectoryExists(Path dir) throws IOException {
+    if (dir != null && !Files.exists(dir)) {
+      Files.createDirectories(dir);
+    }
+  }
+
+  /**
+   * Cleans up temporary files in the specified directory matching a glob pattern and older than
+   * maxAgeMillis.
+   *
+   * @param dir The directory containing temporary files
+   * @param globPattern The glob pattern for temporary files to inspect (e.g. "*.tmp")
+   * @param maxAgeMillis The maximum age in milliseconds before a file is considered stale and
+   *     deleted
+   */
+  public static void cleanupTempFiles(Path dir, String globPattern, long maxAgeMillis) {
+    if (dir == null || !Files.exists(dir) || !Files.isDirectory(dir) || globPattern == null) {
+      return;
+    }
+    long cutoff = System.currentTimeMillis() - maxAgeMillis;
+    try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, globPattern)) {
+      for (Path file : stream) {
+        try {
+          if (Files.isRegularFile(file) && Files.getLastModifiedTime(file).toMillis() < cutoff) {
+            Files.deleteIfExists(file);
+          }
+        } catch (Exception e) {
+          log.debug("Error deleting stale temporary file {}: {}", file, e.getMessage());
+        }
+      }
+    } catch (Exception e) {
+      log.debug("Error scanning directory {} for stale temporary files: {}", dir, e.getMessage());
+    }
   }
 }

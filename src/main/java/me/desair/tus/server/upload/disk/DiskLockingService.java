@@ -18,6 +18,7 @@ import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.util.InterruptibleInputStream;
+import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,7 +45,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
   private UploadIdFactory idFactory;
 
   public DiskLockingService(String storagePath) {
-    super(storagePath + File.separator + LOCK_SUB_DIRECTORY);
+    super(storagePath + File.separator + LOCK_SUB_DIRECTORY, "disk-lock-shutdown-hook");
   }
 
   /** Constructor to use custom UploadIdFactory. */
@@ -52,6 +53,15 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     this(storagePath);
     Objects.requireNonNull(idFactory, "The IdFactory cannot be null");
     this.idFactory = idFactory;
+  }
+
+  @Override
+  protected void cleanupOnClose() throws IOException {
+    synchronized (watchdogLock) {
+      Utils.interruptThread(watchdogThread);
+      watchdogThread = null;
+    }
+    activeLocks.clear();
   }
 
   /**
@@ -161,11 +171,11 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     // 1. Release JVM-local lock if active
     WeakReference<InterruptibleInputStream> streamRef = activeLocks.get(idStr);
     if (streamRef != null) {
-      InterruptibleInputStream stream = streamRef.get();
-      if (stream != null) {
-        stream.interrupt();
+      try {
+        Utils.interruptStream(streamRef.get());
+      } finally {
+        activeLocks.remove(idStr);
       }
-      activeLocks.remove(idStr);
     }
 
     // 2. Create the stop file to signal other replicas
@@ -173,9 +183,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     if (stopFilePath != null) {
       try {
         Path parentDir = stopFilePath.getParent();
-        if (parentDir != null && !Files.exists(parentDir)) {
-          Files.createDirectories(parentDir);
-        }
+        Utils.ensureDirectoryExists(parentDir);
         Files.write(stopFilePath, new byte[0]);
       } catch (IOException e) {
         log.warn("Unable to create stop file " + stopFilePath, e);
@@ -245,31 +253,32 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     }
 
     private void checkActiveLocks() {
-      // Check stop files for each active lock
+      // Check stop files for each active lock safely per entry
       for (Map.Entry<String, WeakReference<InterruptibleInputStream>> entry :
           activeLocks.entrySet()) {
         String idStr = entry.getKey();
-        WeakReference<InterruptibleInputStream> ref = entry.getValue();
-        InterruptibleInputStream stream = ref.get();
+        try {
+          WeakReference<InterruptibleInputStream> ref = entry.getValue();
+          InterruptibleInputStream stream = ref != null ? ref.get() : null;
 
-        if (stream == null) {
+          if (stream == null) {
+            activeLocks.remove(idStr);
+            continue;
+          }
+
+          checkStopFileAndInterrupt(idStr, stream);
+        } catch (Throwable t) {
+          log.warn("Error checking active lock for ID " + idStr, t);
           activeLocks.remove(idStr);
-          continue;
         }
-
-        checkStopFileAndInterrupt(idStr, stream);
       }
     }
 
     private void checkStopFileAndInterrupt(String idStr, InterruptibleInputStream stream) {
       Path stopFilePath = getStopPath(new UploadId(idStr));
       if (stopFilePath != null && Files.exists(stopFilePath)) {
-        try {
-          log.info("Watchdog detected stop file for upload ID {}. Interrupting stream.", idStr);
-          stream.interrupt();
-        } catch (Throwable t) {
-          log.warn("Error interrupting stream for ID " + idStr, t);
-        }
+        log.info("Watchdog detected stop file for upload ID {}. Interrupting stream.", idStr);
+        Utils.interruptStream(stream);
         activeLocks.remove(idStr);
         try {
           Files.deleteIfExists(stopFilePath);

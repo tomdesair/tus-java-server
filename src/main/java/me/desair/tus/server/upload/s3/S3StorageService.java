@@ -42,6 +42,7 @@ import me.desair.tus.server.upload.UploadType;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -154,6 +155,11 @@ public class S3StorageService implements UploadStorageService {
         temporaryDirectory != null
             ? temporaryDirectory
             : Paths.get(System.getProperty("java.io.tmpdir"));
+    try {
+      Utils.ensureDirectoryExists(this.temporaryDirectory);
+    } catch (IOException e) {
+      log.debug("Unable to ensure temporary directory exists: {}", e.getMessage());
+    }
 
     this.concatenationService =
         new S3ConcatenationService(
@@ -170,6 +176,11 @@ public class S3StorageService implements UploadStorageService {
   public String getS3ObjectKey(UploadInfo uploadInfo) {
     if (uploadInfo == null || uploadInfo.getId() == null) {
       return null;
+    }
+
+    // Resolve duplicate child upload dynamically to parent S3 object key per AGENTS.md §7
+    if (uploadInfo.getDuplicatesUploadId() != null) {
+      return buildObjectKey(uploadInfo.getDuplicatesUploadId());
     }
 
     if (uploadInfo.getStorageUploadId() != null) {
@@ -372,7 +383,7 @@ public class S3StorageService implements UploadStorageService {
     }
 
     // Handle concatenated upload resolution if applicable
-    if (UploadType.CONCATENATED.equals(info.getUploadType()) && info.getStorageUploadId() == null) {
+    if (UploadType.CONCATENATED.equals(info.getUploadType()) && info.isUploadInProgress()) {
       if (concatenationService != null) {
         concatenationService.merge(info);
         info = getUploadInfo(id);
@@ -466,6 +477,10 @@ public class S3StorageService implements UploadStorageService {
       deleteObjectQuietly(
           buildChecksumKey(uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm()));
     }
+
+    // Delete lock target and stop signal objects
+    deleteObjectQuietly(buildLockKey(uploadInfo.getId()));
+    deleteObjectQuietly(buildStopKey(uploadInfo.getId()));
   }
 
   @Override
@@ -630,7 +645,7 @@ public class S3StorageService implements UploadStorageService {
         return new SequenceInputStream(new FileInputStream(tempPrependedFile), inputStream);
       }
     } catch (ErrorResponseException e) {
-      if ("NoSuchKey".equalsIgnoreCase(e.errorResponse().code())) {
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
         // Normal case: no leftover .part object present in S3
       }
     } catch (Exception ignored) {
@@ -1014,6 +1029,14 @@ public class S3StorageService implements UploadStorageService {
   private String buildChecksumKey(String checksum, ChecksumAlgorithm algorithm) {
     String algorithmName = algorithm != null ? algorithm.getTusName().toLowerCase() : "unknown";
     return checksumsPrefix + algorithmName + "/" + checksum;
+  }
+
+  private String buildLockKey(UploadId id) {
+    return locksPrefix + id.toString() + ".lock";
+  }
+
+  private String buildStopKey(UploadId id) {
+    return locksPrefix + id.toString() + ".stop";
   }
 
   private static class AppendResult {

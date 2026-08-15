@@ -1,23 +1,25 @@
 package me.desair.tus.server.upload;
 
-import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertFalse;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import me.desair.tus.server.exception.TusException;
 import org.junit.Test;
 
 public class UploadLockingServiceTest {
 
   @Test
-  public void testDefaultMethods() {
-    UploadLockingService service =
+  public void testDefaultMethods() throws Exception {
+    UploadLockingService dummyService =
         new UploadLockingService() {
           @Override
-          public UploadLock lockUploadByUri(String requestUri) {
+          public UploadLock lockUploadByUri(String requestUri) throws TusException, IOException {
             return null;
           }
 
           @Override
-          public void cleanupStaleLocks() {}
+          public void cleanupStaleLocks() throws IOException {}
 
           @Override
           public boolean isLocked(UploadId id) {
@@ -28,9 +30,11 @@ public class UploadLockingServiceTest {
           public void setIdFactory(UploadIdFactory idFactory) {}
         };
 
-    // Verify default methods do not throw exceptions and act as no-ops
-    service.registerInputStream("/files/test", new ByteArrayInputStream(new byte[0]));
-    service.requestLockRelease("/files/test");
-    assertNotNull(service);
+    // Test default methods for coverage
+    dummyService.registerInputStream("/test/upload/123", new ByteArrayInputStream(new byte[0]));
+    dummyService.requestLockRelease("/test/upload/123");
+    dummyService.close();
+
+    assertFalse(dummyService.isLocked(new UploadId("123")));
   }
 }

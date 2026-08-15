@@ -257,6 +257,16 @@ public class S3ConcatenationServiceTest {
     assertNull(concatenationService.getConcatenatedBytes(null));
   }
 
+  @Test
+  public void testGetConcatenatedBytesInProgressReturnsEmptyStream() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("concat-in-progress"));
+
+    InputStream is = concatenationService.getConcatenatedBytes(info);
+    assertNotNull(is);
+    assertEquals(0, is.available());
+  }
+
   /**
    * Tests that merging fails and throws an UploadNotFoundException when the child upload has a
    * different owner key than the parent/final upload in S3 storage.

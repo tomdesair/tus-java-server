@@ -127,4 +127,22 @@ public class UploadStorageServiceTest {
         dummyStorageService.getUploadInfoByChecksum("some-checksum", ChecksumAlgorithm.SHA256),
         is(nullValue()));
   }
+
+  @Test
+  public void testDefaultAppendAndSizeConfigurationMethods() throws Exception {
+    dummyStorageService.setMaxAppendSize(1000L);
+    assertThat(dummyStorageService.getMaxAppendSize(), is(nullValue()));
+
+    dummyStorageService.setMinAppendSize(100L);
+    assertThat(dummyStorageService.getMinAppendSize(), is(nullValue()));
+
+    dummyStorageService.setMinSize(50L);
+    assertThat(dummyStorageService.getMinSize(), is(nullValue()));
+
+    dummyStorageService.setJsonSerializationEnabled(true);
+    assertThat(dummyStorageService.isJsonSerializationEnabled(), is(false));
+
+    // Default close is a no-op
+    dummyStorageService.close();
+  }
 }
