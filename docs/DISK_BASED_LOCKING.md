@@ -53,20 +53,34 @@ Locks are structured as a dedicated directory containing a JSON lease metadata f
 
 ## 3. Distributed Concurrency & Contention Resolution
 
-### 1. Lock Acquisition Flow
-1. Extract `UploadId` from request URI.
-2. Attempt `Files.createDirectory(<storagePath>/locks/<UploadId>.lock/)`.
-   - **Success**: Write `<UploadId>.lock/lease.json`, start background heartbeat daemon (renews every `leaseDuration / 3`), and return `LeaseFileUploadLock`.
-   - **Directory Already Exists**:
-     - If `lease.json` exists and `expiresAt >= now`: Lock is actively held on another replica $\rightarrow$ throw `UploadAlreadyLockedException`.
-     - If `lease.json` exists and `expiresAt < now`: Holder crashed $\rightarrow$ atomically evict via directory rename and retry acquisition.
-     - If `lease.json` is missing/corrupted and directory `mtime < 5s`: Winner node is actively writing lease file $\rightarrow$ throw `UploadAlreadyLockedException` for client retry.
-     - If `lease.json` is missing/corrupted and directory `mtime >= 5s`: Abandoned directory $\rightarrow$ atomically evict and retry acquisition.
+### 1. Lock Acquisition Flow (Atomic Directory Staging)
+To ensure that an observing process never encounters an empty or partially written lock directory, lock creation uses **Atomic Directory Staging**:
+1. Extract `UploadId` from the request URI.
+2. Verify that `<storagePath>/locks/<UploadId>.lock` does not already exist. If it exists:
+   - If `lease.json` is unexpired: Lock is actively held on another replica $\rightarrow$ throw `UploadAlreadyLockedException`.
+   - If `lease.json` is expired: Holder crashed $\rightarrow$ proceed to **Safe Atomic Eviction** and retry acquisition.
+3. Create a unique temporary staging directory: `<storagePath>/locks/<UploadId>.lock.stage.<uuid>`.
+4. Write the complete `lease.json` file inside the staging directory.
+5. Execute `Files.move(stageDir, lockDirPath, StandardCopyOption.ATOMIC_MOVE)`.
+   - **Success**: The lock directory appears on disk atomically with a valid, fully populated `lease.json` already inside it. Start the background heartbeat daemon (renews every $\text{leaseDuration} / 3$) and return `LeaseFileUploadLock`.
+   - **Collision (Already Exists)**: `Files.move` fails because another node acquired the lock in the interim. Clean up `stageDir` and throw `UploadAlreadyLockedException`.
 
-### 2. Heartbeat Lease Auto-Renewal
+### 2. TOCTOU Mitigation in Expired Lock Eviction (Post-Move Verification & Rollback)
+When multiple cluster nodes concurrently discover an expired lock left behind by a crashed pod, a **Time-of-Check to Time-of-Use (TOCTOU)** race condition can arise:
+1. **Time of Check (TOC)**: Node A and Node B both inspect `<UploadId>.lock` and observe that its lease has expired.
+2. **Node A Wins**: Node A renames the expired directory to `.evicting.<uuid-a>`, deletes it, and stages/moves a brand-new active lock.
+3. **Time of Use (TOU) Hazard**: Node B (having verified expiration in Step 1) executes eviction on Node A's **active** directory. Without post-move verification, Node B destroys Node A's directory and acquires a second lock handle, causing dual ownership.
+
+**The Solution: Post-Move Verification & Rollback**:
+- When Node B isolates the directory via `Files.move(lockDirPath, evictPath, ATOMIC_MOVE)`, it immediately re-inspects `evictPath` post-move.
+- If `evictPath` contains an active lease (created by Node A right before Node B's move), Node B recognizes that it lost the race.
+- Node B immediately rolls back the move via `Files.move(evictPath, lockDirPath, ATOMIC_MOVE)` and aborts eviction.
+- Exactly one node wins the eviction and acquisition, preserving single-owner lock exclusivity.
+
+### 3. Heartbeat Lease Auto-Renewal
 Active streaming uploads periodically renew their lease by updating `expiresAt` in `lease.json` every $\text{leaseDuration} / 3$ (default: every 10 seconds for a 30s lease). When the request completes, `lock.close()` stops the daemon and removes the lock directory.
 
-### 3. Lock Contention & `.stop` Signal Files
+### 4. Lock Contention & `.stop` Signal Files
 When a client sends a `HEAD` or `DELETE` request to resume or cancel an upload while a stalled `PATCH` stream holds the lock:
 1. The resuming server catches `UploadAlreadyLockedException` and calls `requestLockRelease(requestUri)`.
 2. It interrupts any JVM-local stream and writes `<storagePath>/locks/<UploadId>.stop`.
