@@ -545,4 +545,113 @@ public class LeaseFileLockingServiceTest {
     service.cleanupStaleLocks();
     service.close();
   }
+
+  @Test
+  public void testCleanupStaleLocksWithVariousFileTypes() throws Exception {
+    Path locksDir = storagePath.resolve("locks");
+    Utils.ensureDirectoryExists(locksDir);
+
+    // 1. Regular file ending with .lock (should NOT be treated as lock directory)
+    Path regularLockFile = locksDir.resolve("not-a-dir-" + UUID.randomUUID() + ".lock");
+    Files.write(regularLockFile, "data".getBytes());
+
+    // 2. Directory ending with .stop (should NOT be treated as stop regular file)
+    Path stopDir = locksDir.resolve("not-a-file-" + UUID.randomUUID() + ".stop");
+    Files.createDirectory(stopDir);
+
+    // 3. Regular file with unrelated extension
+    Path unrelatedFile = locksDir.resolve("unrelated-" + UUID.randomUUID() + ".txt");
+    Files.write(unrelatedFile, "txt".getBytes());
+
+    // 4. Stale .stop file older than 10 seconds (should be deleted)
+    Path staleStopFile = locksDir.resolve("stale-" + UUID.randomUUID() + ".stop");
+    Files.write(staleStopFile, new byte[0]);
+    Files.setLastModifiedTime(
+        staleStopFile, FileTime.fromMillis(System.currentTimeMillis() - 20_000L));
+
+    lockingService.cleanupStaleLocks();
+
+    assertTrue(Files.exists(regularLockFile));
+    assertTrue(Files.exists(stopDir));
+    assertTrue(Files.exists(unrelatedFile));
+    assertFalse(Files.exists(staleStopFile));
+
+    Files.deleteIfExists(regularLockFile);
+    Files.deleteIfExists(stopDir);
+    Files.deleteIfExists(unrelatedFile);
+  }
+
+  @Test
+  public void testRegisterInputStreamNullHandling() {
+    InterruptibleInputStream stream =
+        new InterruptibleInputStream(new ByteArrayInputStream("data".getBytes()));
+    // All combinations of null should be safe no-ops
+    lockingService.registerInputStream(null, stream);
+    lockingService.registerInputStream(UPLOAD_URL + "/null-test", null);
+    lockingService.registerInputStream(null, null);
+  }
+
+  @Test
+  public void testRequestLockReleaseInterruptsStreamAndWritesStopSignal() throws Exception {
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = UPLOAD_URL + "/" + uploadIdStr;
+
+    InterruptibleInputStream stream =
+        new InterruptibleInputStream(new ByteArrayInputStream("data".getBytes()));
+    lockingService.registerInputStream(uri, stream);
+
+    lockingService.requestLockRelease(uri);
+
+    assertTrue(stream.isInterrupted());
+    Path stopFile = storagePath.resolve("locks").resolve(uploadIdStr + ".stop");
+    assertTrue(Files.exists(stopFile));
+
+    Files.deleteIfExists(stopFile);
+  }
+
+  @Test
+  public void testCheckStopSignalsWithUnmatchedUriDirect() {
+    InterruptibleInputStream stream =
+        new InterruptibleInputStream(new ByteArrayInputStream("data".getBytes()));
+    lockingService.registerInputStream("/invalid/uri/format", stream);
+
+    // Directly invoking checkStopSignals when uri cannot be resolved by idFactory
+    lockingService.checkStopSignals();
+  }
+
+  @Test
+  public void testWriteStopSignalWithNullOrInvalidPath() {
+    // Null upload ID should be a safe no-op
+    lockingService.writeStopSignal(null);
+
+    // Valid upload ID should create the stop file
+    UploadId id = new UploadId("test-stop-signal");
+    lockingService.writeStopSignal(id);
+    Path stopFile = lockingService.getStopFilePath(id);
+    assertTrue(Files.exists(stopFile));
+
+    try {
+      Files.deleteIfExists(stopFile);
+    } catch (Exception ignored) {
+    }
+  }
+
+  @Test
+  public void testCorruptedLeaseFileTriggersGracePeriodFallback() throws Exception {
+    String uploadIdStr = UUID.randomUUID().toString();
+    Path lockDir = storagePath.resolve("locks").resolve(uploadIdStr + ".lock");
+    Files.createDirectories(lockDir);
+
+    // Write corrupted non-JSON content to lease.json
+    Path leaseFile = lockDir.resolve("lease.json");
+    Files.write(leaseFile, "NOT_VALID_JSON".getBytes());
+
+    // Setting mtime to 10 seconds ago ensures grace period has passed
+    Files.setLastModifiedTime(lockDir, FileTime.fromMillis(System.currentTimeMillis() - 10_000L));
+
+    // isLocked should return false (expired) after grace period
+    assertFalse(lockingService.isLocked(new UploadId(uploadIdStr)));
+
+    FileUtils.deleteDirectory(lockDir.toFile());
+  }
 }

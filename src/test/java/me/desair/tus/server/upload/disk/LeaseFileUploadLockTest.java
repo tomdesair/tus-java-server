@@ -206,4 +206,70 @@ public class LeaseFileUploadLockTest {
     // Should execute cleanly without error
     lock.close();
   }
+
+  @Test
+  public void testCloseWithActiveStreamsAndStopFile() throws Exception {
+    Path dir = storagePath.resolve("active-close-" + UUID.randomUUID());
+    Files.createDirectories(dir);
+    Path stopFile = storagePath.resolve("stop-file-" + UUID.randomUUID());
+    Files.write(stopFile, new byte[0]);
+
+    Map<String, InputStream> streams = new ConcurrentHashMap<>();
+    streams.put("/active/uri", new ByteArrayInputStream("test".getBytes()));
+
+    LeaseFileUploadLock lock =
+        new LeaseFileUploadLock(dir, stopFile, "holder", 10000L, "/active/uri", streams, null);
+    assertTrue(Files.exists(stopFile));
+
+    lock.close();
+
+    assertFalse(Files.exists(stopFile));
+    assertFalse(streams.containsKey("/active/uri"));
+  }
+
+  @Test
+  public void testCloseWithNullRequestUriOrNullStreams() throws Exception {
+    Path dir = storagePath.resolve("null-uri-" + UUID.randomUUID());
+    Files.createDirectories(dir);
+
+    Map<String, InputStream> streams = new ConcurrentHashMap<>();
+    LeaseFileUploadLock lockWithNullUri =
+        new LeaseFileUploadLock(dir, null, "holder", 10000L, null, streams, null);
+    lockWithNullUri.close();
+
+    Path dir2 = storagePath.resolve("null-streams-" + UUID.randomUUID());
+    Files.createDirectories(dir2);
+    LeaseFileUploadLock lockWithNullStreams =
+        new LeaseFileUploadLock(dir2, null, "holder", 10000L, "/uri", null, null);
+    lockWithNullStreams.close();
+  }
+
+  @Test
+  public void testCloseWhenLockDirCannotBeDeleted() throws Exception {
+    Path dir = storagePath.resolve("non-empty-" + UUID.randomUUID());
+    Files.createDirectories(dir);
+    // Write an extra file inside the lock dir so Files.deleteIfExists(lockDirPath) throws
+    // DirectoryNotEmptyException
+    Files.write(dir.resolve("extra-file.txt"), "data".getBytes());
+
+    LeaseFileUploadLock lock =
+        new LeaseFileUploadLock(dir, null, "holder", 10000L, "/uri", null, null);
+    // Should catch DirectoryNotEmptyException, log warning, and complete cleanly
+    lock.close();
+
+    FileUtils.deleteDirectory(dir.toFile());
+  }
+
+  @Test
+  public void testRenewLeaseWhenLockDirPathIsRegularFile() throws Exception {
+    Path fileAsDir = storagePath.resolve("file-as-dir-" + UUID.randomUUID());
+    Files.write(fileAsDir, "not a directory".getBytes());
+
+    LeaseFileUploadLock lock =
+        new LeaseFileUploadLock(fileAsDir, null, "holder", 10000L, "/uri", null, null);
+    // Should catch exception attempting to create file inside a regular file and log warning
+    lock.renewLease();
+
+    Files.deleteIfExists(fileAsDir);
+  }
 }

@@ -386,7 +386,7 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
     return true;
   }
 
-  private void writeStopSignal(UploadId uploadId) {
+  void writeStopSignal(UploadId uploadId) {
     Path stopFilePath = getStopFilePath(uploadId);
     if (stopFilePath != null) {
       try {
@@ -398,7 +398,7 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
     }
   }
 
-  private void checkStopSignals() {
+  void checkStopSignals() {
     for (Map.Entry<String, InputStream> entry : activeInputStreams.entrySet()) {
       checkStopSignalForEntry(entry.getKey(), entry.getValue());
     }
