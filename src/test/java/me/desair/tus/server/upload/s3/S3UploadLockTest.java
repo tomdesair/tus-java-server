@@ -106,6 +106,120 @@ public class S3UploadLockTest {
   }
 
   @Test
+  public void testDeleteS3LockObjectIfOwnerSkipsWhenHolderMismatch() throws Exception {
+    // Simulate remote lock owned by another holder
+    S3UploadLock otherLock =
+        new S3UploadLock(
+            "other-holder",
+            "/files/upload-1",
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            60000L,
+            System.currentTimeMillis() + 60000L);
+    String json = me.desair.tus.server.util.S3UploadLockJsonSerializer.serialize(otherLock);
+
+    io.minio.GetObjectResponse response =
+        new io.minio.GetObjectResponse(
+            null,
+            "test-bucket",
+            "us-east-1",
+            "tus-locks/upload-1.lock",
+            new java.io.ByteArrayInputStream(
+                json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+    Mockito.when(minioClient.getObject(any(io.minio.GetObjectArgs.class))).thenReturn(response);
+
+    S3UploadLock lock =
+        new S3UploadLock(
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            "my-holder",
+            60000L,
+            "/files/upload-1",
+            inputStreamMap);
+
+    lock.deleteS3LockObjectIfOwner("tus-locks/upload-1.lock");
+
+    // Must NOT remove object because it belongs to other-holder
+    Mockito.verify(minioClient, Mockito.never())
+        .removeObject(
+            Mockito.argThat(
+                args -> args != null && "tus-locks/upload-1.lock".equals(args.object())));
+  }
+
+  @Test
+  public void testDeleteS3LockObjectIfOwnerDeletesWhenHolderMatches() throws Exception {
+    // Simulate remote lock owned by this holder
+    S3UploadLock myLock =
+        new S3UploadLock(
+            "my-holder",
+            "/files/upload-1",
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            60000L,
+            System.currentTimeMillis() + 60000L);
+    String json = me.desair.tus.server.util.S3UploadLockJsonSerializer.serialize(myLock);
+
+    io.minio.GetObjectResponse response =
+        new io.minio.GetObjectResponse(
+            null,
+            "test-bucket",
+            "us-east-1",
+            "tus-locks/upload-1.lock",
+            new java.io.ByteArrayInputStream(
+                json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+    Mockito.when(minioClient.getObject(any(io.minio.GetObjectArgs.class))).thenReturn(response);
+
+    S3UploadLock lock =
+        new S3UploadLock(
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            "my-holder",
+            60000L,
+            "/files/upload-1",
+            inputStreamMap);
+
+    lock.deleteS3LockObjectIfOwner("tus-locks/upload-1.lock");
+
+    // Must remove object because it matches my-holder
+    Mockito.verify(minioClient)
+        .removeObject(
+            Mockito.argThat(
+                args -> args != null && "tus-locks/upload-1.lock".equals(args.object())));
+  }
+
+  @Test
+  public void testDeleteS3LockObjectIfOwnerHandlesNoSuchKey() throws Exception {
+    io.minio.messages.ErrorResponse errorResponse =
+        Mockito.mock(io.minio.messages.ErrorResponse.class);
+    Mockito.when(errorResponse.code()).thenReturn("NoSuchKey");
+    io.minio.errors.ErrorResponseException ex =
+        new io.minio.errors.ErrorResponseException(errorResponse, null, null);
+
+    Mockito.when(minioClient.getObject(any(io.minio.GetObjectArgs.class))).thenThrow(ex);
+
+    S3UploadLock lock =
+        new S3UploadLock(
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            "my-holder",
+            60000L,
+            "/files/upload-1",
+            inputStreamMap);
+
+    lock.deleteS3LockObjectIfOwner("tus-locks/upload-1.lock");
+  }
+
+  @Test
   public void testCloseHeartbeatExecutorShutdownException() throws Exception {
     java.util.concurrent.ScheduledExecutorService mockExecutor =
         mock(java.util.concurrent.ScheduledExecutorService.class);
@@ -124,5 +238,28 @@ public class S3UploadLockTest {
             mockExecutor);
 
     lock.close();
+  }
+
+  @Test
+  public void testDeleteS3LockObjectIfOwnerNullChecksAndExceptionHandling() throws Exception {
+    S3UploadLock lock =
+        new S3UploadLock(
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            "holder-123",
+            60000L,
+            "/files/upload-1",
+            inputStreamMap);
+
+    // Null key check
+    lock.deleteS3LockObjectIfOwner(null);
+
+    // Exception during removeObject
+    Mockito.doThrow(new RuntimeException("Remove failed"))
+        .when(minioClient)
+        .removeObject(any(RemoveObjectArgs.class));
+    lock.deleteS3LockObjectIfOwner("tus-locks/upload-1.lock");
   }
 }

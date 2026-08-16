@@ -3,9 +3,11 @@ package me.desair.tus.server.upload.s3;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.errors.ErrorResponseException;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.Map;
@@ -14,6 +16,7 @@ import java.util.concurrent.TimeUnit;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.util.S3UploadLockJsonSerializer;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -244,8 +247,8 @@ public class S3UploadLock implements UploadLock {
       inputStreamMap.remove(requestUri);
     }
 
-    // Step 3: Delete .lock lease object and .stop contention signal object from S3
-    deleteS3ObjectQuietly(lockKey);
+    // Step 3: Owner-Safe Lock Release: only delete .lock lease if it is still owned by this holder
+    deleteS3LockObjectIfOwner(lockKey);
     deleteS3ObjectQuietly(stopKey);
   }
 
@@ -264,6 +267,32 @@ public class S3UploadLock implements UploadLock {
     }
   }
 
+  void deleteS3LockObjectIfOwner(String key) {
+    if (key == null || minioClient == null || bucket == null) {
+      return;
+    }
+    try {
+      // Re-verify that the remote lock object is still owned by this lock handle before deleting it
+      try (InputStream stream =
+          minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(key).build())) {
+        S3UploadLock remoteLock = S3UploadLockJsonSerializer.deserialize(stream);
+        if (remoteLock != null && !Strings.CS.equals(remoteLock.getHolderId(), this.holderId)) {
+          log.info(
+              "Skipping deletion of S3 lock key {}: lock is currently held by another node {}",
+              key,
+              remoteLock.getHolderId());
+          return;
+        }
+      } catch (ErrorResponseException e) {
+        // Object is already gone or missing
+        return;
+      }
+      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
+    } catch (Exception e) {
+      log.debug("Failed to delete S3 lock object {}", key, e);
+    }
+  }
+
   private void deleteS3ObjectQuietly(String key) {
     if (key == null || minioClient == null || bucket == null) {
       return;
@@ -271,7 +300,7 @@ public class S3UploadLock implements UploadLock {
     try {
       minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
     } catch (Exception e) {
-      log.debug("Failed to delete S3 lock object {}", key, e);
+      log.debug("Failed to delete S3 object {}", key, e);
     }
   }
 }

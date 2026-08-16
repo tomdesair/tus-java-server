@@ -12,6 +12,7 @@ import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -28,6 +29,7 @@ import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.util.S3UploadLockJsonSerializer;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -241,11 +243,30 @@ public class S3LockingService extends AbstractCloseableResourceService
 
   // HELPER METHODS & LOCK MANAGEMENT LOGIC
 
+  /**
+   * Attempts lock acquisition or safe eviction of an expired lock with multi-layer TOCTOU
+   * mitigations.
+   *
+   * <p><b>TOCTOU Mitigation Workflow:</b>
+   *
+   * <ol>
+   *   <li><b>Primary Acquisition:</b> Attempts conditional write with {@code If-None-Match: *}. If
+   *       no lock object exists, this succeeds atomically on compliant S3 endpoints.
+   *   <li><b>Jittered Verification:</b> Re-reads the lock object from S3 after a randomized backoff
+   *       to ensure emulator compatibility and verify our {@code holderId} was not overwritten by a
+   *       concurrent contender.
+   *   <li><b>Safe Eviction:</b> If acquisition fails because an expired lock exists, the expired
+   *       object is safely verified before deletion (preventing deletion of a newly acquired
+   *       winner's lock), followed by a retry.
+   * </ol>
+   */
   private boolean acquireOrEvictExpiredLock(
       String lockKey, String holderId, String requestUri, String stopKey) {
     boolean acquired = attemptLockAcquisition(lockKey, holderId, requestUri, stopKey);
     if (!acquired && isLockExpired(lockKey)) {
-      deleteObjectQuietly(lockKey);
+      // Safe eviction: verify the lock is still expired right before deleting to prevent
+      // destroying a fresh lock created by a winning contender
+      deleteExpiredLockQuietly(lockKey);
       acquired = attemptLockAcquisition(lockKey, holderId, requestUri, stopKey);
     }
     return acquired;
@@ -264,19 +285,65 @@ public class S3LockingService extends AbstractCloseableResourceService
               holderId, requestUri, bucket, lockKey, stopKey, leaseDurationMs, expiresAt);
       byte[] lockContentBytes = S3UploadLockJsonSerializer.serializeToBytes(lock);
 
-      // Put lock lease object to S3
+      // Layer 1: Conditional PutObject with "If-None-Match: *"
+      // AWS S3 and compliant servers reject this with 412 Precondition Failed if the object already
+      // exists
       minioClient.putObject(
-          PutObjectArgs.builder().bucket(bucket).object(lockKey).stream(
+          PutObjectArgs.builder()
+              .bucket(bucket)
+              .object(lockKey)
+              .extraHeaders(Collections.singletonMap("If-None-Match", "*"))
+              .stream(
                   new ByteArrayInputStream(lockContentBytes), (long) lockContentBytes.length, -1L)
               .build());
-      return true;
+
+      // Layer 2: Jittered Read-After-Write Verification
+      // For emulators or S3 backends where If-None-Match is not strictly enforced,
+      // pause for a small randomized jitter (20-60ms) and verify our holderId is still the owner
+      applyJitter();
+      return verifyLockOwnership(lockKey, holderId);
+    } catch (ErrorResponseException e) {
+      S3ErrorType errorType = S3Utils.parseErrorResponse(e);
+      if (errorType == S3ErrorType.PRECONDITION_FAILED || errorType == S3ErrorType.CONFLICT) {
+        log.info("Lock contention for key {}: S3 conditional write precondition failed", lockKey);
+        return false;
+      }
+      log.warn("Unexpected S3 error response acquiring lock for key {}", lockKey, e);
+      return false;
     } catch (Exception e) {
       log.warn("Unexpected error acquiring S3 lock for key {}", lockKey, e);
       return false;
     }
   }
 
-  private boolean isLockExpired(String lockKey) {
+  boolean verifyLockOwnership(String lockKey, String expectedHolderId) {
+    try (InputStream stream =
+        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
+      S3UploadLock remoteLock = S3UploadLockJsonSerializer.deserialize(stream);
+      return remoteLock != null && Strings.CS.equals(remoteLock.getHolderId(), expectedHolderId);
+    } catch (Exception e) {
+      log.debug("Failed to verify lock ownership for key {}", lockKey, e);
+      return false;
+    }
+  }
+
+  void applyJitter() {
+    try {
+      // 20ms to 60ms randomized backoff to allow concurrent in-flight writes to settle
+      long jitterMs = 20L + (long) (Math.random() * 40.0);
+      Thread.sleep(jitterMs);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  private void deleteExpiredLockQuietly(String lockKey) {
+    if (isLockExpired(lockKey)) {
+      deleteObjectQuietly(lockKey);
+    }
+  }
+
+  boolean isLockExpired(String lockKey) {
     try (InputStream stream =
         minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
 

@@ -4,7 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.DirectoryStream;
-import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -23,6 +23,7 @@ import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -270,24 +271,28 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
       Path lockDirPath, Path stopFilePath, String holderId, String requestUri, UploadId uploadId)
       throws IOException {
 
+    if (Files.exists(lockDirPath)) {
+      return null;
+    }
+
+    Path stageDir =
+        lockDirPath.resolveSibling(lockDirPath.getFileName() + ".stage." + UUID.randomUUID());
     try {
       Utils.ensureDirectoryExists(lockDirPath.getParent());
-      // Atomic directory creation on Linux, Windows, NFS, and SMB
-      Files.createDirectory(lockDirPath);
+      Files.createDirectory(stageDir);
 
       LeaseFileUploadLock lock =
           new LeaseFileUploadLock(
               lockDirPath, stopFilePath, holderId, leaseDurationMs, requestUri, activeInputStreams);
 
-      // Write lease metadata JSON file inside the lock directory atomically
-      Path leaseTmpFile = lockDirPath.resolve("lease.json.tmp." + UUID.randomUUID());
-      Path leaseFile = lockDirPath.resolve("lease.json");
-      Utils.writeJson(lock, leaseTmpFile, false);
-      Files.move(
-          leaseTmpFile,
-          leaseFile,
-          StandardCopyOption.ATOMIC_MOVE,
-          StandardCopyOption.REPLACE_EXISTING);
+      // Write lease metadata JSON file inside the staged directory
+      Path leaseFile = stageDir.resolve("lease.json");
+      Utils.writeJson(lock, leaseFile, false);
+
+      // Atomically move the staged directory to the target lock directory.
+      // This guarantees that the lock directory appears atomically with a fully valid lease.json
+      // inside it, completely eliminating any empty-directory or partial-write windows.
+      Files.move(stageDir, lockDirPath, StandardCopyOption.ATOMIC_MOVE);
 
       // Clear any lingering stop signal file from prior contention
       try {
@@ -297,12 +302,20 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
       }
 
       return lock;
-    } catch (FileAlreadyExistsException e) {
-      // Lock directory already exists
+    } catch (FileSystemException e) {
+      // Lock directory already exists or cannot be moved atomically over existing dir
       return null;
     } catch (Exception e) {
       log.debug("Error initializing lease for lock directory {}", lockDirPath, e);
       return null;
+    } finally {
+      if (Files.exists(stageDir)) {
+        try {
+          FileUtils.deleteDirectory(stageDir.toFile());
+        } catch (IOException ignored) {
+          // Safe to ignore
+        }
+      }
     }
   }
 
@@ -317,7 +330,7 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
    *       seconds (grace window for active writes).
    * </ul>
    */
-  private boolean isLockDirectoryExpired(Path lockDirPath, long now) {
+  boolean isLockDirectoryExpired(Path lockDirPath, long now) {
     if (!Files.exists(lockDirPath)) {
       return true;
     }
@@ -351,13 +364,34 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
    * directory before deletion, preventing contention races where multiple nodes try to evict the
    * same directory simultaneously.
    *
+   * <p><b>TOCTOU (Time-of-Check to Time-of-Use) Race Mitigation:</b><br>
+   * A classic TOCTOU race occurs when a contender checks whether a directory is expired (Time of
+   * Check), but before it renames or deletes the directory (Time of Use), another winning contender
+   * has already evicted the expired directory and created a brand new, active lock directory in its
+   * place. If the second contender proceeded to delete the directory without verification, it would
+   * inadvertently destroy the active winner's lock, leading to multiple concurrent lock holders.
+   *
+   * <p>To prevent TOCTOU corruption without requiring centralized locking coordination:
+   *
+   * <ol>
+   *   <li><b>Pre-check:</b> Quickly verify if the directory appears expired before attempting a
+   *       rename to avoid unnecessary I/O when the lock is already known to be active.
+   *   <li><b>Atomic Isolation:</b> Rename the target directory to a unique {@code .evicting.<uuid>}
+   *       path via {@link StandardCopyOption#ATOMIC_MOVE}. This guarantees that only one contender
+   *       can operate on the directory at a time.
+   *   <li><b>Post-move Verification:</b> Re-inspect the isolated directory at {@code evictPath}. If
+   *       it contains a fresh lease or is within the creation grace period (meaning another node
+   *       created a new lock right before our rename), immediately roll back the move by renaming
+   *       it back to {@code lockDirPath} and abort eviction.
+   * </ol>
+   *
    * @param lockDirPath Path to the lock directory to evict
    * @return {@code true} if the expired directory was successfully evicted; {@code false} if
    *     another contender already evicted it or if the moved directory was an active lock
    */
   boolean atomicEvictExpiredLock(Path lockDirPath) {
     long now = System.currentTimeMillis();
-    // Re-verify expiration immediately before rename to avoid moving a newly acquired active lock
+    // 1. Fast pre-check: avoid moving if we can already observe it is active
     if (!isLockDirectoryExpired(lockDirPath, now)) {
       return false;
     }
@@ -365,10 +399,23 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
     Path evictPath =
         lockDirPath.resolveSibling(lockDirPath.getFileName() + ".evicting." + UUID.randomUUID());
     try {
-      // Atomic directory rename guarantees exactly one contender wins the right to delete
+      // Atomic directory rename guarantees exactly one contender wins the right to isolate and
+      // evict
       Files.move(lockDirPath, evictPath, StandardCopyOption.ATOMIC_MOVE);
     } catch (Exception e) {
       // Another contender already moved or removed the directory; safe to proceed
+      return false;
+    }
+
+    // 2. Post-move verification (TOCTOU mitigation): ensure the isolated directory was genuinely
+    // expired and not a fresh active lock created by another winning node right before our move
+    now = System.currentTimeMillis();
+    if (!isLockDirectoryExpired(evictPath, now)) {
+      // We moved a fresh active lock: restore it immediately to preserve the active lock holder
+      try {
+        Files.move(evictPath, lockDirPath, StandardCopyOption.ATOMIC_MOVE);
+      } catch (Exception ignored) {
+      }
       return false;
     }
 
