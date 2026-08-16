@@ -60,29 +60,6 @@ public class LeaseFileUploadLock implements UploadLock {
   public LeaseFileUploadLock() {}
 
   /**
-   * Constructor for serializing lease metadata to JSON.
-   *
-   * @param holderId Unique identifier of the lock holder
-   * @param requestUri Target upload URI
-   * @param storagePath Storage directory path
-   * @param leaseDurationMs Lease duration in milliseconds
-   * @param expiresAt Absolute expiration timestamp in milliseconds
-   */
-  public LeaseFileUploadLock(
-      String holderId,
-      String requestUri,
-      String storagePath,
-      long leaseDurationMs,
-      long expiresAt) {
-    this.holderId = holderId;
-    this.requestUri = requestUri;
-    this.storagePath = storagePath;
-    this.leaseDurationMs = leaseDurationMs;
-    this.expiresAt = expiresAt;
-    this.acquiredAt = System.currentTimeMillis();
-  }
-
-  /**
    * Constructs an active LeaseFileUploadLock and starts the background heartbeat lease renewal
    * daemon.
    *
@@ -100,28 +77,6 @@ public class LeaseFileUploadLock implements UploadLock {
       long leaseDurationMs,
       String requestUri,
       Map<String, InputStream> activeInputStreams) {
-    this(
-        lockDirPath, stopFilePath, holderId, leaseDurationMs, requestUri, activeInputStreams, null);
-
-    // Calculate renewal interval: leaseDuration / 3 (e.g. every 10s for 30s lease, min 1s)
-    long renewalPeriodMs = Math.max(1000L, leaseDurationMs / 3);
-    this.heartbeatExecutor =
-        Utils.scheduleWatchdog(
-            "lease-file-lock-heartbeat-" + holderId,
-            this::renewLease,
-            renewalPeriodMs,
-            renewalPeriodMs,
-            TimeUnit.MILLISECONDS);
-  }
-
-  LeaseFileUploadLock(
-      Path lockDirPath,
-      Path stopFilePath,
-      String holderId,
-      long leaseDurationMs,
-      String requestUri,
-      Map<String, InputStream> activeInputStreams,
-      ScheduledExecutorService heartbeatExecutor) {
     this.lockDirPath = lockDirPath;
     this.stopFilePath = stopFilePath;
     this.holderId = holderId;
@@ -131,7 +86,18 @@ public class LeaseFileUploadLock implements UploadLock {
     this.storagePath = lockDirPath != null ? lockDirPath.toString() : null;
     this.acquiredAt = System.currentTimeMillis();
     this.expiresAt = this.acquiredAt + leaseDurationMs;
-    this.heartbeatExecutor = heartbeatExecutor;
+
+    if (leaseDurationMs > 0 && lockDirPath != null) {
+      // Calculate renewal interval: leaseDuration / 3 (e.g. every 10s for 30s lease, min 1s)
+      long renewalPeriodMs = Math.max(1000L, leaseDurationMs / 3);
+      this.heartbeatExecutor =
+          Utils.scheduleWatchdog(
+              "lease-file-lock-heartbeat-" + holderId,
+              this::renewLease,
+              renewalPeriodMs,
+              renewalPeriodMs,
+              TimeUnit.MILLISECONDS);
+    }
   }
 
   public String getHolderId() {

@@ -164,22 +164,30 @@ public class LeaseFileUploadLockTest {
   }
 
   @Test
-  public void testCustomConstructorForSerialization() {
+  public void testActiveLockConstructorInitializesFields() {
     LeaseFileUploadLock lock =
-        new LeaseFileUploadLock("holder", "/uri", "/storage", 10000L, 50000L);
+        new LeaseFileUploadLock(testLockDir, testStopFile, "holder", 10000L, "/uri", null);
 
     assertThat(lock.getHolderId(), is("holder"));
     assertThat(lock.getRequestUri(), is("/uri"));
-    assertThat(lock.getStoragePath(), is("/storage"));
+    assertThat(lock.getStoragePath(), is(testLockDir.toString()));
     assertThat(lock.getLeaseDurationMs(), is(10000L));
-    assertThat(lock.getExpiresAt(), is(50000L));
+    assertThat(lock.getExpiresAt(), greaterThan(0L));
     assertThat(lock.getAcquiredAt(), greaterThan(0L));
+
+    lock.close();
+  }
+
+  @Test
+  public void testConstructorWithZeroLeaseDurationDoesNotScheduleWatchdog() {
+    LeaseFileUploadLock lock =
+        new LeaseFileUploadLock(testLockDir, testStopFile, "holder", 0L, "/uri", null);
+    lock.close();
   }
 
   @Test
   public void testRenewLeaseWithNullLockDirShouldBeNoOp() {
-    LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(null, null, "holder", 10000L, "/uri", null, null);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(null, null, "holder", 10000L, "/uri", null);
     // Should safely do nothing without throwing exception
     lock.renewLease();
     lock.close();
@@ -189,7 +197,7 @@ public class LeaseFileUploadLockTest {
   public void testRenewLeaseWhenLockDirIsDeletedOrInvalid() throws Exception {
     Path nonExistentDir = storagePath.resolve("non-existent-lock-dir-" + UUID.randomUUID());
     LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(nonExistentDir, null, "holder", 10000L, "/uri", null, null);
+        new LeaseFileUploadLock(nonExistentDir, null, "holder", 10000L, "/uri", null);
     // When directory doesn't exist, renewLease logs a warning and does not throw
     lock.renewLease();
     lock.close();
@@ -201,8 +209,7 @@ public class LeaseFileUploadLockTest {
     Files.createDirectories(dir);
     FileUtils.deleteDirectory(dir.toFile());
 
-    LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(dir, null, "holder", 10000L, "/uri", null, null);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(dir, null, "holder", 10000L, "/uri", null);
     // Should execute cleanly without error
     lock.close();
   }
@@ -218,7 +225,7 @@ public class LeaseFileUploadLockTest {
     streams.put("/active/uri", new ByteArrayInputStream("test".getBytes()));
 
     LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(dir, stopFile, "holder", 10000L, "/active/uri", streams, null);
+        new LeaseFileUploadLock(dir, stopFile, "holder", 10000L, "/active/uri", streams);
     assertTrue(Files.exists(stopFile));
 
     lock.close();
@@ -234,13 +241,13 @@ public class LeaseFileUploadLockTest {
 
     Map<String, InputStream> streams = new ConcurrentHashMap<>();
     LeaseFileUploadLock lockWithNullUri =
-        new LeaseFileUploadLock(dir, null, "holder", 10000L, null, streams, null);
+        new LeaseFileUploadLock(dir, null, "holder", 10000L, null, streams);
     lockWithNullUri.close();
 
     Path dir2 = storagePath.resolve("null-streams-" + UUID.randomUUID());
     Files.createDirectories(dir2);
     LeaseFileUploadLock lockWithNullStreams =
-        new LeaseFileUploadLock(dir2, null, "holder", 10000L, "/uri", null, null);
+        new LeaseFileUploadLock(dir2, null, "holder", 10000L, "/uri", null);
     lockWithNullStreams.close();
   }
 
@@ -252,8 +259,7 @@ public class LeaseFileUploadLockTest {
     // DirectoryNotEmptyException
     Files.write(dir.resolve("extra-file.txt"), "data".getBytes());
 
-    LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(dir, null, "holder", 10000L, "/uri", null, null);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(dir, null, "holder", 10000L, "/uri", null);
     // Should catch DirectoryNotEmptyException, log warning, and complete cleanly
     lock.close();
 
@@ -266,7 +272,7 @@ public class LeaseFileUploadLockTest {
     Files.write(fileAsDir, "not a directory".getBytes());
 
     LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(fileAsDir, null, "holder", 10000L, "/uri", null, null);
+        new LeaseFileUploadLock(fileAsDir, null, "holder", 10000L, "/uri", null);
     // Should catch exception attempting to create file inside a regular file and log warning
     lock.renewLease();
 

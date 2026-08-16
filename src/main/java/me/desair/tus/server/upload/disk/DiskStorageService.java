@@ -380,7 +380,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         Files.deleteIfExists(checksumFile);
       }
       Path uploadPath = getPathInStorageDirectory(info.getId());
-      FileUtils.deleteDirectory(uploadPath.toFile());
+      if (uploadPath != null) {
+        FileUtils.deleteDirectory(uploadPath.toFile());
+      }
     }
   }
 

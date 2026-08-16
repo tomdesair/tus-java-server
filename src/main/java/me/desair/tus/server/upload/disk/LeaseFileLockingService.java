@@ -275,14 +275,14 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
       // Atomic directory creation on Linux, Windows, NFS, and SMB
       Files.createDirectory(lockDirPath);
 
-      // Write lease metadata JSON file inside the lock directory atomically
-      long expiresAt = System.currentTimeMillis() + leaseDurationMs;
-      LeaseFileUploadLock lease =
+      LeaseFileUploadLock lock =
           new LeaseFileUploadLock(
-              holderId, requestUri, lockDirPath.toString(), leaseDurationMs, expiresAt);
+              lockDirPath, stopFilePath, holderId, leaseDurationMs, requestUri, activeInputStreams);
+
+      // Write lease metadata JSON file inside the lock directory atomically
       Path leaseTmpFile = lockDirPath.resolve("lease.json.tmp." + UUID.randomUUID());
       Path leaseFile = lockDirPath.resolve("lease.json");
-      Utils.writeJson(lease, leaseTmpFile, false);
+      Utils.writeJson(lock, leaseTmpFile, false);
       Files.move(
           leaseTmpFile,
           leaseFile,
@@ -296,8 +296,7 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
         // Safe to ignore
       }
 
-      return new LeaseFileUploadLock(
-          lockDirPath, stopFilePath, holderId, leaseDurationMs, requestUri, activeInputStreams);
+      return lock;
     } catch (FileAlreadyExistsException e) {
       // Lock directory already exists
       return null;
@@ -356,7 +355,7 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
    * @return {@code true} if the expired directory was successfully evicted; {@code false} if
    *     another contender already evicted it or if the moved directory was an active lock
    */
-  private boolean atomicEvictExpiredLock(Path lockDirPath) {
+  boolean atomicEvictExpiredLock(Path lockDirPath) {
     long now = System.currentTimeMillis();
     // Re-verify expiration immediately before rename to avoid moving a newly acquired active lock
     if (!isLockDirectoryExpired(lockDirPath, now)) {

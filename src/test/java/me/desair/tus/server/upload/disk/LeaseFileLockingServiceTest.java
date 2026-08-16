@@ -152,7 +152,7 @@ public class LeaseFileLockingServiceTest {
     // Write an already-expired lease.json
     long pastTime = System.currentTimeMillis() - 10_000L;
     LeaseFileUploadLock expiredLease =
-        new LeaseFileUploadLock("expired-holder", uri, lockDir.toString(), 30_000L, pastTime);
+        createExpiredLease("expired-holder", uri, lockDir.toString(), pastTime);
     Utils.writeJson(expiredLease, lockDir.resolve("lease.json"), false);
 
     // Contender acquires lock: expired directory should be evicted and new lock acquired
@@ -267,12 +267,8 @@ public class LeaseFileLockingServiceTest {
     Files.createDirectories(expiredLockDir);
     long pastTime = System.currentTimeMillis() - 10_000L;
     LeaseFileUploadLock expiredLease =
-        new LeaseFileUploadLock(
-            "expired",
-            UPLOAD_URL + "/" + expiredIdStr,
-            expiredLockDir.toString(),
-            30_000L,
-            pastTime);
+        createExpiredLease(
+            "expired", UPLOAD_URL + "/" + expiredIdStr, expiredLockDir.toString(), pastTime);
     Utils.writeJson(expiredLease, expiredLockDir.resolve("lease.json"), false);
 
     // 3. Create stale .stop file
@@ -398,7 +394,7 @@ public class LeaseFileLockingServiceTest {
     Files.createDirectories(lockDir);
     long pastTime = System.currentTimeMillis() - 10_000L;
     LeaseFileUploadLock expiredLease =
-        new LeaseFileUploadLock("expired", uri, lockDir.toString(), 30_000L, pastTime);
+        createExpiredLease("expired", uri, lockDir.toString(), pastTime);
     Utils.writeJson(expiredLease, lockDir.resolve("lease.json"), false);
 
     int threadCount = 10;
@@ -653,5 +649,69 @@ public class LeaseFileLockingServiceTest {
     assertFalse(lockingService.isLocked(new UploadId(uploadIdStr)));
 
     FileUtils.deleteDirectory(lockDir.toFile());
+  }
+
+  @Test
+  public void testUnreadableLeaseFileAsDirectoryTriggersGracePeriodFallback() throws Exception {
+    String uploadIdStr = UUID.randomUUID().toString();
+    Path lockDir = storagePath.resolve("locks").resolve(uploadIdStr + ".lock");
+    Files.createDirectories(lockDir);
+
+    // Create a directory where lease.json is expected to be a file, triggering IOException on read
+    Path leaseDir = lockDir.resolve("lease.json");
+    Files.createDirectories(leaseDir);
+
+    // Setting mtime to 10 seconds ago ensures grace period has passed
+    Files.setLastModifiedTime(lockDir, FileTime.fromMillis(System.currentTimeMillis() - 10_000L));
+
+    // isLocked should return false (expired) after grace period
+    assertFalse(lockingService.isLocked(new UploadId(uploadIdStr)));
+
+    FileUtils.deleteDirectory(lockDir.toFile());
+  }
+
+  @Test
+  public void testAtomicEvictExpiredLockOnActiveLockReturnsFalse() throws Exception {
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = UPLOAD_URL + "/" + uploadIdStr;
+
+    // Acquire active lock
+    UploadLock lock = lockingService.lockUploadByUri(uri);
+    assertNotNull(lock);
+
+    Path lockDir = lockingService.getLockDirPath(new UploadId(uploadIdStr));
+
+    // Attempting atomic eviction on an active, unexpired lock directory must return false
+    boolean evicted = lockingService.atomicEvictExpiredLock(lockDir);
+    assertFalse(evicted);
+
+    lock.close();
+  }
+
+  @Test
+  public void testWriteStopSignalWhenStopFileCannotBeWritten() throws Exception {
+    UploadId id = new UploadId("test-unwritable-stop-" + UUID.randomUUID());
+    Path stopPath = lockingService.getStopFilePath(id);
+
+    // Create a directory where the stop file should be written to force an IOException in
+    // Files.write
+    Files.createDirectories(stopPath);
+
+    // writeStopSignal catches IOException and logs warning
+    lockingService.writeStopSignal(id);
+
+    FileUtils.deleteDirectory(stopPath.toFile());
+  }
+
+  private LeaseFileUploadLock createExpiredLease(
+      String holderId, String uri, String storagePath, long expiresAt) {
+    LeaseFileUploadLock lease = new LeaseFileUploadLock();
+    lease.setHolderId(holderId);
+    lease.setRequestUri(uri);
+    lease.setStoragePath(storagePath);
+    lease.setLeaseDurationMs(30_000L);
+    lease.setExpiresAt(expiresAt);
+    lease.setAcquiredAt(expiresAt - 30_000L);
+    return lease;
   }
 }
