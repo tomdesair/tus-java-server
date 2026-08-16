@@ -246,10 +246,9 @@ public class S3ConcatenationService implements UploadConcatenationService {
 
   private void mergeUsingStreamingReupload(
       String targetKey, List<UploadInfo> partialUploads, long totalLength) throws IOException {
-    try {
-      InputStream combinedStream =
-          new SequenceInputStream(
-              new UploadInputStreamEnumeration(partialUploads, uploadStorageService));
+    try (InputStream combinedStream =
+        new SequenceInputStream(
+            new UploadInputStreamEnumeration(partialUploads, uploadStorageService))) {
 
       minioClient.putObject(
           PutObjectArgs.builder().bucket(bucket).object(targetKey).stream(
