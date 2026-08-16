@@ -313,6 +313,9 @@ public class S3LockingService extends AbstractCloseableResourceService
   @Override
   protected void cleanupOnClose() throws IOException {
     Utils.shutdownExecutor(watchdogExecutor);
+    for (InputStream stream : activeInputStreams.values()) {
+      Utils.interruptStream(stream);
+    }
     activeInputStreams.clear();
   }
 

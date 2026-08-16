@@ -234,6 +234,156 @@ public class S3StorageServiceTest {
   }
 
   @Test
+  public void testAppendInterruptedSubPart() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
+    info.setLength(1000L);
+    info.setOffset(0L);
+
+    String json = UploadInfoJsonSerializer.serialize(info);
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json.getBytes());
+              }
+              throw new RuntimeException("Unexpected getObject: " + args.object());
+            });
+
+    java.util.concurrent.atomic.AtomicBoolean partSaved =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    when(minioClient.putObject(any(PutObjectArgs.class)))
+        .thenAnswer(
+            inv -> {
+              PutObjectArgs args = inv.getArgument(0);
+              if (args.object().endsWith(".part")) {
+                partSaved.set(true);
+              }
+              return null;
+            });
+
+    StatObjectResponse partStat = mock(StatObjectResponse.class);
+    when(partStat.size()).thenReturn(50L);
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".part") && partSaved.get()) {
+                return partStat;
+              }
+              ErrorResponse errorResponse = mock(ErrorResponse.class);
+              when(errorResponse.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(errorResponse, null, null);
+            });
+
+    byte[] validBytes = "12345678901234567890123456789012345678901234567890".getBytes(); // 50 bytes
+    InputStream brokenStream = mock(InputStream.class);
+    when(brokenStream.read(
+            any(byte[].class),
+            org.mockito.ArgumentMatchers.anyInt(),
+            org.mockito.ArgumentMatchers.anyInt()))
+        .thenThrow(new IOException("Stream interrupted"));
+
+    InputStream sequenceStream =
+        new java.io.SequenceInputStream(new ByteArrayInputStream(validBytes), brokenStream);
+
+    try {
+      storageService.append(info, sequenceStream);
+      org.junit.Assert.fail("Expected IOException to be thrown");
+    } catch (IOException e) {
+      assertEquals("Stream interrupted", e.getMessage());
+    }
+
+    assertEquals(Long.valueOf(50L), info.getOffset());
+    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.atLeastOnce())
+        .putObject(any(PutObjectArgs.class));
+  }
+
+  @Test
+  public void testAppendInterruptedMultiPart() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
+    info.setLength(200000000L);
+    info.setOffset(0L);
+
+    String json = UploadInfoJsonSerializer.serialize(info);
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json.getBytes());
+              }
+              throw new RuntimeException("Unexpected getObject: " + args.object());
+            });
+
+    java.util.concurrent.atomic.AtomicBoolean partSaved =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    when(minioClient.putObject(any(PutObjectArgs.class)))
+        .thenAnswer(
+            inv -> {
+              PutObjectArgs args = inv.getArgument(0);
+              if (args.object().endsWith(".part")) {
+                partSaved.set(true);
+              }
+              return null;
+            });
+
+    Item item1 = mock(Item.class);
+    when(item1.objectName()).thenReturn("metadata/24249a5b-01a4-4bf8-b67a-364273bb5a2e.part.00001");
+    when(item1.size()).thenReturn(50L * 1024 * 1024);
+
+    Result<Item> result1 = new Result<>(item1);
+    Iterable<Result<Item>> listResults = Arrays.asList(result1);
+    when(minioClient.listObjects(any(ListObjectsArgs.class))).thenReturn(listResults);
+
+    StatObjectResponse chunk1Stat = mock(StatObjectResponse.class);
+    when(chunk1Stat.size()).thenReturn(50L * 1024 * 1024);
+
+    StatObjectResponse partStat = mock(StatObjectResponse.class);
+    when(partStat.size()).thenReturn(100L);
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().contains(".part.")) {
+                return chunk1Stat;
+              }
+              if (args.object().endsWith(".part") && partSaved.get()) {
+                return partStat;
+              }
+              ErrorResponse errorResponse = mock(ErrorResponse.class);
+              when(errorResponse.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(errorResponse, null, null);
+            });
+
+    byte[] fiftyMb = new byte[50 * 1024 * 1024];
+    byte[] extraBytes = new byte[100];
+    InputStream brokenStream = mock(InputStream.class);
+    when(brokenStream.read(
+            any(byte[].class),
+            org.mockito.ArgumentMatchers.anyInt(),
+            org.mockito.ArgumentMatchers.anyInt()))
+        .thenThrow(new IOException("Stream interrupted on part 2"));
+
+    InputStream combinedStream =
+        new java.io.SequenceInputStream(
+            new java.io.SequenceInputStream(
+                new ByteArrayInputStream(fiftyMb), new ByteArrayInputStream(extraBytes)),
+            brokenStream);
+
+    try {
+      storageService.append(info, combinedStream);
+      org.junit.Assert.fail("Expected IOException to be thrown");
+    } catch (IOException e) {
+      assertEquals("Stream interrupted on part 2", e.getMessage());
+    }
+
+    assertEquals(Long.valueOf(50L * 1024 * 1024 + 100L), info.getOffset());
+  }
+
+  @Test
   public void testGetUploadInfoReturnsNullForMissingKey() throws Exception {
     ErrorResponse errorResponse = mock(ErrorResponse.class);
     when(errorResponse.code()).thenReturn("NoSuchKey");

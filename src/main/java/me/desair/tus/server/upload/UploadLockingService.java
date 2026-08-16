@@ -43,7 +43,7 @@ public interface UploadLockingService {
 
   /**
    * Register the input stream associated with the active request URI so that it can be interrupted
-   * if lock contention occurs.
+   * if lock contention occurs or during service shutdown.
    *
    * @param requestUri The request URI of the active request
    * @param inputStream The input stream of the active request
@@ -53,8 +53,9 @@ public interface UploadLockingService {
   }
 
   /**
-   * Request that the lock for the given request URI be released. This might involve interrupting
-   * the active request's input stream.
+   * Request that the lock for the given request URI be released. This interrupts the active
+   * request's input stream locally or signals other cluster replicas to interrupt their active
+   * stream via a stop signal.
    *
    * @param requestUri The request URI of the upload lock to release
    */
@@ -63,8 +64,8 @@ public interface UploadLockingService {
   }
 
   /**
-   * Closes resources and shuts down any background watchdog threads associated with this locking
-   * service.
+   * Closes resources, interrupts any active in-flight request streams, and shuts down background
+   * watchdog threads associated with this locking service.
    *
    * @throws IOException If closing fails
    */

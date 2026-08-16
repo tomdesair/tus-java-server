@@ -96,6 +96,11 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
       Utils.interruptThread(watchdogThread);
       watchdogThread = null;
     }
+    for (WeakReference<InterruptibleInputStream> streamRef : activeStreams.values()) {
+      if (streamRef != null) {
+        Utils.interruptStream(streamRef.get());
+      }
+    }
     activeStreams.clear();
   }
 
