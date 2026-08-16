@@ -24,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
@@ -695,7 +696,10 @@ public class S3StorageService implements UploadStorageService {
         while (chunkBytesWritten < optimalPartSize
             && (bytesRead = streamToRead.read(buffer)) != -1) {
           if (maxAppendSize != null && (totalBytesAppended + bytesRead) > maxAppendSize) {
-            tempChunkFile.delete();
+            boolean deleted = tempChunkFile.delete();
+            if (!deleted) {
+              log.warn("Failed to delete temp chunk file {}", tempChunkFile.getAbsolutePath());
+            }
             throw new MaxAppendSizeExceededException(
                 "Append payload exceeded limit of " + maxAppendSize);
           }
@@ -713,7 +717,10 @@ public class S3StorageService implements UploadStorageService {
       }
 
       if (chunkBytesWritten == 0) {
-        tempChunkFile.delete();
+        boolean deleted = tempChunkFile.delete();
+        if (!deleted) {
+          log.warn("Failed to delete temp chunk file {}", tempChunkFile.getAbsolutePath());
+        }
         if (readException != null) {
           throw readException;
         }
@@ -751,7 +758,10 @@ public class S3StorageService implements UploadStorageService {
     } catch (Exception e) {
       throw new IOException("Failed to upload part chunk to S3 key " + chunkKey, e);
     } finally {
-      tempChunkFile.delete();
+      boolean deleted = tempChunkFile.delete();
+      if (!deleted) {
+        log.warn("Failed to delete temp chunk file {}", tempChunkFile.getAbsolutePath());
+      }
     }
   }
 
@@ -764,7 +774,10 @@ public class S3StorageService implements UploadStorageService {
     } catch (Exception e) {
       throw new IOException("Failed to write incomplete part object to S3 key " + partObjectKey, e);
     } finally {
-      tempChunkFile.delete();
+      boolean deleted = tempChunkFile.delete();
+      if (!deleted) {
+        log.warn("Failed to delete temp chunk file {}", tempChunkFile.getAbsolutePath());
+      }
     }
   }
 
@@ -894,16 +907,17 @@ public class S3StorageService implements UploadStorageService {
       if (byteCount >= partSize) {
         deleteObjectQuietly(partKey);
       } else {
-        InputStream partStream =
-            minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(partKey).build());
-        byte[] bytes = IOUtils.toByteArray(partStream);
-        int newLength = (int) (bytes.length - byteCount);
-        byte[] remaining = java.util.Arrays.copyOf(bytes, newLength);
+        try (InputStream partStream =
+            minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(partKey).build())) {
+          byte[] bytes = IOUtils.toByteArray(partStream);
+          int newLength = (int) (bytes.length - byteCount);
+          byte[] remaining = Arrays.copyOf(bytes, newLength);
 
-        minioClient.putObject(
-            PutObjectArgs.builder().bucket(bucket).object(partKey).stream(
-                    new ByteArrayInputStream(remaining), (long) remaining.length, -1L)
-                .build());
+          minioClient.putObject(
+              PutObjectArgs.builder().bucket(bucket).object(partKey).stream(
+                      new ByteArrayInputStream(remaining), (long) remaining.length, -1L)
+                  .build());
+        }
       }
     } catch (ErrorResponseException ignored) {
     } catch (Exception e) {
@@ -912,6 +926,9 @@ public class S3StorageService implements UploadStorageService {
   }
 
   private void calculateAndSetOffset(UploadInfo info) {
+    if (info == null || info.getId() == null) {
+      return;
+    }
     String objectKey = getS3ObjectKey(info);
     String partKey = buildIncompletePartKey(info.getId());
 
