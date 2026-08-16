@@ -105,7 +105,9 @@ public class AzureBlobLockingServiceTest {
     InterruptibleInputStream stream = new InterruptibleInputStream(bais);
 
     lockingService.registerInputStream("/test/upload/88888", stream);
-    // KISS: verifying close cleanly shuts down active watchdog thread without exception
+    org.junit.Assert.assertFalse(stream.isInterrupted());
+
     lockingService.close();
+    org.junit.Assert.assertTrue(stream.isInterrupted());
   }
 }

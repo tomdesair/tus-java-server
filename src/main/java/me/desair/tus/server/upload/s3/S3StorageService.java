@@ -307,26 +307,38 @@ public class S3StorageService implements UploadStorageService {
     InputStream streamToRead = prepareStreamWithExistingIncompletePart(partObjectKey, inputStream);
 
     // Step 3: Process payload stream in optimal chunk parts and upload to S3
-    AppendResult appendResult =
-        processPayloadChunks(info, streamToRead, info.getId(), partObjectKey);
+    boolean successfullyFinished = false;
+    try {
+      AppendResult appendResult =
+          processPayloadChunks(info, streamToRead, info.getId(), partObjectKey);
 
-    // Step 4: Validate minimum append size constraints if configured
-    if (minAppendSize != null && appendResult.totalBytesAppended < minAppendSize) {
-      throw new MinAppendSizeNotMetException(
-          "Append payload size "
-              + appendResult.totalBytesAppended
-              + " is below minimum limit "
-              + minAppendSize);
+      // Step 4: Validate minimum append size constraints if configured
+      if (minAppendSize != null && appendResult.totalBytesAppended < minAppendSize) {
+        throw new MinAppendSizeNotMetException(
+            "Append payload size "
+                + appendResult.totalBytesAppended
+                + " is below minimum limit "
+                + minAppendSize);
+      }
+
+      // Step 5: Recalculate total uploaded byte offset across all uploaded part objects in S3
+      long newOffset = calculateCurrentOffset(objectKey, info.getId(), partObjectKey);
+      info.setOffset(newOffset);
+      upload.setOffset(newOffset);
+
+      // Step 6: If all expected bytes are uploaded, compose all part chunks into final S3 object
+      finalizeCompletedUploadIfFinished(info, objectKey, info.getId(), appendResult, newOffset);
+      update(info);
+      successfullyFinished = true;
+      return info;
+    } finally {
+      if (!successfullyFinished) {
+        long newOffset = calculateCurrentOffset(objectKey, info.getId(), partObjectKey);
+        info.setOffset(newOffset);
+        upload.setOffset(newOffset);
+        update(info);
+      }
     }
-
-    // Step 5: Recalculate total uploaded byte offset across all uploaded part objects in S3
-    long newOffset = calculateCurrentOffset(objectKey, info.getId(), partObjectKey);
-    info.setOffset(newOffset);
-
-    // Step 6: If all expected bytes are uploaded, compose all part chunks into final S3 object
-    finalizeCompletedUploadIfFinished(info, objectKey, info.getId(), appendResult, newOffset);
-    update(info);
-    return info;
   }
 
   @Override
@@ -677,6 +689,7 @@ public class S3StorageService implements UploadStorageService {
       tempChunkFile.deleteOnExit();
 
       long chunkBytesWritten = 0;
+      IOException readException = null;
       try (FileOutputStream fos = new FileOutputStream(tempChunkFile)) {
         int bytesRead;
         while (chunkBytesWritten < optimalPartSize
@@ -694,10 +707,16 @@ public class S3StorageService implements UploadStorageService {
         if (chunkBytesWritten < optimalPartSize) {
           streamFinished = true;
         }
+      } catch (IOException e) {
+        readException = e;
+        streamFinished = true;
       }
 
       if (chunkBytesWritten == 0) {
         tempChunkFile.delete();
+        if (readException != null) {
+          throw readException;
+        }
         break;
       }
 
@@ -713,6 +732,10 @@ public class S3StorageService implements UploadStorageService {
       } else {
         // Store sub-5MB tail chunk as temporary .part object in S3 for subsequent appends
         storeIncompletePartToS3(partObjectKey, tempChunkFile, chunkBytesWritten);
+      }
+
+      if (readException != null) {
+        throw readException;
       }
     }
 

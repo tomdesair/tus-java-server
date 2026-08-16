@@ -210,12 +210,15 @@ public class AzureBlobStorageService implements UploadStorageService {
 
     long totalAppended = 0L;
     boolean streamFinished = false;
+    IOException streamException = null;
 
     File firstChunkFile = File.createTempFile("tus-azure-chunk-", ".tmp", tempBufferDir.toFile());
     try {
       // 4. Read first chunk from incoming payload stream into local disk buffer
-      long firstChunkSize = readChunk(inputStream, firstChunkFile, optimalBlockSize);
+      ReadChunkResult firstChunkResult = readChunk(inputStream, firstChunkFile, optimalBlockSize);
+      long firstChunkSize = firstChunkResult.bytesRead;
       totalAppended += firstChunkSize;
+      streamException = firstChunkResult.exception;
 
       validateMaxAppendSize(totalAppended, effectiveMaxAppendSize);
 
@@ -227,17 +230,25 @@ public class AzureBlobStorageService implements UploadStorageService {
         streamFinished = true;
       }
 
-      if (totalBuffered < optimalBlockSize && !isUploadComplete && streamFinished) {
+      // If the cumulative buffered data is below optimalBlockSize and the upload is not yet
+      // finished, and the stream has reached EOF or was interrupted by an IOException:
+      // Keep data in the temporary .part blob instead of committing a sub-optimal block to the
+      // Block Blob.
+      if (totalBuffered < optimalBlockSize
+          && !isUploadComplete
+          && (streamFinished || streamException != null)) {
         // Small append under block size threshold: buffer data to .part blob directly
-        bufferToPartBlob(partBlob, existingPartSize, firstChunkFile, firstChunkSize);
+        if (firstChunkSize > 0) {
+          bufferToPartBlob(partBlob, existingPartSize, firstChunkFile, firstChunkSize);
+        }
       } else {
         // Data exceeds block size threshold: stage blocks to Azure Block Blob
         stagePartBlobIfPresent(partBlob, existingPartSize, blockBlobClient, blockIds);
         stageChunkFile(firstChunkFile, firstChunkSize, blockBlobClient, blockIds);
 
         // Process any remaining chunks from input stream
-        if (!streamFinished) {
-          totalAppended +=
+        if (!streamFinished && streamException == null) {
+          ProcessChunksResult remainingResult =
               processRemainingChunks(
                   inputStream,
                   optimalBlockSize,
@@ -247,13 +258,21 @@ public class AzureBlobStorageService implements UploadStorageService {
                   blockBlobClient,
                   blockIds,
                   totalAppended);
+          totalAppended += remainingResult.additionalAppended;
+          if (remainingResult.exception != null) {
+            streamException = remainingResult.exception;
+          }
         }
 
         // Commit updated block ID list on Azure so staged blocks become committed and readable
-        blockBlobClient.commitBlockList(blockIds, true);
+        if (!blockIds.isEmpty()) {
+          blockBlobClient.commitBlockList(blockIds, true);
+        }
       }
 
-      validateMinAppendSize(totalAppended);
+      if (streamException == null) {
+        validateMinAppendSize(totalAppended);
+      }
 
       // 5. Update UploadInfo offset, expiration timestamp, and optional deduplication state
       upload.setOffset(upload.getOffset() + totalAppended);
@@ -268,6 +287,11 @@ public class AzureBlobStorageService implements UploadStorageService {
       }
 
       saveUploadInfo(upload);
+
+      if (streamException != null) {
+        throw streamException;
+      }
+
       return upload;
     } finally {
       deleteFileQuietly(firstChunkFile);
@@ -702,10 +726,31 @@ public class AzureBlobStorageService implements UploadStorageService {
     }
   }
 
-  /** Reads up to maxBytes from InputStream into target File. */
-  private long readChunk(InputStream is, File targetFile, long maxBytes) throws IOException {
+  private static class ReadChunkResult {
+    final long bytesRead;
+    final IOException exception;
+
+    ReadChunkResult(long bytesRead, IOException exception) {
+      this.bytesRead = bytesRead;
+      this.exception = exception;
+    }
+  }
+
+  private static class ProcessChunksResult {
+    final long additionalAppended;
+    final IOException exception;
+
+    ProcessChunksResult(long additionalAppended, IOException exception) {
+      this.additionalAppended = additionalAppended;
+      this.exception = exception;
+    }
+  }
+
+  /** Reads up to maxBytes from InputStream into target File, preserving read count on exception. */
+  private ReadChunkResult readChunk(InputStream is, File targetFile, long maxBytes) {
     long totalRead = 0L;
     byte[] buffer = new byte[8192];
+    IOException readException = null;
     try (FileOutputStream fos = new FileOutputStream(targetFile)) {
       while (totalRead < maxBytes) {
         int lenToRead = (int) Math.min(buffer.length, maxBytes - totalRead);
@@ -716,8 +761,10 @@ public class AzureBlobStorageService implements UploadStorageService {
         fos.write(buffer, 0, read);
         totalRead += read;
       }
+    } catch (IOException e) {
+      readException = e;
     }
-    return totalRead;
+    return new ReadChunkResult(totalRead, readException);
   }
 
   /** Retrieves committed block IDs from Azure Block Blob. */
@@ -786,8 +833,8 @@ public class AzureBlobStorageService implements UploadStorageService {
     }
   }
 
-  /** Processes remaining payload chunks from stream until EOF. */
-  private long processRemainingChunks(
+  /** Processes remaining payload chunks from stream until EOF or interruption. */
+  private ProcessChunksResult processRemainingChunks(
       InputStream inputStream,
       long optimalBlockSize,
       Long effectiveMaxAppendSize,
@@ -796,14 +843,19 @@ public class AzureBlobStorageService implements UploadStorageService {
       BlockBlobClient blockBlobClient,
       List<String> blockIds,
       long currentTotalAppended)
-      throws IOException, MaxAppendSizeExceededException {
+      throws MaxAppendSizeExceededException, IOException {
     long additionalAppended = 0L;
     boolean streamFinished = false;
+    IOException exception = null;
 
     while (!streamFinished) {
-      File chunkFile = File.createTempFile("tus-azure-chunk-", ".tmp", tempBufferDir.toFile());
+      File chunkFile = null;
       try {
-        long chunkSize = readChunk(inputStream, chunkFile, optimalBlockSize);
+        chunkFile = File.createTempFile("tus-azure-chunk-", ".tmp", tempBufferDir.toFile());
+        ReadChunkResult chunkResult = readChunk(inputStream, chunkFile, optimalBlockSize);
+        long chunkSize = chunkResult.bytesRead;
+        exception = chunkResult.exception;
+
         if (chunkSize <= 0) {
           break;
         }
@@ -820,11 +872,17 @@ public class AzureBlobStorageService implements UploadStorageService {
         } else {
           stageChunkFile(chunkFile, chunkSize, blockBlobClient, blockIds);
         }
+
+        if (exception != null) {
+          break;
+        }
       } finally {
-        deleteFileQuietly(chunkFile);
+        if (chunkFile != null) {
+          deleteFileQuietly(chunkFile);
+        }
       }
     }
-    return additionalAppended;
+    return new ProcessChunksResult(additionalAppended, exception);
   }
 
   /** Buffers incoming data to temporary .part blob when under block threshold. */

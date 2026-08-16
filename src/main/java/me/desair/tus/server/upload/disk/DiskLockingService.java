@@ -61,6 +61,11 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
       Utils.interruptThread(watchdogThread);
       watchdogThread = null;
     }
+    for (WeakReference<InterruptibleInputStream> streamRef : activeLocks.values()) {
+      if (streamRef != null) {
+        Utils.interruptStream(streamRef.get());
+      }
+    }
     activeLocks.clear();
   }
 

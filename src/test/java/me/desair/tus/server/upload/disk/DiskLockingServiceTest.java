@@ -671,4 +671,18 @@ public class DiskLockingServiceTest {
     // Subsequent close should be idempotent no-op
     service.close();
   }
+
+  @Test
+  public void testCloseInterruptsActiveStreams() throws Exception {
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = UPLOAD_URL + "/" + uploadIdStr;
+    ByteArrayInputStream bis = new ByteArrayInputStream(new byte[] {1, 2, 3});
+    InterruptibleInputStream iis = new InterruptibleInputStream(bis);
+
+    lockingService.registerInputStream(uri, iis);
+    assertFalse(iis.isInterrupted());
+
+    lockingService.close();
+    assertTrue(iis.isInterrupted());
+  }
 }

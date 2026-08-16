@@ -446,4 +446,18 @@ public class S3LockingServiceTest {
     // requestLockRelease calls writeStopSignal which catches RuntimeException
     service.requestLockRelease("/files/upload/12345");
   }
+
+  @Test
+  public void testCloseInterruptsActiveStreams() throws Exception {
+    MinioClient mockClient = Mockito.mock(MinioClient.class);
+    S3LockingService service = new S3LockingService(mockClient, "test-bucket");
+    ByteArrayInputStream bis = new ByteArrayInputStream(new byte[] {1, 2, 3});
+    InterruptibleInputStream iis = new InterruptibleInputStream(bis);
+
+    service.registerInputStream("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e", iis);
+    org.junit.Assert.assertFalse(iis.isInterrupted());
+
+    service.close();
+    org.junit.Assert.assertTrue(iis.isInterrupted());
+  }
 }

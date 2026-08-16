@@ -563,4 +563,81 @@ public class ITAzureBlobStorageService {
       assertEquals(0, is.available());
     }
   }
+
+  @Test
+  public void testAppendInterruptedSubBlock() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(1000L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    byte[] validBytes = "12345678901234567890123456789012345678901234567890".getBytes(); // 50 bytes
+    InputStream brokenStream = org.mockito.Mockito.mock(InputStream.class);
+    org.mockito.Mockito.when(
+            brokenStream.read(
+                org.mockito.ArgumentMatchers.any(byte[].class),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt()))
+        .thenThrow(new java.io.IOException("Stream interrupted"));
+
+    InputStream sequenceStream =
+        new java.io.SequenceInputStream(new ByteArrayInputStream(validBytes), brokenStream);
+
+    try {
+      storageService.append(created, sequenceStream);
+      org.junit.Assert.fail("Expected IOException to be thrown");
+    } catch (java.io.IOException e) {
+      assertEquals("Stream interrupted", e.getMessage());
+    }
+
+    assertEquals(Long.valueOf(50L), created.getOffset());
+
+    UploadInfo fetched = storageService.getUploadInfo(created.getId());
+    assertNotNull(fetched);
+    assertEquals(Long.valueOf(50L), fetched.getOffset());
+
+    // Subsequent append resumes cleanly
+    storageService.append(created, new ByteArrayInputStream("abcdefghij".getBytes()));
+    assertEquals(Long.valueOf(60L), created.getOffset());
+  }
+
+  @Test
+  public void testAppendInterruptedMultiBlock() throws Exception {
+    storageService.setPreferredBlockSize(4L * 1024 * 1024); // 4MB
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(20L * 1024 * 1024);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    byte[] fourMb = new byte[4 * 1024 * 1024];
+    java.util.Arrays.fill(fourMb, (byte) 'A');
+    byte[] extraBytes = new byte[100];
+    java.util.Arrays.fill(extraBytes, (byte) 'B');
+
+    InputStream brokenStream = org.mockito.Mockito.mock(InputStream.class);
+    org.mockito.Mockito.when(
+            brokenStream.read(
+                org.mockito.ArgumentMatchers.any(byte[].class),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt()))
+        .thenThrow(new java.io.IOException("Stream interrupted on chunk 2"));
+
+    InputStream combinedStream =
+        new java.io.SequenceInputStream(
+            new java.io.SequenceInputStream(
+                new ByteArrayInputStream(fourMb), new ByteArrayInputStream(extraBytes)),
+            brokenStream);
+
+    try {
+      storageService.append(created, combinedStream);
+      org.junit.Assert.fail("Expected IOException to be thrown");
+    } catch (java.io.IOException e) {
+      assertEquals("Stream interrupted on chunk 2", e.getMessage());
+    }
+
+    assertEquals(Long.valueOf(4L * 1024 * 1024 + 100L), created.getOffset());
+
+    UploadInfo fetched = storageService.getUploadInfo(created.getId());
+    assertNotNull(fetched);
+    assertEquals(Long.valueOf(4L * 1024 * 1024 + 100L), fetched.getOffset());
+  }
 }

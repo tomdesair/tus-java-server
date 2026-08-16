@@ -37,13 +37,20 @@ public interface UploadStorageService {
   String getUploadUri();
 
   /**
-   * Append the bytes in the give {@link InputStream} to the upload with the given ID starting at
+   * Append the bytes in the given {@link InputStream} to the upload with the given ID starting at
    * the provided offset. This method also updates the {@link UploadInfo} corresponding to this
    * upload. The Upload Storage server should not exceed its max upload size when writing bytes.
+   *
+   * <p>If the input stream is interrupted or encounters an {@link IOException} during reading (e.g.
+   * network disconnect, socket closed, JVM shutdown signal, or lock release interruption), the
+   * storage service MUST cleanly persist all bytes received up to the interruption point, update
+   * the {@link UploadInfo} offset and metadata accordingly, and re-throw the exception.
    *
    * @param upload The ID of the upload
    * @param inputStream The input stream containing the bytes to append
    * @return The new {@link UploadInfo} for this upload
+   * @throws IOException If saving bytes or reading from the input stream fails
+   * @throws TusException If upload validation fails or storage constraints are violated
    */
   UploadInfo append(UploadInfo upload, InputStream inputStream) throws IOException, TusException;
 
