@@ -9,9 +9,9 @@ The Javadoc of this library can be found at https://tus.desair.me/. As of versio
 
 `tus-java-server` provides pluggable storage architecture supporting multiple backend storage options:
 
-1. **File Disk Storage** (`DiskStorageService` & `DiskLockingService`):
+1. **File Disk & Network Storage** (`DiskStorageService` & `LeaseFileLockingService`):
    - **Local File System**: Direct disk storage on application server instance.
-   - **Shared NFS Network Drives**: Network file storage for multi-server setups.
+   - **Shared NFS Network Drives**: Distributed, container-safe lease locking for multi-server setups (NFSv3/v4, AWS EFS, Azure Files, SMB/CIFS). See [Disk & Network Storage Locking Guide](docs/DISK_BASED_LOCKING.md).
    - **Kubernetes Persistent Volume**: Mounted volume (`ReadWriteMany` / `ReadWriteOnce`) for containerized applications.
 2. **S3-Compatible Object Storage** (`S3StorageService`, `S3LockingService`, & `S3ConcatenationService`):
    - **Cloud & On-Premise S3**: AWS S3, MinIO, Cloudflare R2, Ceph, or Google Cloud Storage.
@@ -156,7 +156,7 @@ public TomcatServletWebServerFactory tomcatFactory(TusFileUploadService tusFileU
 ```
 
 
-The library provides both filesystem-based storage (`DiskStorageService` / `DiskLockingService`) and S3-compatible object storage (`S3StorageService` / `S3LockingService`). See the **[S3 Storage Guide](docs/S3_STORAGE.md)** for detailed instructions on using AWS S3, MinIO, Cloudflare R2, multi-replica container deployments in Kubernetes, and post-upload processing. You can also provide custom implementations of `UploadStorageService` and `UploadLockingService` using `withUploadStorageService(UploadStorageService)` and `withUploadLockingService(UploadLockingService)`.
+The library provides filesystem-based storage (`DiskStorageService` / `LeaseFileLockingService`), S3-compatible object storage (`S3StorageService` / `S3LockingService`), and Azure Blob Storage (`AzureBlobStorageService` / `AzureBlobLockingService`). See the **[Disk & Network Storage Locking Guide](docs/DISK_BASED_LOCKING.md)**, **[S3 Storage Guide](docs/S3_STORAGE.md)**, and **[Azure Blob Storage Guide](docs/AZURE_BLOB_STORAGE.md)** for detailed instructions on multi-replica container deployments in Kubernetes, post-upload processing, and legacy locking opt-out. You can also provide custom implementations of `UploadStorageService` and `UploadLockingService` using `withUploadStorageService(UploadStorageService)` and `withUploadLockingService(UploadLockingService)`.
 
 ### 2. Processing an upload
 To process an upload request you have to pass the current `jakarta.servlet.http.HttpServletRequest` and `jakarta.servlet.http.HttpServletResponse` objects to the `me.desair.tus.server.TusFileUploadService.process()` method. Typical places were you can do this are inside Servlets, Filters or REST API Controllers (see [examples](#quick-start-and-examples)).

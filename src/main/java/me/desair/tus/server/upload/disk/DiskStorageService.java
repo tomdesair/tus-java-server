@@ -194,19 +194,23 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   }
 
   private void saveUploadInfo(UploadInfo info, Path path) throws IOException {
+    // Coarse request locks (via LeaseFileUploadLock or DiskLockingService) already guarantee
+    // exclusive single-writer access across cluster replicas. Fine-grained OS FileLock on .info
+    // files is redundant and fails on NFS/SMB network mounts and unprivileged containers.
     if (isJsonSerializationEnabled()) {
-      Utils.writeJson(info, path);
+      Utils.writeJson(info, path, false);
     } else {
-      Utils.writeSerializable(info, path);
+      Utils.writeSerializable(info, path, false);
     }
   }
 
   private UploadInfo loadUploadInfo(Path path) throws IOException {
+    // Coarse request locks guarantee safe reads without needing fine-grained OS FileLock.
     if (isJsonSerializationEnabled()) {
-      UploadInfo info = Utils.readJson(path, UploadInfo.class);
-      return info != null ? info : Utils.readSerializable(path, UploadInfo.class);
+      UploadInfo info = Utils.readJson(path, UploadInfo.class, false);
+      return info != null ? info : Utils.readSerializable(path, UploadInfo.class, false);
     } else {
-      return Utils.readSerializable(path, UploadInfo.class);
+      return Utils.readSerializable(path, UploadInfo.class, false);
     }
   }
 

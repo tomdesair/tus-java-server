@@ -33,6 +33,7 @@ import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.upload.cache.ThreadLocalCachedStorageAndLockingService;
 import me.desair.tus.server.upload.disk.DiskLockingService;
 import me.desair.tus.server.upload.disk.DiskStorageService;
+import me.desair.tus.server.upload.disk.LeaseFileLockingService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
@@ -297,7 +298,7 @@ public class TusFileUploadService implements Closeable {
   public TusFileUploadService withStoragePath(String storagePath) {
     Validate.notBlank(storagePath, "The storage path cannot be blank");
     withUploadStorageService(new DiskStorageService(storagePath));
-    withUploadLockingService(new DiskLockingService(storagePath));
+    withUploadLockingService(new LeaseFileLockingService(storagePath));
     prepareCacheIfEnabled();
     return this;
   }
@@ -477,7 +478,11 @@ public class TusFileUploadService implements Closeable {
       throws TusException, IOException {
     UploadLock lock = null;
     int retries = 0;
-    while (retries < 25) {
+    // Retry budget calibrated to 40 retries x 200ms = 8.0 seconds to accommodate NFS/network
+    // storage
+    // attribute cache propagation (actimeo=3s), watchdog polling interval (1.5s), and socket stream
+    // interruption and cleanup overhead.
+    while (retries < 40) {
       try {
         lock = uploadLockingService.lockUploadByUri(requestUri);
         break;

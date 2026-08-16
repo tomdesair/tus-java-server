@@ -84,7 +84,8 @@ public interface UploadLock extends Closeable {
 
 | Storage Backend / Environment | Locking Service Class | Key Characteristics & Architecture | Documentation File |
 |---|---|---|---|
-| **Local File System** | `DiskLockingService` | OS kernel-level exclusive POSIX `FileLock` (`fcntl`) with JVM shutdown hooks and `.stop` signal files. Best for single-node deployments on local disk. | [`README.md`](file:///Users/tom/projects/tus-java-server/README.md) |
+| **Disk & Network Filesystems (Default)** | `LeaseFileLockingService` | Atomic directory creation (`mkdir`), TTL-based JSON lease files, background heartbeat renewal, and `.stop` signal files. Fully safe on NFSv3/v4, AWS EFS, SMB/CIFS, Kubernetes containers, and local disks. | [`docs/DISK_BASED_LOCKING.md`](file:///Users/tom/projects/tus-java-server/docs/DISK_BASED_LOCKING.md) |
+| **Local File System (Legacy Opt-Out)** | `DiskLockingService` | OS kernel-level exclusive POSIX `FileLock` (`fcntl`) with JVM shutdown hooks and `.stop` signal files. Best for single-node deployments on local disk. | [`docs/DISK_BASED_LOCKING.md`](file:///Users/tom/projects/tus-java-server/docs/DISK_BASED_LOCKING.md) |
 | **Amazon S3 / S3-Compatible** | `S3LockingService` | MinIO/S3 object-backed TTL lease objects (`.lock`), background heartbeat renewal, and cross-pod `.stop` signal object polling watchdog. | [`docs/S3_STORAGE.md`](file:///Users/tom/projects/tus-java-server/docs/S3_STORAGE.md) |
 | **Azure Blob Storage** | `AzureBlobLockingService` | Native Azure Blob Storage exclusive 30-second leases (`BlobLeaseClient`), background daemon renewal, and `.stop` signal blob polling watchdog. | [`docs/AZURE_BLOB_STORAGE.md`](file:///Users/tom/projects/tus-java-server/docs/AZURE_BLOB_STORAGE.md) |
 
