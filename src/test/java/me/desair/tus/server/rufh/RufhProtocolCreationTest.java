@@ -471,4 +471,47 @@ public class RufhProtocolCreationTest {
 
     assertThat(response.getStatus(), is(201));
   }
+
+  /**
+   * Section 4.2.2 (Upload Creation - Server Behavior): "If the server decides to create the upload
+   * resource, it MUST acknowledge this by sending a response with a 2xx (Successful) or 104 (Upload
+   * Resumption Supported) status code and MUST set the Location header field to the URI of the
+   * upload resource... The URI of the upload resource MAY be relative to the request target (see
+   * Section 4.2 of [RFC3986])."
+   *
+   * <p>Tests upload creation when configured with an absolute base URL.
+   */
+  @Test
+  public void testUploadCreationWithAbsoluteBaseUrl() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "10000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    when(storageService.getUploadUri()).thenReturn("https://upload.example.com/files");
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(10000L);
+    info.setOffset(0L);
+    info.setId(new UuidUploadIdFactory().createId());
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(info);
+
+    protocol.validate(
+        HttpMethod.POST, request, storageService, lockingService, null, ProtocolVersion.RUFH);
+    protocol.process(
+        HttpMethod.POST,
+        new TusServletRequest(request, true),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        null,
+        ProtocolVersion.RUFH);
+
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+    assertThat(
+        response.getHeader(HttpHeader.LOCATION),
+        is("https://upload.example.com/files/" + info.getId()));
+  }
 }

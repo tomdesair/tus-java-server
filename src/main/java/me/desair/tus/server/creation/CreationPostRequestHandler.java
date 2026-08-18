@@ -41,7 +41,7 @@ public class CreationPostRequestHandler extends AbstractRequestHandler {
     UploadInfo info = buildUploadInfo(servletRequest);
     info = uploadStorageService.create(info, ownerKey);
 
-    String url = Utils.getUploadUriOnCreation(info, servletRequest, null);
+    String url = Utils.getUploadUriOnCreation(info, servletRequest, uploadStorageService);
     servletResponse.setHeader(HttpHeader.LOCATION, url);
     servletResponse.setStatus(HttpServletResponse.SC_CREATED);
 

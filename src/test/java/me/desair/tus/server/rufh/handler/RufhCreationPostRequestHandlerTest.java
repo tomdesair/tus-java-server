@@ -438,4 +438,66 @@ public class RufhCreationPostRequestHandlerTest {
     verify(storageService).update(preCreated);
     assertThat(preCreated.getLength(), is(50L));
   }
+
+  @Test
+  public void testProcessPartialUploadCreationWithAbsoluteUploadUri() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "5000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    when(storageService.getUploadUri()).thenReturn("https://upload.example.com/files");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("creation-id"));
+    info.setLength(5000L);
+    info.setOffset(0L);
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(info);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(201));
+    assertThat(
+        response.getHeader(HttpHeader.LOCATION),
+        is("https://upload.example.com/files/creation-id"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("0"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+  }
+
+  @Test
+  public void testProcessCompletedUploadCreationWithAbsoluteUploadUri() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    when(storageService.getUploadUri()).thenReturn("https://upload.example.com/files");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("completed-id"));
+    info.setLength(100L);
+    info.setOffset(100L);
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(200));
+    assertThat(
+        response.getHeader(HttpHeader.LOCATION),
+        is("https://upload.example.com/files/completed-id"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("100"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+  }
 }

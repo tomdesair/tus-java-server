@@ -611,4 +611,13 @@ public class TusFileUploadServiceTest {
     assertNotNull(lock);
     verify(mockLockingService, times(2)).requestLockRelease("/files/test");
   }
+
+  @Test
+  public void testWithUploadUriAbsoluteUrl() {
+    TusFileUploadService service =
+        new TusFileUploadService().withUploadUri("https://upload.example.com/files/upload");
+    assertEquals(
+        "https://upload.example.com/files/upload",
+        service.getUploadStorageService().getUploadUri());
+  }
 }

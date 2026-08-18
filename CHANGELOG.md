@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
   - **Dedicated Compliance Test Suites**: Added comprehensive, spec-quoted end-to-end tests using a dedicated Python script `scripts/rufh_conformity_test.py` with documentation on how to run the tests in `docs/CONFORMITY_TESTING.md`.
   - **User Migration & Interim Responses Documentation**: Added `docs/MIGRATION.md` and `docs/INTERIM_RESPONSES.md` detailing migration strategies, HTTP 104 status frames under IETF RUFH, Tomcat/Servlet container limitations, cached reflection optimizations, and Spring Boot Tomcat Valve integration.
 - **JSON Serialization**: Support storing `UploadInfo` objects as JSON files in the storage backend using `TusFileUploadService.withJsonSerialization(true)`.
+- **Absolute Base URL & Location Header Support**: Extended `withUploadUri(String)` to accept absolute base URLs (e.g. `https://upload.example.com/files`), returning full URLs in `Location` response headers for upload creation across both Tus 1.0.0 and RUFH protocols while preserving backward compatibility for relative paths.
 
 ### Changed
 - **Default Disk-Based Locking**: `TusFileUploadService.withStoragePath(String)` now defaults to `LeaseFileLockingService` instead of `DiskLockingService` for out-of-the-box Kubernetes, container, and shared network storage compatibility. See `docs/DISK_BASED_LOCKING.md` for legacy opt-out instructions.

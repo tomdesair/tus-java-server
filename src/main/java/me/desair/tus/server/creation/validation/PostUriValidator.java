@@ -8,6 +8,7 @@ import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.exception.PostOnInvalidRequestURIException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.Utils;
 
 /**
  * The Client MUST send a POST request against a known upload creation URL to request a new upload
@@ -41,8 +42,9 @@ public class PostUriValidator implements RequestValidator {
 
   private Pattern getUploadUriPattern(UploadStorageService uploadStorageService) {
     if (uploadUriPattern == null) {
-      // A POST request should match the full URI
-      uploadUriPattern = Pattern.compile("^" + uploadStorageService.getUploadUri() + "$");
+      // A POST request should match the full URI path
+      String path = Utils.extractUriPath(uploadStorageService.getUploadUri());
+      uploadUriPattern = Pattern.compile("^" + path + "$");
     }
     return uploadUriPattern;
   }

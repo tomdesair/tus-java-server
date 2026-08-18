@@ -211,4 +211,69 @@ public class CreationPostRequestHandlerTest {
         servletResponse.getHeader(HttpHeader.LOCATION), endsWith("/test/upload/" + id.toString()));
     assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_CREATED));
   }
+
+  @Test
+  public void processWithAbsoluteUploadUri() throws Exception {
+    servletRequest.setRequestURI("/test/upload");
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 100L);
+    when(uploadStorageService.getUploadUri()).thenReturn("https://upload.example.com/test/upload");
+
+    final UploadId id = new UploadId(UUID.randomUUID());
+    when(uploadStorageService.create(
+            ArgumentMatchers.any(UploadInfo.class), nullable(String.class)))
+        .then(
+            new Answer<UploadInfo>() {
+              @Override
+              public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
+                UploadInfo upload = invocation.getArgument(0);
+                upload.setId(id);
+                return upload;
+              }
+            });
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(servletRequest),
+        new TusServletResponse(servletResponse),
+        uploadStorageService,
+        null);
+
+    assertThat(
+        servletResponse.getHeader(HttpHeader.LOCATION),
+        is("https://upload.example.com/test/upload/" + id.toString()));
+    assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_CREATED));
+  }
+
+  @Test
+  public void processWithAbsoluteRegexUploadUri() throws Exception {
+    servletRequest.setRequestURI("/users/123/files/upload");
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 100L);
+    when(uploadStorageService.getUploadUri())
+        .thenReturn("https://upload.example.com/users/[0-9]+/files/upload");
+
+    final UploadId id = new UploadId(UUID.randomUUID());
+    when(uploadStorageService.create(
+            ArgumentMatchers.any(UploadInfo.class), nullable(String.class)))
+        .then(
+            new Answer<UploadInfo>() {
+              @Override
+              public UploadInfo answer(InvocationOnMock invocation) throws Throwable {
+                UploadInfo upload = invocation.getArgument(0);
+                upload.setId(id);
+                return upload;
+              }
+            });
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(servletRequest),
+        new TusServletResponse(servletResponse),
+        uploadStorageService,
+        null);
+
+    assertThat(
+        servletResponse.getHeader(HttpHeader.LOCATION),
+        is("https://upload.example.com/users/123/files/upload/" + id.toString()));
+    assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_CREATED));
+  }
 }

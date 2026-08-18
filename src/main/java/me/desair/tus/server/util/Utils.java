@@ -405,6 +405,52 @@ public class Utils {
   }
 
   /**
+   * Extracts the path component from an upload URI string, which may be a relative path or an
+   * absolute URL (http:// or https://).
+   *
+   * @param uploadUri The upload URI or URL string
+   * @return The path component starting with "/", or "/" if none is present
+   */
+  public static String extractUriPath(String uploadUri) {
+    if (StringUtils.isBlank(uploadUri)) {
+      return "/";
+    }
+    if (Strings.CS.startsWith(uploadUri, "http://")
+        || Strings.CS.startsWith(uploadUri, "https://")) {
+      int schemeEnd = uploadUri.indexOf("://");
+      int pathStart = uploadUri.indexOf('/', schemeEnd + 3);
+      if (pathStart == -1) {
+        return "/";
+      }
+      return uploadUri.substring(pathStart);
+    }
+    return uploadUri;
+  }
+
+  /**
+   * Extracts the origin component (scheme + host + port) from an upload URL string, or null if the
+   * URI is relative.
+   *
+   * @param uploadUri The upload URI or URL string
+   * @return The origin string (e.g. "https://example.com:8080"), or null if uploadUri is relative
+   */
+  public static String extractUriOrigin(String uploadUri) {
+    if (StringUtils.isBlank(uploadUri)) {
+      return null;
+    }
+    if (Strings.CS.startsWith(uploadUri, "http://")
+        || Strings.CS.startsWith(uploadUri, "https://")) {
+      int schemeEnd = uploadUri.indexOf("://");
+      int pathStart = uploadUri.indexOf('/', schemeEnd + 3);
+      if (pathStart == -1) {
+        return uploadUri;
+      }
+      return uploadUri.substring(0, pathStart);
+    }
+    return null;
+  }
+
+  /**
    * Determine if the given HTTP servlet request targets the upload creation base URI endpoint.
    *
    * @param request The HTTP request
@@ -417,7 +463,7 @@ public class Utils {
       return false;
     }
     String requestUri = request.getRequestURI();
-    String baseUri = uploadStorageService.getUploadUri();
+    String baseUri = extractUriPath(uploadStorageService.getUploadUri());
     return requestUri != null
         && baseUri != null
         && (requestUri.equals(baseUri) || requestUri.equals(baseUri + "/"));
@@ -459,10 +505,25 @@ public class Utils {
       UploadInfo uploadInfo,
       HttpServletRequest servletRequest,
       UploadStorageService storageService) {
-    String baseUri = storageService != null ? storageService.getUploadUri() : null;
-    if (baseUri == null && servletRequest != null) {
+    String configuredUri = storageService != null ? storageService.getUploadUri() : null;
+    String origin = extractUriOrigin(configuredUri);
+    String baseUri = null;
+
+    if (configuredUri != null) {
+      boolean hasRegex = configuredUri.contains("[") || configuredUri.contains("(");
+      if (hasRegex && servletRequest != null) {
+        String requestPath = servletRequest.getRequestURI();
+        baseUri =
+            origin != null
+                ? origin + (requestPath.startsWith("/") ? "" : "/") + requestPath
+                : requestPath;
+      } else {
+        baseUri = configuredUri;
+      }
+    } else if (servletRequest != null) {
       baseUri = servletRequest.getRequestURI();
     }
+
     if (baseUri == null) {
       baseUri = "";
     }

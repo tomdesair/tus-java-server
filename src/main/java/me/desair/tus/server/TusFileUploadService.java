@@ -125,11 +125,15 @@ public class TusFileUploadService implements Closeable {
   }
 
   /**
-   * Set the URI under which the main tus upload endpoint is hosted. Optionally, this URI may
-   * contain regex parameters in order to support endpoints that contain URL parameters, for example
-   * /users/[0-9]+/files/upload
+   * Set the URI or absolute URL under which the main tus upload endpoint is hosted. This can be a
+   * relative path (for example <code>/files/upload</code>) or an absolute URL (for example <code>
+   * https://upload.example.com/files/upload</code>). When an absolute URL is provided, the Location
+   * header in creation responses will contain the full URL. Optionally, this URI may contain regex
+   * parameters in order to support endpoints that contain URL parameters, for example <code>
+   * /users/[0-9]+/files/upload</code> or <code>https://upload.example.com/users/[0-9]+/files/upload
+   * </code>.
    *
-   * @param uploadUri The URI of the main tus upload endpoint
+   * @param uploadUri The URI or URL of the main tus upload endpoint
    * @return The current service
    */
   public TusFileUploadService withUploadUri(String uploadUri) {

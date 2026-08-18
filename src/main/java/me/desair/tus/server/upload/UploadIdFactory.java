@@ -3,6 +3,7 @@ package me.desair.tus.server.upload;
 import java.io.Serializable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Strings;
 import org.apache.commons.lang3.Validate;
@@ -17,15 +18,20 @@ public abstract class UploadIdFactory {
   private Pattern uploadUriPattern = null;
 
   /**
-   * Set the URI under which the main tus upload endpoint is hosted. Optionally, this URI may
-   * contain regex parameters in order to support endpoints that contain URL parameters, for example
-   * /users/[0-9]+/files/upload
+   * Set the URI or absolute URL under which the main tus upload endpoint is hosted. Optionally,
+   * this URI may contain regex parameters in order to support endpoints that contain URL
+   * parameters, for example /users/[0-9]+/files/upload or
+   * https://upload.example.com/users/[0-9]+/files/upload
    *
-   * @param uploadUri The URI of the main tus upload endpoint
+   * @param uploadUri The URI or URL of the main tus upload endpoint
    */
   public void setUploadUri(String uploadUri) {
     Validate.notBlank(uploadUri, "The upload URI pattern cannot be blank");
-    Validate.isTrue(Strings.CS.startsWith(uploadUri, "/"), "The upload URI should start with /");
+    Validate.isTrue(
+        Strings.CS.startsWith(uploadUri, "/")
+            || Strings.CS.startsWith(uploadUri, "http://")
+            || Strings.CS.startsWith(uploadUri, "https://"),
+        "The upload URI should start with /, http://, or https://");
     Validate.isTrue(!Strings.CS.endsWith(uploadUri, "$"), "The upload URI should not end with $");
     this.uploadUri = uploadUri;
     this.uploadUriPattern = null;
@@ -86,8 +92,9 @@ public abstract class UploadIdFactory {
     if (uploadUriPattern == null) {
       // We will extract the upload ID's by removing the upload URI from the start of the
       // request URI
+      String path = Utils.extractUriPath(uploadUri);
       uploadUriPattern =
-          Pattern.compile("^.*" + uploadUri + (Strings.CS.endsWith(uploadUri, "/") ? "" : "/?"));
+          Pattern.compile("^.*" + path + (Strings.CS.endsWith(path, "/") ? "" : "/?"));
     }
     return uploadUriPattern;
   }

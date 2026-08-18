@@ -445,6 +445,30 @@ public class UtilsTest {
   }
 
   @Test
+  public void testExtractUriPath() {
+    assertThat(Utils.extractUriPath("/api/files"), is("/api/files"));
+    assertThat(Utils.extractUriPath("https://upload.example.com/api/files"), is("/api/files"));
+    assertThat(Utils.extractUriPath("http://localhost:8080/files/upload"), is("/files/upload"));
+    assertThat(Utils.extractUriPath("https://upload.example.com"), is("/"));
+    assertThat(Utils.extractUriPath("https://upload.example.com/"), is("/"));
+    assertThat(Utils.extractUriPath(null), is("/"));
+    assertThat(Utils.extractUriPath(""), is("/"));
+  }
+
+  @Test
+  public void testExtractUriOrigin() {
+    assertThat(
+        Utils.extractUriOrigin("https://upload.example.com/api/files"),
+        is("https://upload.example.com"));
+    assertThat(Utils.extractUriOrigin("http://localhost:8080/files"), is("http://localhost:8080"));
+    assertThat(
+        Utils.extractUriOrigin("https://upload.example.com"), is("https://upload.example.com"));
+    assertThat(Utils.extractUriOrigin("/api/files"), is(nullValue()));
+    assertThat(Utils.extractUriOrigin(null), is(nullValue()));
+    assertThat(Utils.extractUriOrigin(""), is(nullValue()));
+  }
+
+  @Test
   public void testGetUploadUriOnCreation() {
     me.desair.tus.server.upload.UploadInfo info = new me.desair.tus.server.upload.UploadInfo();
     info.setId(new me.desair.tus.server.upload.UploadId("test-id"));
@@ -454,7 +478,7 @@ public class UtilsTest {
     when(storageService.getUploadUri()).thenReturn("/api/files");
 
     HttpServletRequest request = mock(HttpServletRequest.class);
-    when(request.getRequestURI()).thenReturn("/files");
+    when(request.getRequestURI()).thenReturn("/api/files");
 
     // With requestURI set and storageService uploadUri set
     assertThat(
@@ -473,6 +497,55 @@ public class UtilsTest {
     assertThat(
         Utils.getUploadUriOnCreation(new me.desair.tus.server.upload.UploadInfo(), null, null),
         is("/"));
+  }
+
+  @Test
+  public void testGetUploadUriOnCreationAbsoluteUrl() {
+    me.desair.tus.server.upload.UploadInfo info = new me.desair.tus.server.upload.UploadInfo();
+    info.setId(new me.desair.tus.server.upload.UploadId("test-id"));
+
+    me.desair.tus.server.upload.UploadStorageService storageService =
+        mock(me.desair.tus.server.upload.UploadStorageService.class);
+    when(storageService.getUploadUri()).thenReturn("https://upload.example.com/api/files");
+
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    when(request.getRequestURI()).thenReturn("/api/files");
+
+    // Absolute URL with request
+    assertThat(
+        Utils.getUploadUriOnCreation(info, request, storageService),
+        is("https://upload.example.com/api/files/test-id"));
+
+    // Absolute URL with regex path request
+    when(storageService.getUploadUri()).thenReturn("https://upload.example.com/users/[0-9]+/files");
+    when(request.getRequestURI()).thenReturn("/users/42/files");
+    assertThat(
+        Utils.getUploadUriOnCreation(info, request, storageService),
+        is("https://upload.example.com/users/42/files/test-id"));
+
+    // Absolute URL with regex path request not starting with /
+    when(request.getRequestURI()).thenReturn("users/42/files");
+    assertThat(
+        Utils.getUploadUriOnCreation(info, request, storageService),
+        is("https://upload.example.com/users/42/files/test-id"));
+
+    // Relative URL with regex path request
+    when(storageService.getUploadUri()).thenReturn("/users/[0-9]+/files");
+    when(request.getRequestURI()).thenReturn("/users/42/files");
+    assertThat(
+        Utils.getUploadUriOnCreation(info, request, storageService), is("/users/42/files/test-id"));
+
+    // Absolute URL with null request
+    when(storageService.getUploadUri()).thenReturn("https://upload.example.com/api/files");
+    assertThat(
+        Utils.getUploadUriOnCreation(info, null, storageService),
+        is("https://upload.example.com/api/files/test-id"));
+
+    // Absolute URL with root path and null request
+    when(storageService.getUploadUri()).thenReturn("https://upload.example.com");
+    assertThat(
+        Utils.getUploadUriOnCreation(info, null, storageService),
+        is("https://upload.example.com/test-id"));
   }
 
   @Test
@@ -509,6 +582,17 @@ public class UtilsTest {
 
     when(request.getRequestURI()).thenReturn("/files");
     when(storageService.getUploadUri()).thenReturn("/files");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(true));
+
+    when(request.getRequestURI()).thenReturn("/files/");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(true));
+
+    when(request.getRequestURI()).thenReturn("/files/123");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(false));
+
+    // Test with absolute URL configured
+    when(storageService.getUploadUri()).thenReturn("https://upload.example.com/files");
+    when(request.getRequestURI()).thenReturn("/files");
     assertThat(Utils.isCreationEndpoint(request, storageService), is(true));
 
     when(request.getRequestURI()).thenReturn("/files/");
