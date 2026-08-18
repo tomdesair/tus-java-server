@@ -50,6 +50,7 @@ public class CreationPostRequestHandlerTest {
     servletRequest = new MockHttpServletRequest();
     servletResponse = new MockHttpServletResponse();
     handler = new CreationPostRequestHandler();
+    when(uploadStorageService.getUploadUri()).thenReturn("/test/upload");
   }
 
   @Test

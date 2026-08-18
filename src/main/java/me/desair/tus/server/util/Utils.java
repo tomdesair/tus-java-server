@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -405,8 +406,8 @@ public class Utils {
   }
 
   /**
-   * Extracts the path component from an upload URI string, which may be a relative path or an
-   * absolute URL (http:// or https://).
+   * Extracts the path component from an upload URI string, which may be a relative path (e.g.,
+   * "/files") or an absolute URL (e.g., "https://example.com/files").
    *
    * @param uploadUri The upload URI or URL string
    * @return The path component starting with "/", or "/" if none is present
@@ -415,6 +416,8 @@ public class Utils {
     if (StringUtils.isBlank(uploadUri)) {
       return "/";
     }
+    // For absolute URLs (http:// or https://), extract the path starting after the authority
+    // component
     if (Strings.CS.startsWith(uploadUri, "http://")
         || Strings.CS.startsWith(uploadUri, "https://")) {
       int schemeEnd = uploadUri.indexOf("://");
@@ -428,16 +431,18 @@ public class Utils {
   }
 
   /**
-   * Extracts the origin component (scheme + host + port) from an upload URL string, or null if the
-   * URI is relative.
+   * Extracts the origin component (scheme + host + port) from an upload URL string, or an empty
+   * string if the URI is relative or blank.
    *
    * @param uploadUri The upload URI or URL string
-   * @return The origin string (e.g. "https://example.com:8080"), or null if uploadUri is relative
+   * @return The origin string (e.g. "https://example.com:8080"), or "" if uploadUri is relative or
+   *     blank
    */
   public static String extractUriOrigin(String uploadUri) {
     if (StringUtils.isBlank(uploadUri)) {
-      return null;
+      return "";
     }
+    // Extract scheme + host[:port] for absolute HTTP and HTTPS URLs
     if (Strings.CS.startsWith(uploadUri, "http://")
         || Strings.CS.startsWith(uploadUri, "https://")) {
       int schemeEnd = uploadUri.indexOf("://");
@@ -447,7 +452,7 @@ public class Utils {
       }
       return uploadUri.substring(0, pathStart);
     }
-    return null;
+    return "";
   }
 
   /**
@@ -496,40 +501,36 @@ public class Utils {
   /**
    * Builds the upload location URI for a newly created upload resource.
    *
-   * @param uploadInfo The UploadInfo object containing the upload ID
+   * @param uploadInfo The UploadInfo object containing the upload ID (must not be null and must
+   *     have an ID)
    * @param servletRequest The current HttpServletRequest or TusServletRequest
-   * @param storageService The current UploadStorageService
+   * @param storageService The current UploadStorageService (must not be null and must have an
+   *     upload URI)
    * @return The location URI string for the created upload
    */
   public static String getUploadUriOnCreation(
       UploadInfo uploadInfo,
       HttpServletRequest servletRequest,
       UploadStorageService storageService) {
-    String configuredUri = storageService != null ? storageService.getUploadUri() : null;
-    String origin = extractUriOrigin(configuredUri);
-    String baseUri = null;
+    Objects.requireNonNull(uploadInfo, "Upload info cannot be null");
+    Objects.requireNonNull(uploadInfo.getId(), "Upload ID cannot be null");
+    Objects.requireNonNull(storageService, "Storage service cannot be null");
+    String configuredUri =
+        Objects.requireNonNull(storageService.getUploadUri(), "Upload URI cannot be null");
 
-    if (configuredUri != null) {
-      boolean hasRegex = configuredUri.contains("[") || configuredUri.contains("(");
-      if (hasRegex && servletRequest != null) {
-        String requestPath = servletRequest.getRequestURI();
-        baseUri =
-            origin != null
-                ? origin + (requestPath.startsWith("/") ? "" : "/") + requestPath
-                : requestPath;
-      } else {
-        baseUri = configuredUri;
-      }
-    } else if (servletRequest != null) {
-      baseUri = servletRequest.getRequestURI();
+    String baseUri = configuredUri;
+
+    // When configuredUri contains regex patterns (e.g. /users/[0-9]+/files),
+    // resolve the concrete request path dynamically from the incoming servlet request
+    boolean hasRegex = configuredUri.contains("[") || configuredUri.contains("(");
+    if (hasRegex && servletRequest != null) {
+      String origin = extractUriOrigin(configuredUri);
+      String requestPath = servletRequest.getRequestURI();
+      baseUri = origin + (requestPath.startsWith("/") ? "" : "/") + requestPath;
     }
 
-    if (baseUri == null) {
-      baseUri = "";
-    }
-    String idStr =
-        uploadInfo != null && uploadInfo.getId() != null ? uploadInfo.getId().toString() : "";
-    return baseUri + (baseUri.endsWith("/") ? "" : "/") + idStr;
+    // Append the generated upload ID to form the final location URI
+    return baseUri + (baseUri.endsWith("/") ? "" : "/") + uploadInfo.getId();
   }
 
   /**

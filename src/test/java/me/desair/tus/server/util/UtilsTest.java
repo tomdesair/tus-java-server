@@ -463,9 +463,9 @@ public class UtilsTest {
     assertThat(Utils.extractUriOrigin("http://localhost:8080/files"), is("http://localhost:8080"));
     assertThat(
         Utils.extractUriOrigin("https://upload.example.com"), is("https://upload.example.com"));
-    assertThat(Utils.extractUriOrigin("/api/files"), is(nullValue()));
-    assertThat(Utils.extractUriOrigin(null), is(nullValue()));
-    assertThat(Utils.extractUriOrigin(""), is(nullValue()));
+    assertThat(Utils.extractUriOrigin("/api/files"), is(""));
+    assertThat(Utils.extractUriOrigin(null), is(""));
+    assertThat(Utils.extractUriOrigin(""), is(""));
   }
 
   @Test
@@ -486,17 +486,45 @@ public class UtilsTest {
 
     // With null request and storageService set
     assertThat(Utils.getUploadUriOnCreation(info, null, storageService), is("/api/files/test-id"));
+  }
 
-    // With null request and null storageService
-    assertThat(Utils.getUploadUriOnCreation(info, null, null), is("/test-id"));
+  @Test(expected = NullPointerException.class)
+  public void testGetUploadUriOnCreationNullUploadInfoThrows() {
+    me.desair.tus.server.upload.UploadStorageService storageService =
+        mock(me.desair.tus.server.upload.UploadStorageService.class);
+    when(storageService.getUploadUri()).thenReturn("/api/files");
 
-    // With null uploadInfo
-    assertThat(Utils.getUploadUriOnCreation(null, null, null), is("/"));
+    Utils.getUploadUriOnCreation(null, null, storageService);
+  }
 
-    // With uploadInfo having null id
-    assertThat(
-        Utils.getUploadUriOnCreation(new me.desair.tus.server.upload.UploadInfo(), null, null),
-        is("/"));
+  @Test(expected = NullPointerException.class)
+  public void testGetUploadUriOnCreationNullUploadIdThrows() {
+    me.desair.tus.server.upload.UploadStorageService storageService =
+        mock(me.desair.tus.server.upload.UploadStorageService.class);
+    when(storageService.getUploadUri()).thenReturn("/api/files");
+
+    Utils.getUploadUriOnCreation(
+        new me.desair.tus.server.upload.UploadInfo(), null, storageService);
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void testGetUploadUriOnCreationNullStorageServiceThrows() {
+    me.desair.tus.server.upload.UploadInfo info = new me.desair.tus.server.upload.UploadInfo();
+    info.setId(new me.desair.tus.server.upload.UploadId("test-id"));
+
+    Utils.getUploadUriOnCreation(info, null, null);
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void testGetUploadUriOnCreationNullUploadUriThrows() {
+    me.desair.tus.server.upload.UploadInfo info = new me.desair.tus.server.upload.UploadInfo();
+    info.setId(new me.desair.tus.server.upload.UploadId("test-id"));
+
+    me.desair.tus.server.upload.UploadStorageService storageService =
+        mock(me.desair.tus.server.upload.UploadStorageService.class);
+    when(storageService.getUploadUri()).thenReturn(null);
+
+    Utils.getUploadUriOnCreation(info, null, storageService);
   }
 
   @Test

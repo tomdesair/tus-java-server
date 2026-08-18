@@ -103,6 +103,7 @@ public class RufhInterimResponseUtilTest {
 
     me.desair.tus.server.upload.UploadStorageService mockStorage =
         org.mockito.Mockito.mock(me.desair.tus.server.upload.UploadStorageService.class);
+    org.mockito.Mockito.when(mockStorage.getUploadUri()).thenReturn("/files");
     me.desair.tus.server.upload.UploadInfo created = new me.desair.tus.server.upload.UploadInfo();
     created.setId(new me.desair.tus.server.upload.UploadId("created-456"));
 
@@ -115,7 +116,7 @@ public class RufhInterimResponseUtilTest {
 
     String raw = RufhInterimResponseUtil.getRawInterimResponse(request, mockStorage, "owner");
     assertNotNull(raw);
-    assertTrue(raw.contains("Location: /files/not-found-123/created-456"));
+    assertTrue(raw.contains("Location: /files/created-456"));
   }
 
   @Test
@@ -169,6 +170,7 @@ public class RufhInterimResponseUtilTest {
 
     me.desair.tus.server.upload.UploadStorageService mockStorage =
         org.mockito.Mockito.mock(me.desair.tus.server.upload.UploadStorageService.class);
+    org.mockito.Mockito.when(mockStorage.getUploadUri()).thenReturn("/files");
 
     assertNull(RufhInterimResponseUtil.getRawInterimResponse(request, mockStorage, "owner"));
 
