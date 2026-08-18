@@ -40,6 +40,11 @@ public class ITS3RufhProtocol extends AbstractITRufhProtocol {
 
   @Override
   protected TusFileUploadService createTusFileUploadService() {
+    return createTusFileUploadService(UPLOAD_URI);
+  }
+
+  @Override
+  protected TusFileUploadService createTusFileUploadService(String uploadUri) {
     org.junit.Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable());
 
     S3StorageService s3Storage = new S3StorageService(minioClient, BUCKET);
@@ -48,7 +53,7 @@ public class ITS3RufhProtocol extends AbstractITRufhProtocol {
     s3Storage.setUploadConcatenationService(s3Concat);
 
     return new TusFileUploadService()
-        .withUploadUri(UPLOAD_URI)
+        .withUploadUri(uploadUri)
         .withUploadStorageService(s3Storage)
         .withUploadLockingService(s3Locking)
         .withMaxUploadSize(1073741824L)

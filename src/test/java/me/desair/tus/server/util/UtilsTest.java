@@ -449,6 +449,7 @@ public class UtilsTest {
     assertThat(Utils.extractUriPath("/api/files"), is("/api/files"));
     assertThat(Utils.extractUriPath("https://upload.example.com/api/files"), is("/api/files"));
     assertThat(Utils.extractUriPath("http://localhost:8080/files/upload"), is("/files/upload"));
+    assertThat(Utils.extractUriPath("https://test.example.com/uploads"), is("/uploads"));
     assertThat(Utils.extractUriPath("https://upload.example.com"), is("/"));
     assertThat(Utils.extractUriPath("https://upload.example.com/"), is("/"));
     assertThat(Utils.extractUriPath(null), is("/"));

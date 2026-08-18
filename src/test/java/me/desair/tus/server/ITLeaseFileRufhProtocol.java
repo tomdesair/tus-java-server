@@ -32,8 +32,13 @@ public class ITLeaseFileRufhProtocol extends AbstractITRufhProtocol {
 
   @Override
   protected TusFileUploadService createTusFileUploadService() {
+    return createTusFileUploadService(UPLOAD_URI);
+  }
+
+  @Override
+  protected TusFileUploadService createTusFileUploadService(String uploadUri) {
     return new TusFileUploadService()
-        .withUploadUri(UPLOAD_URI)
+        .withUploadUri(uploadUri)
         .withUploadStorageService(new DiskStorageService(storagePath.toAbsolutePath().toString()))
         .withUploadLockingService(
             new LeaseFileLockingService(storagePath.toAbsolutePath().toString()))

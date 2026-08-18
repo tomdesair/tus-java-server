@@ -4,6 +4,7 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -42,6 +43,17 @@ public abstract class AbstractITRufhProtocol {
    * @throws Exception if service creation fails
    */
   protected abstract TusFileUploadService createTusFileUploadService() throws Exception;
+
+  /**
+   * Factory method implemented by subclasses to supply a {@link TusFileUploadService} instance
+   * configured with a specific upload URI.
+   *
+   * @param uploadUri The upload URI to configure
+   * @return configured TusFileUploadService instance
+   * @throws Exception if service creation fails
+   */
+  protected abstract TusFileUploadService createTusFileUploadService(String uploadUri)
+      throws Exception;
 
   @Before
   public void setUp() throws Exception {
@@ -606,6 +618,110 @@ public abstract class AbstractITRufhProtocol {
     // Step 5: Verify HTTP 204 No Content acceptance and updated offset 12
     assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
     assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "12");
+  }
+
+  @Test
+  public void testUploadWithAbsoluteUploadUri() throws Exception {
+    String absoluteBaseUri = "https://uploads.example.com";
+    TusFileUploadService service = createTusFileUploadService(absoluteBaseUri);
+
+    String uploadContent = "RUFH Absolute URL content";
+
+    // Step 1: POST to create upload on root endpoint "/"
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI("/");
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "" + uploadContent.getBytes().length);
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+
+    service.process(servletRequest, servletResponse, OWNER_KEY);
+    assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_CREATED));
+    String locationHeader = servletResponse.getHeader(HttpHeader.LOCATION);
+    assertNotNull(locationHeader);
+
+    // Retrieve upload info using the full Location header to verify ID lookup works with absolute
+    // URLs
+    UploadInfo infoByLocation = service.getUploadInfo(locationHeader, OWNER_KEY);
+    assertTrue(infoByLocation != null && infoByLocation.getId() != null);
+    assertThat(locationHeader, is("https://uploads.example.com/" + infoByLocation.getId()));
+
+    String uploadPath = "/" + infoByLocation.getId();
+
+    // Step 2: PATCH upload bytes
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadPath);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    servletRequest.setContent(uploadContent.getBytes());
+
+    service.process(servletRequest, servletResponse, OWNER_KEY);
+    assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_OK));
+    assertThat(
+        servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET),
+        is("" + uploadContent.getBytes().length));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+
+    // Verify upload info is also retrievable via relative path
+    UploadInfo infoByPath = service.getUploadInfo(uploadPath, OWNER_KEY);
+    assertTrue(infoByPath != null && infoByLocation.getId().equals(infoByPath.getId()));
+
+    // Step 3: Verify content
+    try (InputStream stream = service.getUploadedBytes(uploadPath, OWNER_KEY)) {
+      assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
+    }
+  }
+
+  @Test
+  public void testUploadWithAbsoluteUploadUriWithPath() throws Exception {
+    String absoluteBaseUri = "https://uploads.example.com/api";
+    TusFileUploadService service = createTusFileUploadService(absoluteBaseUri);
+
+    String uploadContent = "RUFH Absolute URL with path content";
+
+    // Step 1: POST to create upload on endpoint "/api"
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI("/api");
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "" + uploadContent.getBytes().length);
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+
+    service.process(servletRequest, servletResponse, OWNER_KEY);
+    assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_CREATED));
+    String locationHeader = servletResponse.getHeader(HttpHeader.LOCATION);
+    assertNotNull(locationHeader);
+
+    // Retrieve upload info using the full Location header to verify ID lookup works with absolute
+    // URLs
+    UploadInfo infoByLocation = service.getUploadInfo(locationHeader, OWNER_KEY);
+    assertTrue(infoByLocation != null && infoByLocation.getId() != null);
+    assertThat(locationHeader, is("https://uploads.example.com/api/" + infoByLocation.getId()));
+
+    String uploadPath = "/api/" + infoByLocation.getId();
+
+    // Step 2: PATCH upload bytes
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadPath);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    servletRequest.setContent(uploadContent.getBytes());
+
+    service.process(servletRequest, servletResponse, OWNER_KEY);
+    assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_OK));
+    assertThat(
+        servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET),
+        is("" + uploadContent.getBytes().length));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+
+    // Verify upload info is also retrievable via relative path
+    UploadInfo infoByPath = service.getUploadInfo(uploadPath, OWNER_KEY);
+    assertTrue(infoByPath != null && infoByLocation.getId().equals(infoByPath.getId()));
+
+    // Step 3: Verify content
+    try (InputStream stream = service.getUploadedBytes(uploadPath, OWNER_KEY)) {
+      assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
+    }
   }
 
   // ===============================================================================================
