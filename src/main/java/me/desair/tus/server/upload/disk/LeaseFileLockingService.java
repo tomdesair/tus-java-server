@@ -29,16 +29,18 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Distributed, NFS- and SMB-safe implementation of {@link UploadLockingService} using atomic
- * directory creation and TTL-based JSON lease files.
+ * directory staging, atomic renames, and TTL-based JSON lease files.
  *
  * <p><b>Key Architectural Features & Distributed Concurrency Guide:</b>
  *
  * <ul>
- *   <li><b>Cross-Platform Directory Atomicity</b>: Lock acquisition uses {@code
- *       Files.createDirectory()} on {@code <storagePath>/locks/<UploadId>.lock/}. Directory
- *       creation is atomic across local Linux/Windows filesystems, POSIX NFS (v3/v4 {@code mkdir}
- *       RPC), and Windows SMB/CIFS shares ({@code CreateDirectoryW}), eliminating lock daemon
- *       failures and container namespace isolation issues.
+ *   <li><b>Atomic Directory Staging & Renames</b>: Lock acquisition stages new locks in a temporary
+ *       sibling directory ({@code <storagePath>/locks/<UploadId>.lock.stage.<uuid>}) with {@code
+ *       lease.json} pre-populated, then atomically moves it into place using {@link
+ *       StandardCopyOption#ATOMIC_MOVE}. Directory moves map to atomic server-side RPCs on POSIX
+ *       NFS ({@code rename(2)}) and Windows SMB ({@code SetFileInformationByHandle}), ensuring
+ *       {@code <UploadId>.lock} is born on disk 100% valid and eliminating empty directory race
+ *       windows.
  *   <li><b>Deterministic TTL Leases & Crash Recovery</b>: Each lock directory contains a small JSON
  *       lease file ({@code lease.json}) with an absolute expiration timestamp. If a node crashes
  *       ungracefully ({@code kill -9}, OOM), the lease auto-expires within the TTL (default 30s),
@@ -47,15 +49,17 @@ import org.slf4j.LoggerFactory;
  *       periodically updates {@code expiresAt} in {@code lease.json} every {@code leaseDuration /
  *       3} (e.g. every 10s for a 30s lease), preventing lock expiration during long streaming
  *       uploads.
- *   <li><b>Atomic Stale Lock Eviction</b>: To prevent contender race collisions when multiple nodes
- *       detect an expired lock simultaneously, eviction renames the {@code .lock} directory
- *       atomically (using {@link StandardCopyOption#ATOMIC_MOVE}) to a unique {@code
- *       .evicting.<uuid>} directory before deleting its contents.
- *   <li><b>5-Second Directory Grace Period</b>: If a contender discovers an existing lock directory
- *       where {@code lease.json} is still being written or corrupted, it inspects the directory's
- *       creation time / last modified time. If the directory is newer than 5 seconds, it is treated
- *       as actively acquiring (throwing {@link UploadAlreadyLockedException}); if older, it is
- *       treated as abandoned and safely evicted.
+ *   <li><b>TOCTOU Mitigation with Post-Move Verification & Rollback</b>: When multiple nodes race
+ *       to evict an expired lock simultaneously, eviction isolates the directory via atomic move to
+ *       a unique {@code .evicting.<uuid>} directory and re-inspects the lease post-move. If an
+ *       active lease is detected (created by a concurrent winning peer right before the move), the
+ *       move is automatically rolled back and eviction is aborted, ensuring single-winner
+ *       exclusivity.
+ *   <li><b>5-Second Directory Grace Period</b>: Fallback protection for un-staged or corrupted
+ *       directories: if a contender encounters a directory where {@code lease.json} is missing or
+ *       corrupted and the directory is newer than 5 seconds, it is treated as actively acquiring
+ *       (throwing {@link UploadAlreadyLockedException}); if older than 5 seconds, it is treated as
+ *       abandoned and evicted.
  *   <li><b>Cross-Replica Lock Contention & .stop Signals</b>: When a concurrent request arrives for
  *       a locked upload (e.g. HEAD or DELETE while a PATCH is streaming), the service writes a
  *       {@code <storagePath>/locks/<UploadId>.stop} signal file. A background watchdog thread polls

@@ -45,9 +45,9 @@ Locks are structured as a dedicated directory containing a JSON lease metadata f
 ```
 
 ### Architectural Rationale:
-1. **Universal Directory Atomicity**: `Files.createDirectory()` maps directly to atomic server-side RPCs on both POSIX NFS (`mkdir`) and Windows SMB (`CreateDirectoryW`), eliminating client cache race conditions.
-2. **Clean Encapsulation**: Placing `lease.json` inside `<UploadId>.lock/` prevents metadata clutter and guarantees that lease updates are scoped directly to the lock entity.
-3. **Atomic Eviction**: Stale lock cleanup renames the entire `.lock` directory atomically before deleting its contents (`StandardCopyOption.ATOMIC_MOVE` to `.evicting.<uuid>`), preventing contention collisions between multiple recovering nodes.
+1. **Universal Atomic Directory Staging & Renames**: Rather than creating an empty directory directly at `<UploadId>.lock` and subsequently writing metadata into it (which creates a window where concurrent nodes observe an empty, uninitialized directory), new locks are staged in a temporary sibling directory (`<UploadId>.lock.stage.<uuid>`) with `lease.json` pre-written, then moved atomically into place (`Files.move` with `StandardCopyOption.ATOMIC_MOVE`). Directory moves map directly to atomic server-side RPCs on both POSIX NFS (`rename(2)`) and Windows SMB (`SetFileInformationByHandle`), ensuring `<UploadId>.lock` is born on disk 100% complete and valid.
+2. **Clean Encapsulation**: Placing `lease.json` inside `<UploadId>.lock/` prevents metadata clutter and guarantees that lease updates and watchdog renewals are scoped directly to the lock entity.
+3. **Atomic Eviction & Move Isolation**: Stale lock cleanup isolates the target directory by atomically renaming it (`StandardCopyOption.ATOMIC_MOVE` to `.evicting.<uuid>`) before inspecting and deleting its contents. This isolates expired state and allows post-move rollback verification, preventing race collisions between multiple recovering nodes.
 
 ---
 

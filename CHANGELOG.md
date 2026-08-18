@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [2.0.0]
 
+### New
+
 - **NFS- & SMB-Safe Lease Locking (`LeaseFileLockingService`)**: Added distributed, container-safe filesystem locking using atomic directory creation (`mkdir`) and TTL-based JSON lease files with background heartbeat renewal. Operates reliably across multi-server replicas on NFS (v3/v4), AWS EFS, Azure Files, Windows SMB/CIFS, and local disks without requiring Redis, ZooKeeper, or OS-level `FileLock` daemons. Comprehensive guide and legacy opt-out instructions available in `docs/DISK_BASED_LOCKING.md`.
 - **S3-Compatible Storage & Distributed Locking**: Added native S3 storage support via `S3StorageService` (MinIO SDK), distributed locking via `S3LockingService` (S3 conditional writes with TTL leases and interrupt signals for multi-replica container deployments), S3-native concatenation via `S3ConcatenationService`, and complete documentation in `docs/S3_STORAGE.md`.
 - **Azure Blob Storage & Distributed Leases**: Added native Azure Blob Storage support via `AzureBlobStorageService` (Block Blob staging with streaming appends, sub-threshold buffering, truncation, and deduplication), distributed locking via `AzureBlobLockingService` (Azure Blob Leases with auto-renewal, JVM interruption, cross-replica `.stop` signals, and clean shutdown), zero-copy server-side concatenation via `AzureBlobConcatenationService` (`stageBlockFromUrl`), and comprehensive documentation in `docs/AZURE_BLOB_STORAGE.md`.
@@ -17,7 +19,6 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - **Default Disk-Based Locking**: `TusFileUploadService.withStoragePath(String)` now defaults to `LeaseFileLockingService` instead of `DiskLockingService` for out-of-the-box Kubernetes, container, and shared network storage compatibility. See `docs/DISK_BASED_LOCKING.md` for legacy opt-out instructions.
-- **Non-Locking Metadata I/O**: `DiskStorageService` now utilizes non-locking `Utils` overloads (`lockFile = false`) for `.info` metadata serialization, relying on coarse request-level locks and avoiding OS `FileLock` failures on network shares.
 - **Calibrated Retry Budget**: Extended `TusFileUploadService` lock acquisition retry budget to 8.0 seconds (40 retries x 200ms) to ensure reliable contention resolution over network storage.
 
 ### Breaking

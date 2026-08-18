@@ -84,9 +84,9 @@ public interface UploadLock extends Closeable {
 
 | Storage Backend / Environment | Locking Service Class | Key Characteristics & Architecture | Documentation File |
 |---|---|---|---|
-| **Disk & Network Filesystems (Default)** | `LeaseFileLockingService` | Atomic directory creation (`mkdir`), TTL-based JSON lease files, background heartbeat renewal, and `.stop` signal files. Fully safe on NFSv3/v4, AWS EFS, SMB/CIFS, Kubernetes containers, and local disks. | [`docs/DISK_BASED_LOCKING.md`](file:///Users/tom/projects/tus-java-server/docs/DISK_BASED_LOCKING.md) |
+| **Disk & Network Filesystems (Default)** | `LeaseFileLockingService` | Atomic directory staging & renames (`mkdir`/`rename`), TTL-based JSON lease files with heartbeat renewal, TOCTOU-safe eviction with rollback, and `.stop` signal files. Fully safe on NFSv3/v4, AWS EFS, SMB/CIFS, Kubernetes containers, and local disks. | [`docs/DISK_BASED_LOCKING.md`](file:///Users/tom/projects/tus-java-server/docs/DISK_BASED_LOCKING.md) |
 | **Local File System (Legacy Opt-Out)** | `DiskLockingService` | OS kernel-level exclusive POSIX `FileLock` (`fcntl`) with JVM shutdown hooks and `.stop` signal files. Best for single-node deployments on local disk. | [`docs/DISK_BASED_LOCKING.md`](file:///Users/tom/projects/tus-java-server/docs/DISK_BASED_LOCKING.md) |
-| **Amazon S3 / S3-Compatible** | `S3LockingService` | MinIO/S3 object-backed TTL lease objects (`.lock`), background heartbeat renewal, and cross-pod `.stop` signal object polling watchdog. | [`docs/S3_STORAGE.md`](file:///Users/tom/projects/tus-java-server/docs/S3_STORAGE.md) |
+| **Amazon S3 / S3-Compatible** | `S3LockingService` | S3 object-backed TTL lease objects (`.lock`), conditional writes (`If-None-Match: *`), jittered read-after-write verification, heartbeat renewal, and cross-pod `.stop` signal object polling watchdog. | [`docs/S3_STORAGE.md`](file:///Users/tom/projects/tus-java-server/docs/S3_STORAGE.md) |
 | **Azure Blob Storage** | `AzureBlobLockingService` | Native Azure Blob Storage exclusive 30-second leases (`BlobLeaseClient`), background daemon renewal, and `.stop` signal blob polling watchdog. | [`docs/AZURE_BLOB_STORAGE.md`](file:///Users/tom/projects/tus-java-server/docs/AZURE_BLOB_STORAGE.md) |
 
 ---
@@ -99,3 +99,4 @@ Developers extending `tus-java-server` with custom lock providers (such as Redis
 2. **Implement `registerInputStream` & `requestLockRelease`**: Maintain a registry of active `InterruptibleInputStream` instances. When `requestLockRelease` is invoked, interrupt the active stream to support instant client resumes.
 3. **Use Common Watchdog Helpers**: Use `Utils.scheduleWatchdog(...)` and `Utils.shutdownExecutor(...)` in `me.desair.tus.server.util.Utils` for any background daemon threads or heartbeat lease renewals.
 4. **Implement `Closeable`**: Register a JVM shutdown hook upon construction and deregister it on `close()` for idempotent resource cleanup.
+5. **Guard Against TOCTOU Races**: When building distributed lock services with TTL expiration, ensure acquisition and eviction use atomic operations (e.g., conditional writes, CAS, atomic directory renames, or post-action verification) to prevent race conditions where multiple nodes concurrently evict an expired lock and simultaneously acquire ownership.
