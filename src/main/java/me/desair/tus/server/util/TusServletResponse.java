@@ -82,9 +82,13 @@ public class TusServletResponse extends HttpServletResponseWrapper {
   }
 
   private void overwriteHeader(String name, String value) {
-    List<String> values = new LinkedList<>();
-    values.add(value);
-    headers.put(name, values);
+    if (value == null) {
+      headers.remove(name);
+    } else {
+      List<String> values = new LinkedList<>();
+      values.add(value);
+      headers.put(name, values);
+    }
   }
 
   private String sanitizeHeaderValue(String value) {

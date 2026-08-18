@@ -21,6 +21,9 @@ All notable changes to this project will be documented in this file.
 - **Default Disk-Based Locking**: `TusFileUploadService.withStoragePath(String)` now defaults to `LeaseFileLockingService` instead of `DiskLockingService` for out-of-the-box Kubernetes, container, and shared network storage compatibility. See `docs/DISK_BASED_LOCKING.md` for legacy opt-out instructions.
 - **Calibrated Retry Budget**: Extended `TusFileUploadService` lock acquisition retry budget to 8.0 seconds (40 retries x 200ms) to ensure reliable contention resolution over network storage.
 
+### Fixed
+- **Clear Content-Length on Error Responses**: Cleared `Content-Length` response header prior to invoking `HttpServletResponse.sendError(...)` during exception handling, resolving buffer conflicts and exceptions in Undertow and other servlet containers ([#40](https://github.com/tomdesair/tus-java-server/issues/40)).
+
 ### Breaking
 - **Downloads**: In order to support both the Tus protocol and RUFH protocol, the unofficial download extension will not return a HTTP status code `204` for uploads that are still in progress and will not contain the response header `Tus-Resumable`. Removed the `UploadInProgressException` class.
 

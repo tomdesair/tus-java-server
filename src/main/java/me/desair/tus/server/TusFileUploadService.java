@@ -496,6 +496,7 @@ public class TusFileUploadService implements Closeable {
 
     } catch (TusException e) {
       log.error("Unable to lock upload for request URI " + request.getRequestURI(), e);
+      response.setHeader(HttpHeader.CONTENT_LENGTH, null);
       response.sendError(e.getStatus(), e.getMessage());
     }
   }
@@ -744,6 +745,7 @@ public class TusFileUploadService implements Closeable {
       if (problemDetails != null) {
         problemDetails.writeTo(response);
       } else {
+        response.setHeader(HttpHeader.CONTENT_LENGTH, null);
         response.sendError(status, message);
       }
     }
