@@ -33,6 +33,7 @@ import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.upload.cache.ThreadLocalCachedStorageAndLockingService;
 import me.desair.tus.server.upload.disk.DiskLockingService;
 import me.desair.tus.server.upload.disk.DiskStorageService;
+import me.desair.tus.server.upload.disk.LeaseFileLockingService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
@@ -49,6 +50,8 @@ public class TusFileUploadService implements Closeable {
 
   private static final Logger log = LoggerFactory.getLogger(TusFileUploadService.class);
 
+  public static final int DEFAULT_MAX_LOCK_RETRIES = 40;
+
   private UploadStorageService uploadStorageService;
   private UploadLockingService uploadLockingService;
   private UploadIdFactory idFactory = new UuidUploadIdFactory();
@@ -57,6 +60,7 @@ public class TusFileUploadService implements Closeable {
   private boolean isThreadLocalCacheEnabled = false;
   private boolean isChunkedTransferDecodingEnabled = false;
   private ProtocolVersion supportedProtocolVersion = ProtocolVersion.AUTO;
+  private int maxLockRetries = DEFAULT_MAX_LOCK_RETRIES;
 
   /** Constructor. */
   public TusFileUploadService() {
@@ -288,6 +292,29 @@ public class TusFileUploadService implements Closeable {
   }
 
   /**
+   * Specify the maximum number of retries the service will attempt to acquire an upload lock before
+   * failing with an {@link UploadAlreadyLockedException} during lock contention resolution (e.g.
+   * for HEAD or DELETE requests). Default is {@value #DEFAULT_MAX_LOCK_RETRIES} retries.
+   *
+   * @param maxLockRetries The maximum number of lock acquisition retries (must be 0 or greater)
+   * @return The current service
+   */
+  public TusFileUploadService withMaxLockRetries(int maxLockRetries) {
+    Validate.isTrue(maxLockRetries >= 0, "The max lock retries must be 0 or greater");
+    this.maxLockRetries = maxLockRetries;
+    return this;
+  }
+
+  /**
+   * Get the maximum number of lock acquisition retries.
+   *
+   * @return The maximum number of lock acquisition retries
+   */
+  public int getMaxLockRetries() {
+    return maxLockRetries;
+  }
+
+  /**
    * If you're using the default file system-based storage service, you can use this method to
    * specify the path where to store the uploaded bytes and upload information.
    *
@@ -297,7 +324,7 @@ public class TusFileUploadService implements Closeable {
   public TusFileUploadService withStoragePath(String storagePath) {
     Validate.notBlank(storagePath, "The storage path cannot be blank");
     withUploadStorageService(new DiskStorageService(storagePath));
-    withUploadLockingService(new DiskLockingService(storagePath));
+    withUploadLockingService(new LeaseFileLockingService(storagePath));
     prepareCacheIfEnabled();
     return this;
   }
@@ -477,7 +504,10 @@ public class TusFileUploadService implements Closeable {
       throws TusException, IOException {
     UploadLock lock = null;
     int retries = 0;
-    while (retries < 25) {
+    // Retry budget calibrated by default to 40 retries x 200ms = 8.0 seconds to accommodate
+    // NFS/network storage attribute cache propagation (actimeo=3s), watchdog polling
+    // interval (1.5s), and socket stream interruption and cleanup overhead.
+    while (retries < maxLockRetries) {
       try {
         lock = uploadLockingService.lockUploadByUri(requestUri);
         break;

@@ -367,6 +367,7 @@ public class AzureBlobStorageService implements UploadStorageService {
     return getUploadedBytes(info.getId());
   }
 
+  @SuppressWarnings("java:S2095") // InputStream is returned to caller for external management
   @Override
   public InputStream getUploadedBytes(UploadId id) throws IOException {
     UploadInfo info = getUploadInfo(id);
@@ -712,7 +713,11 @@ public class AzureBlobStorageService implements UploadStorageService {
 
   /** Saves UploadInfo object as JSON in .info metadata blob. */
   private void saveUploadInfo(UploadInfo info) throws IOException {
-    byte[] jsonBytes = UploadInfoJsonSerializer.serialize(info).getBytes(StandardCharsets.UTF_8);
+    String infoAsString = UploadInfoJsonSerializer.serialize(info);
+    if (infoAsString == null) {
+      throw new IOException("Failed to serialize UploadInfo for ID " + info.getId());
+    }
+    byte[] jsonBytes = infoAsString.getBytes(StandardCharsets.UTF_8);
     BlobClient infoBlob = containerClient.getBlobClient(metadataPrefix + info.getId() + ".info");
     infoBlob.upload(BinaryData.fromBytes(jsonBytes), true);
   }

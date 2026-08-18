@@ -212,6 +212,26 @@ Understanding the architectural distinction between disk/file locking and S3 dis
     - Removing renewal with a short TTL would cause locks to expire mid-upload during long transfers, leading to race conditions and data corruption.
     - Removing renewal with an infinite/static lock would mean a single pod crash (`kill -9`, node OOM) leaves behind an orphaned `.lock` object in S3, permanently deadlocking that upload ID.
 
+### TOCTOU (Time-of-Check to Time-of-Use) Mitigation in S3
+
+In stateless distributed object storage, acquiring a lock via standard `GetObject` followed by `PutObject` is vulnerable to a classic **Time-of-Check to Time-of-Use (TOCTOU)** race condition:
+1. **Time of Check (TOC)**: Two contender nodes (Node A and Node B) concurrently check if a `.lock` object exists or is expired. Both observe it as available.
+2. **Blind Overwrite**: Node A writes its lease object. An instant later, Node B (having already checked) writes its lease object, silently overwriting Node A due to S3's *last-write-wins* semantics.
+3. **Dual Ownership**: Both Node A and Node B believe they exclusively own the lock.
+
+To guarantee waterproof single-winner lock exclusivity across cloud providers and local emulators, `S3LockingService` implements a **multi-layer defense-in-depth architecture**:
+
+1. **Conditional Writes (`If-None-Match: *`)**:
+   - `PutObject` requests include the `If-None-Match: *` header.
+   - On Amazon S3 and compliant object storage engines, S3 atomically rejects the second write with `HTTP 412 Precondition Failed` (`PreconditionFailed`), immediately preventing concurrent overwrites.
+2. **Jittered Read-After-Write Verification**:
+   - For S3-compatible emulators or endpoints that do not strictly enforce conditional writes on `PutObject`, the acquiring node sleeps for a brief randomized jitter (20–60ms) to allow in-flight writes to settle, then re-reads `GetObject`.
+   - If the remote `holderId` does not match its own, the node detects that it was overtaken, rejects the acquisition, and leaves the winner's lock intact.
+3. **Safe Expired Lock Eviction**:
+   - When evicting an expired lock, the lock object's expiration is verified again immediately before deletion to prevent evicting a fresh lock created by a winning peer.
+4. **Owner-Safe Lock Release**:
+   - In `S3UploadLock.close()`, the node verifies that the remote lock is still owned by its own `holderId` before deleting it. If its lease expired while the process was paused and another node took over ownership, the previous node will never delete the new owner's active lock.
+
 ---
 
 ## 8. Minimal IAM Permissions Policy
