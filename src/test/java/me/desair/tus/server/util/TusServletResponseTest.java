@@ -127,4 +127,14 @@ public class TusServletResponseTest {
   public void getHeaderNull() throws Exception {
     assertThat(tusServletResponse.getHeader("TEST"), is(nullValue()));
   }
+
+  @Test
+  public void setHeaderNullClearsHeader() throws Exception {
+    tusServletResponse.setHeader("TEST", "foo");
+    assertThat(tusServletResponse.getHeader("TEST"), is("foo"));
+
+    tusServletResponse.setHeader("TEST", null);
+    assertThat(tusServletResponse.getHeader("TEST"), is(nullValue()));
+    assertThat(servletResponse.getHeader("TEST"), is(nullValue()));
+  }
 }

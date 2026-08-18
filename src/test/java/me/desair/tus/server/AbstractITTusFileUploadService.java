@@ -121,7 +121,7 @@ public abstract class AbstractITTusFileUploadService {
     servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseHeaderNull(HttpHeader.CONTENT_LENGTH);
     assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
 
     reset();
@@ -131,7 +131,7 @@ public abstract class AbstractITTusFileUploadService {
 
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseHeaderNull(HttpHeader.CONTENT_LENGTH);
     assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
   }
 
@@ -258,7 +258,7 @@ public abstract class AbstractITTusFileUploadService {
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
     assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseHeaderNull(HttpHeader.CONTENT_LENGTH);
   }
 
   @Test
@@ -383,7 +383,7 @@ public abstract class AbstractITTusFileUploadService {
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
     assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseHeaderNull(HttpHeader.CONTENT_LENGTH);
   }
 
   @Test
@@ -766,7 +766,7 @@ public abstract class AbstractITTusFileUploadService {
     // We expect the server to return a checksum mismatch error
     assertResponseStatus(460);
     assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseHeaderNull(HttpHeader.CONTENT_LENGTH);
 
     // Check that upload info is still from the first patch
     UploadInfo info = tusFileUploadService.getUploadInfo(location, OWNER_KEY);
@@ -814,7 +814,7 @@ public abstract class AbstractITTusFileUploadService {
     tusFileUploadService.process(servletRequest, servletResponse);
     assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
     assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseHeaderNull(HttpHeader.CONTENT_LENGTH);
   }
 
   @Test
@@ -879,7 +879,7 @@ public abstract class AbstractITTusFileUploadService {
 
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseHeaderNull(HttpHeader.CONTENT_LENGTH);
     assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
   }
 
@@ -1490,7 +1490,7 @@ public abstract class AbstractITTusFileUploadService {
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
     assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseHeaderNull(HttpHeader.CONTENT_LENGTH);
   }
 
   @Test
@@ -1504,7 +1504,7 @@ public abstract class AbstractITTusFileUploadService {
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     assertResponseStatus(HttpServletResponse.SC_PRECONDITION_FAILED);
     assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseHeaderNull(HttpHeader.CONTENT_LENGTH);
   }
 
   @Test
@@ -1523,7 +1523,7 @@ public abstract class AbstractITTusFileUploadService {
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     assertResponseStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
     assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseHeaderNull(HttpHeader.CONTENT_LENGTH);
   }
 
   @Test
@@ -1543,7 +1543,7 @@ public abstract class AbstractITTusFileUploadService {
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
     assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseHeaderNull(HttpHeader.CONTENT_LENGTH);
 
     reset();
     servletRequest.setMethod("TRACE");
@@ -1553,7 +1553,7 @@ public abstract class AbstractITTusFileUploadService {
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     assertResponseStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
     assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    assertResponseHeader(HttpHeader.CONTENT_LENGTH, "0");
+    assertResponseHeaderNull(HttpHeader.CONTENT_LENGTH);
   }
 
   @Test

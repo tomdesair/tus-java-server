@@ -1,6 +1,7 @@
 package me.desair.tus.server;
 
 import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -168,7 +169,42 @@ public class TusFileUploadServiceTest {
 
     service.process(mockReq, mockResp, "owner");
 
+    verify(mockResp, times(1)).setHeader(HttpHeader.CONTENT_LENGTH, null);
     verify(mockResp, times(1)).sendError(423, "Locked");
+  }
+
+  @Test
+  public void testProcessTusExceptionClearsContentLengthHeader() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+
+    UploadStorageService mockStorage = mock(UploadStorageService.class);
+    when(mockStorage.getUploadInfo(anyString(), anyString())).thenReturn(null);
+
+    org.springframework.mock.web.MockHttpServletRequest mockReq =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    org.springframework.mock.web.MockHttpServletResponse mockResp =
+        new org.springframework.mock.web.MockHttpServletResponse();
+
+    mockReq.setMethod("PATCH");
+    mockReq.setRequestURI("/files/test");
+    mockReq.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    mockReq.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    mockReq.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorage);
+
+    service.process(mockReq, mockResp, "owner");
+
+    // Check that Tus-Resumable is preserved while Content-Length is cleared for sendError
+    assertThat(mockResp.getHeader(HttpHeader.TUS_RESUMABLE), is("1.0.0"));
+    assertThat(mockResp.getHeader(HttpHeader.CONTENT_LENGTH), is(nullValue()));
+    assertThat(mockResp.getStatus(), is(404));
+    verify(mockLock, times(1)).close();
   }
 
   @Test
