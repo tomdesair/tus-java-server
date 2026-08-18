@@ -2,6 +2,7 @@ package me.desair.tus.server;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -571,5 +572,43 @@ public class TusFileUploadServiceTest {
 
     service.deleteUpload("/files/123");
     verify(mockStorageService).terminateUpload(mockInfo);
+  }
+
+  @Test
+  public void testWithMaxLockRetries() {
+    TusFileUploadService service = new TusFileUploadService();
+    assertEquals(40, service.getMaxLockRetries());
+
+    service.withMaxLockRetries(5);
+    assertEquals(5, service.getMaxLockRetries());
+
+    service.withMaxLockRetries(0);
+    assertEquals(0, service.getMaxLockRetries());
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testWithMaxLockRetriesNegativeThrows() {
+    new TusFileUploadService().withMaxLockRetries(-1);
+  }
+
+  @Test
+  public void testAcquireUploadLockWithConfiguredRetries() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+
+    // Throw 2 times then succeed
+    when(mockLockingService.lockUploadByUri(anyString()))
+        .thenThrow(new UploadAlreadyLockedException("Locked"))
+        .thenThrow(new UploadAlreadyLockedException("Locked"))
+        .thenReturn(mockLock);
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withMaxLockRetries(2);
+
+    UploadLock lock = service.acquireUploadLock(HttpMethod.HEAD, "/files/test");
+    assertNotNull(lock);
+    verify(mockLockingService, times(2)).requestLockRelease("/files/test");
   }
 }
