@@ -505,9 +505,8 @@ public class TusFileUploadService implements Closeable {
     UploadLock lock = null;
     int retries = 0;
     // Retry budget calibrated by default to 40 retries x 200ms = 8.0 seconds to accommodate
-    // NFS/network
-    // storage attribute cache propagation (actimeo=3s), watchdog polling interval (1.5s),
-    // and socket stream interruption and cleanup overhead.
+    // NFS/network storage attribute cache propagation (actimeo=3s), watchdog polling
+    // interval (1.5s), and socket stream interruption and cleanup overhead.
     while (retries < maxLockRetries) {
       try {
         lock = uploadLockingService.lockUploadByUri(requestUri);
