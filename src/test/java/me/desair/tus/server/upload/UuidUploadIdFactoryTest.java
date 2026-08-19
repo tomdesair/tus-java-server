@@ -105,6 +105,57 @@ public class UuidUploadIdFactoryTest {
   }
 
   @Test
+  public void setUploadUriAbsoluteHttp() throws Exception {
+    idFactory.setUploadUri("http://localhost:8080/test/upload");
+    assertThat(idFactory.getUploadUri(), is("http://localhost:8080/test/upload"));
+  }
+
+  @Test
+  public void setUploadUriAbsoluteHttps() throws Exception {
+    idFactory.setUploadUri("https://upload.example.com/test/upload/");
+    assertThat(idFactory.getUploadUri(), is("https://upload.example.com/test/upload/"));
+  }
+
+  @Test
+  public void readUploadIdAbsoluteUrlWithRelativeConfig() throws Exception {
+    idFactory.setUploadUri("/test/upload");
+
+    assertThat(
+        idFactory.readUploadId(
+            "https://upload.example.com/test/upload/1911e8a4-6939-490c-b58b-a5d70f8d91fb"),
+        hasToString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
+  }
+
+  @Test
+  public void readUploadIdAbsoluteUrlWithAbsoluteConfig() throws Exception {
+    idFactory.setUploadUri("https://upload.example.com/test/upload");
+
+    assertThat(
+        idFactory.readUploadId(
+            "https://upload.example.com/test/upload/1911e8a4-6939-490c-b58b-a5d70f8d91fb"),
+        hasToString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
+  }
+
+  @Test
+  public void readUploadIdRelativeUrlWithAbsoluteConfig() throws Exception {
+    idFactory.setUploadUri("https://upload.example.com/test/upload");
+
+    assertThat(
+        idFactory.readUploadId("/test/upload/1911e8a4-6939-490c-b58b-a5d70f8d91fb"),
+        hasToString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
+  }
+
+  @Test
+  public void readUploadIdRegexAbsoluteUrl() throws Exception {
+    idFactory.setUploadUri("https://upload.example.com/users/[0-9]+/files/upload");
+
+    assertThat(
+        idFactory.readUploadId(
+            "https://upload.example.com/users/42/files/upload/1911e8a4-6939-490c-b58b-a5d70f8d91fb"),
+        hasToString("1911e8a4-6939-490c-b58b-a5d70f8d91fb"));
+  }
+
+  @Test
   public void createId() throws Exception {
     assertThat(idFactory.createId(), not(nullValue()));
   }

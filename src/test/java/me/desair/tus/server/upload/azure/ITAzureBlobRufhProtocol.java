@@ -40,6 +40,11 @@ public class ITAzureBlobRufhProtocol extends AbstractITRufhProtocol {
 
   @Override
   protected TusFileUploadService createTusFileUploadService() {
+    return createTusFileUploadService(UPLOAD_URI);
+  }
+
+  @Override
+  protected TusFileUploadService createTusFileUploadService(String uploadUri) {
     org.junit.Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable());
 
     AzureBlobStorageService azureStorage = new AzureBlobStorageService(containerClient);
@@ -49,7 +54,7 @@ public class ITAzureBlobRufhProtocol extends AbstractITRufhProtocol {
     azureStorage.setUploadConcatenationService(azureConcat);
 
     return new TusFileUploadService()
-        .withUploadUri(UPLOAD_URI)
+        .withUploadUri(uploadUri)
         .withUploadStorageService(azureStorage)
         .withUploadLockingService(azureLocking)
         .withMaxUploadSize(1073741824L)

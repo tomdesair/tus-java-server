@@ -99,4 +99,43 @@ public class PostUriValidatorTest {
 
     // Expect PostOnInvalidRequestURIException
   }
+
+  @Test
+  public void validateMatchingAbsoluteUrl() throws Exception {
+    servletRequest.setRequestURI("/test/upload");
+    when(uploadStorageService.getUploadUri()).thenReturn("https://upload.example.com/test/upload");
+
+    try {
+      validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+    } catch (Exception ex) {
+      fail();
+    }
+
+    // No Exception is thrown
+  }
+
+  @Test(expected = PostOnInvalidRequestURIException.class)
+  public void validateInvalidAbsoluteUrl() throws Exception {
+    servletRequest.setRequestURI("/test/upload/12");
+    when(uploadStorageService.getUploadUri()).thenReturn("https://upload.example.com/test/upload");
+
+    validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+
+    // Expect PostOnInvalidRequestURIException
+  }
+
+  @Test
+  public void validateMatchingAbsoluteRegexUrl() throws Exception {
+    servletRequest.setRequestURI("/users/1234/files/upload");
+    when(uploadStorageService.getUploadUri())
+        .thenReturn("https://upload.example.com/users/[0-9]+/files/upload");
+
+    try {
+      validator.validate(HttpMethod.POST, servletRequest, uploadStorageService, null);
+    } catch (Exception ex) {
+      fail();
+    }
+
+    // No Exception is thrown
+  }
 }

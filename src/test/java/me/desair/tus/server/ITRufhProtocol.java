@@ -28,8 +28,13 @@ public class ITRufhProtocol extends AbstractITRufhProtocol {
 
   @Override
   protected TusFileUploadService createTusFileUploadService() {
+    return createTusFileUploadService(UPLOAD_URI);
+  }
+
+  @Override
+  protected TusFileUploadService createTusFileUploadService(String uploadUri) {
     return new TusFileUploadService()
-        .withUploadUri(UPLOAD_URI)
+        .withUploadUri(uploadUri)
         .withStoragePath(storagePath.toAbsolutePath().toString())
         .withMaxUploadSize(1073741824L)
         .withUploadExpirationPeriod(2L * 24 * 60 * 60 * 1000)

@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - **Default Disk-Based Locking**: `TusFileUploadService.withStoragePath(String)` now defaults to `LeaseFileLockingService` instead of `DiskLockingService` for out-of-the-box Kubernetes, container, and shared network storage compatibility. See `docs/DISK_BASED_LOCKING.md` for legacy opt-out instructions.
 - **Calibrated Retry Budget**: Extended `TusFileUploadService` lock acquisition retry budget to 8.0 seconds (40 retries x 200ms) to ensure reliable contention resolution over network storage.
+- **Absolute Base URL & Location Header Support**: Extended `withUploadUri(String)` to accept absolute base URLs (e.g. `https://upload.example.com/files`), returning full URLs in `Location` response headers for upload creation across both Tus 1.0.0 and RUFH protocols while preserving backward compatibility for relative paths.
 
 ### Fixed
 - **Clear Content-Length on Error Responses**: Cleared `Content-Length` response header prior to invoking `HttpServletResponse.sendError(...)` during exception handling, resolving buffer conflicts and exceptions in Undertow and other servlet containers ([#40](https://github.com/tomdesair/tus-java-server/issues/40)).
