@@ -7,9 +7,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Map;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.UUID;
+import me.desair.tus.server.upload.AbstractLeaseLock;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
@@ -40,24 +41,19 @@ import org.slf4j.LoggerFactory;
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class LeaseFileUploadLock implements UploadLock {
+public class LeaseFileUploadLock extends AbstractLeaseLock {
 
   private static final Logger log = LoggerFactory.getLogger(LeaseFileUploadLock.class);
 
-  private String holderId;
-  private String requestUri;
   private String storagePath;
-  private long leaseDurationMs;
-  private long expiresAt;
-  private long acquiredAt;
 
   @JsonIgnore private Path lockDirPath;
   @JsonIgnore private Path stopFilePath;
-  @JsonIgnore private ScheduledExecutorService heartbeatExecutor;
-  @JsonIgnore private Map<String, InputStream> activeInputStreams;
 
   /** Default constructor for Jackson JSON deserialization. */
-  public LeaseFileUploadLock() {}
+  public LeaseFileUploadLock() {
+    super();
+  }
 
   /**
    * Constructs an active LeaseFileUploadLock and starts the background heartbeat lease renewal
@@ -77,43 +73,10 @@ public class LeaseFileUploadLock implements UploadLock {
       long leaseDurationMs,
       String requestUri,
       Map<String, InputStream> activeInputStreams) {
+    super(holderId, leaseDurationMs, requestUri, activeInputStreams, "lease-file-lock-heartbeat");
     this.lockDirPath = lockDirPath;
     this.stopFilePath = stopFilePath;
-    this.holderId = holderId;
-    this.leaseDurationMs = leaseDurationMs;
-    this.requestUri = requestUri;
-    this.activeInputStreams = activeInputStreams;
     this.storagePath = lockDirPath != null ? lockDirPath.toString() : null;
-    this.acquiredAt = System.currentTimeMillis();
-    this.expiresAt = this.acquiredAt + leaseDurationMs;
-
-    if (leaseDurationMs > 0 && lockDirPath != null) {
-      // Calculate renewal interval: leaseDuration / 3 (e.g. every 10s for 30s lease, min 1s)
-      long renewalPeriodMs = Math.max(1000L, leaseDurationMs / 3);
-      this.heartbeatExecutor =
-          Utils.scheduleWatchdog(
-              "lease-file-lock-heartbeat-" + holderId,
-              this::renewLease,
-              renewalPeriodMs,
-              renewalPeriodMs,
-              TimeUnit.MILLISECONDS);
-    }
-  }
-
-  public String getHolderId() {
-    return holderId;
-  }
-
-  public void setHolderId(String holderId) {
-    this.holderId = holderId;
-  }
-
-  public String getRequestUri() {
-    return requestUri;
-  }
-
-  public void setRequestUri(String requestUri) {
-    this.requestUri = requestUri;
   }
 
   public String getStoragePath() {
@@ -124,51 +87,28 @@ public class LeaseFileUploadLock implements UploadLock {
     this.storagePath = storagePath;
   }
 
-  public long getLeaseDurationMs() {
-    return leaseDurationMs;
-  }
-
-  public void setLeaseDurationMs(long leaseDurationMs) {
-    this.leaseDurationMs = leaseDurationMs;
-  }
-
-  public long getExpiresAt() {
-    return expiresAt;
-  }
-
-  public void setExpiresAt(long expiresAt) {
-    this.expiresAt = expiresAt;
-  }
-
-  public long getAcquiredAt() {
-    return acquiredAt;
-  }
-
-  public void setAcquiredAt(long acquiredAt) {
-    this.acquiredAt = acquiredAt;
-  }
-
   @Override
-  public String getUploadUri() {
-    return requestUri;
-  }
-
-  @Override
-  public void release() {
-    close();
-  }
-
-  @Override
-  public void close() {
-    // 1. Terminate heartbeat daemon cleanly via centralized Utils helper
-    Utils.shutdownExecutor(heartbeatExecutor);
-
-    // 2. Remove active stream registration from JVM heap
-    if (activeInputStreams != null && requestUri != null) {
-      activeInputStreams.remove(requestUri);
+  protected void doRenewLease() {
+    if (lockDirPath == null || !Files.exists(lockDirPath)) {
+      return;
     }
+    try {
+      Path leaseTmpFile = lockDirPath.resolve("lease.json.tmp." + UUID.randomUUID());
+      Path leaseFile = lockDirPath.resolve("lease.json");
+      Utils.writeJson(this, leaseTmpFile, false);
+      Files.move(
+          leaseTmpFile,
+          leaseFile,
+          StandardCopyOption.ATOMIC_MOVE,
+          StandardCopyOption.REPLACE_EXISTING);
+    } catch (Exception e) {
+      log.warn("Failed to renew lease for lock directory {}", lockDirPath, e);
+    }
+  }
 
-    // 3. Delete lease file and lock directory
+  @Override
+  protected void releaseLockResource() {
+    // 1. Delete lease file and lock directory
     if (lockDirPath != null) {
       try {
         Files.deleteIfExists(lockDirPath.resolve("lease.json"));
@@ -178,36 +118,13 @@ public class LeaseFileUploadLock implements UploadLock {
       }
     }
 
-    // 4. Delete .stop signal file if present
+    // 2. Delete .stop signal file if present
     if (stopFilePath != null) {
       try {
         Files.deleteIfExists(stopFilePath);
       } catch (IOException ignored) {
         // Safe to ignore stop file deletion failure
       }
-    }
-  }
-
-  /**
-   * Renew the lock lease in the lock directory by updating the expiration timestamp and writing the
-   * updated metadata to {@code lease.json}.
-   */
-  void renewLease() {
-    if (lockDirPath == null || !Files.exists(lockDirPath)) {
-      return;
-    }
-    try {
-      this.expiresAt = System.currentTimeMillis() + leaseDurationMs;
-      Path leaseTmpFile = lockDirPath.resolve("lease.json.tmp." + java.util.UUID.randomUUID());
-      Path leaseFile = lockDirPath.resolve("lease.json");
-      Utils.writeJson(this, leaseTmpFile, false);
-      Files.move(
-          leaseTmpFile,
-          leaseFile,
-          java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-          java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-    } catch (Exception e) {
-      log.warn("Failed to renew lease for lock directory {}", lockDirPath, e);
     }
   }
 }

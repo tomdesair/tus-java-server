@@ -715,7 +715,8 @@ public class AzureBlobStorageService implements UploadStorageService {
   private void saveUploadInfo(UploadInfo info) throws IOException {
     String infoAsString = UploadInfoJsonSerializer.serialize(info);
     if (infoAsString == null) {
-      throw new IOException("Failed to serialize UploadInfo for ID " + info.getId());
+      throw new IOException(
+          "Failed to serialize UploadInfo for ID " + (info == null ? "null" : info.getId()));
     }
     byte[] jsonBytes = infoAsString.getBytes(StandardCharsets.UTF_8);
     BlobClient infoBlob = containerClient.getBlobClient(metadataPrefix + info.getId() + ".info");
