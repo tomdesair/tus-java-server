@@ -106,93 +106,13 @@ public class UtilsTest {
     // Should return null when path is null
     TestSerializable result = Utils.readSerializable(null, TestSerializable.class);
     assertThat(result, is(nullValue()));
-
-    TestSerializable resultNonLocking = Utils.readSerializable(null, TestSerializable.class, false);
-    assertThat(resultNonLocking, is(nullValue()));
-  }
-
-  @Test
-  public void writeAndReadSerializableNonLocking() throws Exception {
-    Path testFile = storagePath.resolve("nonlocking-serializable-" + UUID.randomUUID());
-    TestSerializable original = new TestSerializable("nonlocking-value");
-
-    Utils.writeSerializable(original, testFile, false);
-    TestSerializable result = Utils.readSerializable(testFile, TestSerializable.class, false);
-
-    assertThat(result, is(notNullValue()));
-    assertThat(result.getValue(), is("nonlocking-value"));
-
-    Files.deleteIfExists(testFile);
   }
 
   @Test
   public void writeSerializableWithNullPathShouldBeNoOp() throws Exception {
     // Should safely do nothing without throwing exception
     Utils.writeSerializable(new TestSerializable("test"), null);
-    Utils.writeSerializable(new TestSerializable("test"), null, false);
     assertThat(Utils.readSerializable(null, TestSerializable.class), is(nullValue()));
-  }
-
-  @Test
-  public void writeAndReadJsonWithValidObject() throws Exception {
-    Path testFile = storagePath.resolve("valid-json-" + UUID.randomUUID());
-    TestJsonObject original = new TestJsonObject("hello", 42);
-
-    Utils.writeJson(original, testFile);
-    TestJsonObject result = Utils.readJson(testFile, TestJsonObject.class);
-
-    assertThat(result, is(notNullValue()));
-    assertThat(result.getName(), is("hello"));
-    assertThat(result.getCount(), is(42));
-
-    Files.deleteIfExists(testFile);
-  }
-
-  @Test
-  public void writeAndReadJsonNonLocking() throws Exception {
-    Path testFile = storagePath.resolve("nonlocking-json-" + UUID.randomUUID());
-    TestJsonObject original = new TestJsonObject("nonlocking-json", 100);
-
-    Utils.writeJson(original, testFile, false);
-    TestJsonObject result = Utils.readJson(testFile, TestJsonObject.class, false);
-
-    assertThat(result, is(notNullValue()));
-    assertThat(result.getName(), is("nonlocking-json"));
-    assertThat(result.getCount(), is(100));
-
-    Files.deleteIfExists(testFile);
-  }
-
-  @Test
-  public void readJsonWithNullOrNonExistentPath() throws Exception {
-    assertThat(Utils.readJson(null, TestJsonObject.class), is(nullValue()));
-    assertThat(Utils.readJson(null, TestJsonObject.class, false), is(nullValue()));
-
-    Path nonExistent = storagePath.resolve("missing-json-" + UUID.randomUUID());
-    assertThat(Utils.readJson(nonExistent, TestJsonObject.class), is(nullValue()));
-    assertThat(Utils.readJson(nonExistent, TestJsonObject.class, false), is(nullValue()));
-  }
-
-  @Test
-  public void writeJsonWithNullPathShouldBeNoOp() throws Exception {
-    // Should safely do nothing without throwing exception
-    Utils.writeJson(new TestJsonObject("test", 1), null);
-    Utils.writeJson(new TestJsonObject("test", 1), null, false);
-    assertThat(Utils.readJson(null, TestJsonObject.class), is(nullValue()));
-  }
-
-  @Test
-  public void readJsonWithCorruptedFileShouldReturnNull() throws Exception {
-    Path corruptedFile = storagePath.resolve("corrupted-json-" + UUID.randomUUID());
-    Files.write(corruptedFile, "invalid-json-content-{{{{".getBytes());
-
-    TestJsonObject resultLocking = Utils.readJson(corruptedFile, TestJsonObject.class, true);
-    assertThat(resultLocking, is(nullValue()));
-
-    TestJsonObject resultNonLocking = Utils.readJson(corruptedFile, TestJsonObject.class, false);
-    assertThat(resultNonLocking, is(nullValue()));
-
-    Files.deleteIfExists(corruptedFile);
   }
 
   @Test
@@ -918,35 +838,6 @@ public class UtilsTest {
 
     public String getValue() {
       return value;
-    }
-  }
-
-  /** Simple JSON data class for testing. */
-  public static class TestJsonObject {
-    private String name;
-    private int count;
-
-    public TestJsonObject() {}
-
-    public TestJsonObject(String name, int count) {
-      this.name = name;
-      this.count = count;
-    }
-
-    public String getName() {
-      return name;
-    }
-
-    public void setName(String name) {
-      this.name = name;
-    }
-
-    public int getCount() {
-      return count;
-    }
-
-    public void setCount(int count) {
-      this.count = count;
     }
   }
 }

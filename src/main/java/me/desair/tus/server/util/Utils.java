@@ -1,7 +1,6 @@
 package me.desair.tus.server.util;
 
 import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
 
@@ -13,7 +12,6 @@ import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.io.Serializable;
-import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.DirectoryStream;
@@ -90,175 +88,46 @@ public class Utils {
   }
 
   /**
-   * Reads a serializable object from disk, optionally acquiring a shared file lock during the read
-   * operation.
-   *
-   * @param <T> Target object type
-   * @param path The file path to read from
-   * @param clazz The target object class
-   * @param lockFile If true, acquires a shared file lock before reading
-   * @return Deserialized object instance, or null if reading fails or file does not exist
-   * @throws IOException If file access or locking fails
-   */
-  public static <T> T readSerializable(Path path, Class<T> clazz, boolean lockFile)
-      throws IOException {
-    T info = null;
-    if (path != null && Files.exists(path)) {
-      try (FileChannel channel = FileChannel.open(path, READ)) {
-        // Lock will be released when the channel is closed
-        if (!lockFile || lockFileShared(channel) != null) {
-
-          try (ValidatingObjectInputStream ois =
-              new ValidatingObjectInputStream(Channels.newInputStream(channel))) {
-            ois.accept("java.lang.*", "java.util.*", "me.desair.tus.server.*");
-            info = clazz.cast(ois.readObject());
-          } catch (ClassNotFoundException
-              | java.io.EOFException
-              | java.io.StreamCorruptedException e) {
-            // File may be corrupted due to unexpected server shutdown
-            log.warn("Unable to read serializable file {}: {}", path, e.getMessage());
-            info = null;
-          }
-        } else {
-          throw new IOException("Unable to lock file " + path);
-        }
-      }
-    }
-    return info;
-  }
-
-  /**
-   * Reads a serializable object from disk, acquiring a shared file lock during the read operation.
+   * Reads a serializable object from disk.
    *
    * @param <T> Target object type
    * @param path The file path to read from
    * @param clazz The target object class
    * @return Deserialized object instance, or null if reading fails or file does not exist
-   * @throws IOException If file access or locking fails
+   * @throws IOException If file access fails
    */
   public static <T> T readSerializable(Path path, Class<T> clazz) throws IOException {
-    return readSerializable(path, clazz, true);
-  }
-
-  /**
-   * Writes a serializable object to a file on disk, optionally acquiring an exclusive file lock
-   * during the write operation.
-   *
-   * @param object The serializable object to write
-   * @param path The file path to write to
-   * @param lockFile If true, acquires an exclusive file lock before writing
-   * @throws IOException If file access or locking fails
-   */
-  public static void writeSerializable(Serializable object, Path path, boolean lockFile)
-      throws IOException {
-    if (path != null) {
-      try (FileChannel channel = FileChannel.open(path, WRITE, CREATE, TRUNCATE_EXISTING)) {
-        // Lock will be released when the channel is closed
-        if (!lockFile || lockFileExclusively(channel) != null) {
-
-          try (OutputStream buffer = new BufferedOutputStream(Channels.newOutputStream(channel));
-              ObjectOutput output = new ObjectOutputStream(buffer)) {
-
-            output.writeObject(object);
-          }
-        } else {
-          throw new IOException("Unable to lock file " + path);
-        }
-      }
-    }
-  }
-
-  /**
-   * Writes a serializable object to a file on disk, acquiring an exclusive file lock during the
-   * write operation.
-   *
-   * @param object The serializable object to write
-   * @param path The file path to write to
-   * @throws IOException If file access or locking fails
-   */
-  public static void writeSerializable(Serializable object, Path path) throws IOException {
-    writeSerializable(object, path, true);
-  }
-
-  /**
-   * Reads an object from a JSON file on disk, optionally acquiring a shared file lock during the
-   * read operation.
-   *
-   * @param <T> Target object type
-   * @param path The file path to read from
-   * @param clazz The target object class
-   * @param lockFile If true, acquires a shared file lock before reading
-   * @return Deserialized object instance, or null if reading fails or file does not exist
-   * @throws IOException If file access or locking fails
-   */
-  public static <T> T readJson(Path path, Class<T> clazz, boolean lockFile) throws IOException {
     T info = null;
     if (path != null && Files.exists(path)) {
-      try (FileChannel channel = FileChannel.open(path, READ)) {
-        // Lock will be released when the channel is closed
-        if (!lockFile || lockFileShared(channel) != null) {
-          try (InputStream is = Channels.newInputStream(channel)) {
-            info = UploadInfoJsonSerializer.deserialize(is, clazz);
-          } catch (Exception e) {
-            log.warn("Unable to read JSON file {}: {}", path, e.getMessage());
-            info = null;
-          }
-        } else {
-          throw new IOException("Unable to lock file " + path);
-        }
+      try (InputStream is = Files.newInputStream(path);
+          ValidatingObjectInputStream ois = new ValidatingObjectInputStream(is)) {
+        ois.accept("java.lang.*", "java.util.*", "me.desair.tus.server.*");
+        info = clazz.cast(ois.readObject());
+      } catch (ClassNotFoundException | java.io.EOFException | java.io.StreamCorruptedException e) {
+        // File may be corrupted due to unexpected server shutdown
+        log.warn("Unable to read serializable file {}: {}", path, e.getMessage());
+        info = null;
       }
     }
     return info;
   }
 
   /**
-   * Reads an object from a JSON file on disk, acquiring a shared file lock during the read
-   * operation.
+   * Writes a serializable object to a file on disk.
    *
-   * @param <T> Target object type
-   * @param path The file path to read from
-   * @param clazz The target object class
-   * @return Deserialized object instance, or null if reading fails or file does not exist
-   * @throws IOException If file access or locking fails
-   */
-  public static <T> T readJson(Path path, Class<T> clazz) throws IOException {
-    return readJson(path, clazz, true);
-  }
-
-  /**
-   * Writes an object to a file in JSON format, optionally acquiring an exclusive file lock during
-   * the write operation.
-   *
-   * @param object The object to serialize to JSON
+   * @param object The serializable object to write
    * @param path The file path to write to
-   * @param lockFile If true, acquires an exclusive file lock before writing
-   * @throws IOException If file access or locking fails
+   * @throws IOException If file access fails
    */
-  public static void writeJson(Object object, Path path, boolean lockFile) throws IOException {
-    if (path != null) {
-      try (FileChannel channel = FileChannel.open(path, WRITE, CREATE, TRUNCATE_EXISTING)) {
-        // Lock will be released when the channel is closed
-        if (!lockFile || lockFileExclusively(channel) != null) {
-          try (OutputStream buffer = new BufferedOutputStream(Channels.newOutputStream(channel))) {
-            UploadInfoJsonSerializer.serializeToStream(object, buffer);
-          }
-        } else {
-          throw new IOException("Unable to lock file " + path);
-        }
+  public static void writeSerializable(Serializable object, Path path) throws IOException {
+    if (path != null && object != null) {
+      try (OutputStream os = Files.newOutputStream(path, WRITE, CREATE, TRUNCATE_EXISTING);
+          OutputStream buffer = new BufferedOutputStream(os);
+          ObjectOutput output = new ObjectOutputStream(buffer)) {
+
+        output.writeObject(object);
       }
     }
-  }
-
-  /**
-   * Writes an object to a file in JSON format, acquiring an exclusive file lock during the write
-   * operation.
-   *
-   * @param object The object to serialize to JSON
-   * @param path The file path to write to
-   * @throws IOException If file access or locking fails
-   */
-  public static void writeJson(Object object, Path path) throws IOException {
-    writeJson(object, path, true);
   }
 
   public static FileLock lockFileExclusively(FileChannel channel) throws IOException {
