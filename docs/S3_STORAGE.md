@@ -315,9 +315,10 @@ When the test suite executes:
 | `S3StorageServiceTest` | Fast unit test for S3 storage logic | Mocked `MinioClient` |
 | `S3LockingServiceTest` | Fast unit test for S3 distributed locking | Mocked `MinioClient` |
 | `S3ConcatenationServiceTest` | Fast unit test for S3 concatenation logic | Mocked `MinioClient` |
-| `ITS3StorageServiceTest` | Integration test for S3 storage | Live MinIO Testcontainer |
-| `ITS3LockingServiceTest` | Integration test for S3 distributed locking & contention | Live MinIO Testcontainer |
-| `ITS3TusFileUploadServiceTest` | Full end-to-end HTTP protocol lifecycle test | Live MinIO Testcontainer |
+| `ITS3StorageService` | Integration test for S3 storage | Live MinIO Testcontainer |
+| `ITS3LockingService` | Integration test for S3 distributed locking & contention | Live MinIO Testcontainer |
+| `ITS3RufhProtocol` | IETF RUFH protocol integration suite for S3 backend | Live MinIO Testcontainer |
+| `ITS3TusFileUploadService` | Full end-to-end HTTP protocol lifecycle test | Live MinIO Testcontainer |
 
 ### Troubleshooting
 

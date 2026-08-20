@@ -47,20 +47,16 @@ public class TusFileUploadServiceTest {
     UploadLockingService mockLockingService = mock(UploadLockingService.class);
     UploadLock mockLock = mock(UploadLock.class);
 
-    // We throw exception 25 times and then succeed.
-    // To avoid waiting 5 seconds (25 * 200ms) in the test, we mock Thread.sleep by interrupting
-    // inside the mock,
-    // but wait, mockLockingService doesn't run sleep. Sleep runs in the service itself.
-    // Instead of doing 25 times which takes 5 seconds, let's just do it. 5 seconds is perfectly
-    // fine for a fallback test.
-    var stubbing = when(mockLockingService.lockUploadByUri(anyString()));
-    for (int i = 0; i < 25; i++) {
-      stubbing = stubbing.thenThrow(new UploadAlreadyLockedException("Locked"));
-    }
-    stubbing.thenReturn(mockLock);
+    // Verify retry mechanism by failing 2 times before succeeding
+    when(mockLockingService.lockUploadByUri(anyString()))
+        .thenThrow(new UploadAlreadyLockedException("Locked"))
+        .thenThrow(new UploadAlreadyLockedException("Locked"))
+        .thenReturn(mockLock);
 
     TusFileUploadService service =
-        new TusFileUploadService().withUploadLockingService(mockLockingService);
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withMaxLockRetries(5);
 
     UploadLock lock = service.acquireUploadLock(HttpMethod.HEAD, "/files/test");
     assertNotNull(lock);

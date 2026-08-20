@@ -24,7 +24,7 @@ import me.desair.tus.server.TusFileUploadService;
 
 TusFileUploadService tusService = new TusFileUploadService()
     .withUploadUri("/files")
-    // Enabled by default: AUTO mode detects TUS_1_0_0 vs IETF per request
+    // Enabled by default: AUTO mode detects TUS_1_0_0 vs RUFH per request
     .withSupportedProtocolVersions(ProtocolVersion.AUTO);
 ```
 
