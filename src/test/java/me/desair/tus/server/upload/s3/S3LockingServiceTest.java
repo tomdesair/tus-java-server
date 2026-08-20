@@ -743,4 +743,10 @@ public class S3LockingServiceTest {
     boolean expired = lockingService.isLockExpired("locks/test.lock");
     assertTrue(expired);
   }
+
+  @Test
+  public void testNullUploadIdChecks() {
+    assertTrue(lockingService.isLockExpired((UploadId) null));
+    assertFalse(lockingService.evictExpiredLock((UploadId) null));
+  }
 }

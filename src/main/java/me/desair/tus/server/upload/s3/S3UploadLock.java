@@ -12,10 +12,9 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import me.desair.tus.server.upload.AbstractLeaseLock;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.util.S3UploadLockJsonSerializer;
-import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,31 +49,26 @@ import org.slf4j.LoggerFactory;
  *       {@link #renewLease()} at a periodic interval (one-third of {@code leaseDurationMs}, e.g.
  *       every 10s for a 30s lease).
  *   <li><b>Clean Lock Release</b>: When the HTTP request finishes, {@link #close()} shuts down the
- *       heartbeat thread and deletes both the {@code .lock} lease object and any lingering {@code
- *       .stop} signal objects from S3.
+ *       heartbeat thread and deletes both the {@code .lock} lease object (if still owned) and any
+ *       lingering {@code .stop} signal objects from S3.
  * </ul>
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class S3UploadLock implements UploadLock {
+public class S3UploadLock extends AbstractLeaseLock {
 
   private static final Logger log = LoggerFactory.getLogger(S3UploadLock.class);
 
-  private String holderId;
-  private String requestUri;
   private String bucket;
   private String lockKey;
   private String stopKey;
-  private long leaseDurationMs;
-  private long expiresAt;
-  private long acquiredAt;
 
   @JsonIgnore private MinioClient minioClient;
-  @JsonIgnore private ScheduledExecutorService heartbeatExecutor;
-  @JsonIgnore private Map<String, InputStream> inputStreamMap;
 
   /** Default constructor for Jackson JSON deserialization. */
-  public S3UploadLock() {}
+  public S3UploadLock() {
+    super();
+  }
 
   /** Constructor for serializing lock lease metadata to S3. */
   public S3UploadLock(
@@ -85,14 +79,10 @@ public class S3UploadLock implements UploadLock {
       String stopKey,
       long leaseDurationMs,
       long expiresAt) {
-    this.holderId = holderId;
-    this.requestUri = requestUri;
+    super(holderId, requestUri, leaseDurationMs, expiresAt);
     this.bucket = bucket;
     this.lockKey = lockKey;
     this.stopKey = stopKey;
-    this.leaseDurationMs = leaseDurationMs;
-    this.expiresAt = expiresAt;
-    this.acquiredAt = System.currentTimeMillis();
   }
 
   /**
@@ -117,27 +107,11 @@ public class S3UploadLock implements UploadLock {
       long leaseDurationMs,
       String requestUri,
       Map<String, InputStream> inputStreamMap) {
-    this(
-        minioClient,
-        bucket,
-        lockKey,
-        stopKey,
-        holderId,
-        leaseDurationMs,
-        requestUri,
-        inputStreamMap,
-        null);
-
-    // Run heartbeat lease renewal at 1/3 of the lease duration (e.g., every 10 seconds for a 30s
-    // lease)
-    long heartbeatPeriodMs = Math.max(1000L, leaseDurationMs / 3);
-    this.heartbeatExecutor =
-        Utils.scheduleWatchdog(
-            "s3-lock-heartbeat-" + holderId,
-            this::renewLease,
-            heartbeatPeriodMs,
-            heartbeatPeriodMs,
-            TimeUnit.MILLISECONDS);
+    super(holderId, leaseDurationMs, requestUri, inputStreamMap, "s3-lock-heartbeat");
+    this.minioClient = minioClient;
+    this.bucket = bucket;
+    this.lockKey = lockKey;
+    this.stopKey = stopKey;
   }
 
   S3UploadLock(
@@ -150,33 +124,17 @@ public class S3UploadLock implements UploadLock {
       String requestUri,
       Map<String, InputStream> inputStreamMap,
       ScheduledExecutorService heartbeatExecutor) {
+    super(
+        holderId,
+        leaseDurationMs,
+        requestUri,
+        inputStreamMap,
+        heartbeatExecutor,
+        "s3-lock-heartbeat");
     this.minioClient = minioClient;
     this.bucket = bucket;
     this.lockKey = lockKey;
     this.stopKey = stopKey;
-    this.holderId = holderId;
-    this.leaseDurationMs = leaseDurationMs;
-    this.requestUri = requestUri;
-    this.inputStreamMap = inputStreamMap;
-    this.acquiredAt = System.currentTimeMillis();
-    this.expiresAt = this.acquiredAt + leaseDurationMs;
-    this.heartbeatExecutor = heartbeatExecutor;
-  }
-
-  public String getHolderId() {
-    return holderId;
-  }
-
-  public void setHolderId(String holderId) {
-    this.holderId = holderId;
-  }
-
-  public String getRequestUri() {
-    return requestUri;
-  }
-
-  public void setRequestUri(String requestUri) {
-    this.requestUri = requestUri;
   }
 
   public String getBucket() {
@@ -203,59 +161,9 @@ public class S3UploadLock implements UploadLock {
     this.stopKey = stopKey;
   }
 
-  public long getLeaseDurationMs() {
-    return leaseDurationMs;
-  }
-
-  public void setLeaseDurationMs(long leaseDurationMs) {
-    this.leaseDurationMs = leaseDurationMs;
-  }
-
-  public long getExpiresAt() {
-    return expiresAt;
-  }
-
-  public void setExpiresAt(long expiresAt) {
-    this.expiresAt = expiresAt;
-  }
-
-  public long getAcquiredAt() {
-    return acquiredAt;
-  }
-
-  public void setAcquiredAt(long acquiredAt) {
-    this.acquiredAt = acquiredAt;
-  }
-
   @Override
-  public String getUploadUri() {
-    return requestUri;
-  }
-
-  @Override
-  public void release() {
-    close();
-  }
-
-  @Override
-  public void close() {
-    // Step 1: Stop the background heartbeat daemon thread
-    Utils.shutdownExecutor(heartbeatExecutor);
-
-    // Step 2: Remove active request stream registration
-    if (inputStreamMap != null && requestUri != null) {
-      inputStreamMap.remove(requestUri);
-    }
-
-    // Step 3: Owner-Safe Lock Release: only delete .lock lease if it is still owned by this holder
-    deleteS3LockObjectIfOwner(lockKey);
-    deleteS3ObjectQuietly(stopKey);
-  }
-
-  /** Renew the lock lease in S3 by updating the expiration timestamp. */
-  void renewLease() {
+  protected void doRenewLease() {
     try {
-      this.expiresAt = System.currentTimeMillis() + leaseDurationMs;
       byte[] lockContentBytes = S3UploadLockJsonSerializer.serializeToBytes(this);
 
       minioClient.putObject(
@@ -267,6 +175,13 @@ public class S3UploadLock implements UploadLock {
     }
   }
 
+  @Override
+  protected void releaseLockResource() {
+    // Owner-Safe Lock Release: only delete .lock lease if it is still owned by this holder
+    deleteS3LockObjectIfOwner(lockKey);
+    deleteS3ObjectQuietly(stopKey);
+  }
+
   void deleteS3LockObjectIfOwner(String key) {
     if (key == null || minioClient == null || bucket == null) {
       return;
@@ -276,7 +191,7 @@ public class S3UploadLock implements UploadLock {
       try (InputStream stream =
           minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(key).build())) {
         S3UploadLock remoteLock = S3UploadLockJsonSerializer.deserialize(stream);
-        if (remoteLock != null && !Strings.CS.equals(remoteLock.getHolderId(), this.holderId)) {
+        if (remoteLock != null && !Strings.CS.equals(remoteLock.getHolderId(), getHolderId())) {
           log.info(
               "Skipping deletion of S3 lock key {}: lock is currently held by another node {}",
               key,

@@ -803,6 +803,30 @@ public class LeaseFileLockingServiceTest {
     FileUtils.deleteDirectory(stopPath.toFile());
   }
 
+  @Test
+  public void testConstructorsAndNullChecks() throws Exception {
+    LeaseFileLockingService s1 = new LeaseFileLockingService(storagePath.toString());
+    assertNotNull(s1.getStoragePath());
+    s1.close();
+
+    LeaseFileLockingService s2 = new LeaseFileLockingService(storagePath.toString(), 20000L, 1000L);
+    assertNotNull(s2.getStoragePath());
+    s2.close();
+
+    LeaseFileLockingService s3 =
+        new LeaseFileLockingService(
+            new UuidUploadIdFactory(), storagePath.toString(), 20000L, 1000L);
+    assertNotNull(s3.getStoragePath());
+    s3.close();
+
+    assertTrue(lockingService.isLockExpired(null));
+    assertFalse(lockingService.evictExpiredLock(null));
+    assertFalse(lockingService.atomicEvictExpiredLock(null));
+    assertTrue(lockingService.isLockDirectoryExpired(null, System.currentTimeMillis()));
+    assertNull(lockingService.getLockDirPath(null));
+    assertNull(lockingService.getStopFilePath(null));
+  }
+
   private LeaseFileUploadLock createExpiredLease(
       String holderId, String uri, String storagePath, long expiresAt) {
     LeaseFileUploadLock lease = new LeaseFileUploadLock();

@@ -1,22 +1,16 @@
 package me.desair.tus.server.upload.disk;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
-import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.exception.UploadAlreadyLockedException;
+import me.desair.tus.server.upload.AbstractLeaseLockingService;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
@@ -24,6 +18,7 @@ import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,9 +52,8 @@ import org.slf4j.LoggerFactory;
  *       exclusivity.
  *   <li><b>5-Second Directory Grace Period</b>: Fallback protection for un-staged or corrupted
  *       directories: if a contender encounters a directory where {@code lease.json} is missing or
- *       corrupted and the directory is newer than 5 seconds, it is treated as actively acquiring
- *       (throwing {@link UploadAlreadyLockedException}); if older than 5 seconds, it is treated as
- *       abandoned and evicted.
+ *       corrupted and the directory is newer than 5 seconds, it is treated as actively acquiring;
+ *       if older than 5 seconds, it is treated as abandoned and evicted.
  *   <li><b>Cross-Replica Lock Contention & .stop Signals</b>: When a concurrent request arrives for
  *       a locked upload (e.g. HEAD or DELETE while a PATCH is streaming), the service writes a
  *       {@code <storagePath>/locks/<UploadId>.stop} signal file. A background watchdog thread polls
@@ -67,8 +61,7 @@ import org.slf4j.LoggerFactory;
  *       request to proceed without false lock conflicts.
  * </ul>
  */
-public class LeaseFileLockingService extends AbstractDiskBasedService
-    implements UploadLockingService {
+public class LeaseFileLockingService extends AbstractLeaseLockingService {
 
   private static final Logger log = LoggerFactory.getLogger(LeaseFileLockingService.class);
 
@@ -77,12 +70,7 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
   public static final long DEFAULT_POLL_INTERVAL_MS = 1_500L; // 1.5 seconds
   public static final long EMPTY_DIR_GRACE_PERIOD_MS = 5_000L; // 5 seconds grace window
 
-  private final long leaseDurationMs;
-  private final long pollIntervalMs;
-  private UploadIdFactory idFactory;
-
-  private final Map<String, InputStream> activeInputStreams = new ConcurrentHashMap<>();
-  private final ScheduledExecutorService watchdogExecutor;
+  private final Path storagePath;
 
   /**
    * Constructs a LeaseFileLockingService with default 30s lease duration, 1.5s watchdog poll
@@ -129,44 +117,28 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
    */
   public LeaseFileLockingService(
       UploadIdFactory idFactory, String storagePath, long leaseDurationMs, long pollIntervalMs) {
-    super(storagePath + File.separator + DEFAULT_LOCKS_DIRECTORY, "lease-file-lock-shutdown-hook");
-    this.idFactory = Objects.requireNonNull(idFactory, "The idFactory cannot be null");
-    this.leaseDurationMs = leaseDurationMs;
-    this.pollIntervalMs = pollIntervalMs;
-
-    // Background watchdog thread to poll storage directory for .stop contention signals across pods
-    this.watchdogExecutor =
-        Utils.scheduleWatchdog(
-            "lease-file-lock-watchdog",
-            this::checkStopSignals,
-            pollIntervalMs,
-            pollIntervalMs,
-            TimeUnit.MILLISECONDS);
+    super(
+        idFactory,
+        leaseDurationMs,
+        pollIntervalMs,
+        "lease-file-lock-shutdown-hook",
+        "lease-file-lock-watchdog");
+    Validate.notBlank(storagePath, "The storage path cannot be blank");
+    this.storagePath = Paths.get(storagePath, DEFAULT_LOCKS_DIRECTORY);
+    initStoragePath();
   }
 
-  @Override
-  public UploadLock lockUploadByUri(String requestUri) throws TusException, IOException {
-    UploadId uploadId = idFactory.readUploadId(requestUri);
-    if (uploadId == null) {
-      return null;
-    }
-
-    Path lockDirPath = getLockDirPath(uploadId);
-    Path stopFilePath = getStopFilePath(uploadId);
-    String holderId = UUID.randomUUID().toString();
-
-    // Attempt lock acquisition, handling active locks, grace windows, and expired lock eviction
-    return acquireOrEvictExpiredLock(lockDirPath, stopFilePath, holderId, requestUri, uploadId);
+  public Path getStoragePath() {
+    return storagePath;
   }
 
   @Override
   public void cleanupStaleLocks() throws IOException {
-    Path locksDir = getStoragePath();
-    if (!Files.exists(locksDir) || !Files.isDirectory(locksDir)) {
+    if (!Files.exists(storagePath) || !Files.isDirectory(storagePath)) {
       return;
     }
 
-    try (DirectoryStream<Path> stream = Files.newDirectoryStream(locksDir)) {
+    try (DirectoryStream<Path> stream = Files.newDirectoryStream(storagePath)) {
       long now = System.currentTimeMillis();
       for (Path path : stream) {
         String fileName = path.getFileName().toString();
@@ -189,91 +161,10 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
   }
 
   @Override
-  public boolean isLocked(UploadId id) {
-    if (id == null) {
-      return false;
-    }
-    Path lockDirPath = getLockDirPath(id);
-    if (lockDirPath == null || !Files.exists(lockDirPath)) {
-      return false;
-    }
-    return !isLockDirectoryExpired(lockDirPath, System.currentTimeMillis());
-  }
-
-  @Override
-  public void setIdFactory(UploadIdFactory idFactory) {
-    this.idFactory = Objects.requireNonNull(idFactory, "The idFactory cannot be null");
-  }
-
-  @Override
-  public void registerInputStream(String requestUri, InputStream inputStream) {
-    if (requestUri != null && inputStream != null) {
-      activeInputStreams.put(requestUri, inputStream);
-    }
-  }
-
-  @Override
-  public void requestLockRelease(String requestUri) {
-    if (requestUri == null) {
-      return;
-    }
-
-    // 1. Interrupt active local input stream in this JVM
-    InputStream activeStream = activeInputStreams.remove(requestUri);
-    if (activeStream != null) {
-      Utils.interruptStream(activeStream);
-    }
-
-    // 2. Write a .stop signal file to storage to notify remote cluster replicas
-    UploadId uploadId = idFactory.readUploadId(requestUri);
-    if (uploadId != null) {
-      writeStopSignal(uploadId);
-    }
-  }
-
-  @Override
-  protected void cleanupOnClose() throws IOException {
-    Utils.shutdownExecutor(watchdogExecutor);
-    for (InputStream stream : activeInputStreams.values()) {
-      Utils.interruptStream(stream);
-    }
-    activeInputStreams.clear();
-  }
-
-  // ===============================================================================================
-  // INTERNAL LOCK ACQUISITION & EVICTION HELPERS
-  // ===============================================================================================
-
-  private UploadLock acquireOrEvictExpiredLock(
-      Path lockDirPath, Path stopFilePath, String holderId, String requestUri, UploadId uploadId)
-      throws TusException, IOException {
-
-    UploadLock lock = tryAcquireLock(lockDirPath, stopFilePath, holderId, requestUri, uploadId);
-    if (lock != null) {
-      return lock;
-    }
-
-    // Lock acquisition encountered an existing lock directory. Inspect lease status.
-    long now = System.currentTimeMillis();
-    if (isLockDirectoryExpired(lockDirPath, now)) {
-      // Lock is expired or abandoned: atomically evict and retry acquisition
-      boolean evicted = atomicEvictExpiredLock(lockDirPath);
-      if (evicted) {
-        lock = tryAcquireLock(lockDirPath, stopFilePath, holderId, requestUri, uploadId);
-        if (lock != null) {
-          return lock;
-        }
-      }
-    }
-
-    // Lock is held by another active node or within the initial creation grace window
-    throw new UploadAlreadyLockedException(
-        "Upload with URI " + requestUri + " is currently locked");
-  }
-
-  private UploadLock tryAcquireLock(
-      Path lockDirPath, Path stopFilePath, String holderId, String requestUri, UploadId uploadId)
+  protected UploadLock tryAcquireLock(UploadId uploadId, String holderId, String requestUri)
       throws IOException {
+    Path lockDirPath = getLockDirPath(uploadId);
+    Path stopFilePath = getStopFilePath(uploadId);
 
     if (Files.exists(lockDirPath)) {
       return null;
@@ -323,6 +214,57 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
     }
   }
 
+  @Override
+  protected boolean isLockExpired(UploadId uploadId) {
+    if (uploadId == null) {
+      return true;
+    }
+    Path lockDirPath = getLockDirPath(uploadId);
+    return isLockDirectoryExpired(lockDirPath, System.currentTimeMillis());
+  }
+
+  @Override
+  protected boolean evictExpiredLock(UploadId uploadId) {
+    if (uploadId == null) {
+      return false;
+    }
+    Path lockDirPath = getLockDirPath(uploadId);
+    return atomicEvictExpiredLock(lockDirPath);
+  }
+
+  @Override
+  protected void writeStopSignal(UploadId uploadId) {
+    Path stopFilePath = getStopFilePath(uploadId);
+    if (stopFilePath != null) {
+      try {
+        Utils.ensureDirectoryExists(stopFilePath.getParent());
+        Files.write(stopFilePath, new byte[0]);
+      } catch (IOException e) {
+        log.warn("Failed to write lock stop signal file {}", stopFilePath, e);
+      }
+    }
+  }
+
+  @Override
+  protected void checkStopSignalForEntry(String uri, InputStream inputStream) {
+    UploadId uploadId = idFactory.readUploadId(uri);
+    if (uploadId == null) {
+      return;
+    }
+
+    Path stopFilePath = getStopFilePath(uploadId);
+    if (stopFilePath != null && Files.exists(stopFilePath)) {
+      log.info("Watchdog detected stop file for upload ID {}. Interrupting stream.", uploadId);
+      Utils.interruptStream(inputStream);
+      activeInputStreams.remove(uri);
+      try {
+        Files.deleteIfExists(stopFilePath);
+      } catch (IOException ignored) {
+        // Safe to ignore
+      }
+    }
+  }
+
   /**
    * Determines if a lock directory is expired or abandoned.
    *
@@ -335,7 +277,7 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
    * </ul>
    */
   boolean isLockDirectoryExpired(Path lockDirPath, long now) {
-    if (!Files.exists(lockDirPath)) {
+    if (lockDirPath == null || !Files.exists(lockDirPath)) {
       return true;
     }
 
@@ -368,32 +310,14 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
    * directory before deletion, preventing contention races where multiple nodes try to evict the
    * same directory simultaneously.
    *
-   * <p><b>TOCTOU (Time-of-Check to Time-of-Use) Race Mitigation:</b><br>
-   * A classic TOCTOU race occurs when a contender checks whether a directory is expired (Time of
-   * Check), but before it renames or deletes the directory (Time of Use), another winning contender
-   * has already evicted the expired directory and created a brand new, active lock directory in its
-   * place. If the second contender proceeded to delete the directory without verification, it would
-   * inadvertently destroy the active winner's lock, leading to multiple concurrent lock holders.
-   *
-   * <p>To prevent TOCTOU corruption without requiring centralized locking coordination:
-   *
-   * <ol>
-   *   <li><b>Pre-check:</b> Quickly verify if the directory appears expired before attempting a
-   *       rename to avoid unnecessary I/O when the lock is already known to be active.
-   *   <li><b>Atomic Isolation:</b> Rename the target directory to a unique {@code .evicting.<uuid>}
-   *       path via {@link StandardCopyOption#ATOMIC_MOVE}. This guarantees that only one contender
-   *       can operate on the directory at a time.
-   *   <li><b>Post-move Verification:</b> Re-inspect the isolated directory at {@code evictPath}. If
-   *       it contains a fresh lease or is within the creation grace period (meaning another node
-   *       created a new lock right before our rename), immediately roll back the move by renaming
-   *       it back to {@code lockDirPath} and abort eviction.
-   * </ol>
-   *
    * @param lockDirPath Path to the lock directory to evict
    * @return {@code true} if the expired directory was successfully evicted; {@code false} if
    *     another contender already evicted it or if the moved directory was an active lock
    */
   boolean atomicEvictExpiredLock(Path lockDirPath) {
+    if (lockDirPath == null) {
+      return false;
+    }
     long now = System.currentTimeMillis();
     // 1. Fast pre-check: avoid moving if we can already observe it is active
     if (!isLockDirectoryExpired(lockDirPath, now)) {
@@ -436,54 +360,28 @@ public class LeaseFileLockingService extends AbstractDiskBasedService
     return true;
   }
 
-  void writeStopSignal(UploadId uploadId) {
-    Path stopFilePath = getStopFilePath(uploadId);
-    if (stopFilePath != null) {
-      try {
-        Utils.ensureDirectoryExists(stopFilePath.getParent());
-        Files.write(stopFilePath, new byte[0]);
-      } catch (IOException e) {
-        log.warn("Failed to write lock stop signal file {}", stopFilePath, e);
-      }
-    }
-  }
-
-  void checkStopSignals() {
-    for (Map.Entry<String, InputStream> entry : activeInputStreams.entrySet()) {
-      checkStopSignalForEntry(entry.getKey(), entry.getValue());
-    }
-  }
-
-  private void checkStopSignalForEntry(String uri, InputStream inputStream) {
-    UploadId uploadId = idFactory.readUploadId(uri);
-    if (uploadId == null) {
-      return;
-    }
-
-    Path stopFilePath = getStopFilePath(uploadId);
-    if (stopFilePath != null && Files.exists(stopFilePath)) {
-      log.info("Watchdog detected stop file for upload ID {}. Interrupting stream.", uploadId);
-      Utils.interruptStream(inputStream);
-      activeInputStreams.remove(uri);
-      try {
-        Files.deleteIfExists(stopFilePath);
-      } catch (IOException ignored) {
-        // Safe to ignore
-      }
-    }
-  }
-
   Path getLockDirPath(UploadId id) {
     if (id == null) {
       return null;
     }
-    return getStoragePath().resolve(id.toString() + ".lock");
+    return storagePath.resolve(id.toString() + ".lock");
   }
 
   Path getStopFilePath(UploadId id) {
     if (id == null) {
       return null;
     }
-    return getStoragePath().resolve(id.toString() + ".stop");
+    return storagePath.resolve(id.toString() + ".stop");
+  }
+
+  private synchronized void initStoragePath() {
+    try {
+      Utils.ensureDirectoryExists(storagePath);
+    } catch (IOException e) {
+      String message =
+          "Unable to create the directory specified by the storage path " + storagePath;
+      log.error(message, e);
+      throw new StoragePathNotAvailableException(message, e);
+    }
   }
 }

@@ -13,15 +13,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collections;
-import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import me.desair.tus.server.exception.TusException;
-import me.desair.tus.server.exception.UploadAlreadyLockedException;
-import me.desair.tus.server.upload.AbstractCloseableResourceService;
+import me.desair.tus.server.upload.AbstractLeaseLockingService;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
@@ -56,8 +49,7 @@ import org.slf4j.LoggerFactory;
  *       pods.
  * </ul>
  */
-public class S3LockingService extends AbstractCloseableResourceService
-    implements UploadLockingService {
+public class S3LockingService extends AbstractLeaseLockingService {
 
   private static final Logger log = LoggerFactory.getLogger(S3LockingService.class);
 
@@ -68,12 +60,6 @@ public class S3LockingService extends AbstractCloseableResourceService
   private final MinioClient minioClient;
   private final String bucket;
   private final String locksPrefix;
-  private final long leaseDurationMs;
-  private final long pollIntervalMs;
-
-  private UploadIdFactory idFactory = new UuidUploadIdFactory();
-  private final Map<String, InputStream> activeInputStreams = new ConcurrentHashMap<>();
-  private final ScheduledExecutorService watchdogExecutor;
 
   /**
    * Basic constructor using default lock prefix ("locks/"), 30s lease duration, and 2s polling
@@ -132,51 +118,10 @@ public class S3LockingService extends AbstractCloseableResourceService
       long leaseDurationMs,
       long pollIntervalMs,
       UploadIdFactory idFactory) {
-    super("s3-lock-shutdown-hook");
+    super(idFactory, leaseDurationMs, pollIntervalMs, "s3-lock-shutdown-hook", "s3-lock-watchdog");
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
     this.locksPrefix = sanitizePrefix(locksPrefix);
-    this.leaseDurationMs = leaseDurationMs;
-    this.pollIntervalMs = pollIntervalMs;
-    this.idFactory = Objects.requireNonNull(idFactory, "idFactory must not be null");
-
-    // Background watchdog thread to poll S3 for .stop contention signals across pods
-    this.watchdogExecutor =
-        Utils.scheduleWatchdog(
-            "s3-lock-watchdog",
-            this::checkStopSignals,
-            pollIntervalMs,
-            pollIntervalMs,
-            TimeUnit.MILLISECONDS);
-  }
-
-  @Override
-  public UploadLock lockUploadByUri(String requestUri) throws TusException, IOException {
-    UploadId uploadId = idFactory.readUploadId(requestUri);
-    if (uploadId == null) {
-      return null;
-    }
-
-    String lockKey = buildLockKey(uploadId);
-    String stopKey = buildStopKey(uploadId);
-    String holderId = UUID.randomUUID().toString();
-
-    // Attempt lock acquisition or clear expired lock
-    boolean acquired = acquireOrEvictExpiredLock(lockKey, holderId, requestUri, stopKey);
-    if (!acquired) {
-      throw new UploadAlreadyLockedException("Upload " + uploadId + " is currently locked");
-    }
-
-    // Create and return S3UploadLock instance with heartbeat lease auto-renewal
-    return new S3UploadLock(
-        minioClient,
-        bucket,
-        lockKey,
-        stopKey,
-        holderId,
-        leaseDurationMs,
-        requestUri,
-        activeInputStreams);
   }
 
   @Override
@@ -200,82 +145,12 @@ public class S3LockingService extends AbstractCloseableResourceService
   }
 
   @Override
-  public boolean isLocked(UploadId id) {
-    if (id == null) {
-      return false;
-    }
-    String lockKey = buildLockKey(id);
-    return !isLockExpired(lockKey);
-  }
+  protected UploadLock tryAcquireLock(UploadId uploadId, String holderId, String requestUri) {
+    String lockKey = buildLockKey(uploadId);
+    String stopKey = buildStopKey(uploadId);
 
-  @Override
-  public void setIdFactory(UploadIdFactory idFactory) {
-    if (idFactory != null) {
-      this.idFactory = idFactory;
-    }
-  }
-
-  @Override
-  public void registerInputStream(String requestUri, InputStream inputStream) {
-    if (requestUri != null && inputStream != null) {
-      activeInputStreams.put(requestUri, inputStream);
-    }
-  }
-
-  @Override
-  public void requestLockRelease(String requestUri) {
-    if (requestUri == null) {
-      return;
-    }
-
-    // Step 1: Interrupt local active payload byte stream if hosted on this node
-    InputStream activeStream = activeInputStreams.remove(requestUri);
-    if (activeStream != null) {
-      Utils.interruptStream(activeStream);
-    }
-
-    // Step 2: Write a .stop signal object to S3 to signal lock contention across remote nodes/pods
-    UploadId uploadId = idFactory.readUploadId(requestUri);
-    if (uploadId != null) {
-      writeStopSignal(uploadId);
-    }
-  }
-
-  // HELPER METHODS & LOCK MANAGEMENT LOGIC
-
-  /**
-   * Attempts lock acquisition or safe eviction of an expired lock with multi-layer TOCTOU
-   * mitigations.
-   *
-   * <p><b>TOCTOU Mitigation Workflow:</b>
-   *
-   * <ol>
-   *   <li><b>Primary Acquisition:</b> Attempts conditional write with {@code If-None-Match: *}. If
-   *       no lock object exists, this succeeds atomically on compliant S3 endpoints.
-   *   <li><b>Jittered Verification:</b> Re-reads the lock object from S3 after a randomized backoff
-   *       to ensure emulator compatibility and verify our {@code holderId} was not overwritten by a
-   *       concurrent contender.
-   *   <li><b>Safe Eviction:</b> If acquisition fails because an expired lock exists, the expired
-   *       object is safely verified before deletion (preventing deletion of a newly acquired
-   *       winner's lock), followed by a retry.
-   * </ol>
-   */
-  private boolean acquireOrEvictExpiredLock(
-      String lockKey, String holderId, String requestUri, String stopKey) {
-    boolean acquired = attemptLockAcquisition(lockKey, holderId, requestUri, stopKey);
-    if (!acquired && isLockExpired(lockKey)) {
-      // Safe eviction: verify the lock is still expired right before deleting to prevent
-      // destroying a fresh lock created by a winning contender
-      deleteExpiredLockQuietly(lockKey);
-      acquired = attemptLockAcquisition(lockKey, holderId, requestUri, stopKey);
-    }
-    return acquired;
-  }
-
-  private boolean attemptLockAcquisition(
-      String lockKey, String holderId, String requestUri, String stopKey) {
     if (!isLockExpired(lockKey)) {
-      return false;
+      return false ? null : null;
     }
 
     long expiresAt = System.currentTimeMillis() + leaseDurationMs;
@@ -301,18 +176,87 @@ public class S3LockingService extends AbstractCloseableResourceService
       // For emulators or S3 backends where If-None-Match is not strictly enforced,
       // pause for a small randomized jitter (20-60ms) and verify our holderId is still the owner
       applyJitter();
-      return verifyLockOwnership(lockKey, holderId);
+      if (!verifyLockOwnership(lockKey, holderId)) {
+        return null;
+      }
+
+      return new S3UploadLock(
+          minioClient,
+          bucket,
+          lockKey,
+          stopKey,
+          holderId,
+          leaseDurationMs,
+          requestUri,
+          activeInputStreams);
     } catch (ErrorResponseException e) {
       S3ErrorType errorType = S3Utils.parseErrorResponse(e);
       if (errorType == S3ErrorType.PRECONDITION_FAILED || errorType == S3ErrorType.CONFLICT) {
         log.info("Lock contention for key {}: S3 conditional write precondition failed", lockKey);
-        return false;
+        return null;
       }
       log.warn("Unexpected S3 error response acquiring lock for key {}", lockKey, e);
-      return false;
+      return null;
     } catch (Exception e) {
       log.warn("Unexpected error acquiring S3 lock for key {}", lockKey, e);
+      return null;
+    }
+  }
+
+  @Override
+  protected boolean isLockExpired(UploadId uploadId) {
+    if (uploadId == null) {
+      return true;
+    }
+    String lockKey = buildLockKey(uploadId);
+    return isLockExpired(lockKey);
+  }
+
+  @Override
+  protected boolean evictExpiredLock(UploadId uploadId) {
+    if (uploadId == null) {
       return false;
+    }
+    String lockKey = buildLockKey(uploadId);
+    deleteExpiredLockQuietly(lockKey);
+    return true;
+  }
+
+  @Override
+  protected void writeStopSignal(UploadId uploadId) {
+    String stopKey = buildStopKey(uploadId);
+    try {
+      byte[] empty = new byte[0];
+      // Write empty .stop signal object to S3
+      minioClient.putObject(
+          PutObjectArgs.builder().bucket(bucket).object(stopKey).stream(
+                  new ByteArrayInputStream(empty), 0L, -1L)
+              .build());
+    } catch (Exception e) {
+      log.debug("Failed to write lock stop signal to S3 key {}", stopKey, e);
+    }
+  }
+
+  @Override
+  protected void checkStopSignalForEntry(String uri, InputStream inputStream) {
+    UploadId uploadId = idFactory.readUploadId(uri);
+    if (uploadId == null) {
+      return;
+    }
+
+    String stopKey = buildStopKey(uploadId);
+    try {
+      // Check if a .stop signal object was written by another pod requesting lock release
+      minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(stopKey).build());
+      // Remote stop signal object found! Interrupt local byte stream immediately
+      Utils.interruptStream(inputStream);
+    } catch (ErrorResponseException e) {
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
+        // Normal state: no stop signal object in S3
+        return;
+      }
+    } catch (Exception e) {
+      log.debug("Error checking stop signal for {}", stopKey, e);
     }
   }
 
@@ -324,16 +268,6 @@ public class S3LockingService extends AbstractCloseableResourceService
     } catch (Exception e) {
       log.debug("Failed to verify lock ownership for key {}", lockKey, e);
       return false;
-    }
-  }
-
-  void applyJitter() {
-    try {
-      // 20ms to 60ms randomized backoff to allow concurrent in-flight writes to settle
-      long jitterMs = 20L + (long) (Math.random() * 40.0);
-      Thread.sleep(jitterMs);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
     }
   }
 
@@ -363,63 +297,16 @@ public class S3LockingService extends AbstractCloseableResourceService
     }
   }
 
-  private void writeStopSignal(UploadId uploadId) {
-    String stopKey = buildStopKey(uploadId);
-    try {
-      byte[] empty = new byte[0];
-      // Write empty .stop signal object to S3
-      minioClient.putObject(
-          PutObjectArgs.builder().bucket(bucket).object(stopKey).stream(
-                  new ByteArrayInputStream(empty), 0L, -1L)
-              .build());
-    } catch (Exception e) {
-      log.debug("Failed to write lock stop signal to S3 key {}", stopKey, e);
-    }
-  }
-
-  @Override
-  protected void cleanupOnClose() throws IOException {
-    Utils.shutdownExecutor(watchdogExecutor);
-    for (InputStream stream : activeInputStreams.values()) {
-      Utils.interruptStream(stream);
-    }
-    activeInputStreams.clear();
-  }
-
-  private void checkStopSignals() {
-    for (Map.Entry<String, InputStream> entry : activeInputStreams.entrySet()) {
-      checkStopSignalForEntry(entry.getKey(), entry.getValue());
-    }
-  }
-
-  private void checkStopSignalForEntry(String uri, InputStream inputStream) {
-    UploadId uploadId = idFactory.readUploadId(uri);
-    if (uploadId == null) {
-      return;
-    }
-
-    String stopKey = buildStopKey(uploadId);
-    try {
-      // Check if a .stop signal object was written by another pod requesting lock release
-      minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(stopKey).build());
-      // Remote stop signal object found! Interrupt local byte stream immediately
-      Utils.interruptStream(inputStream);
-    } catch (ErrorResponseException e) {
-      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
-        // Normal state: no stop signal object in S3
-        return;
-      }
-    } catch (Exception e) {
-      log.debug("Error checking stop signal for {}", stopKey, e);
-    }
-  }
-
   private void deleteObjectQuietly(String key) {
     try {
       minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
     } catch (Exception e) {
       log.debug("Failed to delete S3 object key {}", key, e);
     }
+  }
+
+  void applyJitter() {
+    applyJitter(20L, 60L);
   }
 
   private String sanitizePrefix(String prefix) {
