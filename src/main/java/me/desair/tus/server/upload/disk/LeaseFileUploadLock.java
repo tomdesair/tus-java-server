@@ -1,8 +1,5 @@
 package me.desair.tus.server.upload.disk;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonInclude;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -10,81 +7,72 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ScheduledExecutorService;
 import me.desair.tus.server.upload.AbstractLeaseLock;
-import me.desair.tus.server.upload.UploadLock;
-import me.desair.tus.server.util.Utils;
+import me.desair.tus.server.upload.LeaseData;
+import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * A distributed lease-based implementation of {@link UploadLock} that holds an exclusive lock lease
- * on an upload resource via an atomic directory and a JSON lease file. Serves both as the JSON
- * payload representation stored in {@code lease.json} on disk/NFS and the active lock handle with
- * heartbeat lease auto-renewal.
+ * Distributed upload lock implementation backed by atomic directory leases on the local or shared
+ * filesystem.
  *
- * <p><b>Why Lease Renewal is Required (NFS & Shared Drives vs Local FileLock):</b>
- *
- * <ul>
- *   <li><b>Local OS FileLock</b>: Relies on OS kernel file descriptor tracking (POSIX {@code fcntl}
- *       / Windows byte-range lock). When a process crashes, the OS cleans up file descriptors.
- *       However, network filesystems (NFSv3/v4, AWS EFS, SMB/CIFS) frequently drop or stall lock
- *       state, fail in unprivileged container network namespaces without {@code statd}, or hang
- *       when mounted with {@code nolock}.
- *   <li><b>Lease File Locking</b>: Replaces OS locks with an atomic directory and a short
- *       Time-To-Live (TTL) lease JSON file. If a node crashes unexpectedly (e.g. OOM killer, {@code
- *       kill -9}, network partition), the lease auto-expires within the TTL (default 30s), allowing
- *       peer cluster replicas to evict and re-acquire it cleanly.
- *   <li><b>Heartbeat Renewal</b>: Because TUS uploads can stream for minutes or hours, a background
- *       daemon thread periodically updates {@code expiresAt} in {@code lease.json} every {@code
- *       leaseDuration / 3} milliseconds.
- * </ul>
+ * <p>Wraps an active lease and maintains a background daemon executor that periodically renews the
+ * lease metadata on disk to prevent lock expiry during long-running streaming uploads.
  */
-@JsonIgnoreProperties(ignoreUnknown = true)
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class LeaseFileUploadLock extends AbstractLeaseLock {
 
   private static final Logger log = LoggerFactory.getLogger(LeaseFileUploadLock.class);
 
-  private String storagePath;
-
-  @JsonIgnore private Path lockDirPath;
-  @JsonIgnore private Path stopFilePath;
-
-  /** Default constructor for Jackson JSON deserialization. */
-  public LeaseFileUploadLock() {
-    super();
-  }
+  private final Path lockDirPath;
+  private final Path stopFilePath;
+  private final LeaseData leaseData;
 
   /**
-   * Constructs an active LeaseFileUploadLock and starts the background heartbeat lease renewal
-   * daemon.
+   * Constructs an active {@link LeaseFileUploadLock} and starts the background heartbeat lease
+   * renewal daemon.
    *
+   * @param leaseData The lease metadata
    * @param lockDirPath Dedicated lock directory path
    * @param stopFilePath Lock contention stop signal file path
-   * @param holderId Unique identifier of the lock holder
-   * @param leaseDurationMs Lease duration in milliseconds
-   * @param requestUri Target upload URI
    * @param activeInputStreams Map of active request input streams in the JVM
    */
   public LeaseFileUploadLock(
+      LeaseData leaseData,
       Path lockDirPath,
       Path stopFilePath,
-      String holderId,
-      long leaseDurationMs,
-      String requestUri,
       Map<String, InputStream> activeInputStreams) {
-    super(holderId, leaseDurationMs, requestUri, activeInputStreams, "lease-file-lock-heartbeat");
+    this(leaseData, lockDirPath, stopFilePath, activeInputStreams, null);
+  }
+
+  /**
+   * Testing constructor allowing injection of a custom heartbeat executor.
+   *
+   * @param leaseData The lease metadata
+   * @param lockDirPath Dedicated lock directory path
+   * @param stopFilePath Lock contention stop signal file path
+   * @param activeInputStreams Map of active request input streams in the JVM
+   * @param heartbeatExecutor Custom executor service for heartbeats
+   */
+  LeaseFileUploadLock(
+      LeaseData leaseData,
+      Path lockDirPath,
+      Path stopFilePath,
+      Map<String, InputStream> activeInputStreams,
+      ScheduledExecutorService heartbeatExecutor) {
+    super(leaseData, activeInputStreams, heartbeatExecutor, "lease-file-lock-heartbeat");
+    this.leaseData = leaseData;
     this.lockDirPath = lockDirPath;
     this.stopFilePath = stopFilePath;
-    this.storagePath = lockDirPath != null ? lockDirPath.toString() : null;
+  }
+
+  public LeaseData getLeaseData() {
+    return leaseData;
   }
 
   public String getStoragePath() {
-    return storagePath;
-  }
-
-  public void setStoragePath(String storagePath) {
-    this.storagePath = storagePath;
+    return lockDirPath != null ? lockDirPath.toString() : null;
   }
 
   @Override
@@ -95,7 +83,8 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
     try {
       Path leaseTmpFile = lockDirPath.resolve("lease.json.tmp." + UUID.randomUUID());
       Path leaseFile = lockDirPath.resolve("lease.json");
-      Utils.writeJson(this, leaseTmpFile, false);
+      leaseData.setExpiresAt(getExpiresAt());
+      LeaseDataJsonSerializer.serializeToPath(leaseData, leaseTmpFile);
       Files.move(
           leaseTmpFile,
           leaseFile,

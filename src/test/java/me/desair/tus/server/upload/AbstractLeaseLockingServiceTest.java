@@ -38,7 +38,7 @@ public class AbstractLeaseLockingServiceTest {
     }
 
     @Override
-    protected UploadLock tryAcquireLock(UploadId uploadId, String holderId, String requestUri) {
+    protected UploadLock tryAcquireLock(UploadId uploadId, LeaseData leaseData) {
       if (acquireShouldSucceed) {
         return mock(UploadLock.class);
       }
@@ -120,8 +120,7 @@ public class AbstractLeaseLockingServiceTest {
           private int acquireAttempts = 0;
 
           @Override
-          protected UploadLock tryAcquireLock(
-              UploadId uploadId, String holderId, String requestUri) {
+          protected UploadLock tryAcquireLock(UploadId uploadId, LeaseData leaseData) {
             acquireAttempts++;
             if (acquireAttempts == 1) {
               return null;

@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
+import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.util.InterruptibleInputStream;
@@ -422,24 +423,25 @@ public class S3LockingServiceTest {
     Mockito.when(mockClient.listObjects(Mockito.any(ListObjectsArgs.class)))
         .thenReturn(java.util.Arrays.asList(res1, res2));
 
-    S3UploadLock expiredLock =
-        new S3UploadLock(
+    LeaseData expiredLock =
+        new LeaseData(
             "holder1",
             "/files/upload/1",
-            "test-bucket",
-            "locks/expired.lock",
-            "locks/expired.stop",
             30000L,
-            1000L);
-    S3UploadLock validLock =
-        new S3UploadLock(
+            1000L,
+            1000L,
+            "locks/expired.lock",
+            "locks/expired.stop");
+
+    LeaseData validLock =
+        new LeaseData(
             "holder2",
             "/files/upload/2",
-            "test-bucket",
-            "locks/valid.lock",
-            "locks/valid.stop",
             30000L,
-            System.currentTimeMillis() + 1000000L);
+            System.currentTimeMillis() + 1000000L,
+            System.currentTimeMillis(),
+            "locks/valid.lock",
+            "locks/valid.stop");
 
     GetObjectResponse expiredStream =
         new GetObjectResponse(
@@ -448,7 +450,7 @@ public class S3LockingServiceTest {
             "us-east-1",
             "locks/expired.lock",
             new ByteArrayInputStream(
-                me.desair.tus.server.util.S3UploadLockJsonSerializer.serialize(expiredLock)
+                me.desair.tus.server.util.LeaseDataJsonSerializer.serialize(expiredLock)
                     .getBytes(StandardCharsets.UTF_8)));
     GetObjectResponse validStream =
         new GetObjectResponse(
@@ -457,7 +459,7 @@ public class S3LockingServiceTest {
             "us-east-1",
             "locks/valid.lock",
             new ByteArrayInputStream(
-                me.desair.tus.server.util.S3UploadLockJsonSerializer.serialize(validLock)
+                me.desair.tus.server.util.LeaseDataJsonSerializer.serialize(validLock)
                     .getBytes(StandardCharsets.UTF_8)));
 
     Mockito.when(mockClient.getObject(Mockito.any(GetObjectArgs.class)))
@@ -536,21 +538,21 @@ public class S3LockingServiceTest {
   }
 
   @Test(expected = UploadAlreadyLockedException.class)
-  public void testReadAfterWriteVerificationFailsWhenHolderIdMismatch() throws Exception {
+  public void testLockUploadByUriWithContentionOnPostPutVerificationThrows() throws Exception {
     // Simulate a TOCTOU race where PutObject succeeds, but another contender overwrote the lock
     // before our read-after-write verification
     Mockito.when(minioClient.putObject(Mockito.any(PutObjectArgs.class))).thenReturn(null);
 
-    S3UploadLock rivalLock =
-        new S3UploadLock(
+    LeaseData rivalLock =
+        new LeaseData(
             "rival-holder",
             "/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e",
-            "test-bucket",
-            "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.lock",
-            "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.stop",
             30000L,
-            System.currentTimeMillis() + 30000L);
-    String rivalJson = me.desair.tus.server.util.S3UploadLockJsonSerializer.serialize(rivalLock);
+            System.currentTimeMillis() + 30000L,
+            System.currentTimeMillis(),
+            "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.lock",
+            "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.stop");
+    String rivalJson = me.desair.tus.server.util.LeaseDataJsonSerializer.serialize(rivalLock);
 
     // Initial check sees expired/missing, but post-put verification sees rival holder
     java.util.concurrent.atomic.AtomicInteger getCallCount =
@@ -562,18 +564,20 @@ public class S3LockingServiceTest {
                 // First call: check if expired (missing -> not locked)
                 ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
                 Mockito.when(errorResponse.code()).thenReturn("NoSuchKey");
-                throw new ErrorResponseException(errorResponse, null, null);
+                throw new io.minio.errors.ErrorResponseException(errorResponse, null, null);
               }
-              // Second call: read-after-write verification returns rival's lock
+              // Second call: read-after-write verification sees rivalLock
               return new GetObjectResponse(
                   null,
                   "test-bucket",
                   "us-east-1",
-                  "locks/24249a5b.lock",
+                  "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.lock",
                   new ByteArrayInputStream(rivalJson.getBytes(StandardCharsets.UTF_8)));
             });
 
-    lockingService.lockUploadByUri("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
+    UploadLock lock =
+        lockingService.lockUploadByUri("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
+    assertNull(lock);
   }
 
   @Test
@@ -639,17 +643,17 @@ public class S3LockingServiceTest {
 
     // Seed an expired lock in simulated S3 storage
     String lockKey = "locks/" + uploadIdStr + ".lock";
-    S3UploadLock expiredLock =
-        new S3UploadLock(
+    LeaseData expiredLock =
+        new LeaseData(
             "expired-holder",
             uri,
-            "test-bucket",
-            lockKey,
-            "locks/" + uploadIdStr + ".stop",
             30000L,
-            System.currentTimeMillis() - 10_000L);
+            System.currentTimeMillis() - 10_000L,
+            System.currentTimeMillis() - 40_000L,
+            lockKey,
+            "locks/" + uploadIdStr + ".stop");
     byte[] expiredBytes =
-        me.desair.tus.server.util.S3UploadLockJsonSerializer.serializeToBytes(expiredLock);
+        me.desair.tus.server.util.LeaseDataJsonSerializer.serializeToBytes(expiredLock);
     s3StorageMap.put(lockKey, expiredBytes);
 
     int threadCount = 10;

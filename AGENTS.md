@@ -168,6 +168,11 @@ To maintain a clear separation between fast, offline unit tests and containerize
 ### 20. Explicit Top-Level Class Imports
 - Always use top-level `import` statements at the top of Java files instead of writing fully qualified package class names inline in method signatures or method bodies (e.g. add `import me.desair.tus.server.util.Utils;` at the top of the file and call `Utils.interruptStream(...)` instead of writing `me.desair.tus.server.util.Utils.interruptStream(...)`).
 
+### 21. Single Responsibility Principle & Constructor Simplicity
+- Every class MUST have a single, well-defined main purpose (Single Responsibility Principle).
+- Do NOT mix data serialization models (DTOs / JSON metadata objects) with active process or lifecycle management components (such as lock handles with scheduled thread executors or storage clients).
+- Keep constructors focused and minimal (typically 1 or 2 constructors per class). Classes requiring data models MUST accept the dedicated data object (e.g., `LeaseData`) in their constructor rather than defining multiple telescoping or metadata-only constructor overloads.
+
 ## IETF Resumable Uploads for HTTP (RUFH) Spec Maintenance & Update Playbook
 
 ### 1. Spec Diff Review

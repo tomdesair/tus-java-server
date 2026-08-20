@@ -153,7 +153,12 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
    */
   protected UploadLock acquireOrEvictExpiredLock(
       UploadId uploadId, String holderId, String requestUri) throws TusException, IOException {
-    UploadLock lock = tryAcquireLock(uploadId, holderId, requestUri);
+    long now = System.currentTimeMillis();
+    long expiresAt = now + leaseDurationMs;
+    LeaseData leaseData =
+        new LeaseData(holderId, requestUri, leaseDurationMs, expiresAt, now, null, null);
+
+    UploadLock lock = tryAcquireLock(uploadId, leaseData);
     if (lock != null) {
       return lock;
     }
@@ -163,7 +168,10 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
       // Lock is expired or abandoned: evict and retry acquisition
       boolean evicted = evictExpiredLock(uploadId);
       if (evicted) {
-        lock = tryAcquireLock(uploadId, holderId, requestUri);
+        now = System.currentTimeMillis();
+        leaseData.setAcquiredAt(now);
+        leaseData.setExpiresAt(now + leaseDurationMs);
+        lock = tryAcquireLock(uploadId, leaseData);
         if (lock != null) {
           return lock;
         }
@@ -176,13 +184,12 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
    * Subclass implementation of atomic primary lock acquisition.
    *
    * @param uploadId The upload identifier
-   * @param holderId The unique identifier of the lock contender
-   * @param requestUri The target upload request URI
+   * @param leaseData The lease metadata describing the lock to acquire
    * @return Acquired {@link UploadLock}, or null if already held
    * @throws IOException If an I/O error occurs
    */
-  protected abstract UploadLock tryAcquireLock(
-      UploadId uploadId, String holderId, String requestUri) throws IOException;
+  protected abstract UploadLock tryAcquireLock(UploadId uploadId, LeaseData leaseData)
+      throws IOException;
 
   /**
    * Subclass implementation determining if an upload lock is currently expired or abandoned.

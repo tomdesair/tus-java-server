@@ -311,7 +311,7 @@ When the test suite executes:
 | Test Class | Purpose | Execution Mode |
 |------------|---------|----------------|
 | `UploadInfoJsonSerializerTest` | Unit test for Jackson JSON serialization (`me.desair.tus.server.util`) | Mocked / JVM |
-| `S3UploadLockJsonSerializerTest` | Unit test for S3 lock object JSON serialization (`me.desair.tus.server.util`) | Mocked / JVM |
+| `LeaseDataJsonSerializerTest` | Unit test for lease data JSON serialization (`me.desair.tus.server.util`) | Mocked / JVM |
 | `S3StorageServiceTest` | Fast unit test for S3 storage logic | Mocked `MinioClient` |
 | `S3LockingServiceTest` | Fast unit test for S3 distributed locking | Mocked `MinioClient` |
 | `S3ConcatenationServiceTest` | Fast unit test for S3 concatenation logic | Mocked `MinioClient` |

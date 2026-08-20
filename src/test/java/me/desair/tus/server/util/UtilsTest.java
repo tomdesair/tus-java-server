@@ -130,6 +130,7 @@ public class UtilsTest {
     // Should safely do nothing without throwing exception
     Utils.writeSerializable(new TestSerializable("test"), null);
     Utils.writeSerializable(new TestSerializable("test"), null, false);
+    assertThat(Utils.readSerializable(null, TestSerializable.class), is(nullValue()));
   }
 
   @Test
@@ -177,6 +178,7 @@ public class UtilsTest {
     // Should safely do nothing without throwing exception
     Utils.writeJson(new TestJsonObject("test", 1), null);
     Utils.writeJson(new TestJsonObject("test", 1), null, false);
+    assertThat(Utils.readJson(null, TestJsonObject.class), is(nullValue()));
   }
 
   @Test

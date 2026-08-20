@@ -11,11 +11,13 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.util.UUID;
 import me.desair.tus.server.upload.AbstractLeaseLockingService;
+import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
+import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.Validate;
@@ -161,12 +163,11 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
   }
 
   @Override
-  protected UploadLock tryAcquireLock(UploadId uploadId, String holderId, String requestUri)
-      throws IOException {
+  protected UploadLock tryAcquireLock(UploadId uploadId, LeaseData leaseData) throws IOException {
     Path lockDirPath = getLockDirPath(uploadId);
     Path stopFilePath = getStopFilePath(uploadId);
 
-    if (Files.exists(lockDirPath)) {
+    if (lockDirPath == null || Files.exists(lockDirPath) || leaseData == null) {
       return null;
     }
 
@@ -176,13 +177,12 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
       Utils.ensureDirectoryExists(lockDirPath.getParent());
       Files.createDirectory(stageDir);
 
-      LeaseFileUploadLock lock =
-          new LeaseFileUploadLock(
-              lockDirPath, stopFilePath, holderId, leaseDurationMs, requestUri, activeInputStreams);
+      leaseData.setLockPath(lockDirPath.toString());
+      leaseData.setStopPath(stopFilePath != null ? stopFilePath.toString() : null);
 
       // Write lease metadata JSON file inside the staged directory
       Path leaseFile = stageDir.resolve("lease.json");
-      Utils.writeJson(lock, leaseFile, false);
+      LeaseDataJsonSerializer.serializeToPath(leaseData, leaseFile);
 
       // Atomically move the staged directory to the target lock directory.
       // This guarantees that the lock directory appears atomically with a fully valid lease.json
@@ -190,13 +190,15 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
       Files.move(stageDir, lockDirPath, StandardCopyOption.ATOMIC_MOVE);
 
       // Clear any lingering stop signal file from prior contention
-      try {
-        Files.deleteIfExists(stopFilePath);
-      } catch (IOException ignored) {
-        // Safe to ignore
+      if (stopFilePath != null) {
+        try {
+          Files.deleteIfExists(stopFilePath);
+        } catch (IOException ignored) {
+          // Safe to ignore
+        }
       }
 
-      return lock;
+      return new LeaseFileUploadLock(leaseData, lockDirPath, stopFilePath, activeInputStreams);
     } catch (FileSystemException e) {
       // Lock directory already exists or cannot be moved atomically over existing dir
       return null;
@@ -284,9 +286,9 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
     Path leaseFile = lockDirPath.resolve("lease.json");
     if (Files.exists(leaseFile)) {
       try {
-        LeaseFileUploadLock lease = Utils.readJson(leaseFile, LeaseFileUploadLock.class, false);
+        LeaseData lease = LeaseDataJsonSerializer.deserialize(leaseFile);
         if (lease != null) {
-          return lease.getExpiresAt() < now;
+          return lease.isExpired(now);
         }
       } catch (Exception e) {
         log.debug("Failed to read lease file {}, checking grace period", leaseFile, e);
