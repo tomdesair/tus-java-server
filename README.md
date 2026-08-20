@@ -15,14 +15,14 @@ The Javadoc of this library can be found at https://tus.desair.me/. As of versio
    - **Kubernetes Persistent Volume**: Mounted volume (`ReadWriteMany` / `ReadWriteOnce`) for containerized applications.
 2. **S3-Compatible Object Storage** (`S3StorageService`, `S3LockingService`, & `S3ConcatenationService`):
    - **Cloud & On-Premise S3**: AWS S3, MinIO, Cloudflare R2, Ceph, or Google Cloud Storage.
-   - **Multi-Replica Support**: Uses distributed S3 object locking and TTL leases, enabling multi-replica container deployments without requiring Redis or external databases.
+   - **Multi-Replica Support**: Uses distributed S3 object locking and TTL leases, enabling multi-replica container deployments without requiring Redis or external databases. See [S3 Storage Guide](docs/S3_STORAGE.md).
 3. **Azure Blob Storage** (`AzureBlobStorageService`, `AzureBlobLockingService`, & `AzureBlobConcatenationService`):
    - **Microsoft Azure Cloud**: Native Azure Blob Storage using the `azure-storage-blob` SDK.
    - **Multi-Replica Support**: Uses native Azure Blob Leases (30s renewable leases) for distributed locking across cluster replicas. See [Azure Blob Storage Guide](docs/AZURE_BLOB_STORAGE.md).
 
 ## Quick Start and Examples
 The tus-java-server library only depends on Jakarta Servlet API 6.0 and some Apache Commons utility libraries. This
-means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on the file system of the application server, or natively in S3-compatible object storage (see [S3 Storage Guide](docs/S3_STORAGE.md) and [configuration section](#usage-and-configuration)).
+means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on a (shared) file system of the application server.
 
 You can add the latest stable version of this library to your application using Maven by adding the following dependency:
 
