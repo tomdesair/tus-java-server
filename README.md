@@ -30,7 +30,7 @@ You can add the latest stable version of this library to your application using 
 <dependency>
   <groupId>me.desair.tus</groupId>
   <artifactId>tus-java-server</artifactId>
-  <version>2.0.0-SNAPSHOT</version>
+  <version>2.0.0</version>
 </dependency>
 ```
 
@@ -117,7 +117,7 @@ Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-
 The first step is to create a `TusFileUploadService` object using its constructor. You can make this object available as a (Spring bean) singleton or create a new instance for each request. After creating the object, you can configure it using the following methods:
 
 * `withUploadUri(String)`: Set the relative path (e.g. `/files/upload`) or absolute base URL (e.g. `https://upload.example.com/files/upload`) under which the main tus upload endpoint will be made available. When configured with an absolute URL, the `Location` header returned upon upload creation (201 Created, 200 OK, or 104 Interim Response) will contain the full URL. Optionally, this URI may contain regex parameters in order to support endpoints that contain URL parameters, for example `/users/[0-9]+/files/upload` or `https://upload.example.com/users/[0-9]+/files/upload`.
-* `withSupportedProtocolVersions(ProtocolVersion)`: Configure supported protocol versions (`ProtocolVersion.AUTO` for automatic header-based detection, `ProtocolVersion.TUS_1_0_0` for Tus 1.0.0 only, or `ProtocolVersion.IETF` for IETF Resumable Uploads only).
+* `withSupportedProtocolVersions(ProtocolVersion)`: Configure supported protocol versions (`ProtocolVersion.AUTO` for automatic header-based detection, `ProtocolVersion.TUS_1_0_0` for Tus 1.0.0 only, or `ProtocolVersion.RUFH` for IETF Resumable Uploads only).
 * `withMaxUploadSize(Long)`: Specify the maximum number of bytes that can be uploaded per upload. If you don't call this method, the maximum number of bytes is `Long.MAX_VALUE`.
 * `withStoragePath(String)`: If you're using the default file system-based storage service, you can use this method to specify the path where to store the uploaded bytes and upload information.
 * `withMaxLockRetries(int)`: Specify the maximum number of retries the service will attempt to acquire an upload lock before failing with an `UploadAlreadyLockedException` during lock contention resolution (e.g. for `HEAD` or `DELETE` requests). Default is `40` retries (with a 200ms sleep between retries, resulting in an 8.0-second retry budget).
@@ -181,7 +181,7 @@ This server implementation has been tested with:
 
 For detailed instructions on running our native conformity test suite and interpreting results, see the **[Conformity Testing Guide (docs/CONFORMITY_TESTING.md)](docs/CONFORMITY_TESTING.md)**.
 
-This repository also contains comprehensive automated integration test suites (`ITTusFileUploadService`, `IetfProtocolCreationTest`, `IetfProtocolAppendTest`, `IetfProtocolHeadTest`, `IetfProtocolCancellationTest`) validating both protocol specifications.
+This repository also contains comprehensive automated integration test suites (`ITTusFileUploadService`, `RufhProtocolCreationTest`, `RufhProtocolAppendTest`, `RufhProtocolHeadTest`, `RufhProtocolCancellationTest`) validating both protocol specifications.
 
 ## Versioning
 This artifact follows `MAJOR.MINOR.PATCH` semantic versioning. Version `2.0.0` introduces major dual-protocol support for both Tus 1.0.0 and the IETF Resumable Uploads for HTTP specification (`draft-ietf-httpbis-resumable-upload`). Version `1.0.0-3.3` was the last Tus protocol-only version.

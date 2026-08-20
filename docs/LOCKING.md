@@ -26,7 +26,7 @@ All locking mechanisms in `tus-java-server` implement the `UploadLockingService`
 ### `UploadLockingService` Interface
 
 ```java
-public interface UploadLockingService extends Closeable {
+public interface UploadLockingService {
 
   // Acquires an exclusive lock on an upload resource
   UploadLock lockUploadByUri(String requestUri) throws TusException, IOException;
@@ -37,17 +37,17 @@ public interface UploadLockingService extends Closeable {
   // Cleans up stale or expired locks
   void cleanupStaleLocks() throws IOException;
 
+  // Injects the UploadIdFactory instance used to parse upload IDs from request URIs
+  void setIdFactory(UploadIdFactory idFactory);
+
   // Registers the active request input stream so it can be interrupted cleanly
   default void registerInputStream(String requestUri, InputStream inputStream) {}
 
   // Requests that any active lock for the URI be released
   default void requestLockRelease(String requestUri) {}
 
-  // Injects the UploadIdFactory instance used to parse upload IDs from request URIs
-  default void setIdFactory(UploadIdFactory idFactory) {}
-
-  // Injects the upload expiration period in milliseconds
-  default void setUploadExpirationPeriod(Long expirationPeriod) {}
+  // Closes resources, interrupts in-flight streams, and shuts down background daemon threads
+  default void close() throws IOException {}
 }
 ```
 

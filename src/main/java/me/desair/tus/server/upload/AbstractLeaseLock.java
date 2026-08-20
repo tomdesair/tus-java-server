@@ -1,10 +1,8 @@
 package me.desair.tus.server.upload;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonInclude;
 import java.io.InputStream;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import me.desair.tus.server.util.Utils;
@@ -14,98 +12,57 @@ import org.slf4j.LoggerFactory;
 /**
  * Abstract base class for distributed lease-based implementations of {@link UploadLock}.
  *
- * <p>Provides common state and lifecycle management for TTL-based locks including:
+ * <p>Provides common lifecycle management for TTL-based locks including:
  *
  * <ul>
- *   <li>Lease holder identification, expiration timestamps, and target upload URIs.
  *   <li>Background heartbeat lease auto-renewal daemon scheduling.
  *   <li>Active request input stream registration tracking and clean shutdown.
  * </ul>
  */
-@JsonIgnoreProperties(ignoreUnknown = true)
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public abstract class AbstractLeaseLock implements UploadLock {
 
   private static final Logger log = LoggerFactory.getLogger(AbstractLeaseLock.class);
 
-  private String holderId;
-  private String requestUri;
-  private long leaseDurationMs;
-  private long expiresAt;
-  private long acquiredAt;
-
-  @JsonIgnore private ScheduledExecutorService heartbeatExecutor;
-  @JsonIgnore private Map<String, InputStream> activeInputStreams;
-
-  /** Default constructor for Jackson JSON deserialization. */
-  protected AbstractLeaseLock() {}
-
-  /**
-   * Base constructor for metadata serialization.
-   *
-   * @param holderId Unique identifier of the lock holder
-   * @param requestUri Target upload URI
-   * @param leaseDurationMs Lease duration in milliseconds
-   * @param expiresAt Absolute expiration epoch timestamp in milliseconds
-   */
-  protected AbstractLeaseLock(
-      String holderId, String requestUri, long leaseDurationMs, long expiresAt) {
-    this.holderId = holderId;
-    this.requestUri = requestUri;
-    this.leaseDurationMs = leaseDurationMs;
-    this.expiresAt = expiresAt;
-    this.acquiredAt = System.currentTimeMillis();
-  }
+  private final LeaseData leaseData;
+  private ScheduledExecutorService heartbeatExecutor;
+  private final Map<String, InputStream> activeInputStreams;
 
   /**
    * Constructs an active lock and schedules the background heartbeat renewal daemon.
    *
-   * @param holderId Unique identifier of the lock holder
-   * @param leaseDurationMs Lease duration in milliseconds
-   * @param requestUri Target upload URI
+   * @param leaseData The lease metadata
    * @param activeInputStreams Map of active request input streams in the JVM
    * @param watchdogThreadName Name prefix for the watchdog heartbeat thread
    */
   protected AbstractLeaseLock(
-      String holderId,
-      long leaseDurationMs,
-      String requestUri,
-      Map<String, InputStream> activeInputStreams,
-      String watchdogThreadName) {
-    this(holderId, leaseDurationMs, requestUri, activeInputStreams, null, watchdogThreadName);
+      LeaseData leaseData, Map<String, InputStream> activeInputStreams, String watchdogThreadName) {
+    this(leaseData, activeInputStreams, null, watchdogThreadName);
   }
 
   /**
    * Full constructor allowing injection of a custom executor (e.g. for testing).
    *
-   * @param holderId Unique identifier of the lock holder
-   * @param leaseDurationMs Lease duration in milliseconds
-   * @param requestUri Target upload URI
+   * @param leaseData The lease metadata
    * @param activeInputStreams Map of active request input streams in the JVM
    * @param heartbeatExecutor ScheduledExecutorService for lease renewal, or null to auto-schedule
    * @param watchdogThreadName Name prefix for the watchdog heartbeat thread
    */
   protected AbstractLeaseLock(
-      String holderId,
-      long leaseDurationMs,
-      String requestUri,
+      LeaseData leaseData,
       Map<String, InputStream> activeInputStreams,
       ScheduledExecutorService heartbeatExecutor,
       String watchdogThreadName) {
-    this.holderId = holderId;
-    this.leaseDurationMs = leaseDurationMs;
-    this.requestUri = requestUri;
+    this.leaseData = Objects.requireNonNull(leaseData, "leaseData must not be null");
     this.activeInputStreams = activeInputStreams;
-    this.acquiredAt = System.currentTimeMillis();
-    this.expiresAt = this.acquiredAt + leaseDurationMs;
 
+    long leaseDurationMs = leaseData.getLeaseDurationMs();
     if (heartbeatExecutor != null) {
       this.heartbeatExecutor = heartbeatExecutor;
     } else if (leaseDurationMs > 0 && watchdogThreadName != null) {
       long renewalPeriodMs = Math.max(1000L, leaseDurationMs / 3);
       this.heartbeatExecutor =
           Utils.scheduleWatchdog(
-              watchdogThreadName + "-" + holderId,
+              watchdogThreadName + "-" + leaseData.getHolderId(),
               this::renewLease,
               renewalPeriodMs,
               renewalPeriodMs,
@@ -113,49 +70,37 @@ public abstract class AbstractLeaseLock implements UploadLock {
     }
   }
 
-  public String getHolderId() {
-    return holderId;
+  public LeaseData getLeaseData() {
+    return leaseData;
   }
 
-  public void setHolderId(String holderId) {
-    this.holderId = holderId;
+  public String getHolderId() {
+    return leaseData.getHolderId();
   }
 
   public String getRequestUri() {
-    return requestUri;
-  }
-
-  public void setRequestUri(String requestUri) {
-    this.requestUri = requestUri;
+    return leaseData.getRequestUri();
   }
 
   public long getLeaseDurationMs() {
-    return leaseDurationMs;
-  }
-
-  public void setLeaseDurationMs(long leaseDurationMs) {
-    this.leaseDurationMs = leaseDurationMs;
+    return leaseData.getLeaseDurationMs();
   }
 
   public long getExpiresAt() {
-    return expiresAt;
+    return leaseData.getExpiresAt();
   }
 
   public void setExpiresAt(long expiresAt) {
-    this.expiresAt = expiresAt;
+    leaseData.setExpiresAt(expiresAt);
   }
 
   public long getAcquiredAt() {
-    return acquiredAt;
-  }
-
-  public void setAcquiredAt(long acquiredAt) {
-    this.acquiredAt = acquiredAt;
+    return leaseData.getAcquiredAt();
   }
 
   @Override
   public String getUploadUri() {
-    return requestUri;
+    return leaseData.getRequestUri();
   }
 
   @Override
@@ -169,8 +114,8 @@ public abstract class AbstractLeaseLock implements UploadLock {
     Utils.shutdownExecutor(heartbeatExecutor);
 
     // 2. Remove active stream registration from JVM heap
-    if (activeInputStreams != null && requestUri != null) {
-      activeInputStreams.remove(requestUri);
+    if (activeInputStreams != null && getRequestUri() != null) {
+      activeInputStreams.remove(getRequestUri());
     }
 
     // 3. Release backend storage resources
@@ -181,7 +126,7 @@ public abstract class AbstractLeaseLock implements UploadLock {
    * Renew the lock lease by advancing the expiration timestamp and persisting the updated metadata.
    */
   public void renewLease() {
-    this.expiresAt = System.currentTimeMillis() + leaseDurationMs;
+    leaseData.setExpiresAt(System.currentTimeMillis() + leaseData.getLeaseDurationMs());
     doRenewLease();
   }
 

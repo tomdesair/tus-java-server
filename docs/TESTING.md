@@ -16,7 +16,7 @@ Open the `spring-boot-rest/pom.xml` file in the sibling `tus-java-server-spring-
 <dependency>
   <groupId>me.desair.tus</groupId>
   <artifactId>tus-java-server</artifactId>
-  <version>1.0.0-3.2-SNAPSHOT</version>
+  <version>2.0.0</version>
 </dependency>
 ```
 
@@ -104,7 +104,7 @@ curl -X HEAD -H "Tus-Resumable: 1.0.0" -I ${UPLOAD_URL}
 - **First Terminal (PATCH)**:
   - The stalled/throttled `PATCH` upload should immediately abort with an I/O error or exit because the server terminated its input stream in response to the lock release request.
 - **Second Terminal (HEAD)**:
-  - The `HEAD` request should succeed with status `204 No Content` after a short delay (the server retries up to 25 times at 200ms intervals while releasing the lock).
+  - The `HEAD` request should succeed with status `204 No Content` after a short delay (the server retries up to 40 times at 200ms intervals, an 8.0-second retry budget, while releasing the lock).
   - The response will contain the `Upload-Offset` header reflecting the number of bytes successfully written to disk before the stream was interrupted (e.g., `Upload-Offset: 153600`).
 - **Subsequent Uploads**:
   - You can immediately resume the upload using a new `PATCH` request starting from the offset returned in the `HEAD` response.

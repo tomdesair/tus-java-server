@@ -164,13 +164,7 @@ public class HttpProblemDetails {
    * @throws IOException When writing to response stream fails
    */
   public void writeTo(TusServletResponse response) throws IOException {
-    Objects.requireNonNull(response, "Response cannot be null");
-    byte[] jsonBytes = toJson().getBytes(java.nio.charset.StandardCharsets.UTF_8);
-    response.setStatus(status);
-    response.setHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PROBLEM_JSON);
-    response.setContentLength(jsonBytes.length);
-    response.getWriter().write(new String(jsonBytes, java.nio.charset.StandardCharsets.UTF_8));
-    response.getWriter().flush();
+    writeTo((HttpServletResponse) response);
   }
 
   public int getStatus() {
