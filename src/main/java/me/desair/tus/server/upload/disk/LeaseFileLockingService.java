@@ -3,7 +3,6 @@ package me.desair.tus.server.upload.disk;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.DirectoryStream;
-import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -26,41 +25,33 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Distributed, NFS- and SMB-safe implementation of {@link UploadLockingService} using atomic
- * directory staging, atomic renames, and TTL-based JSON lease files.
+ * sibling mutex directories ({@link LeaseFileMutex}) and TTL-based JSON lease files.
  *
  * <p><b>Key Architectural Features & Distributed Concurrency Guide:</b>
  *
  * <ul>
- *   <li><b>Atomic Directory Staging & Renames</b>: Lock acquisition stages new locks in a temporary
- *       sibling directory ({@code <storagePath>/locks/<UploadId>.lock.stage.<uuid>}) with {@code
- *       lease.json} pre-populated, then atomically moves it into place using {@link
- *       StandardCopyOption#ATOMIC_MOVE}. Directory moves map to atomic server-side RPCs on POSIX
- *       NFS ({@code rename(2)}) and Windows SMB ({@code SetFileInformationByHandle}), ensuring
- *       {@code <UploadId>.lock} is born on disk 100% valid and eliminating empty directory race
- *       windows.
- *   <li><b>Deterministic TTL Leases & Crash Recovery</b>: Each lock directory contains a small JSON
- *       lease file ({@code lease.json}) with an absolute expiration timestamp. If a node crashes
- *       ungracefully ({@code kill -9}, OOM), the lease auto-expires within the TTL (default 30s),
- *       allowing peer cluster nodes to evict and re-acquire the lock without admin intervention.
- *   <li><b>Heartbeat Lease Auto-Renewal</b>: Active locks run a background daemon thread that
- *       periodically updates {@code expiresAt} in {@code lease.json} every {@code leaseDuration /
- *       3} (e.g. every 10s for a 30s lease), preventing lock expiration during long streaming
- *       uploads.
- *   <li><b>TOCTOU Mitigation with Post-Move Verification & Rollback</b>: When multiple nodes race
- *       to evict an expired lock simultaneously, eviction isolates the directory via atomic move to
- *       a unique {@code .evicting.<uuid>} directory and re-inspects the lease post-move. If an
- *       active lease is detected (created by a concurrent winning peer right before the move), the
- *       move is automatically rolled back and eviction is aborted, ensuring single-winner
- *       exclusivity.
- *   <li><b>5-Second Directory Grace Period</b>: Fallback protection for un-staged or corrupted
- *       directories: if a contender encounters a directory where {@code lease.json} is missing or
- *       corrupted and the directory is newer than 5 seconds, it is treated as actively acquiring;
- *       if older than 5 seconds, it is treated as abandoned and evicted.
+ *   <li><b>Atomic Sibling Mutex Directory ({@code <UploadId>.mutex/})</b>: All state-modifying
+ *       operations (lock acquisition, expired lease takeover, release, and cleanup) acquire a
+ *       {@link LeaseFileMutex} before interacting with lock content. Atomic {@code mkdir} is
+ *       guaranteed across POSIX filesystems, Windows SMB, and NFS (v3/v4 / AWS EFS).
+ *   <li><b>In-Place Expired Lock Takeover (Zero Directory Moves)</b>: When an expired lease is
+ *       encountered, the winning contender acquires the {@link LeaseFileMutex}, updates {@code
+ *       lease.json} directly inside {@code <UploadId>.lock/}, and releases the mutex. The canonical
+ *       lock directory never moves or disappears from disk, eliminating Time-of-Check to
+ *       Time-of-Use (TOCTOU) race windows.
+ *   <li><b>5-Second Crash Recovery</b>: If an ungracefully crashed node leaves {@code
+ *       <UploadId>.mutex/} behind, subsequent contenders detect {@code now - mtime >= 5000ms},
+ *       remove the abandoned mutex directory, and safely retry acquisition.
+ *   <li><b>Deterministic TTL Leases & Heartbeat Renewal</b>: Lock directories contain {@code
+ *       lease.json} with an absolute expiration timestamp. Active locks run a background daemon
+ *       thread renewing {@code expiresAt} every {@code leaseDuration / 3} (default 10s for 30s
+ *       lease).
+ *   <li><b>Ownership Verification & Fencing</b>: When releasing or renewing a lock, the service
+ *       verifies that {@code holderId} in {@code lease.json} still matches the current holder,
+ *       preventing an expired/unpaused node from corrupting a successor's active lease.
  *   <li><b>Cross-Replica Lock Contention & .stop Signals</b>: When a concurrent request arrives for
- *       a locked upload (e.g. HEAD or DELETE while a PATCH is streaming), the service writes a
- *       {@code <storagePath>/locks/<UploadId>.stop} signal file. A background watchdog thread polls
- *       every 1.5 seconds and interrupts the active input stream immediately, allowing the resuming
- *       request to proceed without false lock conflicts.
+ *       a locked upload (e.g. HEAD or DELETE while PATCH is streaming), the service writes {@code
+ *       <UploadId>.stop}. A background watchdog polls every 1.5 seconds and interrupts the stream.
  * </ul>
  */
 public class LeaseFileLockingService extends AbstractLeaseLockingService {
@@ -148,6 +139,15 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
           if (isLockDirectoryExpired(path, now)) {
             atomicEvictExpiredLock(path);
           }
+        } else if (fileName.endsWith(".mutex") && Files.isDirectory(path)) {
+          try {
+            FileTime mtime = Files.getLastModifiedTime(path);
+            if (now - mtime.toMillis() > 10_000L) {
+              FileUtils.deleteDirectory(path.toFile());
+            }
+          } catch (IOException ignored) {
+            // Ignore transient cleanup error
+          }
         } else if (fileName.endsWith(".stop") && Files.isRegularFile(path)) {
           try {
             FileTime mtime = Files.getLastModifiedTime(path);
@@ -162,32 +162,102 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
     }
   }
 
+  /**
+   * Attempts primary lock acquisition or in-place takeover of an expired lease under the protection
+   * of a {@link LeaseFileMutex}.
+   *
+   * <p><b>Detailed Concurrency Workflow:</b>
+   *
+   * <ol>
+   *   <li><b>Acquire Sibling Mutex Directory ({@code <UploadId>.mutex/})</b>: Acquires {@link
+   *       LeaseFileMutex}. Because directory creation maps to atomic {@code mkdir} at the
+   *       OS/filesystem layer, exactly one thread or process across the cluster succeeds. If the
+   *       mutex already exists and is &lt; 5s old, contention is in progress and we return {@code
+   *       null}. If &gt;= 5s old, the previous holder crashed, so {@link LeaseFileMutex} removes
+   *       the stale mutex and retries.
+   *   <li><b>Inspect Existing Lease Under Mutex</b>: With exclusive access guaranteed, we read
+   *       {@code <UploadId>.lock/lease.json}. If it exists and {@code !isExpired(now)}, another
+   *       node holds an active unexpired lock; we abort and return {@code null}.
+   *   <li><b>In-Place Acquisition / Takeover</b>: If the lock directory does not exist, we create
+   *       it. If {@code lease.json} does not exist or is expired, we update {@code leaseData} and
+   *       write the new {@code lease.json} atomically via a temporary file rename. The lock
+   *       directory never disappears from disk, eliminating TOCTOU race windows.
+   *   <li><b>Release Sibling Mutex</b>: When exiting the try-with-resources block, {@code
+   *       <UploadId>.mutex/} is automatically deleted, allowing future contenders to inspect or
+   *       acquire.
+   * </ol>
+   *
+   * @param uploadId The upload identifier
+   * @param leaseData The lease metadata describing the lock to acquire
+   * @return Acquired {@link UploadLock} handle, or null if locked by another active process
+   * @throws IOException If an I/O error occurs
+   */
   @Override
   protected UploadLock tryAcquireLock(UploadId uploadId, LeaseData leaseData) throws IOException {
-    Path lockDirPath = getLockDirPath(uploadId);
-    Path stopFilePath = getStopFilePath(uploadId);
-
-    if (lockDirPath == null || Files.exists(lockDirPath) || leaseData == null) {
+    if (uploadId == null || leaseData == null) {
       return null;
     }
 
-    Path stageDir =
-        lockDirPath.resolveSibling(lockDirPath.getFileName() + ".stage." + UUID.randomUUID());
-    try {
-      Utils.ensureDirectoryExists(lockDirPath.getParent());
-      Files.createDirectory(stageDir);
+    Path lockDirPath = getLockDirPath(uploadId);
+    Path stopFilePath = getStopFilePath(uploadId);
 
+    if (lockDirPath == null) {
+      return null;
+    }
+
+    // Step 1: Acquire sibling mutex (<UploadId>.mutex) directly in try-with-resources
+    try (LeaseFileMutex mutex = new LeaseFileMutex(lockDirPath)) {
+      if (!mutex.isAcquired()) {
+        return null;
+      }
+
+      long now = System.currentTimeMillis();
+      Path leaseFile = lockDirPath.resolve("lease.json");
+
+      // Step 2: Under exclusive mutex, inspect existing lease
+      if (Files.exists(lockDirPath)) {
+        if (Files.exists(leaseFile)) {
+          try {
+            LeaseData existingLease = LeaseDataJsonSerializer.deserialize(leaseFile);
+            if (existingLease != null && !existingLease.isExpired(now)) {
+              // Active unexpired lease held by another live node
+              return null;
+            }
+          } catch (Exception e) {
+            // Corrupted lease: check directory grace period
+            FileTime mtime = Files.getLastModifiedTime(lockDirPath);
+            if (now - mtime.toMillis() < EMPTY_DIR_GRACE_PERIOD_MS) {
+              return null;
+            }
+          }
+        } else {
+          // Empty directory: check directory grace period
+          FileTime mtime = Files.getLastModifiedTime(lockDirPath);
+          if (now - mtime.toMillis() < EMPTY_DIR_GRACE_PERIOD_MS) {
+            return null;
+          }
+        }
+      } else {
+        Utils.ensureDirectoryExists(lockDirPath);
+      }
+
+      // Step 3: Fresh acquisition or in-place takeover of expired/abandoned lease
       leaseData.setLockPath(lockDirPath.toString());
       leaseData.setStopPath(stopFilePath != null ? stopFilePath.toString() : null);
 
-      // Write lease metadata JSON file inside the staged directory
-      Path leaseFile = stageDir.resolve("lease.json");
-      LeaseDataJsonSerializer.serializeToPath(leaseData, leaseFile);
-
-      // Atomically move the staged directory to the target lock directory.
-      // This guarantees that the lock directory appears atomically with a fully valid lease.json
-      // inside it, completely eliminating any empty-directory or partial-write windows.
-      Files.move(stageDir, lockDirPath, StandardCopyOption.ATOMIC_MOVE);
+      // Write lease metadata via a temporary file and atomically rename it into place.
+      // Why the temporary file move is critical:
+      // Status checks (e.g. isLocked()) perform fast read-only queries on lease.json without
+      // acquiring the write mutex. Writing directly to lease.json would expose a 0-byte or
+      // partially written JSON file to concurrent readers during stream flushing.
+      // An atomic move (rename) guarantees lease.json appears on disk 100% complete and valid.
+      Path tmpLeaseFile = lockDirPath.resolve("lease.json.tmp." + UUID.randomUUID());
+      LeaseDataJsonSerializer.serializeToPath(leaseData, tmpLeaseFile);
+      Files.move(
+          tmpLeaseFile,
+          leaseFile,
+          StandardCopyOption.ATOMIC_MOVE,
+          StandardCopyOption.REPLACE_EXISTING);
 
       // Clear any lingering stop signal file from prior contention
       if (stopFilePath != null) {
@@ -199,20 +269,9 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
       }
 
       return new LeaseFileUploadLock(leaseData, lockDirPath, stopFilePath, activeInputStreams);
-    } catch (FileSystemException e) {
-      // Lock directory already exists or cannot be moved atomically over existing dir
-      return null;
     } catch (Exception e) {
-      log.debug("Error initializing lease for lock directory {}", lockDirPath, e);
+      log.debug("Error acquiring lease for upload {}", uploadId, e);
       return null;
-    } finally {
-      if (Files.exists(stageDir)) {
-        try {
-          FileUtils.deleteDirectory(stageDir.toFile());
-        } catch (IOException ignored) {
-          // Safe to ignore
-        }
-      }
     }
   }
 
@@ -308,58 +367,29 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
   }
 
   /**
-   * Atomically evicts an expired or abandoned lock directory by renaming it to a unique temporary
-   * directory before deletion, preventing contention races where multiple nodes try to evict the
-   * same directory simultaneously.
+   * Safely evicts an expired lock directory under sibling mutex protection.
    *
    * @param lockDirPath Path to the lock directory to evict
-   * @return {@code true} if the expired directory was successfully evicted; {@code false} if
-   *     another contender already evicted it or if the moved directory was an active lock
+   * @return {@code true} if the expired directory was successfully evicted; {@code false} if the
+   *     lock is actively held or mutex could not be acquired
    */
   boolean atomicEvictExpiredLock(Path lockDirPath) {
-    if (lockDirPath == null) {
+    if (lockDirPath == null || !Files.exists(lockDirPath)) {
       return false;
     }
-    long now = System.currentTimeMillis();
-    // 1. Fast pre-check: avoid moving if we can already observe it is active
-    if (!isLockDirectoryExpired(lockDirPath, now)) {
-      return false;
-    }
-
-    Path evictPath =
-        lockDirPath.resolveSibling(lockDirPath.getFileName() + ".evicting." + UUID.randomUUID());
-    try {
-      // Atomic directory rename guarantees exactly one contender wins the right to isolate and
-      // evict
-      Files.move(lockDirPath, evictPath, StandardCopyOption.ATOMIC_MOVE);
-    } catch (Exception e) {
-      // Another contender already moved or removed the directory; safe to proceed
-      return false;
-    }
-
-    // 2. Post-move verification (TOCTOU mitigation): ensure the isolated directory was genuinely
-    // expired and not a fresh active lock created by another winning node right before our move
-    now = System.currentTimeMillis();
-    if (!isLockDirectoryExpired(evictPath, now)) {
-      // We moved a fresh active lock: restore it immediately to preserve the active lock holder
-      try {
-        Files.move(evictPath, lockDirPath, StandardCopyOption.ATOMIC_MOVE);
-      } catch (Exception ignored) {
+    try (LeaseFileMutex mutex = new LeaseFileMutex(lockDirPath)) {
+      if (!mutex.isAcquired()) {
+        return false;
       }
+      long now = System.currentTimeMillis();
+      if (!isLockDirectoryExpired(lockDirPath, now)) {
+        return false;
+      }
+      FileUtils.deleteDirectory(lockDirPath.toFile());
+      return true;
+    } catch (IOException e) {
       return false;
     }
-
-    // Delete files inside evicted directory, then delete directory itself
-    try {
-      try (DirectoryStream<Path> stream = Files.newDirectoryStream(evictPath)) {
-        for (Path file : stream) {
-          Files.deleteIfExists(file);
-        }
-      }
-      Files.deleteIfExists(evictPath);
-    } catch (IOException ignored) {
-    }
-    return true;
   }
 
   Path getLockDirPath(UploadId id) {

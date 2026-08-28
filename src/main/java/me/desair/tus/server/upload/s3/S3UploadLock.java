@@ -87,6 +87,12 @@ public class S3UploadLock extends AbstractLeaseLock {
       return;
     }
     try {
+      if (!doesLockOwnershipMatch(lockKey)) {
+        log.info(
+            "Skipping renewal of S3 lock key {}: lock was taken over by another node", lockKey);
+        return;
+      }
+
       getLeaseData().setExpiresAt(getExpiresAt());
       byte[] lockContentBytes = LeaseDataJsonSerializer.serializeToBytes(getLeaseData());
 
@@ -111,25 +117,40 @@ public class S3UploadLock extends AbstractLeaseLock {
       return;
     }
     try {
-      // Re-verify that the remote lock object is still owned by this lock handle before deleting it
-      try (InputStream stream =
-          minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(key).build())) {
-        LeaseData remoteLock = LeaseDataJsonSerializer.deserialize(stream);
-        if (remoteLock != null && !Strings.CS.equals(remoteLock.getHolderId(), getHolderId())) {
-          log.info(
-              "Skipping deletion of S3 lock key {}: lock is currently held by another node {}",
-              key,
-              remoteLock.getHolderId());
-          return;
-        }
-      } catch (ErrorResponseException e) {
-        // Object is already gone or missing
+      if (!doesLockOwnershipMatch(key)) {
+        log.info(
+            "Skipping deletion of S3 lock key {}: lock is currently held by another node", key);
         return;
       }
       minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
     } catch (Exception e) {
       log.debug("Failed to delete S3 lock object {}", key, e);
     }
+  }
+
+  /**
+   * Verifies that the S3 lock object is still owned by this lock holder.
+   *
+   * @param key The S3 lock object key
+   * @return {@code true} if the lock object is missing or owned by this holder; {@code false} if
+   *     owned by a different holder or arguments are invalid
+   */
+  boolean doesLockOwnershipMatch(String key) {
+    if (key == null || minioClient == null || bucket == null) {
+      return false;
+    }
+    try (InputStream stream =
+        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(key).build())) {
+      LeaseData remoteLock = LeaseDataJsonSerializer.deserialize(stream);
+      if (remoteLock != null && !Strings.CS.equals(remoteLock.getHolderId(), getHolderId())) {
+        return false;
+      }
+    } catch (ErrorResponseException e) {
+      // Object is already gone or missing, safe to proceed
+    } catch (Exception e) {
+      log.debug("Error checking lock ownership for S3 key {}", key, e);
+    }
+    return true;
   }
 
   private void deleteS3ObjectQuietly(String key) {

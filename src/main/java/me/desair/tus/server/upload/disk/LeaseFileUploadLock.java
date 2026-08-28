@@ -11,6 +11,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import me.desair.tus.server.upload.AbstractLeaseLock;
 import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.util.LeaseDataJsonSerializer;
+import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,14 +76,27 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
     return lockDirPath != null ? lockDirPath.toString() : null;
   }
 
+  /**
+   * Renews the active lease by advancing {@code expiresAt} and persisting the updated metadata to
+   * disk under the protection of the {@link LeaseFileMutex}. Includes ownership verification to
+   * ensure a paused or ungracefully expired holder does not overwrite a successor's active lease.
+   */
   @Override
   protected void doRenewLease() {
     if (lockDirPath == null || !Files.exists(lockDirPath)) {
       return;
     }
-    try {
-      Path leaseTmpFile = lockDirPath.resolve("lease.json.tmp." + UUID.randomUUID());
+    try (LeaseFileMutex mutex = new LeaseFileMutex(lockDirPath)) {
+      if (!mutex.isAcquired()) {
+        return;
+      }
+      if (!doesLockOwnershipMatch()) {
+        log.info("Lease for {} was taken over by another holder. Aborting renewal.", lockDirPath);
+        return;
+      }
+
       Path leaseFile = lockDirPath.resolve("lease.json");
+      Path leaseTmpFile = lockDirPath.resolve("lease.json.tmp." + UUID.randomUUID());
       leaseData.setExpiresAt(getExpiresAt());
       LeaseDataJsonSerializer.serializeToPath(leaseData, leaseTmpFile);
       Files.move(
@@ -95,15 +109,23 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
     }
   }
 
+  /**
+   * Releases the lock resource upon request completion. Synchronized via the {@link LeaseFileMutex}
+   * and verifies {@code holderId} ownership so that an expired or paused holder does not delete a
+   * successor's lock directory.
+   */
   @Override
   protected void releaseLockResource() {
-    // 1. Delete lease file and lock directory
-    if (lockDirPath != null) {
-      try {
-        Files.deleteIfExists(lockDirPath.resolve("lease.json"));
-        Files.deleteIfExists(lockDirPath);
-      } catch (IOException e) {
-        log.warn("Failed to remove lock directory {}", lockDirPath, e);
+    if (lockDirPath != null && Files.exists(lockDirPath)) {
+      try (LeaseFileMutex mutex = new LeaseFileMutex(lockDirPath)) {
+        if (mutex.isAcquired() && doesLockOwnershipMatch()) {
+          try {
+            Files.deleteIfExists(lockDirPath.resolve("lease.json"));
+            Files.deleteIfExists(lockDirPath);
+          } catch (IOException e) {
+            log.warn("Failed to remove lock directory {}", lockDirPath, e);
+          }
+        }
       }
     }
 
@@ -115,5 +137,30 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
         // Safe to ignore stop file deletion failure
       }
     }
+  }
+
+  /**
+   * Verifies that the on-disk {@code lease.json} file is still owned by this lock holder.
+   *
+   * @return {@code true} if the lease file does not exist, is unparseable, or matches this holder's
+   *     ID; {@code false} if owned by a different holder
+   */
+  boolean doesLockOwnershipMatch() {
+    if (lockDirPath == null) {
+      return false;
+    }
+    Path leaseFile = lockDirPath.resolve("lease.json");
+    if (Files.exists(leaseFile)) {
+      try {
+        LeaseData existingLease = LeaseDataJsonSerializer.deserialize(leaseFile);
+        if (existingLease != null
+            && !Strings.CS.equals(existingLease.getHolderId(), getHolderId())) {
+          return false;
+        }
+      } catch (Exception ignored) {
+        // If unparseable or corrupt, consider owned/proceed
+      }
+    }
+    return true;
   }
 }

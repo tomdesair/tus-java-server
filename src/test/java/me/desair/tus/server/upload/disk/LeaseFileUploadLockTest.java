@@ -61,6 +61,10 @@ public class LeaseFileUploadLockTest {
       FileUtils.deleteDirectory(testLockDir.toFile());
     }
     Files.deleteIfExists(testStopFile);
+    Path mutexDir = LeaseFileMutex.resolveMutexDir(testLockDir);
+    if (mutexDir != null && Files.exists(mutexDir)) {
+      FileUtils.deleteDirectory(mutexDir.toFile());
+    }
   }
 
   private LeaseData createLeaseData(String holderId, String requestUri, long durationMs) {
@@ -307,5 +311,89 @@ public class LeaseFileUploadLockTest {
     assertTrue(Files.exists(fileAsDir));
 
     Files.deleteIfExists(fileAsDir);
+  }
+
+  @Test
+  public void testCloseDoesNotDeleteSuccessorLockWhenHolderIdMismatch() throws Exception {
+    Path dir = storagePath.resolve("successor-test-" + UUID.randomUUID() + ".lock");
+    Files.createDirectories(dir);
+
+    // Simulate that a successor node took over the lock with a new holderId
+    LeaseData successorLease =
+        new LeaseData(
+            "successor-holder",
+            "/files/upload/test",
+            30_000L,
+            System.currentTimeMillis() + 30_000L,
+            System.currentTimeMillis(),
+            dir.toString(),
+            null);
+    LeaseDataJsonSerializer.serializeToPath(successorLease, dir.resolve("lease.json"));
+
+    // Original lock holder (who unpaused or awoke late) calls close()
+    LeaseData originalLease =
+        new LeaseData(
+            "original-holder",
+            "/files/upload/test",
+            30_000L,
+            System.currentTimeMillis() - 1000L,
+            System.currentTimeMillis() - 31_000L,
+            dir.toString(),
+            null);
+    LeaseFileUploadLock originalLock = new LeaseFileUploadLock(originalLease, dir, null, null);
+
+    originalLock.close();
+
+    // The successor's lock directory and lease file must NOT be deleted
+    assertTrue(Files.exists(dir));
+    assertTrue(Files.exists(dir.resolve("lease.json")));
+
+    LeaseData preservedLease = LeaseDataJsonSerializer.deserialize(dir.resolve("lease.json"));
+    assertNotNull(preservedLease);
+    assertEquals("successor-holder", preservedLease.getHolderId());
+
+    FileUtils.deleteDirectory(dir.toFile());
+  }
+
+  @Test
+  public void testRenewLeaseAbortsWhenHolderIdMismatch() throws Exception {
+    Path dir = storagePath.resolve("successor-renew-test-" + UUID.randomUUID() + ".lock");
+    Files.createDirectories(dir);
+
+    // Simulate successor node took over with a new holderId
+    long successorExpiry = System.currentTimeMillis() + 60_000L;
+    LeaseData successorLease =
+        new LeaseData(
+            "successor-holder",
+            "/files/upload/test",
+            30_000L,
+            successorExpiry,
+            System.currentTimeMillis(),
+            dir.toString(),
+            null);
+    LeaseDataJsonSerializer.serializeToPath(successorLease, dir.resolve("lease.json"));
+
+    // Stale original lock holder calls renewLease()
+    LeaseData originalLease =
+        new LeaseData(
+            "original-holder",
+            "/files/upload/test",
+            30_000L,
+            System.currentTimeMillis() + 10_000L,
+            System.currentTimeMillis(),
+            dir.toString(),
+            null);
+    LeaseFileUploadLock originalLock = new LeaseFileUploadLock(originalLease, dir, null, null);
+
+    originalLock.renewLease();
+
+    // Successor lease must remain untouched with successor's holderId
+    LeaseData currentLease = LeaseDataJsonSerializer.deserialize(dir.resolve("lease.json"));
+    assertNotNull(currentLease);
+    assertEquals("successor-holder", currentLease.getHolderId());
+    assertEquals(successorExpiry, currentLease.getExpiresAt());
+
+    originalLock.close();
+    FileUtils.deleteDirectory(dir.toFile());
   }
 }

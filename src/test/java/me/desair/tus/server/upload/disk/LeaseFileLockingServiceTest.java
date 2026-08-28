@@ -412,23 +412,7 @@ public class LeaseFileLockingServiceTest {
     Files.setLastModifiedTime(lockDir, FileTime.fromMillis(pastTime));
 
     // Simulate 10 concurrent threads simultaneously discovering the expired lock
-    // and racing to evict it and acquire a fresh lock.
-    //
-    // TOCTOU (Time-of-Check to Time-of-Use) explanation:
-    // Without post-move verification in atomicEvictExpiredLock:
-    // 1. Thread A & Thread B both check that the lock directory is expired (Time of Check: true).
-    // 2. Thread A renames the directory, deletes it, and creates a brand-new active lock.
-    // 3. Thread B (having already checked expiration earlier) renames Thread A's NEW lock directory
-    //    and deletes it (Time of Use), then acquires a second lock handle.
-    // 4. Result: Both Thread A and Thread B believe they hold exclusive ownership (successCount =
-    // 2).
-    //
-    // With post-move verification in atomicEvictExpiredLock:
-    // - When Thread B renames the directory, it inspects the isolated directory (evictPath)
-    // post-move.
-    // - Thread B discovers that evictPath contains Thread A's active lease, restores it back to
-    //   lockDirPath, and aborts eviction.
-    // - Result: Exactly 1 thread wins the eviction and acquisition (successCount = 1).
+    // and racing to evict it and acquire a fresh lock under sibling mutex protection.
     int threadCount = 10;
     ExecutorService executor = Executors.newFixedThreadPool(threadCount);
     List<Callable<Boolean>> tasks = new ArrayList<>();
@@ -481,6 +465,65 @@ public class LeaseFileLockingServiceTest {
     }
     if (Files.exists(lockDir)) {
       FileUtils.deleteDirectory(lockDir.toFile());
+    }
+  }
+
+  @Test
+  public void testConcurrentEvictionContentionStress() throws Exception {
+    // Run 5 iterations of 50 concurrent threads racing on expired locks to ensure 0% flakiness
+    for (int iter = 0; iter < 5; iter++) {
+      String uploadIdStr = UUID.randomUUID().toString();
+      String uri = UPLOAD_URL + "/" + uploadIdStr;
+
+      Path lockDir = storagePath.resolve("locks").resolve(uploadIdStr + ".lock");
+      Files.createDirectories(lockDir);
+      long pastTime = System.currentTimeMillis() - 10_000L;
+      LeaseData expiredLease =
+          createExpiredLease("expired-" + iter, uri, lockDir.toString(), pastTime);
+      LeaseDataJsonSerializer.serializeToPath(expiredLease, lockDir.resolve("lease.json"));
+      Files.setLastModifiedTime(lockDir, FileTime.fromMillis(pastTime));
+
+      int threadCount = 50;
+      ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+      List<Callable<Boolean>> tasks = new ArrayList<>();
+      AtomicInteger successCount = new AtomicInteger(0);
+      AtomicInteger lockedExceptionCount = new AtomicInteger(0);
+      List<UploadLock> acquiredLocks = new java.util.concurrent.CopyOnWriteArrayList<>();
+      java.util.concurrent.CountDownLatch startLatch = new java.util.concurrent.CountDownLatch(1);
+
+      for (int i = 0; i < threadCount; i++) {
+        tasks.add(
+            () -> {
+              try {
+                startLatch.await();
+                UploadLock lock = lockingService.lockUploadByUri(uri);
+                if (lock != null) {
+                  successCount.incrementAndGet();
+                  acquiredLocks.add(lock);
+                  return true;
+                }
+              } catch (UploadAlreadyLockedException e) {
+                lockedExceptionCount.incrementAndGet();
+              }
+              return false;
+            });
+      }
+
+      startLatch.countDown();
+      List<Future<Boolean>> futures = executor.invokeAll(tasks);
+      executor.shutdown();
+
+      assertEquals("Iteration " + iter + " failed: successCount", 1, successCount.get());
+      assertEquals(
+          "Iteration " + iter + " failed: lockedExceptionCount", 49, lockedExceptionCount.get());
+      assertEquals(1, acquiredLocks.size());
+
+      for (UploadLock lock : acquiredLocks) {
+        lock.close();
+      }
+      if (Files.exists(lockDir)) {
+        FileUtils.deleteDirectory(lockDir.toFile());
+      }
     }
   }
 
@@ -616,12 +659,19 @@ public class LeaseFileLockingServiceTest {
     Files.setLastModifiedTime(
         staleStopFile, FileTime.fromMillis(System.currentTimeMillis() - 20_000L));
 
+    // 5. Stale .mutex directory older than 10 seconds (should be deleted)
+    Path staleMutexDir = locksDir.resolve("stale-" + UUID.randomUUID() + ".mutex");
+    Files.createDirectories(staleMutexDir);
+    Files.setLastModifiedTime(
+        staleMutexDir, FileTime.fromMillis(System.currentTimeMillis() - 20_000L));
+
     lockingService.cleanupStaleLocks();
 
     assertTrue(Files.exists(regularLockFile));
     assertTrue(Files.exists(stopDir));
     assertTrue(Files.exists(unrelatedFile));
     assertFalse(Files.exists(staleStopFile));
+    assertFalse(Files.exists(staleMutexDir));
 
     Files.deleteIfExists(regularLockFile);
     Files.deleteIfExists(stopDir);
@@ -732,7 +782,6 @@ public class LeaseFileLockingServiceTest {
 
     Path lockDir = lockingService.getLockDirPath(new UploadId(uploadIdStr));
 
-    // Verify that atomicEvictExpiredLock checks both pre-move and post-move expiration:
     // Attempting atomic eviction on an active, unexpired lock directory must return false
     // and must never destroy the active lock directory or its lease metadata.
     boolean evicted = lockingService.atomicEvictExpiredLock(lockDir);
@@ -743,7 +792,7 @@ public class LeaseFileLockingServiceTest {
   }
 
   @Test
-  public void testAtomicEvictExpiredLockPostMoveRollbackOnActiveLease() throws Exception {
+  public void testAtomicEvictExpiredLockUnderMutexAbortsWhenLeaseIsActive() throws Exception {
     String uploadIdStr = UUID.randomUUID().toString();
     String uri = UPLOAD_URL + "/" + uploadIdStr;
     Path lockDir = storagePath.resolve("locks").resolve(uploadIdStr + ".lock");
@@ -755,33 +804,12 @@ public class LeaseFileLockingServiceTest {
         createExpiredLease("active-holder", uri, lockDir.toString(), futureTime);
     LeaseDataJsonSerializer.serializeToPath(activeLease, lockDir.resolve("lease.json"));
 
-    // Create a service subclass to simulate a TOCTOU race:
-    // 1. Time-of-Check (pre-check in atomicEvictExpiredLock): simulates observing an expired lock
-    // before another node's write
-    // 2. Time-of-Use (post-move check in atomicEvictExpiredLock): accurately inspects evictPath and
-    // finds the active lease
-    AtomicInteger checkCount = new AtomicInteger(0);
-    LeaseFileLockingService serviceWithRaceSimulation =
-        new LeaseFileLockingService(idFactory, storagePath.toString()) {
-          @Override
-          boolean isLockDirectoryExpired(Path dir, long now) {
-            if (checkCount.incrementAndGet() == 1) {
-              // Simulate stale pre-check returning true (expired)
-              return true;
-            }
-            // Real post-move check on evictPath
-            return super.isLockDirectoryExpired(dir, now);
-          }
-        };
-
-    // atomicEvictExpiredLock MUST detect the active lease post-move, roll back the move,
-    // restore lockDir to its original location, and return false
-    boolean evicted = serviceWithRaceSimulation.atomicEvictExpiredLock(lockDir);
+    // atomicEvictExpiredLock must inspect the lease under mutex, find it active, and return false
+    boolean evicted = lockingService.atomicEvictExpiredLock(lockDir);
     assertFalse(evicted);
     assertTrue(Files.exists(lockDir));
     assertTrue(Files.exists(lockDir.resolve("lease.json")));
 
-    serviceWithRaceSimulation.close();
     FileUtils.deleteDirectory(lockDir.toFile());
   }
 

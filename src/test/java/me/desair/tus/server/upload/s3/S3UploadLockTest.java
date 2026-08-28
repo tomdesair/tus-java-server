@@ -260,4 +260,86 @@ public class S3UploadLockTest {
     lock.deleteS3LockObjectIfOwner("tus-locks/upload-1.lock");
     assertEquals("holder-123", lock.getHolderId());
   }
+
+  @Test
+  public void testRenewLeaseSkipsWhenHolderMismatch() throws Exception {
+    LeaseData otherLock =
+        new LeaseData(
+            "other-holder",
+            "/files/upload-1",
+            60000L,
+            System.currentTimeMillis() + 60000L,
+            System.currentTimeMillis(),
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop");
+    String json = LeaseDataJsonSerializer.serialize(otherLock);
+
+    io.minio.GetObjectResponse response =
+        new io.minio.GetObjectResponse(
+            null,
+            "test-bucket",
+            "us-east-1",
+            "tus-locks/upload-1.lock",
+            new java.io.ByteArrayInputStream(
+                json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+    Mockito.when(minioClient.getObject(any(io.minio.GetObjectArgs.class))).thenReturn(response);
+
+    LeaseData myLeaseData = createLeaseData("my-holder", "/files/upload-1");
+    S3UploadLock lock =
+        new S3UploadLock(
+            myLeaseData,
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            inputStreamMap);
+
+    lock.renewLease();
+
+    // Must NOT call putObject because lock is now held by other-holder
+    Mockito.verify(minioClient, Mockito.never()).putObject(any(PutObjectArgs.class));
+    lock.close();
+  }
+
+  @Test
+  public void testRenewLeaseSucceedsWhenHolderMatches() throws Exception {
+    LeaseData myLock =
+        new LeaseData(
+            "my-holder",
+            "/files/upload-1",
+            60000L,
+            System.currentTimeMillis() + 60000L,
+            System.currentTimeMillis(),
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop");
+    String json = LeaseDataJsonSerializer.serialize(myLock);
+
+    io.minio.GetObjectResponse response =
+        new io.minio.GetObjectResponse(
+            null,
+            "test-bucket",
+            "us-east-1",
+            "tus-locks/upload-1.lock",
+            new java.io.ByteArrayInputStream(
+                json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+    Mockito.when(minioClient.getObject(any(io.minio.GetObjectArgs.class))).thenReturn(response);
+
+    LeaseData myLeaseData = createLeaseData("my-holder", "/files/upload-1");
+    S3UploadLock lock =
+        new S3UploadLock(
+            myLeaseData,
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            inputStreamMap);
+
+    lock.renewLease();
+
+    // Must call putObject because holder matches
+    Mockito.verify(minioClient).putObject(any(PutObjectArgs.class));
+    lock.close();
+  }
 }
