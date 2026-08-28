@@ -6,9 +6,7 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
-import java.util.UUID;
 import me.desair.tus.server.upload.AbstractLeaseLockingService;
 import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.upload.UploadId;
@@ -152,7 +150,7 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
           try {
             FileTime mtime = Files.getLastModifiedTime(path);
             if (now - mtime.toMillis() > 10_000L) {
-              Files.deleteIfExists(path);
+              Utils.deletePathQuietly(path);
             }
           } catch (IOException ignored) {
             // Ignore transient cleanup error
@@ -245,27 +243,12 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
       leaseData.setLockPath(lockDirPath.toString());
       leaseData.setStopPath(stopFilePath != null ? stopFilePath.toString() : null);
 
-      // Write lease metadata via a temporary file and atomically rename it into place.
-      // Why the temporary file move is critical:
-      // Status checks (e.g. isLocked()) perform fast read-only queries on lease.json without
-      // acquiring the write mutex. Writing directly to lease.json would expose a 0-byte or
-      // partially written JSON file to concurrent readers during stream flushing.
-      // An atomic move (rename) guarantees lease.json appears on disk 100% complete and valid.
-      Path tmpLeaseFile = lockDirPath.resolve("lease.json.tmp." + UUID.randomUUID());
-      LeaseDataJsonSerializer.serializeToPath(leaseData, tmpLeaseFile);
-      Files.move(
-          tmpLeaseFile,
-          leaseFile,
-          StandardCopyOption.ATOMIC_MOVE,
-          StandardCopyOption.REPLACE_EXISTING);
+      // Write lease metadata atomically via serializeToPath (which renames via temporary file)
+      LeaseDataJsonSerializer.serializeToPath(leaseData, leaseFile);
 
       // Clear any lingering stop signal file from prior contention
       if (stopFilePath != null) {
-        try {
-          Files.deleteIfExists(stopFilePath);
-        } catch (IOException ignored) {
-          // Safe to ignore
-        }
+        Utils.deletePathQuietly(stopFilePath);
       }
 
       return new LeaseFileUploadLock(leaseData, lockDirPath, stopFilePath, activeInputStreams);
@@ -318,11 +301,7 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
       log.info("Watchdog detected stop file for upload ID {}. Interrupting stream.", uploadId);
       Utils.interruptStream(inputStream);
       activeInputStreams.remove(uri);
-      try {
-        Files.deleteIfExists(stopFilePath);
-      } catch (IOException ignored) {
-        // Safe to ignore
-      }
+      Utils.deletePathQuietly(stopFilePath);
     }
   }
 

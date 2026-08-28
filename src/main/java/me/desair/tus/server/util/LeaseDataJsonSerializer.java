@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import me.desair.tus.server.upload.LeaseData;
 
 /**
@@ -84,15 +85,23 @@ public class LeaseDataJsonSerializer {
   }
 
   /**
-   * Serialize the given {@link LeaseData} object directly to a {@link Path}.
+   * Serialize the given {@link LeaseData} object atomically to a destination {@link Path} via a
+   * temporary file rename.
+   *
+   * <p>Writing to a temporary file first and renaming via {@link StandardCopyOption#ATOMIC_MOVE}
+   * prevents concurrent read-only queries (like {@code isLocked()}) from observing an empty
+   * (0-byte) or partially written JSON file during disk flushes.
    *
    * @param data The lease data to serialize
    * @param path The target destination path
-   * @throws IOException If serialization fails
+   * @throws IOException If serialization or file move fails
    */
   public static void serializeToPath(LeaseData data, Path path) throws IOException {
     if (data != null && path != null) {
-      serializeToFile(data, path.toFile());
+      try (Utils.TempPath tempPath = new Utils.TempPath(path)) {
+        serializeToFile(data, tempPath.getPath().toFile());
+        Utils.atomicMove(tempPath.getPath(), path);
+      }
     }
   }
 

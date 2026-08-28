@@ -171,6 +171,17 @@ public class UtilsTest {
     } finally {
       Files.deleteIfExists(tempFile);
     }
+
+    Path relPath = Paths.get("target", "temp-serializable-rel-" + UUID.randomUUID() + ".bin");
+    try {
+      String expected = "Tus Test Relative Object";
+      Utils.writeSerializable(expected, relPath);
+
+      String actual = Utils.readSerializable(relPath, String.class);
+      assertThat(actual, is(expected));
+    } finally {
+      Files.deleteIfExists(relPath);
+    }
   }
 
   @Test
@@ -182,6 +193,75 @@ public class UtilsTest {
   public void testWriteSerializableNullPath() throws Exception {
     // Should do nothing without exception
     Utils.writeSerializable("test", null);
+    Utils.writeSerializable(null, Paths.get("target", "ignored.bin"));
+  }
+
+  @Test
+  public void testCreateTempSiblingPath() {
+    assertThat(Utils.createTempSiblingPath(null), is(nullValue()));
+
+    Path absPath = Paths.get("target", "test-dir", "data.json").toAbsolutePath();
+    Path tempAbs = Utils.createTempSiblingPath(absPath);
+    assertThat(tempAbs, is(notNullValue()));
+    assertThat(tempAbs.getParent(), is(absPath.getParent()));
+    assertThat(tempAbs.getFileName().toString().startsWith("data.json.tmp."), is(true));
+
+    Path relPathNoParent = Paths.get("data.json");
+    Path tempRelNoParent = Utils.createTempSiblingPath(relPathNoParent);
+    assertThat(tempRelNoParent, is(notNullValue()));
+    assertThat(tempRelNoParent.getFileName().toString().startsWith("data.json.tmp."), is(true));
+  }
+
+  @Test
+  public void testDeletePathQuietly() throws Exception {
+    assertThat(Utils.deletePathQuietly(null), is(false));
+    assertThat(Utils.deletePathQuietly(Paths.get("non-existent-" + UUID.randomUUID())), is(false));
+
+    Path tempFile = Files.createTempFile("tus-delete-quietly", ".tmp");
+    assertThat(Utils.deletePathQuietly(tempFile), is(true));
+    assertThat(Files.exists(tempFile), is(false));
+  }
+
+  @Test
+  public void testTempPathAutoCloseable() throws Exception {
+    Path targetFile = Paths.get("target", "temp-target-" + UUID.randomUUID() + ".json");
+    Path tempFilePath;
+
+    try (Utils.TempPath tempPath = Utils.createTempSibling(targetFile)) {
+      tempFilePath = tempPath.getPath();
+      assertThat(tempFilePath, is(notNullValue()));
+      Files.write(tempFilePath, "temp data".getBytes());
+      assertThat(Files.exists(tempFilePath), is(true));
+    }
+
+    // AutoCloseable should have automatically deleted the temp file
+    assertThat(Files.exists(tempFilePath), is(false));
+
+    // Null path handling
+    try (Utils.TempPath nullTempPath = new Utils.TempPath(null)) {
+      assertThat(nullTempPath.getPath(), is(nullValue()));
+    }
+  }
+
+  @Test
+  public void testAtomicMove() throws Exception {
+    // Null inputs should not throw exception
+    Utils.atomicMove(null, Paths.get("dest"));
+    Utils.atomicMove(Paths.get("src"), null);
+
+    Path src = Files.createTempFile("tus-atomic-src", ".tmp");
+    Path dst = Files.createTempFile("tus-atomic-dst", ".tmp");
+    try {
+      Files.write(src, "atomic test content".getBytes());
+      Utils.atomicMove(src, dst);
+
+      assertThat(Files.exists(src), is(false));
+      assertThat(Files.exists(dst), is(true));
+      assertThat(new String(Files.readAllBytes(dst)), is("atomic test content"));
+    } finally {
+      Files.deleteIfExists(src);
+      Files.deleteIfExists(dst);
+    }
   }
 
   @Test

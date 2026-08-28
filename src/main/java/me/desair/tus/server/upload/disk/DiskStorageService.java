@@ -262,7 +262,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         // Delete the child's own data file if it exists
         try {
           Path childDataPath = getPathInUploadDir(uploadInfo.getId(), DATA_FILE);
-          Files.deleteIfExists(childDataPath);
+          Utils.deletePathQuietly(childDataPath);
         } catch (UploadNotFoundException e) {
           // It doesn't exist yet, which is fine
         }

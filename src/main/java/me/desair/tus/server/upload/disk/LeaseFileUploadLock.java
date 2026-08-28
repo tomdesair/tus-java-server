@@ -1,16 +1,14 @@
 package me.desair.tus.server.upload.disk;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import me.desair.tus.server.upload.AbstractLeaseLock;
 import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.util.LeaseDataJsonSerializer;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -96,14 +94,8 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
       }
 
       Path leaseFile = lockDirPath.resolve("lease.json");
-      Path leaseTmpFile = lockDirPath.resolve("lease.json.tmp." + UUID.randomUUID());
       leaseData.setExpiresAt(getExpiresAt());
-      LeaseDataJsonSerializer.serializeToPath(leaseData, leaseTmpFile);
-      Files.move(
-          leaseTmpFile,
-          leaseFile,
-          StandardCopyOption.ATOMIC_MOVE,
-          StandardCopyOption.REPLACE_EXISTING);
+      LeaseDataJsonSerializer.serializeToPath(leaseData, leaseFile);
     } catch (Exception e) {
       log.warn("Failed to renew lease for lock directory {}", lockDirPath, e);
     }
@@ -119,23 +111,15 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
     if (lockDirPath != null && Files.exists(lockDirPath)) {
       try (LeaseFileMutex mutex = new LeaseFileMutex(lockDirPath)) {
         if (mutex.isAcquired() && doesLockOwnershipMatch()) {
-          try {
-            Files.deleteIfExists(lockDirPath.resolve("lease.json"));
-            Files.deleteIfExists(lockDirPath);
-          } catch (IOException e) {
-            log.warn("Failed to remove lock directory {}", lockDirPath, e);
-          }
+          Utils.deletePathQuietly(lockDirPath.resolve("lease.json"));
+          Utils.deletePathQuietly(lockDirPath);
         }
       }
     }
 
     // 2. Delete .stop signal file if present
     if (stopFilePath != null) {
-      try {
-        Files.deleteIfExists(stopFilePath);
-      } catch (IOException ignored) {
-        // Safe to ignore stop file deletion failure
-      }
+      Utils.deletePathQuietly(stopFilePath);
     }
   }
 

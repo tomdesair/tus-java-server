@@ -101,6 +101,17 @@ public class UploadInfoJsonSerializerTest {
     assertNotNull(deserializedPath);
     assertEquals("file-path-id", deserializedPath.getId().toString());
 
+    Path relPath =
+        java.nio.file.Paths.get("target", "temp-info-rel-" + java.util.UUID.randomUUID() + ".json");
+    try {
+      UploadInfoJsonSerializer.serializeToPath(info, relPath);
+      UploadInfo deserializedRel = UploadInfoJsonSerializer.deserialize(relPath);
+      assertNotNull(deserializedRel);
+      assertEquals("file-path-id", deserializedRel.getId().toString());
+    } finally {
+      Files.deleteIfExists(relPath);
+    }
+
     UploadInfo deserializedPathGeneric =
         UploadInfoJsonSerializer.deserialize(filePath, UploadInfo.class);
     assertNotNull(deserializedPathGeneric);

@@ -1,6 +1,5 @@
 package me.desair.tus.server.upload.disk;
 
-import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -125,9 +124,7 @@ public class LeaseFileMutex implements AutoCloseable {
   public void release() {
     if (acquired && mutexDir != null) {
       try {
-        Files.deleteIfExists(mutexDir);
-      } catch (IOException ignored) {
-        // Safe to ignore transient release failure
+        Utils.deletePathQuietly(mutexDir);
       } finally {
         acquired = false;
       }

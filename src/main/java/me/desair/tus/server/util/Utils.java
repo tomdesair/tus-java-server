@@ -17,10 +17,13 @@ import java.nio.channels.FileLock;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -113,20 +116,114 @@ public class Utils {
   }
 
   /**
-   * Writes a serializable object to a file on disk.
+   * Deletes a file or directory if it exists, quietly ignoring any exceptions that occur.
+   *
+   * @param path The path to delete
+   * @return {@code true} if the file was deleted; {@code false} if it did not exist or deletion
+   *     failed
+   */
+  public static boolean deletePathQuietly(Path path) {
+    if (path == null) {
+      return false;
+    }
+    try {
+      return Files.deleteIfExists(path);
+    } catch (Exception e) {
+      log.debug("Failed to delete path quietly: {}", path, e);
+      return false;
+    }
+  }
+
+  /**
+   * Resolves a unique temporary sibling path for a target destination file path.
+   *
+   * @param targetPath The destination file path
+   * @return A temporary sibling path with a unique UUID suffix, or null if targetPath is null
+   */
+  public static Path createTempSiblingPath(Path targetPath) {
+    if (targetPath == null) {
+      return null;
+    }
+    Path parent = targetPath.getParent();
+    String tempFileName = targetPath.getFileName().toString() + ".tmp." + UUID.randomUUID();
+    return parent != null ? parent.resolve(tempFileName) : Paths.get(tempFileName);
+  }
+
+  /**
+   * Creates an {@link AutoCloseable} {@link TempPath} that generates a unique temporary sibling
+   * path and automatically deletes it upon closing if it still exists.
+   *
+   * @param targetPath The destination file path
+   * @return An AutoCloseable TempPath instance
+   */
+  public static TempPath createTempSibling(Path targetPath) {
+    return new TempPath(targetPath);
+  }
+
+  /**
+   * Atomically moves a source file to a destination path, replacing any existing destination file.
+   *
+   * @param source The source file path to move
+   * @param destination The target destination file path
+   * @throws IOException If moving the file fails
+   */
+  public static void atomicMove(Path source, Path destination) throws IOException {
+    if (source != null && destination != null) {
+      Files.move(
+          source, destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    }
+  }
+
+  /**
+   * Writes a serializable object to a file on disk atomically via a temporary file rename.
    *
    * @param object The serializable object to write
    * @param path The file path to write to
-   * @throws IOException If file access fails
+   * @throws IOException If file access or move fails
    */
   public static void writeSerializable(Serializable object, Path path) throws IOException {
     if (path != null && object != null) {
-      try (OutputStream os = Files.newOutputStream(path, WRITE, CREATE, TRUNCATE_EXISTING);
-          OutputStream buffer = new BufferedOutputStream(os);
-          ObjectOutput output = new ObjectOutputStream(buffer)) {
+      try (TempPath tempPath = new TempPath(path)) {
+        try (OutputStream os =
+                Files.newOutputStream(tempPath.getPath(), WRITE, CREATE, TRUNCATE_EXISTING);
+            OutputStream buffer = new BufferedOutputStream(os);
+            ObjectOutput output = new ObjectOutputStream(buffer)) {
 
-        output.writeObject(object);
+          output.writeObject(object);
+        }
+        atomicMove(tempPath.getPath(), path);
       }
+    }
+  }
+
+  /**
+   * AutoCloseable temporary sibling path that automatically cleans up (deletes) the temporary file
+   * upon closing if it still exists.
+   */
+  public static class TempPath implements AutoCloseable {
+    private final Path path;
+
+    /**
+     * Constructs a TempPath resolving a unique sibling path for the given target path.
+     *
+     * @param targetPath The destination file path
+     */
+    public TempPath(Path targetPath) {
+      this.path = createTempSiblingPath(targetPath);
+    }
+
+    /**
+     * Returns the underlying temporary sibling {@link Path}.
+     *
+     * @return The temporary path, or null if targetPath was null
+     */
+    public Path getPath() {
+      return path;
+    }
+
+    @Override
+    public void close() {
+      deletePathQuietly(path);
     }
   }
 
@@ -522,10 +619,10 @@ public class Utils {
       for (Path file : stream) {
         try {
           if (Files.isRegularFile(file) && Files.getLastModifiedTime(file).toMillis() < cutoff) {
-            Files.deleteIfExists(file);
+            deletePathQuietly(file);
           }
         } catch (Exception e) {
-          log.debug("Error deleting stale temporary file {}: {}", file, e.getMessage());
+          log.debug("Error checking temporary file age for {}: {}", file, e.getMessage());
         }
       }
     } catch (Exception e) {

@@ -123,15 +123,19 @@ public class UploadInfoJsonSerializer {
   }
 
   /**
-   * Serialize the given object directly to a {@link Path}.
+   * Serialize the given object atomically to a destination {@link Path} via a temporary file
+   * rename.
    *
    * @param object The object to serialize
    * @param path The target destination path
-   * @throws IOException If serialization fails
+   * @throws IOException If serialization or file move fails
    */
   public static void serializeToPath(Object object, Path path) throws IOException {
     if (object != null && path != null) {
-      serializeToFile(object, path.toFile());
+      try (Utils.TempPath tempPath = new Utils.TempPath(path)) {
+        serializeToFile(object, tempPath.getPath().toFile());
+        Utils.atomicMove(tempPath.getPath(), path);
+      }
     }
   }
 

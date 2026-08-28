@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import me.desair.tus.server.upload.LeaseData;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
@@ -91,6 +92,16 @@ public class LeaseDataJsonSerializerTest {
     LeaseData deserializedPath = LeaseDataJsonSerializer.deserialize(filePath);
     assertNotNull(deserializedPath);
     assertEquals("holder-file", deserializedPath.getHolderId());
+
+    Path relPath = Paths.get("target", "temp-rel-" + java.util.UUID.randomUUID() + ".json");
+    try {
+      LeaseDataJsonSerializer.serializeToPath(data, relPath);
+      LeaseData deserializedRel = LeaseDataJsonSerializer.deserialize(relPath);
+      assertNotNull(deserializedRel);
+      assertEquals("holder-file", deserializedRel.getHolderId());
+    } finally {
+      Files.deleteIfExists(relPath);
+    }
 
     LeaseDataJsonSerializer.serializeToFile(data, file);
     LeaseData deserializedFile = LeaseDataJsonSerializer.deserialize(file);
