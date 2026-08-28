@@ -31,7 +31,6 @@ import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.upload.cache.ThreadLocalCachedStorageAndLockingService;
-import me.desair.tus.server.upload.disk.DiskLockingService;
 import me.desair.tus.server.upload.disk.DiskStorageService;
 import me.desair.tus.server.upload.disk.LeaseFileLockingService;
 import me.desair.tus.server.util.TusServletRequest;
@@ -43,7 +42,10 @@ import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Helper class that implements the server side tus v1.0.0 upload protocol */
+/**
+ * Helper class that implements the server side tus v1.0.0 upload protocol and the official IETF
+ * Resumable Uploads for HTTP (RUFH) specification.
+ */
 public class TusFileUploadService implements Closeable {
 
   public static final String TUS_API_VERSION = "1.0.0";
@@ -66,7 +68,7 @@ public class TusFileUploadService implements Closeable {
   public TusFileUploadService() {
     String storagePath = FileUtils.getTempDirectoryPath() + File.separator + "tus";
     this.uploadStorageService = new DiskStorageService(idFactory, storagePath);
-    this.uploadLockingService = new DiskLockingService(idFactory, storagePath);
+    this.uploadLockingService = new LeaseFileLockingService(idFactory, storagePath);
     initFeatures();
   }
 

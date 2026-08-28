@@ -30,6 +30,7 @@ import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.UploadType;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.concatenation.VirtualConcatenationService;
+import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.io.FileUtils;
@@ -198,19 +199,27 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     // exclusive single-writer access across cluster replicas. Fine-grained OS FileLock on .info
     // files is redundant and fails on NFS/SMB network mounts and unprivileged containers.
     if (isJsonSerializationEnabled()) {
-      Utils.writeJson(info, path, false);
+      UploadInfoJsonSerializer.serializeToPath(info, path);
     } else {
-      Utils.writeSerializable(info, path, false);
+      Utils.writeSerializable(info, path);
     }
   }
 
   private UploadInfo loadUploadInfo(Path path) throws IOException {
-    // Coarse request locks guarantee safe reads without needing fine-grained OS FileLock.
     if (isJsonSerializationEnabled()) {
-      UploadInfo info = Utils.readJson(path, UploadInfo.class, false);
-      return info != null ? info : Utils.readSerializable(path, UploadInfo.class, false);
+      UploadInfo info = null;
+      try {
+        info = UploadInfoJsonSerializer.deserialize(path);
+      } catch (Exception e) {
+        log.debug(
+            "Unable to deserialize upload info as JSON from {}, falling back to Java deserialization: {}",
+            path,
+            e.getMessage());
+        info = null;
+      }
+      return info != null ? info : Utils.readSerializable(path, UploadInfo.class);
     } else {
-      return Utils.readSerializable(path, UploadInfo.class, false);
+      return Utils.readSerializable(path, UploadInfo.class);
     }
   }
 
@@ -253,7 +262,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         // Delete the child's own data file if it exists
         try {
           Path childDataPath = getPathInUploadDir(uploadInfo.getId(), DATA_FILE);
-          Files.deleteIfExists(childDataPath);
+          Utils.deletePathQuietly(childDataPath);
         } catch (UploadNotFoundException e) {
           // It doesn't exist yet, which is fine
         }

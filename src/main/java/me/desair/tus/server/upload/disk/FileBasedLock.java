@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
@@ -86,7 +85,7 @@ public class FileBasedLock implements UploadLock {
     try {
       // Closing the channel will also release the lock
       fileChannel.close();
-      Files.deleteIfExists(lockPath);
+      Utils.deletePathQuietly(lockPath);
     } catch (IOException e) {
       log.warn("Unable to release file lock for URI " + getUploadUri(), e);
     }

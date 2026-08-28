@@ -16,19 +16,20 @@ The legacy `DiskLockingService` relies on OS kernel-level file locks (`java.nio.
 - **Ungraceful Crashes**: Pod crashes (`kill -9`, OOM killer, node eviction) leave locks stuck in NFS server state for minutes or indefinitely.
 - **Cross-Pod Coordination**: Kernel file locks are tracked in OS memory and do not coordinate cleanly across multi-replica container clusters.
 
-### The Solution: Application-Level Lease Directories
-`LeaseFileLockingService` replaces OS kernel locks with atomic directory creation (`mkdir`) and JSON lease files with background heartbeat renewal. This provides **zero external dependencies** (no Redis, ZooKeeper, or etcd cluster required) and works seamlessly on both local disks and distributed network shares.
+### The Solution: Application-Level Lease Directories & Sibling Mutexes
+`LeaseFileLockingService` replaces OS kernel locks with atomic sibling mutex directory creation (`mkdir`) and JSON lease files with background heartbeat renewal. This provides **zero external dependencies** (no Redis, ZooKeeper, or etcd cluster required) and works seamlessly on both local disks and distributed network shares.
 
 ---
 
 ## 2. Lock Directory Layout & Mechanics
 
-Locks are structured as a dedicated directory containing a JSON lease metadata file:
+Locks are structured as a dedicated directory containing a JSON lease metadata file, synchronized via a transient sibling mutex directory:
 
 ```
 <storagePath>/locks/
-├── <UploadId>.lock/                      # Dedicated lock directory (Atomic existence primitive)
+├── <UploadId>.lock/                      # Dedicated lock directory (contains lease.json)
 │   └── lease.json                        # JSON lease metadata (holderId, expiresAt, acquiredAt)
+├── <UploadId>.mutex/                     # Transient sibling atomic mutex directory (age <= 5s)
 └── <UploadId>.stop                       # Empty signal file for lock contention interruption
 ```
 
@@ -45,40 +46,37 @@ Locks are structured as a dedicated directory containing a JSON lease metadata f
 ```
 
 ### Architectural Rationale:
-1. **Universal Atomic Directory Staging & Renames**: Rather than creating an empty directory directly at `<UploadId>.lock` and subsequently writing metadata into it (which creates a window where concurrent nodes observe an empty, uninitialized directory), new locks are staged in a temporary sibling directory (`<UploadId>.lock.stage.<uuid>`) with `lease.json` pre-written, then moved atomically into place (`Files.move` with `StandardCopyOption.ATOMIC_MOVE`). Directory moves map directly to atomic server-side RPCs on both POSIX NFS (`rename(2)`) and Windows SMB (`SetFileInformationByHandle`), ensuring `<UploadId>.lock` is born on disk 100% complete and valid.
-2. **Clean Encapsulation**: Placing `lease.json` inside `<UploadId>.lock/` prevents metadata clutter and guarantees that lease updates and watchdog renewals are scoped directly to the lock entity.
-3. **Atomic Eviction & Move Isolation**: Stale lock cleanup isolates the target directory by atomically renaming it (`StandardCopyOption.ATOMIC_MOVE` to `.evicting.<uuid>`) before inspecting and deleting its contents. This isolates expired state and allows post-move rollback verification, preventing race collisions between multiple recovering nodes.
+1. **Sibling Mutex Isolation (`<UploadId>.mutex/`)**: All state-modifying operations (acquisition, in-place takeover, release, and cleanup) acquire `<UploadId>.mutex/` via atomic `Files.createDirectory`. Because the mutex is a sibling of `<UploadId>.lock/`, the lock directory contains only `lease.json`, avoiding nested directory deletion races (`DirectoryNotEmptyException`) and Windows handle locking conflicts.
+2. **In-Place Takeover (Zero Directory Moves)**: Rather than moving or displacing the lock directory during eviction (which creates a TOCTOU hole where the directory temporarily vanishes from disk), expired locks are updated in place directly inside `<UploadId>.lock/` under mutex protection.
+3. **Fencing & Ownership Verification**: Both `lock.close()` and heartbeat renewals verify that `holderId` in `lease.json` matches the current holder before modifying or deleting files, ensuring a paused node never corrupts a successor's active lease.
+4. **5-Second Crash Recovery**: Stale mutex directories left behind by crashed nodes are detected via `now - mtime >= 5000ms`, cleanly recovered, and retried.
 
 ---
 
 ## 3. Distributed Concurrency & Contention Resolution
 
-### 1. Lock Acquisition Flow (Atomic Directory Staging)
-To ensure that an observing process never encounters an empty or partially written lock directory, lock creation uses **Atomic Directory Staging**:
+### 1. Lock Acquisition Flow (`tryAcquireLock`)
+To acquire or take over a lock:
 1. Extract `UploadId` from the request URI.
-2. Verify that `<storagePath>/locks/<UploadId>.lock` does not already exist. If it exists:
-   - If `lease.json` is unexpired: Lock is actively held on another replica $\rightarrow$ throw `UploadAlreadyLockedException`.
-   - If `lease.json` is expired: Holder crashed $\rightarrow$ proceed to **Safe Atomic Eviction** and retry acquisition.
-3. Create a unique temporary staging directory: `<storagePath>/locks/<UploadId>.lock.stage.<uuid>`.
-4. Write the complete `lease.json` file inside the staging directory.
-5. Execute `Files.move(stageDir, lockDirPath, StandardCopyOption.ATOMIC_MOVE)`.
-   - **Success**: The lock directory appears on disk atomically with a valid, fully populated `lease.json` already inside it. Start the background heartbeat daemon (renews every $\text{leaseDuration} / 3$) and return `LeaseFileUploadLock`.
-   - **Collision (Already Exists)**: `Files.move` fails because another node acquired the lock in the interim. Clean up `stageDir` and throw `UploadAlreadyLockedException`.
+2. Acquire sibling mutex `<storagePath>/locks/<UploadId>.mutex/` via `Files.createDirectory`.
+   - **Collision (Already Exists)**: If `mtime` is $< 5$s old, another live node is modifying the lock $\rightarrow$ throw `UploadAlreadyLockedException`. If $\ge 5$s old, clean up stale mutex and retry.
+3. Under mutex protection:
+   - If `<UploadId>.lock/lease.json` exists and is **unexpired**: lock is actively held on another replica $\rightarrow$ throw `UploadAlreadyLockedException`.
+   - If `<UploadId>.lock/` does not exist: create directory.
+   - If `lease.json` is missing or expired: write updated `lease.json` via a temporary file and atomically rename it into place (`Files.move` with `ATOMIC_MOVE, REPLACE_EXISTING`). This prevents concurrent read-only queries (like `isLocked()`) from ever observing an empty (0-byte) or partially written JSON file during disk flushes.
+   - Start background heartbeat daemon (renews every $\text{leaseDuration} / 3$) and return `LeaseFileUploadLock`.
+4. Release `<UploadId>.mutex/`.
 
-### 2. TOCTOU Mitigation in Expired Lock Eviction (Post-Move Verification & Rollback)
-When multiple cluster nodes concurrently discover an expired lock left behind by a crashed pod, a **Time-of-Check to Time-of-Use (TOCTOU)** race condition can arise:
-1. **Time of Check (TOC)**: Node A and Node B both inspect `<UploadId>.lock` and observe that its lease has expired.
-2. **Node A Wins**: Node A renames the expired directory to `.evicting.<uuid-a>`, deletes it, and stages/moves a brand-new active lock.
-3. **Time of Use (TOU) Hazard**: Node B (having verified expiration in Step 1) executes eviction on Node A's **active** directory. Without post-move verification, Node B destroys Node A's directory and acquires a second lock handle, causing dual ownership.
-
-**The Solution: Post-Move Verification & Rollback**:
-- When Node B isolates the directory via `Files.move(lockDirPath, evictPath, ATOMIC_MOVE)`, it immediately re-inspects `evictPath` post-move.
-- If `evictPath` contains an active lease (created by Node A right before Node B's move), Node B recognizes that it lost the race.
-- Node B immediately rolls back the move via `Files.move(evictPath, lockDirPath, ATOMIC_MOVE)` and aborts eviction.
-- Exactly one node wins the eviction and acquisition, preserving single-owner lock exclusivity.
+### 2. Lock Release Flow (`lock.close()`)
+When an active upload completes or is aborted:
+1. Stop background heartbeat daemon.
+2. Acquire sibling mutex `<UploadId>.mutex/`.
+3. Read `lease.json` and verify `holderId == this.holderId`.
+4. If ownership matches: delete `lease.json` and delete `<UploadId>.lock/`.
+5. Release `<UploadId>.mutex/`.
 
 ### 3. Heartbeat Lease Auto-Renewal
-Active streaming uploads periodically renew their lease by updating `expiresAt` in `lease.json` every $\text{leaseDuration} / 3$ (default: every 10 seconds for a 30s lease). When the request completes, `lock.close()` stops the daemon and removes the lock directory.
+Active streaming uploads periodically renew their lease by updating `expiresAt` in `lease.json` every $\text{leaseDuration} / 3$ (default: every 10 seconds for a 30s lease). The renewal verifies `holderId` ownership under the sibling mutex to ensure it aborts if the lease was taken over after a long pause.
 
 ### 4. Lock Contention & `.stop` Signal Files
 When a client sends a `HEAD` or `DELETE` request to resume or cancel an upload while a stalled `PATCH` stream holds the lock:

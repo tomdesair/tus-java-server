@@ -679,6 +679,11 @@ public class AzureBlobStorageService implements UploadStorageService {
   }
 
   @Override
+  public boolean isJsonSerializationEnabled() {
+    return true;
+  }
+
+  @Override
   public void setUploadConcatenationService(UploadConcatenationService concatenationService) {
     this.concatenationService = concatenationService;
   }

@@ -15,12 +15,13 @@ import java.io.InputStream;
 import java.util.Collections;
 import java.util.Objects;
 import me.desair.tus.server.upload.AbstractLeaseLockingService;
+import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
-import me.desair.tus.server.util.S3UploadLockJsonSerializer;
+import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
@@ -145,20 +146,22 @@ public class S3LockingService extends AbstractLeaseLockingService {
   }
 
   @Override
-  protected UploadLock tryAcquireLock(UploadId uploadId, String holderId, String requestUri) {
+  protected UploadLock tryAcquireLock(UploadId uploadId, LeaseData leaseData) {
+    if (leaseData == null) {
+      return null;
+    }
     String lockKey = buildLockKey(uploadId);
     String stopKey = buildStopKey(uploadId);
 
     if (!isLockExpired(lockKey)) {
-      return false ? null : null;
+      return null;
     }
 
-    long expiresAt = System.currentTimeMillis() + leaseDurationMs;
     try {
-      S3UploadLock lock =
-          new S3UploadLock(
-              holderId, requestUri, bucket, lockKey, stopKey, leaseDurationMs, expiresAt);
-      byte[] lockContentBytes = S3UploadLockJsonSerializer.serializeToBytes(lock);
+      leaseData.setLockPath(lockKey);
+      leaseData.setStopPath(stopKey);
+
+      byte[] lockContentBytes = LeaseDataJsonSerializer.serializeToBytes(leaseData);
 
       // Layer 1: Conditional PutObject with "If-None-Match: *"
       // AWS S3 and compliant servers reject this with 412 Precondition Failed if the object already
@@ -176,19 +179,11 @@ public class S3LockingService extends AbstractLeaseLockingService {
       // For emulators or S3 backends where If-None-Match is not strictly enforced,
       // pause for a small randomized jitter (20-60ms) and verify our holderId is still the owner
       applyJitter();
-      if (!verifyLockOwnership(lockKey, holderId)) {
+      if (!verifyLockOwnership(lockKey, leaseData.getHolderId())) {
         return null;
       }
 
-      return new S3UploadLock(
-          minioClient,
-          bucket,
-          lockKey,
-          stopKey,
-          holderId,
-          leaseDurationMs,
-          requestUri,
-          activeInputStreams);
+      return new S3UploadLock(leaseData, minioClient, bucket, lockKey, stopKey, activeInputStreams);
     } catch (ErrorResponseException e) {
       S3ErrorType errorType = S3Utils.parseErrorResponse(e);
       if (errorType == S3ErrorType.PRECONDITION_FAILED || errorType == S3ErrorType.CONFLICT) {
@@ -208,8 +203,7 @@ public class S3LockingService extends AbstractLeaseLockingService {
     if (uploadId == null) {
       return true;
     }
-    String lockKey = buildLockKey(uploadId);
-    return isLockExpired(lockKey);
+    return isLockExpired(buildLockKey(uploadId));
   }
 
   @Override
@@ -218,22 +212,19 @@ public class S3LockingService extends AbstractLeaseLockingService {
       return false;
     }
     String lockKey = buildLockKey(uploadId);
-    deleteExpiredLockQuietly(lockKey);
-    return true;
+    return isLockExpired(lockKey);
   }
 
   @Override
   protected void writeStopSignal(UploadId uploadId) {
     String stopKey = buildStopKey(uploadId);
     try {
-      byte[] empty = new byte[0];
-      // Write empty .stop signal object to S3
       minioClient.putObject(
           PutObjectArgs.builder().bucket(bucket).object(stopKey).stream(
-                  new ByteArrayInputStream(empty), 0L, -1L)
+                  new ByteArrayInputStream(new byte[0]), 0L, -1L)
               .build());
     } catch (Exception e) {
-      log.debug("Failed to write lock stop signal to S3 key {}", stopKey, e);
+      log.warn("Failed to write lock stop signal object {} in bucket {}", stopKey, bucket, e);
     }
   }
 
@@ -263,8 +254,11 @@ public class S3LockingService extends AbstractLeaseLockingService {
   boolean verifyLockOwnership(String lockKey, String expectedHolderId) {
     try (InputStream stream =
         minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
-      S3UploadLock remoteLock = S3UploadLockJsonSerializer.deserialize(stream);
-      return remoteLock != null && Strings.CS.equals(remoteLock.getHolderId(), expectedHolderId);
+      LeaseData remoteLock = LeaseDataJsonSerializer.deserialize(stream);
+      return remoteLock != null
+          && Strings.CS.equals(remoteLock.getHolderId(), expectedHolderId)
+          && (remoteLock.getLockPath() == null
+              || Strings.CS.equals(remoteLock.getLockPath(), lockKey));
     } catch (Exception e) {
       log.debug("Failed to verify lock ownership for key {}", lockKey, e);
       return false;
@@ -281,7 +275,7 @@ public class S3LockingService extends AbstractLeaseLockingService {
     try (InputStream stream =
         minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
 
-      S3UploadLock lock = S3UploadLockJsonSerializer.deserialize(stream);
+      LeaseData lock = LeaseDataJsonSerializer.deserialize(stream);
       if (lock == null) {
         return true;
       }

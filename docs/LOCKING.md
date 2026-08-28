@@ -26,7 +26,7 @@ All locking mechanisms in `tus-java-server` implement the `UploadLockingService`
 ### `UploadLockingService` Interface
 
 ```java
-public interface UploadLockingService extends Closeable {
+public interface UploadLockingService {
 
   // Acquires an exclusive lock on an upload resource
   UploadLock lockUploadByUri(String requestUri) throws TusException, IOException;
@@ -37,17 +37,17 @@ public interface UploadLockingService extends Closeable {
   // Cleans up stale or expired locks
   void cleanupStaleLocks() throws IOException;
 
+  // Injects the UploadIdFactory instance used to parse upload IDs from request URIs
+  void setIdFactory(UploadIdFactory idFactory);
+
   // Registers the active request input stream so it can be interrupted cleanly
   default void registerInputStream(String requestUri, InputStream inputStream) {}
 
   // Requests that any active lock for the URI be released
   default void requestLockRelease(String requestUri) {}
 
-  // Injects the UploadIdFactory instance used to parse upload IDs from request URIs
-  default void setIdFactory(UploadIdFactory idFactory) {}
-
-  // Injects the upload expiration period in milliseconds
-  default void setUploadExpirationPeriod(Long expirationPeriod) {}
+  // Closes resources, interrupts in-flight streams, and shuts down background daemon threads
+  default void close() throws IOException {}
 }
 ```
 
@@ -84,7 +84,7 @@ public interface UploadLock extends Closeable {
 
 | Storage Backend / Environment | Locking Service Class | Key Characteristics & Architecture | Documentation File |
 |---|---|---|---|
-| **Disk & Network Filesystems (Default)** | `LeaseFileLockingService` | Atomic directory staging & renames (`mkdir`/`rename`), TTL-based JSON lease files with heartbeat renewal, TOCTOU-safe eviction with rollback, and `.stop` signal files. Fully safe on NFSv3/v4, AWS EFS, SMB/CIFS, Kubernetes containers, and local disks. | [`docs/DISK_BASED_LOCKING.md`](file:///Users/tom/projects/tus-java-server/docs/DISK_BASED_LOCKING.md) |
+| **Disk & Network Filesystems (Default)** | `LeaseFileLockingService` | Atomic sibling mutex directory (`<UploadId>.mutex/`), in-place expired lock takeover, TTL-based JSON lease files with heartbeat renewal, ownership fencing, and `.stop` signal files. Fully safe on NFSv3/v4, AWS EFS, SMB/CIFS, Kubernetes containers, and local disks. | [`docs/DISK_BASED_LOCKING.md`](file:///Users/tom/projects/tus-java-server/docs/DISK_BASED_LOCKING.md) |
 | **Local File System (Legacy Opt-Out)** | `DiskLockingService` | OS kernel-level exclusive POSIX `FileLock` (`fcntl`) with JVM shutdown hooks and `.stop` signal files. Best for single-node deployments on local disk. | [`docs/DISK_BASED_LOCKING.md`](file:///Users/tom/projects/tus-java-server/docs/DISK_BASED_LOCKING.md) |
 | **Amazon S3 / S3-Compatible** | `S3LockingService` | S3 object-backed TTL lease objects (`.lock`), conditional writes (`If-None-Match: *`), jittered read-after-write verification, heartbeat renewal, and cross-pod `.stop` signal object polling watchdog. | [`docs/S3_STORAGE.md`](file:///Users/tom/projects/tus-java-server/docs/S3_STORAGE.md) |
 | **Azure Blob Storage** | `AzureBlobLockingService` | Native Azure Blob Storage exclusive 30-second leases (`BlobLeaseClient`), background daemon renewal, and `.stop` signal blob polling watchdog. | [`docs/AZURE_BLOB_STORAGE.md`](file:///Users/tom/projects/tus-java-server/docs/AZURE_BLOB_STORAGE.md) |

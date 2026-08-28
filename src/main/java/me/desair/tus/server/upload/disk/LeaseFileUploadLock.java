@@ -1,130 +1,150 @@
 package me.desair.tus.server.upload.disk;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonInclude;
-import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Map;
-import java.util.UUID;
+import java.util.concurrent.ScheduledExecutorService;
 import me.desair.tus.server.upload.AbstractLeaseLock;
-import me.desair.tus.server.upload.UploadLock;
+import me.desair.tus.server.upload.LeaseData;
+import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * A distributed lease-based implementation of {@link UploadLock} that holds an exclusive lock lease
- * on an upload resource via an atomic directory and a JSON lease file. Serves both as the JSON
- * payload representation stored in {@code lease.json} on disk/NFS and the active lock handle with
- * heartbeat lease auto-renewal.
+ * Distributed upload lock implementation backed by atomic directory leases on the local or shared
+ * filesystem.
  *
- * <p><b>Why Lease Renewal is Required (NFS & Shared Drives vs Local FileLock):</b>
- *
- * <ul>
- *   <li><b>Local OS FileLock</b>: Relies on OS kernel file descriptor tracking (POSIX {@code fcntl}
- *       / Windows byte-range lock). When a process crashes, the OS cleans up file descriptors.
- *       However, network filesystems (NFSv3/v4, AWS EFS, SMB/CIFS) frequently drop or stall lock
- *       state, fail in unprivileged container network namespaces without {@code statd}, or hang
- *       when mounted with {@code nolock}.
- *   <li><b>Lease File Locking</b>: Replaces OS locks with an atomic directory and a short
- *       Time-To-Live (TTL) lease JSON file. If a node crashes unexpectedly (e.g. OOM killer, {@code
- *       kill -9}, network partition), the lease auto-expires within the TTL (default 30s), allowing
- *       peer cluster replicas to evict and re-acquire it cleanly.
- *   <li><b>Heartbeat Renewal</b>: Because TUS uploads can stream for minutes or hours, a background
- *       daemon thread periodically updates {@code expiresAt} in {@code lease.json} every {@code
- *       leaseDuration / 3} milliseconds.
- * </ul>
+ * <p>Wraps an active lease and maintains a background daemon executor that periodically renews the
+ * lease metadata on disk to prevent lock expiry during long-running streaming uploads.
  */
-@JsonIgnoreProperties(ignoreUnknown = true)
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class LeaseFileUploadLock extends AbstractLeaseLock {
 
   private static final Logger log = LoggerFactory.getLogger(LeaseFileUploadLock.class);
 
-  private String storagePath;
-
-  @JsonIgnore private Path lockDirPath;
-  @JsonIgnore private Path stopFilePath;
-
-  /** Default constructor for Jackson JSON deserialization. */
-  public LeaseFileUploadLock() {
-    super();
-  }
+  private final Path lockDirPath;
+  private final Path stopFilePath;
+  private final LeaseData leaseData;
 
   /**
-   * Constructs an active LeaseFileUploadLock and starts the background heartbeat lease renewal
-   * daemon.
+   * Constructs an active {@link LeaseFileUploadLock} and starts the background heartbeat lease
+   * renewal daemon.
    *
+   * @param leaseData The lease metadata
    * @param lockDirPath Dedicated lock directory path
    * @param stopFilePath Lock contention stop signal file path
-   * @param holderId Unique identifier of the lock holder
-   * @param leaseDurationMs Lease duration in milliseconds
-   * @param requestUri Target upload URI
    * @param activeInputStreams Map of active request input streams in the JVM
    */
   public LeaseFileUploadLock(
+      LeaseData leaseData,
       Path lockDirPath,
       Path stopFilePath,
-      String holderId,
-      long leaseDurationMs,
-      String requestUri,
       Map<String, InputStream> activeInputStreams) {
-    super(holderId, leaseDurationMs, requestUri, activeInputStreams, "lease-file-lock-heartbeat");
+    this(leaseData, lockDirPath, stopFilePath, activeInputStreams, null);
+  }
+
+  /**
+   * Testing constructor allowing injection of a custom heartbeat executor.
+   *
+   * @param leaseData The lease metadata
+   * @param lockDirPath Dedicated lock directory path
+   * @param stopFilePath Lock contention stop signal file path
+   * @param activeInputStreams Map of active request input streams in the JVM
+   * @param heartbeatExecutor Custom executor service for heartbeats
+   */
+  LeaseFileUploadLock(
+      LeaseData leaseData,
+      Path lockDirPath,
+      Path stopFilePath,
+      Map<String, InputStream> activeInputStreams,
+      ScheduledExecutorService heartbeatExecutor) {
+    super(leaseData, activeInputStreams, heartbeatExecutor, "lease-file-lock-heartbeat");
+    this.leaseData = leaseData;
     this.lockDirPath = lockDirPath;
     this.stopFilePath = stopFilePath;
-    this.storagePath = lockDirPath != null ? lockDirPath.toString() : null;
+  }
+
+  public LeaseData getLeaseData() {
+    return leaseData;
   }
 
   public String getStoragePath() {
-    return storagePath;
+    return lockDirPath != null ? lockDirPath.toString() : null;
   }
 
-  public void setStoragePath(String storagePath) {
-    this.storagePath = storagePath;
-  }
-
+  /**
+   * Renews the active lease by advancing {@code expiresAt} and persisting the updated metadata to
+   * disk under the protection of the {@link LeaseFileMutex}. Includes ownership verification to
+   * ensure a paused or ungracefully expired holder does not overwrite a successor's active lease.
+   */
   @Override
   protected void doRenewLease() {
     if (lockDirPath == null || !Files.exists(lockDirPath)) {
       return;
     }
-    try {
-      Path leaseTmpFile = lockDirPath.resolve("lease.json.tmp." + UUID.randomUUID());
+    try (LeaseFileMutex mutex = new LeaseFileMutex(lockDirPath)) {
+      if (!mutex.isAcquired()) {
+        return;
+      }
+      if (!doesLockOwnershipMatch()) {
+        log.info("Lease for {} was taken over by another holder. Aborting renewal.", lockDirPath);
+        return;
+      }
+
       Path leaseFile = lockDirPath.resolve("lease.json");
-      Utils.writeJson(this, leaseTmpFile, false);
-      Files.move(
-          leaseTmpFile,
-          leaseFile,
-          StandardCopyOption.ATOMIC_MOVE,
-          StandardCopyOption.REPLACE_EXISTING);
+      leaseData.setExpiresAt(getExpiresAt());
+      LeaseDataJsonSerializer.serializeToPath(leaseData, leaseFile);
     } catch (Exception e) {
       log.warn("Failed to renew lease for lock directory {}", lockDirPath, e);
     }
   }
 
+  /**
+   * Releases the lock resource upon request completion. Synchronized via the {@link LeaseFileMutex}
+   * and verifies {@code holderId} ownership so that an expired or paused holder does not delete a
+   * successor's lock directory.
+   */
   @Override
   protected void releaseLockResource() {
-    // 1. Delete lease file and lock directory
-    if (lockDirPath != null) {
-      try {
-        Files.deleteIfExists(lockDirPath.resolve("lease.json"));
-        Files.deleteIfExists(lockDirPath);
-      } catch (IOException e) {
-        log.warn("Failed to remove lock directory {}", lockDirPath, e);
+    if (lockDirPath != null && Files.exists(lockDirPath)) {
+      try (LeaseFileMutex mutex = new LeaseFileMutex(lockDirPath)) {
+        if (mutex.isAcquired() && doesLockOwnershipMatch()) {
+          Utils.deletePathQuietly(lockDirPath.resolve("lease.json"));
+          Utils.deletePathQuietly(lockDirPath);
+        }
       }
     }
 
     // 2. Delete .stop signal file if present
     if (stopFilePath != null) {
+      Utils.deletePathQuietly(stopFilePath);
+    }
+  }
+
+  /**
+   * Verifies that the on-disk {@code lease.json} file is still owned by this lock holder.
+   *
+   * @return {@code true} if the lease file does not exist, is unparseable, or matches this holder's
+   *     ID; {@code false} if owned by a different holder
+   */
+  boolean doesLockOwnershipMatch() {
+    if (lockDirPath == null) {
+      return false;
+    }
+    Path leaseFile = lockDirPath.resolve("lease.json");
+    if (Files.exists(leaseFile)) {
       try {
-        Files.deleteIfExists(stopFilePath);
-      } catch (IOException ignored) {
-        // Safe to ignore stop file deletion failure
+        LeaseData existingLease = LeaseDataJsonSerializer.deserialize(leaseFile);
+        if (existingLease != null
+            && !Strings.CS.equals(existingLease.getHolderId(), getHolderId())) {
+          return false;
+        }
+      } catch (Exception ignored) {
+        // If unparseable or corrupt, consider owned/proceed
       }
     }
+    return true;
   }
 }

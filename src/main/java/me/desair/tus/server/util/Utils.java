@@ -1,7 +1,6 @@
 package me.desair.tus.server.util;
 
 import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
 
@@ -13,16 +12,18 @@ import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.io.Serializable;
-import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -90,175 +91,140 @@ public class Utils {
   }
 
   /**
-   * Reads a serializable object from disk, optionally acquiring a shared file lock during the read
-   * operation.
-   *
-   * @param <T> Target object type
-   * @param path The file path to read from
-   * @param clazz The target object class
-   * @param lockFile If true, acquires a shared file lock before reading
-   * @return Deserialized object instance, or null if reading fails or file does not exist
-   * @throws IOException If file access or locking fails
-   */
-  public static <T> T readSerializable(Path path, Class<T> clazz, boolean lockFile)
-      throws IOException {
-    T info = null;
-    if (path != null && Files.exists(path)) {
-      try (FileChannel channel = FileChannel.open(path, READ)) {
-        // Lock will be released when the channel is closed
-        if (!lockFile || lockFileShared(channel) != null) {
-
-          try (ValidatingObjectInputStream ois =
-              new ValidatingObjectInputStream(Channels.newInputStream(channel))) {
-            ois.accept("java.lang.*", "java.util.*", "me.desair.tus.server.*");
-            info = clazz.cast(ois.readObject());
-          } catch (ClassNotFoundException
-              | java.io.EOFException
-              | java.io.StreamCorruptedException e) {
-            // File may be corrupted due to unexpected server shutdown
-            log.warn("Unable to read serializable file {}: {}", path, e.getMessage());
-            info = null;
-          }
-        } else {
-          throw new IOException("Unable to lock file " + path);
-        }
-      }
-    }
-    return info;
-  }
-
-  /**
-   * Reads a serializable object from disk, acquiring a shared file lock during the read operation.
+   * Reads a serializable object from disk.
    *
    * @param <T> Target object type
    * @param path The file path to read from
    * @param clazz The target object class
    * @return Deserialized object instance, or null if reading fails or file does not exist
-   * @throws IOException If file access or locking fails
+   * @throws IOException If file access fails
    */
   public static <T> T readSerializable(Path path, Class<T> clazz) throws IOException {
-    return readSerializable(path, clazz, true);
-  }
-
-  /**
-   * Writes a serializable object to a file on disk, optionally acquiring an exclusive file lock
-   * during the write operation.
-   *
-   * @param object The serializable object to write
-   * @param path The file path to write to
-   * @param lockFile If true, acquires an exclusive file lock before writing
-   * @throws IOException If file access or locking fails
-   */
-  public static void writeSerializable(Serializable object, Path path, boolean lockFile)
-      throws IOException {
-    if (path != null) {
-      try (FileChannel channel = FileChannel.open(path, WRITE, CREATE, TRUNCATE_EXISTING)) {
-        // Lock will be released when the channel is closed
-        if (!lockFile || lockFileExclusively(channel) != null) {
-
-          try (OutputStream buffer = new BufferedOutputStream(Channels.newOutputStream(channel));
-              ObjectOutput output = new ObjectOutputStream(buffer)) {
-
-            output.writeObject(object);
-          }
-        } else {
-          throw new IOException("Unable to lock file " + path);
-        }
-      }
-    }
-  }
-
-  /**
-   * Writes a serializable object to a file on disk, acquiring an exclusive file lock during the
-   * write operation.
-   *
-   * @param object The serializable object to write
-   * @param path The file path to write to
-   * @throws IOException If file access or locking fails
-   */
-  public static void writeSerializable(Serializable object, Path path) throws IOException {
-    writeSerializable(object, path, true);
-  }
-
-  /**
-   * Reads an object from a JSON file on disk, optionally acquiring a shared file lock during the
-   * read operation.
-   *
-   * @param <T> Target object type
-   * @param path The file path to read from
-   * @param clazz The target object class
-   * @param lockFile If true, acquires a shared file lock before reading
-   * @return Deserialized object instance, or null if reading fails or file does not exist
-   * @throws IOException If file access or locking fails
-   */
-  public static <T> T readJson(Path path, Class<T> clazz, boolean lockFile) throws IOException {
     T info = null;
     if (path != null && Files.exists(path)) {
-      try (FileChannel channel = FileChannel.open(path, READ)) {
-        // Lock will be released when the channel is closed
-        if (!lockFile || lockFileShared(channel) != null) {
-          try (InputStream is = Channels.newInputStream(channel)) {
-            info = UploadInfoJsonSerializer.deserialize(is, clazz);
-          } catch (Exception e) {
-            log.warn("Unable to read JSON file {}: {}", path, e.getMessage());
-            info = null;
-          }
-        } else {
-          throw new IOException("Unable to lock file " + path);
-        }
+      try (InputStream is = Files.newInputStream(path);
+          ValidatingObjectInputStream ois = new ValidatingObjectInputStream(is)) {
+        ois.accept("java.lang.*", "java.util.*", "me.desair.tus.server.*");
+        info = clazz.cast(ois.readObject());
+      } catch (ClassNotFoundException | java.io.EOFException | java.io.StreamCorruptedException e) {
+        // File may be corrupted due to unexpected server shutdown
+        log.warn("Unable to read serializable file {}: {}", path, e.getMessage());
+        info = null;
       }
     }
     return info;
   }
 
   /**
-   * Reads an object from a JSON file on disk, acquiring a shared file lock during the read
-   * operation.
+   * Deletes a file or directory if it exists, quietly ignoring any exceptions that occur.
    *
-   * @param <T> Target object type
-   * @param path The file path to read from
-   * @param clazz The target object class
-   * @return Deserialized object instance, or null if reading fails or file does not exist
-   * @throws IOException If file access or locking fails
+   * @param path The path to delete
+   * @return {@code true} if the file was deleted; {@code false} if it did not exist or deletion
+   *     failed
    */
-  public static <T> T readJson(Path path, Class<T> clazz) throws IOException {
-    return readJson(path, clazz, true);
+  public static boolean deletePathQuietly(Path path) {
+    if (path == null) {
+      return false;
+    }
+    try {
+      return Files.deleteIfExists(path);
+    } catch (Exception e) {
+      log.debug("Failed to delete path quietly: {}", path, e);
+      return false;
+    }
   }
 
   /**
-   * Writes an object to a file in JSON format, optionally acquiring an exclusive file lock during
-   * the write operation.
+   * Resolves a unique temporary sibling path for a target destination file path.
    *
-   * @param object The object to serialize to JSON
-   * @param path The file path to write to
-   * @param lockFile If true, acquires an exclusive file lock before writing
-   * @throws IOException If file access or locking fails
+   * @param targetPath The destination file path
+   * @return A temporary sibling path with a unique UUID suffix, or null if targetPath is null
    */
-  public static void writeJson(Object object, Path path, boolean lockFile) throws IOException {
-    if (path != null) {
-      try (FileChannel channel = FileChannel.open(path, WRITE, CREATE, TRUNCATE_EXISTING)) {
-        // Lock will be released when the channel is closed
-        if (!lockFile || lockFileExclusively(channel) != null) {
-          try (OutputStream buffer = new BufferedOutputStream(Channels.newOutputStream(channel))) {
-            UploadInfoJsonSerializer.serializeToStream(object, buffer);
-          }
-        } else {
-          throw new IOException("Unable to lock file " + path);
+  public static Path createTempSiblingPath(Path targetPath) {
+    if (targetPath == null) {
+      return null;
+    }
+    Path parent = targetPath.getParent();
+    String tempFileName = targetPath.getFileName().toString() + ".tmp." + UUID.randomUUID();
+    return parent != null ? parent.resolve(tempFileName) : Paths.get(tempFileName);
+  }
+
+  /**
+   * Creates an {@link AutoCloseable} {@link TempPath} that generates a unique temporary sibling
+   * path and automatically deletes it upon closing if it still exists.
+   *
+   * @param targetPath The destination file path
+   * @return An AutoCloseable TempPath instance
+   */
+  public static TempPath createTempSibling(Path targetPath) {
+    return new TempPath(targetPath);
+  }
+
+  /**
+   * Atomically moves a source file to a destination path, replacing any existing destination file.
+   *
+   * @param source The source file path to move
+   * @param destination The target destination file path
+   * @throws IOException If moving the file fails
+   */
+  public static void atomicMove(Path source, Path destination) throws IOException {
+    if (source != null && destination != null) {
+      Files.move(
+          source, destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    }
+  }
+
+  /**
+   * Writes a serializable object to a file on disk atomically via a temporary file rename.
+   *
+   * @param object The serializable object to write
+   * @param path The file path to write to
+   * @throws IOException If file access or move fails
+   */
+  public static void writeSerializable(Serializable object, Path path) throws IOException {
+    if (path != null && object != null) {
+      try (TempPath tempPath = new TempPath(path)) {
+        try (OutputStream os =
+                Files.newOutputStream(tempPath.getPath(), WRITE, CREATE, TRUNCATE_EXISTING);
+            OutputStream buffer = new BufferedOutputStream(os);
+            ObjectOutput output = new ObjectOutputStream(buffer)) {
+
+          output.writeObject(object);
         }
+        atomicMove(tempPath.getPath(), path);
       }
     }
   }
 
   /**
-   * Writes an object to a file in JSON format, acquiring an exclusive file lock during the write
-   * operation.
-   *
-   * @param object The object to serialize to JSON
-   * @param path The file path to write to
-   * @throws IOException If file access or locking fails
+   * AutoCloseable temporary sibling path that automatically cleans up (deletes) the temporary file
+   * upon closing if it still exists.
    */
-  public static void writeJson(Object object, Path path) throws IOException {
-    writeJson(object, path, true);
+  public static class TempPath implements AutoCloseable {
+    private final Path path;
+
+    /**
+     * Constructs a TempPath resolving a unique sibling path for the given target path.
+     *
+     * @param targetPath The destination file path
+     */
+    public TempPath(Path targetPath) {
+      this.path = createTempSiblingPath(targetPath);
+    }
+
+    /**
+     * Returns the underlying temporary sibling {@link Path}.
+     *
+     * @return The temporary path, or null if targetPath was null
+     */
+    public Path getPath() {
+      return path;
+    }
+
+    @Override
+    public void close() {
+      deletePathQuietly(path);
+    }
   }
 
   public static FileLock lockFileExclusively(FileChannel channel) throws IOException {
@@ -653,10 +619,10 @@ public class Utils {
       for (Path file : stream) {
         try {
           if (Files.isRegularFile(file) && Files.getLastModifiedTime(file).toMillis() < cutoff) {
-            Files.deleteIfExists(file);
+            deletePathQuietly(file);
           }
         } catch (Exception e) {
-          log.debug("Error deleting stale temporary file {}: {}", file, e.getMessage());
+          log.debug("Error checking temporary file age for {}: {}", file, e.getMessage());
         }
       }
     } catch (Exception e) {

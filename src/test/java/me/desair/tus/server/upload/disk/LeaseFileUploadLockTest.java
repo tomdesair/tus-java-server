@@ -4,7 +4,9 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.ByteArrayInputStream;
@@ -16,7 +18,8 @@ import java.nio.file.Paths;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import me.desair.tus.server.util.Utils;
+import me.desair.tus.server.upload.LeaseData;
+import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -58,6 +61,21 @@ public class LeaseFileUploadLockTest {
       FileUtils.deleteDirectory(testLockDir.toFile());
     }
     Files.deleteIfExists(testStopFile);
+    Path mutexDir = LeaseFileMutex.resolveMutexDir(testLockDir);
+    if (mutexDir != null && Files.exists(mutexDir)) {
+      FileUtils.deleteDirectory(mutexDir.toFile());
+    }
+  }
+
+  private LeaseData createLeaseData(String holderId, String requestUri, long durationMs) {
+    return new LeaseData(
+        holderId,
+        requestUri,
+        durationMs,
+        System.currentTimeMillis() + durationMs,
+        System.currentTimeMillis(),
+        testLockDir != null ? testLockDir.toString() : null,
+        testStopFile != null ? testStopFile.toString() : null);
   }
 
   @Test
@@ -67,9 +85,9 @@ public class LeaseFileUploadLockTest {
     long leaseDurationMs = 30_000L;
     Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
 
+    LeaseData leaseData = createLeaseData(holderId, requestUri, leaseDurationMs);
     LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(
-            testLockDir, testStopFile, holderId, leaseDurationMs, requestUri, activeStreams);
+        new LeaseFileUploadLock(leaseData, testLockDir, testStopFile, activeStreams);
 
     long initialExpiresAt = lock.getExpiresAt();
     Thread.sleep(50L);
@@ -83,7 +101,7 @@ public class LeaseFileUploadLockTest {
     Path leaseFile = testLockDir.resolve("lease.json");
     assertTrue(Files.exists(leaseFile));
 
-    LeaseFileUploadLock deserialized = Utils.readJson(leaseFile, LeaseFileUploadLock.class, false);
+    LeaseData deserialized = LeaseDataJsonSerializer.deserialize(leaseFile);
     assertThat(deserialized, is(notNullValue()));
     assertThat(deserialized.getExpiresAt(), is(lock.getExpiresAt()));
     assertThat(deserialized.getHolderId(), is(holderId));
@@ -103,9 +121,9 @@ public class LeaseFileUploadLockTest {
     Files.write(testStopFile, new byte[0]);
     assertTrue(Files.exists(testStopFile));
 
+    LeaseData leaseData = createLeaseData(holderId, requestUri, leaseDurationMs);
     LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(
-            testLockDir, testStopFile, holderId, leaseDurationMs, requestUri, activeStreams);
+        new LeaseFileUploadLock(leaseData, testLockDir, testStopFile, activeStreams);
 
     // Write initial lease file
     lock.renewLease();
@@ -132,9 +150,9 @@ public class LeaseFileUploadLockTest {
     long leaseDurationMs = 30_000L;
     Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
 
+    LeaseData leaseData = createLeaseData(holderId, requestUri, leaseDurationMs);
     LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(
-            testLockDir, testStopFile, holderId, leaseDurationMs, requestUri, activeStreams);
+        new LeaseFileUploadLock(leaseData, testLockDir, testStopFile, activeStreams);
 
     assertThat(lock.getUploadUri(), is(requestUri));
 
@@ -144,29 +162,32 @@ public class LeaseFileUploadLockTest {
   }
 
   @Test
-  public void testGettersAndSettersAndDefaultConstructor() {
-    LeaseFileUploadLock lock = new LeaseFileUploadLock();
+  public void testLeaseDataGettersAndSetters() {
+    LeaseData data = new LeaseData();
 
-    lock.setHolderId("test-holder");
-    lock.setRequestUri("/files/upload/uri");
-    lock.setStoragePath("/var/storage");
-    lock.setLeaseDurationMs(15000L);
-    lock.setExpiresAt(200000L);
-    lock.setAcquiredAt(100000L);
+    data.setHolderId("test-holder");
+    data.setRequestUri("/files/upload/uri");
+    data.setLockPath("/var/storage/locks/1.lock");
+    data.setStopPath("/var/storage/locks/1.stop");
+    data.setLeaseDurationMs(15000L);
+    data.setExpiresAt(200000L);
+    data.setAcquiredAt(100000L);
 
-    assertThat(lock.getHolderId(), is("test-holder"));
-    assertThat(lock.getRequestUri(), is("/files/upload/uri"));
-    assertThat(lock.getStoragePath(), is("/var/storage"));
-    assertThat(lock.getLeaseDurationMs(), is(15000L));
-    assertThat(lock.getExpiresAt(), is(200000L));
-    assertThat(lock.getAcquiredAt(), is(100000L));
-    assertThat(lock.getUploadUri(), is("/files/upload/uri"));
+    assertThat(data.getHolderId(), is("test-holder"));
+    assertThat(data.getRequestUri(), is("/files/upload/uri"));
+    assertThat(data.getLockPath(), is("/var/storage/locks/1.lock"));
+    assertThat(data.getStopPath(), is("/var/storage/locks/1.stop"));
+    assertThat(data.getLeaseDurationMs(), is(15000L));
+    assertThat(data.getExpiresAt(), is(200000L));
+    assertThat(data.getAcquiredAt(), is(100000L));
+    assertTrue(data.isExpired(300000L));
+    assertFalse(data.isExpired(100000L));
   }
 
   @Test
   public void testActiveLockConstructorInitializesFields() {
-    LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(testLockDir, testStopFile, "holder", 10000L, "/uri", null);
+    LeaseData leaseData = createLeaseData("holder", "/uri", 10000L);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(leaseData, testLockDir, testStopFile, null);
 
     assertThat(lock.getHolderId(), is("holder"));
     assertThat(lock.getRequestUri(), is("/uri"));
@@ -174,32 +195,37 @@ public class LeaseFileUploadLockTest {
     assertThat(lock.getLeaseDurationMs(), is(10000L));
     assertThat(lock.getExpiresAt(), greaterThan(0L));
     assertThat(lock.getAcquiredAt(), greaterThan(0L));
+    assertThat(lock.getLeaseData(), is(leaseData));
 
     lock.close();
   }
 
   @Test
   public void testConstructorWithZeroLeaseDurationDoesNotScheduleWatchdog() {
-    LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(testLockDir, testStopFile, "holder", 0L, "/uri", null);
+    LeaseData leaseData = createLeaseData("holder", "/uri", 0L);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(leaseData, testLockDir, testStopFile, null);
+    assertEquals("holder", lock.getHolderId());
     lock.close();
   }
 
   @Test
   public void testRenewLeaseWithNullLockDirShouldBeNoOp() {
-    LeaseFileUploadLock lock = new LeaseFileUploadLock(null, null, "holder", 10000L, "/uri", null);
+    LeaseData leaseData = createLeaseData("holder", "/uri", 10000L);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(leaseData, null, null, null);
     // Should safely do nothing without throwing exception
     lock.renewLease();
+    assertEquals("holder", lock.getHolderId());
     lock.close();
   }
 
   @Test
-  public void testRenewLeaseWhenLockDirIsDeletedOrInvalid() throws Exception {
+  public void testRenewLeaseWhenLockDirIsDeletedOrInvalid() {
     Path nonExistentDir = storagePath.resolve("non-existent-lock-dir-" + UUID.randomUUID());
-    LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(nonExistentDir, null, "holder", 10000L, "/uri", null);
+    LeaseData leaseData = createLeaseData("holder", "/uri", 10000L);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(leaseData, nonExistentDir, null, null);
     // When directory doesn't exist, renewLease logs a warning and does not throw
     lock.renewLease();
+    assertEquals("holder", lock.getHolderId());
     lock.close();
   }
 
@@ -209,9 +235,11 @@ public class LeaseFileUploadLockTest {
     Files.createDirectories(dir);
     FileUtils.deleteDirectory(dir.toFile());
 
-    LeaseFileUploadLock lock = new LeaseFileUploadLock(dir, null, "holder", 10000L, "/uri", null);
+    LeaseData leaseData = createLeaseData("holder", "/uri", 10000L);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(leaseData, dir, null, null);
     // Should execute cleanly without error
     lock.close();
+    assertFalse(Files.exists(dir));
   }
 
   @Test
@@ -224,8 +252,8 @@ public class LeaseFileUploadLockTest {
     Map<String, InputStream> streams = new ConcurrentHashMap<>();
     streams.put("/active/uri", new ByteArrayInputStream("test".getBytes()));
 
-    LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(dir, stopFile, "holder", 10000L, "/active/uri", streams);
+    LeaseData leaseData = createLeaseData("holder", "/active/uri", 10000L);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(leaseData, dir, stopFile, streams);
     assertTrue(Files.exists(stopFile));
 
     lock.close();
@@ -240,15 +268,18 @@ public class LeaseFileUploadLockTest {
     Files.createDirectories(dir);
 
     Map<String, InputStream> streams = new ConcurrentHashMap<>();
+    LeaseData leaseDataNullUri = createLeaseData("holder", null, 10000L);
     LeaseFileUploadLock lockWithNullUri =
-        new LeaseFileUploadLock(dir, null, "holder", 10000L, null, streams);
+        new LeaseFileUploadLock(leaseDataNullUri, dir, null, streams);
     lockWithNullUri.close();
+    assertNotNull(lockWithNullUri.getHolderId());
 
     Path dir2 = storagePath.resolve("null-streams-" + UUID.randomUUID());
     Files.createDirectories(dir2);
-    LeaseFileUploadLock lockWithNullStreams =
-        new LeaseFileUploadLock(dir2, null, "holder", 10000L, "/uri", null);
+    LeaseData leaseData = createLeaseData("holder", "/uri", 10000L);
+    LeaseFileUploadLock lockWithNullStreams = new LeaseFileUploadLock(leaseData, dir2, null, null);
     lockWithNullStreams.close();
+    assertNotNull(lockWithNullStreams.getHolderId());
   }
 
   @Test
@@ -259,9 +290,11 @@ public class LeaseFileUploadLockTest {
     // DirectoryNotEmptyException
     Files.write(dir.resolve("extra-file.txt"), "data".getBytes());
 
-    LeaseFileUploadLock lock = new LeaseFileUploadLock(dir, null, "holder", 10000L, "/uri", null);
+    LeaseData leaseData = createLeaseData("holder", "/uri", 10000L);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(leaseData, dir, null, null);
     // Should catch DirectoryNotEmptyException, log warning, and complete cleanly
     lock.close();
+    assertTrue(Files.exists(dir));
 
     FileUtils.deleteDirectory(dir.toFile());
   }
@@ -271,11 +304,96 @@ public class LeaseFileUploadLockTest {
     Path fileAsDir = storagePath.resolve("file-as-dir-" + UUID.randomUUID());
     Files.write(fileAsDir, "not a directory".getBytes());
 
-    LeaseFileUploadLock lock =
-        new LeaseFileUploadLock(fileAsDir, null, "holder", 10000L, "/uri", null);
+    LeaseData leaseData = createLeaseData("holder", "/uri", 10000L);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(leaseData, fileAsDir, null, null);
     // Should catch exception attempting to create file inside a regular file and log warning
     lock.renewLease();
+    assertTrue(Files.exists(fileAsDir));
 
     Files.deleteIfExists(fileAsDir);
+  }
+
+  @Test
+  public void testCloseDoesNotDeleteSuccessorLockWhenHolderIdMismatch() throws Exception {
+    Path dir = storagePath.resolve("successor-test-" + UUID.randomUUID() + ".lock");
+    Files.createDirectories(dir);
+
+    // Simulate that a successor node took over the lock with a new holderId
+    LeaseData successorLease =
+        new LeaseData(
+            "successor-holder",
+            "/files/upload/test",
+            30_000L,
+            System.currentTimeMillis() + 30_000L,
+            System.currentTimeMillis(),
+            dir.toString(),
+            null);
+    LeaseDataJsonSerializer.serializeToPath(successorLease, dir.resolve("lease.json"));
+
+    // Original lock holder (who unpaused or awoke late) calls close()
+    LeaseData originalLease =
+        new LeaseData(
+            "original-holder",
+            "/files/upload/test",
+            30_000L,
+            System.currentTimeMillis() - 1000L,
+            System.currentTimeMillis() - 31_000L,
+            dir.toString(),
+            null);
+    LeaseFileUploadLock originalLock = new LeaseFileUploadLock(originalLease, dir, null, null);
+
+    originalLock.close();
+
+    // The successor's lock directory and lease file must NOT be deleted
+    assertTrue(Files.exists(dir));
+    assertTrue(Files.exists(dir.resolve("lease.json")));
+
+    LeaseData preservedLease = LeaseDataJsonSerializer.deserialize(dir.resolve("lease.json"));
+    assertNotNull(preservedLease);
+    assertEquals("successor-holder", preservedLease.getHolderId());
+
+    FileUtils.deleteDirectory(dir.toFile());
+  }
+
+  @Test
+  public void testRenewLeaseAbortsWhenHolderIdMismatch() throws Exception {
+    Path dir = storagePath.resolve("successor-renew-test-" + UUID.randomUUID() + ".lock");
+    Files.createDirectories(dir);
+
+    // Simulate successor node took over with a new holderId
+    long successorExpiry = System.currentTimeMillis() + 60_000L;
+    LeaseData successorLease =
+        new LeaseData(
+            "successor-holder",
+            "/files/upload/test",
+            30_000L,
+            successorExpiry,
+            System.currentTimeMillis(),
+            dir.toString(),
+            null);
+    LeaseDataJsonSerializer.serializeToPath(successorLease, dir.resolve("lease.json"));
+
+    // Stale original lock holder calls renewLease()
+    LeaseData originalLease =
+        new LeaseData(
+            "original-holder",
+            "/files/upload/test",
+            30_000L,
+            System.currentTimeMillis() + 10_000L,
+            System.currentTimeMillis(),
+            dir.toString(),
+            null);
+    LeaseFileUploadLock originalLock = new LeaseFileUploadLock(originalLease, dir, null, null);
+
+    originalLock.renewLease();
+
+    // Successor lease must remain untouched with successor's holderId
+    LeaseData currentLease = LeaseDataJsonSerializer.deserialize(dir.resolve("lease.json"));
+    assertNotNull(currentLease);
+    assertEquals("successor-holder", currentLease.getHolderId());
+    assertEquals(successorExpiry, currentLease.getExpiresAt());
+
+    originalLock.close();
+    FileUtils.deleteDirectory(dir.toFile());
   }
 }

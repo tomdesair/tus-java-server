@@ -285,11 +285,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
         log.info("Watchdog detected stop file for upload ID {}. Interrupting stream.", idStr);
         Utils.interruptStream(stream);
         activeLocks.remove(idStr);
-        try {
-          Files.deleteIfExists(stopFilePath);
-        } catch (IOException e) {
-          // ignore
-        }
+        Utils.deletePathQuietly(stopFilePath);
       }
     }
 
@@ -334,11 +330,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
       } finally {
         activeLocks.remove(uploadIdStr);
         if (stopFilePath != null) {
-          try {
-            Files.deleteIfExists(stopFilePath);
-          } catch (IOException e) {
-            log.warn("Unable to delete stop file " + stopFilePath, e);
-          }
+          Utils.deletePathQuietly(stopFilePath);
         }
       }
     }
@@ -350,11 +342,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
       } finally {
         activeLocks.remove(uploadIdStr);
         if (stopFilePath != null) {
-          try {
-            Files.deleteIfExists(stopFilePath);
-          } catch (IOException e) {
-            log.warn("Unable to delete stop file " + stopFilePath, e);
-          }
+          Utils.deletePathQuietly(stopFilePath);
         }
       }
     }

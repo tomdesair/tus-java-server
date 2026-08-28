@@ -133,16 +133,13 @@ After the release is successfully deployed to staging, clean up the temporary re
 mvn release:clean
 ```
 
-### 6. Verify and Release on Sonatype Nexus
+### 6. Verify and Release on Sonatype Central Portal
 
-Finally, log into Sonatype Nexus to verify and officially publish the staged artifacts to Maven Central:
+Finally, log into Sonatype Central Portal to verify and officially publish the staged deployment to Maven Central:
 
 1. Go to [https://central.sonatype.com/publishing/deployments](https://central.sonatype.com/publishing/deployments)
-3. Find the deployment based on the ID that was printed during the release process. It should have status `Validated`.
-4. Open the `Component Files` section. Verify the POM versions and the presence of `.jar`, `-javadoc.jar`, `-sources.jar`, and their `.asc` signatures.
-5. If everything looks correct, click the **Publish** button in the top menu to publish the release to world.
-6. The status of the deployment will go to `Publishing` and it will take a few minutes before it completes.
-
-
-6. Once successfully closed, click the **Release** button to publish the artifacts to Maven Central. *(Note: It may take a few hours for the artifacts to sync and appear on search.maven.org).*
-7. If anything went wrong during your verification, click **Drop** instead, fix the issue in the codebase, and restart the release process.
+2. Find the deployment based on the ID printed during the release process. It should have status `Validated`.
+3. Open the `Component Files` section. Verify the POM versions and the presence of `.jar`, `-javadoc.jar`, `-sources.jar`, and their `.asc` signatures.
+4. If everything looks correct, click the **Publish** button in the top menu to publish the release to Maven Central.
+5. The status of the deployment will transition to `Publishing` and complete within a few minutes. *(Note: It may take a few hours for the artifacts to sync across global CDN edges and appear on search.maven.org).*
+6. If anything went wrong during your verification, click **Drop** instead, fix the issue in the codebase, and restart the release process.
