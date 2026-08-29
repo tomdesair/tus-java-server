@@ -8,7 +8,9 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.collection.IsMapContaining.hasEntry;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -22,6 +24,8 @@ import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.util.Utils;
@@ -2073,6 +2077,193 @@ public abstract class AbstractITTusFileUploadService {
     // Step 4: Verify uploaded bytes
     try (InputStream stream = service.getUploadedBytes(uploadPath, OWNER_KEY)) {
       assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
+    }
+  }
+
+  @Test
+  public void testUploadCompletionListenerTusPatch() throws Exception {
+    AtomicInteger listenerCallCount = new AtomicInteger(0);
+    AtomicReference<UploadInfo> completedUploadInfo = new AtomicReference<>();
+    AtomicReference<TusFileUploadService> callbackService = new AtomicReference<>();
+
+    tusFileUploadService.withUploadCompletionListener(
+        (uploadInfo, service) -> {
+          listenerCallCount.incrementAndGet();
+          completedUploadInfo.set(uploadInfo);
+          callbackService.set(service);
+        });
+
+    String uploadContent = "1234567890";
+
+    // Step 1: Create upload with length 10
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, uploadContent.length());
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+    UploadInfo createdInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    assertNotNull(createdInfo);
+    assertEquals(0, listenerCallCount.get());
+
+    String uploadLocation = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    // Step 2: Upload chunk 1 (5 bytes)
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadLocation);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(uploadContent.substring(0, 5).getBytes(StandardCharsets.UTF_8));
+
+    UploadInfo patch1Info =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(patch1Info);
+    assertEquals(0, listenerCallCount.get());
+
+    // Step 3: Upload chunk 2 (remaining 5 bytes) - should complete upload and fire listener
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadLocation);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 5);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(uploadContent.substring(5).getBytes(StandardCharsets.UTF_8));
+
+    UploadInfo patch2Info =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(patch2Info);
+    assertEquals(1, listenerCallCount.get());
+    assertNotNull(completedUploadInfo.get());
+    assertEquals(createdInfo.getId(), completedUploadInfo.get().getId());
+    assertEquals(tusFileUploadService, callbackService.get());
+
+    // Step 4: Verify uploaded bytes can be retrieved by UploadInfo
+    try (InputStream stream = tusFileUploadService.getUploadedBytes(completedUploadInfo.get())) {
+      assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
+    }
+
+    // Step 5: Send subsequent HEAD request on completed upload - must not trigger listener again
+    reset();
+    servletRequest.setMethod("HEAD");
+    servletRequest.setRequestURI(uploadLocation);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+    UploadInfo headInfo = tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(headInfo);
+    assertEquals(1, listenerCallCount.get());
+  }
+
+  @Test
+  public void testUploadCompletionListenerTusCreationWithUpload() throws Exception {
+    AtomicInteger listenerCallCount = new AtomicInteger(0);
+    AtomicReference<UploadInfo> completedUploadInfo = new AtomicReference<>();
+    AtomicReference<TusFileUploadService> callbackService = new AtomicReference<>();
+
+    tusFileUploadService.withUploadCompletionListener(
+        (uploadInfo, service) -> {
+          listenerCallCount.incrementAndGet();
+          completedUploadInfo.set(uploadInfo);
+          callbackService.set(service);
+        });
+
+    String uploadContent = "creation-with-upload-payload";
+
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, uploadContent.length());
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, uploadContent.length());
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(uploadContent.getBytes(StandardCharsets.UTF_8));
+
+    UploadInfo createdInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    assertNotNull(createdInfo);
+    assertEquals(1, listenerCallCount.get());
+    assertNotNull(completedUploadInfo.get());
+    assertEquals(createdInfo.getId(), completedUploadInfo.get().getId());
+    assertEquals(tusFileUploadService, callbackService.get());
+
+    // Verify uploaded bytes via UploadInfo
+    try (InputStream stream = tusFileUploadService.getUploadedBytes(completedUploadInfo.get())) {
+      assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
+    }
+
+    // Clean up via UploadInfo
+    tusFileUploadService.deleteUpload(completedUploadInfo.get());
+  }
+
+  @Test
+  public void testUploadCompletionListenerTusConcatenation() throws Exception {
+    String part1Content = "part1-";
+    String part2Content = "part2";
+
+    // 1. Create and upload partial 1
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, part1Content.length());
+    servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "partial");
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    String part1Uri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(part1Uri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(part1Content.getBytes(StandardCharsets.UTF_8));
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+
+    // 2. Create and upload partial 2
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, part2Content.length());
+    servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "partial");
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    String part2Uri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(part2Uri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(part2Content.getBytes(StandardCharsets.UTF_8));
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+
+    // 3. Register listener and execute final concatenation
+    AtomicInteger listenerCallCount = new AtomicInteger(0);
+    AtomicReference<UploadInfo> completedUploadInfo = new AtomicReference<>();
+    tusFileUploadService.withUploadCompletionListener(
+        (uploadInfo, service) -> {
+          listenerCallCount.incrementAndGet();
+          completedUploadInfo.set(uploadInfo);
+        });
+
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CONCAT, "final;" + part1Uri + " " + part2Uri);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+    UploadInfo finalInfo = tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    assertNotNull(finalInfo);
+    assertEquals(1, listenerCallCount.get());
+
+    try (InputStream stream = tusFileUploadService.getUploadedBytes(completedUploadInfo.get())) {
+      assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(part1Content + part2Content));
     }
   }
 

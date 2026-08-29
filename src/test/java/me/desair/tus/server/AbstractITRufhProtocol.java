@@ -3,6 +3,7 @@ package me.desair.tus.server;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -11,6 +12,8 @@ import static org.junit.Assert.assertTrue;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import me.desair.tus.server.upload.UploadInfo;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -720,6 +723,80 @@ public abstract class AbstractITRufhProtocol {
 
     // Step 3: Verify content
     try (InputStream stream = service.getUploadedBytes(uploadPath, OWNER_KEY)) {
+      assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
+    }
+  }
+
+  @Test
+  public void testUploadCompletionListenerRufhPostCreation() throws Exception {
+    AtomicInteger listenerCallCount = new AtomicInteger(0);
+    AtomicReference<UploadInfo> completedUploadInfo = new AtomicReference<>();
+
+    tusFileUploadService.withUploadCompletionListener(
+        (uploadInfo, service) -> {
+          listenerCallCount.incrementAndGet();
+          completedUploadInfo.set(uploadInfo);
+        });
+
+    String uploadContent = "rufh-creation-complete";
+
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, uploadContent.length());
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/octet-stream");
+    servletRequest.setContent(uploadContent.getBytes(StandardCharsets.UTF_8));
+
+    UploadInfo createdInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertNotNull(createdInfo);
+    assertEquals(1, listenerCallCount.get());
+    assertNotNull(completedUploadInfo.get());
+
+    try (InputStream stream = tusFileUploadService.getUploadedBytes(completedUploadInfo.get())) {
+      assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
+    }
+  }
+
+  @Test
+  public void testUploadCompletionListenerRufhPatchAppend() throws Exception {
+    AtomicInteger listenerCallCount = new AtomicInteger(0);
+    AtomicReference<UploadInfo> completedUploadInfo = new AtomicReference<>();
+
+    tusFileUploadService.withUploadCompletionListener(
+        (uploadInfo, service) -> {
+          listenerCallCount.incrementAndGet();
+          completedUploadInfo.set(uploadInfo);
+        });
+
+    // Step 1: Create incomplete RUFH upload
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    UploadInfo createdInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    assertEquals(0, listenerCallCount.get());
+
+    String uploadLocation = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    // Step 2: Append with Upload-Complete: ?1
+    String uploadContent = "rufh-patch-complete";
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadLocation);
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    servletRequest.setContent(uploadContent.getBytes(StandardCharsets.UTF_8));
+
+    UploadInfo patchInfo = tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertNotNull(patchInfo);
+    assertEquals(1, listenerCallCount.get());
+
+    try (InputStream stream = tusFileUploadService.getUploadedBytes(completedUploadInfo.get())) {
       assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
     }
   }
