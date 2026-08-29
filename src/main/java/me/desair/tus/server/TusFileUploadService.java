@@ -9,8 +9,10 @@ import java.io.InputStream;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import me.desair.tus.server.checksum.ChecksumExtension;
 import me.desair.tus.server.concatenation.ConcatenationExtension;
 import me.desair.tus.server.core.CoreProtocol;
@@ -37,6 +39,7 @@ import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Strings;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
@@ -63,6 +66,8 @@ public class TusFileUploadService implements Closeable {
   private boolean isChunkedTransferDecodingEnabled = false;
   private ProtocolVersion supportedProtocolVersion = ProtocolVersion.AUTO;
   private int maxLockRetries = DEFAULT_MAX_LOCK_RETRIES;
+  private final List<UploadCompletionListener> uploadCompletionListeners =
+      new CopyOnWriteArrayList<>();
 
   /** Constructor. */
   public TusFileUploadService() {
@@ -85,6 +90,29 @@ public class TusFileUploadService implements Closeable {
     addTusExtension(new ConcatenationExtension());
     addTusExtension(new CorsExtension());
     addTusExtension(new HttpDigestsExtension());
+  }
+
+  /**
+   * Register a callback listener that is invoked when an upload successfully reaches completion.
+   *
+   * @param listener The completion listener to register
+   * @return The current service
+   */
+  public TusFileUploadService withUploadCompletionListener(UploadCompletionListener listener) {
+    return addUploadCompletionListener(listener);
+  }
+
+  /**
+   * Add a callback listener that is invoked when an upload successfully reaches completion.
+   *
+   * @param listener The completion listener to add
+   * @return The current service
+   */
+  public TusFileUploadService addUploadCompletionListener(UploadCompletionListener listener) {
+    if (listener != null) {
+      this.uploadCompletionListeners.add(listener);
+    }
+    return this;
   }
 
   /**
@@ -464,11 +492,12 @@ public class TusFileUploadService implements Closeable {
    *
    * @param servletRequest The {@link HttpServletRequest} of the request
    * @param servletResponse The {@link HttpServletResponse} of the request
+   * @return The processed {@link UploadInfo} or null if no upload was involved or an error occurred
    * @throws IOException When saving bytes or information of this requests fails
    */
-  public void process(HttpServletRequest servletRequest, HttpServletResponse servletResponse)
+  public UploadInfo process(HttpServletRequest servletRequest, HttpServletResponse servletResponse)
       throws IOException {
-    process(servletRequest, servletResponse, null);
+    return process(servletRequest, servletResponse, null);
   }
 
   /**
@@ -479,9 +508,10 @@ public class TusFileUploadService implements Closeable {
    * @param servletRequest The {@link HttpServletRequest} of the request
    * @param servletResponse The {@link HttpServletResponse} of the request
    * @param ownerKey A unique identifier of the owner (group) of this upload
+   * @return The processed {@link UploadInfo} or null if no upload was involved or an error occurred
    * @throws IOException When saving bytes or information of this requests fails
    */
-  public void process(
+  public UploadInfo process(
       HttpServletRequest servletRequest, HttpServletResponse servletResponse, String ownerKey)
       throws IOException {
     Objects.requireNonNull(servletRequest, "The HTTP Servlet request cannot be null");
@@ -496,15 +526,24 @@ public class TusFileUploadService implements Closeable {
         new TusServletRequest(servletRequest, isChunkedTransferDecodingEnabled);
     TusServletResponse response = new TusServletResponse(servletResponse);
 
+    UploadInfo processedUploadInfo = null;
+    boolean wasInProgress = checkWasInProgress(request, ownerKey);
+
     try (UploadLock lock = acquireUploadLock(method, request.getRequestURI())) {
 
-      processLockedRequest(method, request, response, ownerKey);
+      processedUploadInfo = processLockedRequest(method, request, response, ownerKey);
 
     } catch (TusException e) {
       log.error("Unable to lock upload for request URI " + request.getRequestURI(), e);
       response.setHeader(HttpHeader.CONTENT_LENGTH, null);
       response.sendError(e.getStatus(), e.getMessage());
     }
+
+    if (wasInProgress && processedUploadInfo != null && !processedUploadInfo.isUploadInProgress()) {
+      notifyUploadCompletionListeners(processedUploadInfo);
+    }
+
+    return processedUploadInfo;
   }
 
   protected UploadLock acquireUploadLock(HttpMethod method, String requestUri)
@@ -537,6 +576,23 @@ public class TusFileUploadService implements Closeable {
       lock = uploadLockingService.lockUploadByUri(requestUri);
     }
     return lock;
+  }
+
+  /**
+   * Method to retrieve the bytes that were uploaded to a specific upload represented by {@link
+   * UploadInfo}.
+   *
+   * @param uploadInfo The upload info representing the upload
+   * @return An {@link InputStream} that will stream the uploaded bytes, or null if uploadInfo is
+   *     null
+   * @throws IOException When retrieving the uploaded bytes fails
+   * @throws TusException When the upload is still in progress or cannot be found
+   */
+  public InputStream getUploadedBytes(UploadInfo uploadInfo) throws IOException, TusException {
+    if (uploadInfo == null || uploadInfo.getId() == null) {
+      return null;
+    }
+    return uploadStorageService.getUploadedBytes(uploadInfo.getId());
   }
 
   /**
@@ -599,6 +655,20 @@ public class TusFileUploadService implements Closeable {
   }
 
   /**
+   * Method to delete an upload associated with the given {@link UploadInfo}. Invoke this method if
+   * you no longer need the upload.
+   *
+   * @param uploadInfo The upload info representing the upload to delete
+   * @throws IOException When deleting the upload fails
+   * @throws TusException When the upload cannot be found or deleted
+   */
+  public void deleteUpload(UploadInfo uploadInfo) throws IOException, TusException {
+    if (uploadInfo != null) {
+      uploadStorageService.terminateUpload(uploadInfo);
+    }
+  }
+
+  /**
    * Method to delete an upload associated with the given upload URL. Invoke this method if you no
    * longer need the upload.
    *
@@ -634,7 +704,7 @@ public class TusFileUploadService implements Closeable {
     uploadStorageService.cleanupExpiredUploads(uploadLockingService);
   }
 
-  protected void processLockedRequest(
+  protected UploadInfo processLockedRequest(
       HttpMethod method, TusServletRequest request, TusServletResponse response, String ownerKey)
       throws IOException {
     ProtocolVersion detectedVersion = detectProtocolVersion(request);
@@ -644,8 +714,58 @@ public class TusFileUploadService implements Closeable {
 
       executeProcessingByFeatures(method, request, response, ownerKey, detectedVersion);
 
+      return resolveUploadInfo(request, response, ownerKey);
+
     } catch (TusException e) {
       processTusException(method, request, response, ownerKey, e, detectedVersion);
+      return null;
+    }
+  }
+
+  private UploadInfo resolveUploadInfo(
+      TusServletRequest request, TusServletResponse response, String ownerKey) throws IOException {
+    String uploadUri = response != null ? response.getHeader(HttpHeader.LOCATION) : null;
+    if (StringUtils.isBlank(uploadUri) && request != null) {
+      if (Utils.isCreationEndpoint(request, uploadStorageService)) {
+        return null;
+      }
+      uploadUri = request.getRequestURI();
+    }
+    if (StringUtils.isNotBlank(uploadUri) && uploadStorageService != null) {
+      return uploadStorageService.getUploadInfo(uploadUri, ownerKey);
+    }
+    return null;
+  }
+
+  private boolean checkWasInProgress(TusServletRequest request, String ownerKey) {
+    if (request == null || uploadStorageService == null) {
+      return true;
+    }
+    try {
+      UploadInfo uploadInfo = resolveUploadInfo(request, null, ownerKey);
+      if (uploadInfo != null) {
+        return uploadInfo.isUploadInProgress();
+      }
+    } catch (Exception e) {
+      log.debug("Error checking initial upload progress state: {}", e.getMessage());
+    }
+    return true;
+  }
+
+  protected void notifyUploadCompletionListeners(UploadInfo uploadInfo) {
+    if (uploadInfo == null || uploadCompletionListeners.isEmpty()) {
+      return;
+    }
+    for (UploadCompletionListener listener : uploadCompletionListeners) {
+      try {
+        listener.onUploadComplete(uploadInfo, this);
+      } catch (Throwable t) {
+        log.error(
+            "Error executing upload completion listener for upload ID {}: {}",
+            uploadInfo.getId(),
+            t.getMessage(),
+            t);
+      }
     }
   }
 

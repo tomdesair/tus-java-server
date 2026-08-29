@@ -200,6 +200,7 @@ After creating the object, you can configure it using the following methods:
 | `addTusExtension(TusExtension)` | All standard enabled | Adds a custom extension (e.g. application authorization checks). |
 | `disableTusExtension(String)` | None | Disables a built-in extension (`creation`, `checksum`, `expiration`, `concatenation`, `termination`, `download`, `cors`). |
 | `withUploadIdFactory(UploadIdFactory)` | `UuidUploadIdFactory` | Custom ID generator for upload resources (e.g., `UuidUploadIdFactory` or `TimeBasedUploadIdFactory`). |
+| `withUploadCompletionListener(UploadCompletionListener)` | None | Registers a callback invoked immediately when an upload finishes transferring all bytes and is completed. |
 | `withJsonSerialization()` | Java serialization | Enables JSON serialization for upload metadata (`UploadInfo`), requiring Jackson databind on classpath. |
 | `withUploadStorageService(UploadStorageService)` | `DiskStorageService` | Configures custom or cloud storage backend (`DiskStorageService`, `S3StorageService`, `AzureBlobStorageService`). |
 | `withUploadLockingService(UploadLockingService)` | `LeaseFileLockingService` | Configures custom or cloud locking backend (`LeaseFileLockingService`, `S3LockingService`, `AzureBlobLockingService`). |
@@ -208,6 +209,8 @@ The library provides filesystem-based storage (`DiskStorageService` / `LeaseFile
 
 ### 2. Receiving a Resumable Upload
 To process an upload request you have to pass the current `jakarta.servlet.http.HttpServletRequest` and `jakarta.servlet.http.HttpServletResponse` objects to the `me.desair.tus.server.TusFileUploadService.process()` method. Typical places were you can do this are inside Servlets, Filters or REST API Controllers.
+
+The `process()` method returns the processed `UploadInfo` object (or `null` for `OPTIONS` preflight requests or when an error response is generated).
 
 For example, in a Spring MVC REST Controller:
 
@@ -218,6 +221,9 @@ public class FileUploadController {
 
   @Autowired
   private TusFileUploadService tusFileUploadService;
+
+  @Autowired
+  private UserSessionRepository userSessionRepository;
 
   @RequestMapping(
       value = {"/api/upload", "/api/upload/**"},
@@ -230,17 +236,58 @@ public class FileUploadController {
         RequestMethod.OPTIONS,
         RequestMethod.GET
       })
-  public void processUpload(HttpServletRequest request, HttpServletResponse response)
+  public void processUpload(
+      HttpServletRequest request, HttpServletResponse response, @RequestParam String userSessionId)
       throws IOException {
-    tusFileUploadService.process(request, response);
+
+    UploadInfo info = tusFileUploadService.process(request, response, userSessionId);
+
+    // Creation vs. Progress Ambiguity: Check if this was a new upload creation request
+    if (info != null && "POST".equalsIgnoreCase(request.getMethod())) {
+      userSessionRepository.recordUpload(userSessionId, info.getId());
+    }
   }
 }
 ```
 
+> [!NOTE]
+> **Creation vs. Progress Ambiguity**: The `process()` method returns an `UploadInfo` on both creation (`POST`) and progress updates (`PATCH` / `HEAD`). When associating an upload ID with a user session or database entity on creation, check `info != null && "POST".equalsIgnoreCase(request.getMethod())`.
+>
+> **Single-Request Upload Completion**: When clients upload the entire file in a single request using the `creation-with-upload` extension or RUFH single-request POST, the upload is already complete when `process()` returns, and any registered `UploadCompletionListener` will have already fired *before* `process()` returns to your controller.
+
 Optionally you can also pass a `String ownerKey` parameter to `process()`. The `ownerKey` can be used to have a hard separation between uploads of different users, groups or tenants in a multi-tenant setup. Examples of `ownerKey` values are user ID's, group names, client ID's...
 
 ### 3. Handling Upload Completion & Retrieving Files
-When an upload completes, the client receives the final `204 No Content` response from the Tus protocol endpoint (`/api/upload/...`). Because Tus is a decoupled file transport protocol, your frontend application typically notifies your backend domain API (e.g. `POST /api/documents`) that the upload is complete and passes along the `uploadUrl`.
+
+You can handle upload completion in two ways:
+1. **Server-Side Callback Listener (`UploadCompletionListener`)**: Register a hook directly on `TusFileUploadService` that triggers automatically when the final chunk is uploaded.
+2. **Domain API Endpoint**: Have your frontend Tus client notify your application backend domain endpoint (e.g. `POST /api/documents`) once upload completes.
+
+#### Option A: Server-Side `UploadCompletionListener`
+Register one or more completion listeners on your `TusFileUploadService`. When an upload finishes transferring all bytes, the callback executes with the completed `UploadInfo` and the service instance. The upload lock is released *before* the listener is invoked, allowing you to safely stream or delete uploaded bytes immediately:
+
+```java
+@Bean
+public TusFileUploadService tusFileUploadService() {
+    return new TusFileUploadService()
+        .withStoragePath("/path/to/uploads")
+        .withUploadUri("/api/upload")
+        .withUploadCompletionListener((uploadInfo, service) -> {
+            // Filename needs to be set as metadata by the client
+            String fileName = uploadInfo.getMetadata().get("filename");
+            try (InputStream is = service.getUploadedBytes(uploadInfo)) {
+                Files.copy(is, Paths.get("/var/data/documents", fileName));
+            } catch (Exception e) {
+                log.error("Failed to process completed upload {}", uploadInfo.getId(), e);
+            }
+            // Optionally delete upload temporary files after processing
+            service.deleteUpload(uploadInfo);
+        });
+}
+```
+
+#### Option B: Client-Initiated Domain Notification
+When an upload completes, the client receives the final `204 No Content` response from the Tus/RUFH protocol endpoint (`/api/upload/...`). Because Tus and RUFH are decoupled file transport protocols, your frontend application can notify your backend domain API (e.g. `POST /api/documents`) that the upload is complete and pass along the `uploadUrl`.
 
 > [!NOTE]
 > `POST /api/documents` represents your application's domain REST endpoint, not a protocol endpoint. The Tus server itself handles file transfer (`/api/upload`), while your application endpoint coordinates business logic, database persistence, and final file consumption.
