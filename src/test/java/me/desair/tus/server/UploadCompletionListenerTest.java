@@ -81,28 +81,211 @@ public class UploadCompletionListenerTest {
   }
 
   @Test
-  public void testGetUploadedBytesAndTerminateByUploadInfo() throws Exception {
+  public void testGetUploadedBytesAndTerminateNullSafe() throws Exception {
     UploadStorageService mockStorage = mock(UploadStorageService.class);
+    UploadId uploadId = new UploadId("abc-123");
     UploadInfo info = new UploadInfo();
-    info.setId(new UploadId("abc-123"));
+    info.setId(uploadId);
+    info.setOwnerKey("OWNER_TEST");
 
     InputStream mockStream =
         new ByteArrayInputStream("hello world".getBytes(StandardCharsets.UTF_8));
-    when(mockStorage.getUploadedBytes(info.getId())).thenReturn(mockStream);
+    when(mockStorage.getUploadInfo(uploadId)).thenReturn(info);
+    when(mockStorage.getUploadedBytes(uploadId)).thenReturn(mockStream);
 
     TusFileUploadService service = new TusFileUploadService().withUploadStorageService(mockStorage);
 
+    // Null safety checks for UploadInfo overloads
     assertNull(service.getUploadedBytes((UploadInfo) null));
+    assertNull(service.getUploadedBytes((UploadInfo) null, "anyOwner"));
     UploadInfo nullIdInfo = new UploadInfo();
     assertNull(service.getUploadedBytes(nullIdInfo));
+    assertNull(service.getUploadedBytes(nullIdInfo, "anyOwner"));
+    service.deleteUpload((UploadInfo) null);
+    service.deleteUpload((UploadInfo) null, "anyOwner");
+    service.deleteUpload(nullIdInfo);
+    service.deleteUpload(nullIdInfo, "anyOwner");
 
+    // Null safety checks for UploadId overloads
+    assertNull(service.getUploadedBytes((UploadId) null));
+    assertNull(service.getUploadedBytes((UploadId) null, "anyOwner"));
+    assertNull(service.getUploadInfo((UploadId) null));
+    assertNull(service.getUploadInfo((UploadId) null, "anyOwner"));
+    service.deleteUpload((UploadId) null);
+    service.deleteUpload((UploadId) null, "anyOwner");
+
+    // Legitimate calls with matching owner
     InputStream result = service.getUploadedBytes(info);
     assertNotNull(result);
     assertEquals("hello world", IOUtils.toString(result, StandardCharsets.UTF_8));
 
-    service.deleteUpload((UploadInfo) null);
-    service.deleteUpload(info);
+    UploadInfo fetchedInfo = service.getUploadInfo(uploadId, "OWNER_TEST");
+    assertNotNull(fetchedInfo);
+    assertEquals(uploadId, fetchedInfo.getId());
+
+    // Call remaining overloads with ownerKey = null setup
+    UploadId unownedId = new UploadId("unowned-123");
+    UploadInfo unownedInfo = new UploadInfo();
+    unownedInfo.setId(unownedId);
+    unownedInfo.setOwnerKey(null);
+    when(mockStorage.getUploadInfo(unownedId)).thenReturn(unownedInfo);
+    when(mockStorage.getUploadedBytes(unownedId))
+        .thenReturn(new ByteArrayInputStream("unowned bytes".getBytes(StandardCharsets.UTF_8)));
+
+    InputStream unownedStream = service.getUploadedBytes(unownedId);
+    assertNotNull(unownedStream);
+    assertEquals("unowned bytes", IOUtils.toString(unownedStream, StandardCharsets.UTF_8));
+
+    UploadInfo unownedFetched = service.getUploadInfo(unownedId);
+    assertNotNull(unownedFetched);
+    assertEquals(unownedId, unownedFetched.getId());
+
+    service.deleteUpload(unownedId);
+    verify(mockStorage, times(1)).terminateUpload(unownedInfo);
+
+    service.deleteUpload(info, "OWNER_TEST");
     verify(mockStorage, times(1)).terminateUpload(info);
+
+    service.deleteUpload(info);
+    verify(mockStorage, times(2)).terminateUpload(info);
+  }
+
+  @Test
+  public void testOwnerKeyIsolationWithUploadInfo() throws Exception {
+    String aliceOwner = "USER_ALICE";
+    String bobOwner = "USER_BOB";
+    byte[] payload = "confidential-alice-payload".getBytes(StandardCharsets.UTF_8);
+
+    // 1. Alice creates upload
+    MockHttpServletRequest createRequest = new MockHttpServletRequest("POST", "/files");
+    createRequest.addHeader(HttpHeader.TUS_RESUMABLE, TusFileUploadService.TUS_API_VERSION);
+    createRequest.addHeader(HttpHeader.UPLOAD_LENGTH, String.valueOf(payload.length));
+    MockHttpServletResponse createResponse = new MockHttpServletResponse();
+
+    UploadInfo createdInfo =
+        tusFileUploadService.process(createRequest, createResponse, aliceOwner);
+    assertNotNull(createdInfo);
+    assertEquals(aliceOwner, createdInfo.getOwnerKey());
+
+    String location = createResponse.getHeader(HttpHeader.LOCATION);
+
+    // 2. Alice uploads bytes
+    MockHttpServletRequest patchRequest = new MockHttpServletRequest("PATCH", location);
+    patchRequest.addHeader(HttpHeader.TUS_RESUMABLE, TusFileUploadService.TUS_API_VERSION);
+    patchRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    patchRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    patchRequest.setContent(payload);
+    MockHttpServletResponse patchResponse = new MockHttpServletResponse();
+
+    UploadInfo patchedInfo = tusFileUploadService.process(patchRequest, patchResponse, aliceOwner);
+    assertNotNull(patchedInfo);
+
+    // 3. Security verification: Forged UploadInfo instances
+    UploadInfo forgedBobInfo = new UploadInfo();
+    forgedBobInfo.setId(createdInfo.getId());
+    forgedBobInfo.setOwnerKey(bobOwner);
+
+    UploadInfo forgedAnonInfo = new UploadInfo();
+    forgedAnonInfo.setId(createdInfo.getId());
+    forgedAnonInfo.setOwnerKey(null);
+
+    // Mismatched owner key on UploadInfo must return null and leak no data
+    assertNull(tusFileUploadService.getUploadedBytes(forgedBobInfo));
+    assertNull(tusFileUploadService.getUploadedBytes(forgedBobInfo, bobOwner));
+    assertNull(tusFileUploadService.getUploadedBytes(createdInfo, bobOwner));
+    assertNull(tusFileUploadService.getUploadedBytes(forgedAnonInfo));
+    assertNull(tusFileUploadService.getUploadedBytes(forgedAnonInfo, null));
+
+    // 4. Legitimate access: Alice retrieves her uploaded bytes
+    try (InputStream aliceStream = tusFileUploadService.getUploadedBytes(createdInfo)) {
+      assertNotNull(aliceStream);
+      assertEquals(
+          "confidential-alice-payload", IOUtils.toString(aliceStream, StandardCharsets.UTF_8));
+    }
+
+    try (InputStream aliceStreamExplicit =
+        tusFileUploadService.getUploadedBytes(createdInfo, aliceOwner)) {
+      assertNotNull(aliceStreamExplicit);
+      assertEquals(
+          "confidential-alice-payload",
+          IOUtils.toString(aliceStreamExplicit, StandardCharsets.UTF_8));
+    }
+
+    // 5. Security verification: Unauthorized deletion attempts
+    tusFileUploadService.deleteUpload(forgedBobInfo);
+    tusFileUploadService.deleteUpload(createdInfo, bobOwner);
+
+    // Verify Alice's upload is still intact
+    try (InputStream streamAfterBobDelete = tusFileUploadService.getUploadedBytes(createdInfo)) {
+      assertNotNull("Upload must not be deleted by unauthorized owner", streamAfterBobDelete);
+    }
+
+    // 6. Legitimate deletion by Alice
+    tusFileUploadService.deleteUpload(createdInfo);
+
+    // Verify upload is gone
+    assertNull(tusFileUploadService.getUploadedBytes(createdInfo));
+  }
+
+  @Test
+  public void testOwnerKeyIsolationWithUploadId() throws Exception {
+    String aliceOwner = "USER_ALICE";
+    String bobOwner = "USER_BOB";
+    byte[] payload = "confidential-upload-id-payload".getBytes(StandardCharsets.UTF_8);
+
+    // 1. Alice creates upload
+    MockHttpServletRequest createRequest = new MockHttpServletRequest("POST", "/files");
+    createRequest.addHeader(HttpHeader.TUS_RESUMABLE, TusFileUploadService.TUS_API_VERSION);
+    createRequest.addHeader(HttpHeader.UPLOAD_LENGTH, String.valueOf(payload.length));
+    MockHttpServletResponse createResponse = new MockHttpServletResponse();
+
+    UploadInfo createdInfo =
+        tusFileUploadService.process(createRequest, createResponse, aliceOwner);
+    assertNotNull(createdInfo);
+    UploadId uploadId = createdInfo.getId();
+
+    String location = createResponse.getHeader(HttpHeader.LOCATION);
+
+    // 2. Alice uploads bytes
+    MockHttpServletRequest patchRequest = new MockHttpServletRequest("PATCH", location);
+    patchRequest.addHeader(HttpHeader.TUS_RESUMABLE, TusFileUploadService.TUS_API_VERSION);
+    patchRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    patchRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    patchRequest.setContent(payload);
+    MockHttpServletResponse patchResponse = new MockHttpServletResponse();
+
+    UploadInfo patchedInfo = tusFileUploadService.process(patchRequest, patchResponse, aliceOwner);
+    assertNotNull(patchedInfo);
+
+    // 3. Security verification: Bob attempts to read bytes and metadata by UploadId
+    assertNull(tusFileUploadService.getUploadedBytes(uploadId, bobOwner));
+    assertNull(tusFileUploadService.getUploadedBytes(uploadId, null));
+    assertNull(tusFileUploadService.getUploadedBytes(uploadId)); // Default null owner
+    assertNull(tusFileUploadService.getUploadInfo(uploadId, bobOwner));
+    assertNull(tusFileUploadService.getUploadInfo(uploadId, null));
+    assertNull(tusFileUploadService.getUploadInfo(uploadId)); // Default null owner
+
+    // 4. Legitimate access by Alice
+    UploadInfo aliceInfo = tusFileUploadService.getUploadInfo(uploadId, aliceOwner);
+    assertNotNull(aliceInfo);
+    assertEquals(uploadId, aliceInfo.getId());
+
+    try (InputStream is = tusFileUploadService.getUploadedBytes(uploadId, aliceOwner)) {
+      assertNotNull(is);
+      assertEquals("confidential-upload-id-payload", IOUtils.toString(is, StandardCharsets.UTF_8));
+    }
+
+    // 5. Security verification: Bob attempts to delete Alice's upload by UploadId
+    tusFileUploadService.deleteUpload(uploadId, bobOwner);
+    tusFileUploadService.deleteUpload(uploadId); // Default null owner
+
+    // Verify upload still exists
+    assertNotNull(tusFileUploadService.getUploadInfo(uploadId, aliceOwner));
+
+    // 6. Legitimate deletion by Alice
+    tusFileUploadService.deleteUpload(uploadId, aliceOwner);
+    assertNull(tusFileUploadService.getUploadInfo(uploadId, aliceOwner));
+    assertNull(tusFileUploadService.getUploadedBytes(uploadId, aliceOwner));
   }
 
   @Test

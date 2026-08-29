@@ -26,6 +26,7 @@ import me.desair.tus.server.expiration.ExpirationExtension;
 import me.desair.tus.server.rufh.ResumableUploadsForHttpProtocol;
 import me.desair.tus.server.rufh.util.RufhInterimResponseUtil;
 import me.desair.tus.server.termination.TerminationExtension;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
@@ -580,11 +581,11 @@ public class TusFileUploadService implements Closeable {
 
   /**
    * Method to retrieve the bytes that were uploaded to a specific upload represented by {@link
-   * UploadInfo}.
+   * UploadInfo}. Validates the owner key under an exclusive upload lock.
    *
    * @param uploadInfo The upload info representing the upload
    * @return An {@link InputStream} that will stream the uploaded bytes, or null if uploadInfo is
-   *     null
+   *     null, not found, or the owner key does not match
    * @throws IOException When retrieving the uploaded bytes fails
    * @throws TusException When the upload is still in progress or cannot be found
    */
@@ -592,7 +593,65 @@ public class TusFileUploadService implements Closeable {
     if (uploadInfo == null || uploadInfo.getId() == null) {
       return null;
     }
-    return uploadStorageService.getUploadedBytes(uploadInfo.getId());
+    return getUploadedBytes(uploadInfo.getId(), uploadInfo.getOwnerKey());
+  }
+
+  /**
+   * Method to retrieve the bytes that were uploaded to a specific upload represented by {@link
+   * UploadInfo} and matching the given owner key.
+   *
+   * @param uploadInfo The upload info representing the upload
+   * @param ownerKey The expected owner key of the upload
+   * @return An {@link InputStream} that will stream the uploaded bytes, or null if uploadInfo is
+   *     null, not found, or the owner key does not match
+   * @throws IOException When retrieving the uploaded bytes fails
+   * @throws TusException When the upload is still in progress or cannot be found
+   */
+  public InputStream getUploadedBytes(UploadInfo uploadInfo, String ownerKey)
+      throws IOException, TusException {
+    if (uploadInfo == null || uploadInfo.getId() == null) {
+      return null;
+    }
+    return getUploadedBytes(uploadInfo.getId(), ownerKey);
+  }
+
+  /**
+   * Method to retrieve the bytes that were uploaded to a specific upload represented by {@link
+   * UploadId}.
+   *
+   * @param uploadId The ID of the upload
+   * @return An {@link InputStream} that will stream the uploaded bytes, or null if uploadId is null
+   *     or not found
+   * @throws IOException When retrieving the uploaded bytes fails
+   * @throws TusException When the upload is still in progress or cannot be found
+   */
+  public InputStream getUploadedBytes(UploadId uploadId) throws IOException, TusException {
+    return getUploadedBytes(uploadId, null);
+  }
+
+  /**
+   * Method to retrieve the bytes that were uploaded to a specific upload represented by {@link
+   * UploadId} and matching the given owner key.
+   *
+   * @param uploadId The ID of the upload
+   * @param ownerKey The expected owner key of the upload
+   * @return An {@link InputStream} that will stream the uploaded bytes, or null if uploadId is
+   *     null, not found, or the owner key does not match
+   * @throws IOException When retrieving the uploaded bytes fails
+   * @throws TusException When the upload is still in progress or cannot be found
+   */
+  public InputStream getUploadedBytes(UploadId uploadId, String ownerKey)
+      throws IOException, TusException {
+    if (uploadId == null) {
+      return null;
+    }
+    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadId.toString())) {
+      UploadInfo storedInfo = uploadStorageService.getUploadInfo(uploadId);
+      if (storedInfo == null || !Objects.equals(storedInfo.getOwnerKey(), ownerKey)) {
+        return null;
+      }
+      return uploadStorageService.getUploadedBytes(uploadId);
+    }
   }
 
   /**
@@ -622,6 +681,42 @@ public class TusFileUploadService implements Closeable {
     try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadUri)) {
 
       return uploadStorageService.getUploadedBytes(uploadUri, ownerKey);
+    }
+  }
+
+  /**
+   * Get the information on the upload corresponding to the given upload ID.
+   *
+   * @param uploadId The ID of the upload
+   * @return Information on the upload, or null if not found
+   * @throws IOException When retrieving the upload information fails
+   * @throws TusException When the upload is still in progress or cannot be found
+   */
+  public UploadInfo getUploadInfo(UploadId uploadId) throws IOException, TusException {
+    return getUploadInfo(uploadId, null);
+  }
+
+  /**
+   * Get the information on the upload corresponding to the given upload ID and matching the given
+   * owner key.
+   *
+   * @param uploadId The ID of the upload
+   * @param ownerKey The expected owner key of the upload
+   * @return Information on the upload, or null if not found or the owner key does not match
+   * @throws IOException When retrieving the upload information fails
+   * @throws TusException When the upload is still in progress or cannot be found
+   */
+  public UploadInfo getUploadInfo(UploadId uploadId, String ownerKey)
+      throws IOException, TusException {
+    if (uploadId == null) {
+      return null;
+    }
+    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadId.toString())) {
+      UploadInfo storedInfo = uploadStorageService.getUploadInfo(uploadId);
+      if (storedInfo == null || !Objects.equals(storedInfo.getOwnerKey(), ownerKey)) {
+        return null;
+      }
+      return storedInfo;
     }
   }
 
@@ -656,15 +751,64 @@ public class TusFileUploadService implements Closeable {
 
   /**
    * Method to delete an upload associated with the given {@link UploadInfo}. Invoke this method if
-   * you no longer need the upload.
+   * you no longer need the upload. Validates the owner key under an exclusive upload lock.
    *
    * @param uploadInfo The upload info representing the upload to delete
    * @throws IOException When deleting the upload fails
    * @throws TusException When the upload cannot be found or deleted
    */
   public void deleteUpload(UploadInfo uploadInfo) throws IOException, TusException {
-    if (uploadInfo != null) {
-      uploadStorageService.terminateUpload(uploadInfo);
+    if (uploadInfo != null && uploadInfo.getId() != null) {
+      deleteUpload(uploadInfo.getId(), uploadInfo.getOwnerKey());
+    }
+  }
+
+  /**
+   * Method to delete an upload associated with the given {@link UploadInfo} and matching the given
+   * owner key. Invoke this method if you no longer need the upload.
+   *
+   * @param uploadInfo The upload info representing the upload to delete
+   * @param ownerKey The expected owner key of the upload
+   * @throws IOException When deleting the upload fails
+   * @throws TusException When the upload cannot be found or deleted
+   */
+  public void deleteUpload(UploadInfo uploadInfo, String ownerKey)
+      throws IOException, TusException {
+    if (uploadInfo != null && uploadInfo.getId() != null) {
+      deleteUpload(uploadInfo.getId(), ownerKey);
+    }
+  }
+
+  /**
+   * Method to delete an upload associated with the given {@link UploadId}. Invoke this method if
+   * you no longer need the upload.
+   *
+   * @param uploadId The ID of the upload to delete
+   * @throws IOException When deleting the upload fails
+   * @throws TusException When the upload cannot be locked
+   */
+  public void deleteUpload(UploadId uploadId) throws IOException, TusException {
+    deleteUpload(uploadId, null);
+  }
+
+  /**
+   * Method to delete an upload associated with the given {@link UploadId} and matching the given
+   * owner key. Invoke this method if you no longer need the upload.
+   *
+   * @param uploadId The ID of the upload to delete
+   * @param ownerKey The expected owner key of the upload
+   * @throws IOException When deleting the upload fails
+   * @throws TusException When the upload cannot be locked
+   */
+  public void deleteUpload(UploadId uploadId, String ownerKey) throws IOException, TusException {
+    if (uploadId == null) {
+      return;
+    }
+    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadId.toString())) {
+      UploadInfo storedInfo = uploadStorageService.getUploadInfo(uploadId);
+      if (storedInfo != null && Objects.equals(storedInfo.getOwnerKey(), ownerKey)) {
+        uploadStorageService.terminateUpload(storedInfo);
+      }
     }
   }
 
