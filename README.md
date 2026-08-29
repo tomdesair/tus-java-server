@@ -1,9 +1,34 @@
-[![Build and Tests](https://github.com/tomdesair/tus-java-server/actions/workflows/build.yml/badge.svg)](https://github.com/tomdesair/tus-java-server/actions?query=branch%3Amaster+) [![Coverage Status](https://coveralls.io/repos/github/tomdesair/tus-java-server/badge.svg?branch=master)](https://coveralls.io/github/tomdesair/tus-java-server?branch=master) [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=bugs)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=vulnerabilities)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Duplicated Lines](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=duplicated_lines_density)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server)
+[![Maven Central](https://img.shields.io/maven-central/v/me.desair.tus/tus-java-server.svg)](https://central.sonatype.com/artifact/me.desair.tus/tus-java-server) [![Java 17+](https://img.shields.io/badge/Java-17%2B-blue.svg)](https://adoptium.net) [![Build and Tests](https://github.com/tomdesair/tus-java-server/actions/workflows/build.yml/badge.svg)](https://github.com/tomdesair/tus-java-server/actions?query=branch%3Amaster+) [![Coverage Status](https://coveralls.io/repos/github/tomdesair/tus-java-server/badge.svg?branch=master)](https://coveralls.io/github/tomdesair/tus-java-server?branch=master) [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=bugs)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=vulnerabilities)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Duplicated Lines](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=duplicated_lines_density)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server)
 
 # tus-java-server
-This library can be used to enable resumable (and potentially asynchronous) file uploads in any Java web application. This allows the users of your application to upload large files over slow and unreliable internet connections. The ability to pause or resume a file upload (after a connection loss or reset) is achieved by implementing the open file upload protocol tus (https://tus.io/). This library implements the server-side of the tus v1.0.0 protocol as well as the official IETF Resumable Uploads for HTTP specification ([draft-ietf-httpbis-resumable-upload](https://datatracker.ietf.org/doc/draft-ietf-httpbis-resumable-upload/)), offering dual protocol version support.
+This library can be used to enable resumable (and potentially asynchronous) file uploads in any Java web application. This allows the users of your application to upload large files over slow and unreliable internet connections. The ability to pause or resume a file upload (after a connection loss or reset) is achieved by implementing the open file upload protocols tus (https://tus.io/) and Resumable Uploads for HTTP (RUFH). This library implements the server-side of the tus v1.0.0 protocol as well as the official IETF Resumable Uploads for HTTP specification ([draft-ietf-httpbis-resumable-upload](https://datatracker.ietf.org/doc/draft-ietf-httpbis-resumable-upload/)), offering dual protocol version support.
 
 The Javadoc of this library can be found at https://tus.desair.me/. As of version 2.0.0, this library requires Java 17+.
+
+### Key Features
+* ⚡ **Dual Protocol Support**: Seamless interoperability with [Tus 1.0.0](https://tus.io/) and the official [IETF Resumable Uploads for HTTP (draft-12)](https://datatracker.ietf.org/doc/draft-ietf-httpbis-resumable-upload/).
+* ☁️ **Pluggable Storage Backends**: Native support for Local Disk Volumes, NFS network shares, S3-compatible Object Storage (AWS S3, MinIO, Cloudflare R2, Ceph, GCS), and Azure Blob Storage.
+* 🔒 **Zero-Database Distributed Locking**: Built-in lease-based locking enabling multi-replica cluster & Kubernetes container deployments without requiring Redis or relational databases.
+* 🛡️ **Data Integrity & Resiliency**: Built-in HTTP Digests ([RFC 9530](https://www.rfc-editor.org/rfc/rfc9530.html)), checksum verification, and duplicate upload deduplication.
+* 🚀 **Production-Ready & Lightweight**: Minimal dependencies (Jakarta Servlet API 6.0 & Apache Commons), non-blocking lock contention resolution, and thread-local caching.
+
+## Table of Contents
+- [Storage Backend Options](#storage-backend-options)
+- [How Resumable Uploads Work](#how-resumable-uploads-work)
+- [Quick Start and Examples](#quick-start-and-examples)
+- [Usage and Configuration](#usage-and-configuration)
+  - [1. Setup & Configuration Options](#1-setup)
+  - [2. Receiving a Resumable Upload](#2-receiving-a-resumable-upload)
+  - [3. Handling Upload Completion & Retrieving Files](#3-handling-upload-completion--retrieving-files)
+  - [4. Upload cleanup](#4-upload-cleanup)
+- [Protocol Version Support (Tus 1.0.0 & IETF Resumable Uploads)](#protocol-version-support-tus-100--ietf-resumable-uploads)
+- [Protocol Extensions](#protocol-extensions)
+- [Advanced Usage](#advanced-usage)
+  - [HTTP Digests (RFC 9530)](#http-digests-rfc-9530)
+  - [Emitting HTTP 104 Interim Responses in Tomcat / Spring Boot](#emitting-http-104-interim-responses-in-tomcat--spring-boot)
+- [Compatible Client Implementations & Conformity Testing](#compatible-client-implementations--conformity-testing)
+- [Versioning](#versioning)
+- [Contributing](#contributing)
 
 ## Storage Backend Options
 
@@ -20,18 +45,83 @@ The Javadoc of this library can be found at https://tus.desair.me/. As of versio
    - **Microsoft Azure Cloud**: Native Azure Blob Storage using the `azure-storage-blob` SDK.
    - **Multi-Replica Support**: Uses native Azure Blob Leases (30s renewable leases) for distributed locking across cluster replicas. See [Azure Blob Storage Guide](docs/AZURE_BLOB_STORAGE.md).
 
+## How Resumable Uploads Work
+
+### Tus 1.0.0 Protocol Flow
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Frontend Client (Uppy / tus-js-client)
+    participant ProtocolEndpoint as Server: Tus Protocol Endpoint (/api/upload)
+    participant Storage as Storage Backend (Disk / S3 / Azure)
+    participant AppEndpoint as Application API (/api/documents)
+
+    Note over Client,Storage: 1. Create Resumable Upload Resource
+    Client->>ProtocolEndpoint: POST /api/upload<br/>(Tus-Resumable: 1.0.0, Upload-Length: 1048576, Upload-Metadata: ...)
+    ProtocolEndpoint->>Storage: Initialize upload metadata
+    ProtocolEndpoint-->>Client: 201 Created<br/>(Location: /api/upload/018f3a..., Tus-Resumable: 1.0.0)
+
+    Note over Client,Storage: 2. Stream Data Chunk(s)
+    Client->>ProtocolEndpoint: PATCH /api/upload/018f3a...<br/>(Upload-Offset: 0, Content-Type: application/offset+octet-stream)
+    ProtocolEndpoint->>Storage: Append chunk bytes to storage
+    ProtocolEndpoint-->>Client: 204 No Content<br/>(Upload-Offset: 1048576, Tus-Resumable: 1.0.0)
+
+    Note over Client,AppEndpoint: 3. Domain Notification & Consumption
+    Client->>AppEndpoint: POST /api/documents<br/>(uploadUrl: "/api/upload/018f3a...", fileName: "document.pdf")
+    AppEndpoint->>Storage: tusFileUploadService.getUploadedBytes(uploadUrl)
+    AppEndpoint->>Storage: tusFileUploadService.deleteUpload(uploadUrl)
+    AppEndpoint-->>Client: 200 OK (Processed)
+```
+
+### IETF Resumable Uploads for HTTP (RUFH) Flow
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Frontend Client (RUFH Client)
+    participant ProtocolEndpoint as Server: RUFH Protocol Endpoint (/api/upload)
+    participant Storage as Storage Backend (Disk / S3 / Azure)
+    participant AppEndpoint as Application API (/api/documents)
+
+    Note over Client,Storage: 1. Create Resumable Upload Resource
+    Client->>ProtocolEndpoint: POST /api/upload<br/>(Upload-Complete: ?0)
+    ProtocolEndpoint->>Storage: Initialize upload metadata
+    ProtocolEndpoint-->>Client: 201 Created<br/>(Location: /api/upload/018f3a...)
+
+    Note over Client,Storage: 2. Stream Data Chunk(s)
+    Client->>ProtocolEndpoint: PATCH /api/upload/018f3a...<br/>(Upload-Offset: 0, Upload-Complete: ?1, Content-Type: application/partial-upload)
+    ProtocolEndpoint->>Storage: Append chunk bytes to storage
+    ProtocolEndpoint-->>Client: 204 No Content<br/>(Upload-Offset: 1048576, Upload-Complete: ?1)
+
+    Note over Client,AppEndpoint: 3. Domain Notification & Consumption
+    Client->>AppEndpoint: POST /api/documents<br/>(uploadUrl: "/api/upload/018f3a...", fileName: "document.pdf")
+    AppEndpoint->>Storage: tusFileUploadService.getUploadedBytes(uploadUrl)
+    AppEndpoint->>Storage: tusFileUploadService.deleteUpload(uploadUrl)
+    AppEndpoint-->>Client: 200 OK (Processed)
+```
+
 ## Quick Start and Examples
 The tus-java-server library only depends on Jakarta Servlet API 6.0 and some Apache Commons utility libraries. This
-means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on a (shared) file system of the application server.
+means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on a (shared) file volume of the application server.
 
-You can add the latest stable version of this library to your application using Maven by adding the following dependency:
+You can add the latest stable version of this library to your application using Maven or Gradle:
 
+**Maven:**
 ```xml
 <dependency>
   <groupId>me.desair.tus</groupId>
   <artifactId>tus-java-server</artifactId>
   <version>2.0.0</version>
 </dependency>
+```
+
+**Gradle (Groovy):**
+```groovy
+implementation 'me.desair.tus:tus-java-server:2.0.0'
+```
+
+**Gradle (Kotlin):**
+```kotlin
+implementation("me.desair.tus:tus-java-server:2.0.0")
 ```
 
 When using S3 storage (`S3StorageService`) using the MinIO Java SDK or enabling JSON metadata serialization (`withJsonSerialization()`), also include the Jackson and MinIO dependencies matching `pom.xml`:
@@ -56,10 +146,154 @@ When using S3 storage (`S3StorageService`) using the MinIO Java SDK or enabling 
 
 The main entry point of the library is the `me.desair.tus.server.TusFileUploadService.process(jakarta.servlet.http.HttpServletRequest, jakarta.servlet.http.HttpServletResponse)` method. You can call this method inside a `jakarta.servlet.http.HttpServlet`, a `jakarta.servlet.Filter` or any REST API controller of a framework that gives you access to `HttpServletRequest` and `HttpServletResponse` objects. In the following list, you can find some example implementations:
 
+* [Resumable and asynchronous file upload in Spring Boot REST API with Uppy JavaScript client.](https://github.com/tomdesair/tus-java-server-spring-demo)
 * [Detailed blog post by Ralph](https://golb.hplar.ch/2019/06/upload-with-tus.html) on how to use this library in [Spring Boot in combination with the Tus JavaScript client](https://github.com/ralscha/blog2019/tree/master/uploadtus).
 * [Resumable and asynchronous file upload using Uppy with form submission in Dropwizard (Jetty)](https://github.com/tomdesair/tus-java-server-dropwizard-demo)
-* [Resumable and asynchronous file upload in Spring Boot REST API with Uppy JavaScript client.](https://github.com/tomdesair/tus-java-server-spring-demo)
 * (more examples to come!)
+
+#### Frontend Client Example (Uppy / JavaScript)
+Connect any standard Tus client (e.g. [Uppy](https://uppy.io/) or `tus-js-client`) to your backend upload endpoint:
+
+```javascript
+import Uppy from '@uppy/core';
+import Tus from '@uppy/tus';
+
+const uppy = new Uppy().use(Tus, {
+  endpoint: 'http://localhost:8080/api/upload',
+  chunkSize: 5 * 1024 * 1024 // 5MB chunk size
+});
+```
+
+## Usage and Configuration
+
+### 1. Setup
+The first step is to create a `TusFileUploadService` object using its constructor. You can make this object available as a (Spring bean) singleton or create a new instance for each request. For example, in a Spring Boot application:
+
+```java
+@Bean
+public TusFileUploadService tusFileUploadService() {
+    return new TusFileUploadService()
+        .withStoragePath("/path/to/uploads")
+        .withUploadUri("/api/upload")
+        .withThreadLocalCache(true);
+}
+```
+
+See the [tus-java-server-spring-demo](https://github.com/tomdesair/tus-java-server-spring-demo) repository for a complete Spring Boot reference implementation.
+
+After creating the object, you can configure it using the following methods:
+
+#### Configuration Options Reference
+
+| Method | Default | Description |
+|---|---|---|
+| `withUploadUri(String)` | `null` | Sets relative path (e.g. `/api/upload`) or absolute base URL (e.g. `https://upload.example.com/api/upload`) under which the upload endpoint is exposed. Supports regex parameters (e.g. `/users/[0-9]+/files/upload`). |
+| `withStoragePath(String)` | `${java.io.tmpdir}/tus` | Path on the filesystem or shared drive where uploaded bytes and metadata are stored when using `DiskStorageService`. |
+| `withSupportedProtocolVersions(ProtocolVersion)` | `ProtocolVersion.AUTO` | Configures protocol handling: `AUTO` (header-based auto-detection), `TUS_1_0_0` (Tus 1.0.0 only), or `RUFH` (IETF draft-12 only). |
+| `withMaxUploadSize(Long)` | `Long.MAX_VALUE` | Maximum allowed total upload size in bytes per upload resource. |
+| `withMaxLockRetries(int)` | `40` | Maximum lock acquisition retries during lock contention resolution (200ms sleep, resulting in an 8.0s timeout budget). |
+| `withChunkedTransferDecoding(Boolean)` | `false` | Enables manual chunked HTTP decoding for servlet containers that do not decode chunked requests natively. |
+| `withThreadLocalCache(Boolean)` | `false` | Enables in-memory thread-local caching of upload request data to reduce storage backend I/O load. |
+| `withUploadExpirationPeriod(Long)` | `null` (disabled) | Expiration period in milliseconds after which incomplete/expired uploads become eligible for cleanup. |
+| `withDownloadFeature()` | Disabled | Enables the unofficial `download` extension allowing clients to retrieve uploaded bytes via HTTP `GET`. |
+| `withUploadDeduplication(Boolean)` | `false` | Enables duplicate file detection by checksum, linking new uploads (`duplicatesUploadId`) and skipping redundant storage writes. |
+| `addTusExtension(TusExtension)` | All standard enabled | Adds a custom extension (e.g. application authorization checks). |
+| `disableTusExtension(String)` | None | Disables a built-in extension (`creation`, `checksum`, `expiration`, `concatenation`, `termination`, `download`, `cors`). |
+| `withUploadIdFactory(UploadIdFactory)` | `UuidUploadIdFactory` | Custom ID generator for upload resources (e.g., `UuidUploadIdFactory` or `TimeBasedUploadIdFactory`). |
+| `withJsonSerialization()` | Java serialization | Enables JSON serialization for upload metadata (`UploadInfo`), requiring Jackson databind on classpath. |
+| `withUploadStorageService(UploadStorageService)` | `DiskStorageService` | Configures custom or cloud storage backend (`DiskStorageService`, `S3StorageService`, `AzureBlobStorageService`). |
+| `withUploadLockingService(UploadLockingService)` | `LeaseFileLockingService` | Configures custom or cloud locking backend (`LeaseFileLockingService`, `S3LockingService`, `AzureBlobLockingService`). |
+
+The library provides filesystem-based storage (`DiskStorageService` / `LeaseFileLockingService`), S3-compatible object storage (`S3StorageService` / `S3LockingService`), and Azure Blob Storage (`AzureBlobStorageService` / `AzureBlobLockingService`). See the **[Disk & Network Storage Locking Guide](docs/DISK_BASED_LOCKING.md)**, **[S3 Storage Guide](docs/S3_STORAGE.md)**, and **[Azure Blob Storage Guide](docs/AZURE_BLOB_STORAGE.md)** for detailed instructions on multi-replica container deployments in Kubernetes, post-upload processing, and legacy locking opt-out.
+
+### 2. Receiving a Resumable Upload
+To process an upload request you have to pass the current `jakarta.servlet.http.HttpServletRequest` and `jakarta.servlet.http.HttpServletResponse` objects to the `me.desair.tus.server.TusFileUploadService.process()` method. Typical places were you can do this are inside Servlets, Filters or REST API Controllers.
+
+For example, in a Spring MVC REST Controller:
+
+```java
+@Controller
+@CrossOrigin(origins = "*")
+public class FileUploadController {
+
+  @Autowired
+  private TusFileUploadService tusFileUploadService;
+
+  @RequestMapping(
+      value = {"/api/upload", "/api/upload/**"},
+      method = {
+        RequestMethod.POST,
+        RequestMethod.PUT,
+        RequestMethod.PATCH,
+        RequestMethod.HEAD,
+        RequestMethod.DELETE,
+        RequestMethod.OPTIONS,
+        RequestMethod.GET
+      })
+  public void processUpload(HttpServletRequest request, HttpServletResponse response)
+      throws IOException {
+    tusFileUploadService.process(request, response);
+  }
+}
+```
+
+Optionally you can also pass a `String ownerKey` parameter to `process()`. The `ownerKey` can be used to have a hard separation between uploads of different users, groups or tenants in a multi-tenant setup. Examples of `ownerKey` values are user ID's, group names, client ID's...
+
+### 3. Handling Upload Completion & Retrieving Files
+When an upload completes, the client receives the final `204 No Content` response from the Tus protocol endpoint (`/api/upload/...`). Because Tus is a decoupled file transport protocol, your frontend application typically notifies your backend domain API (e.g. `POST /api/documents`) that the upload is complete and passes along the `uploadUrl`.
+
+> [!NOTE]
+> `POST /api/documents` represents your application's domain REST endpoint, not a protocol endpoint. The Tus server itself handles file transfer (`/api/upload`), while your application endpoint coordinates business logic, database persistence, and final file consumption.
+
+```java
+@RestController
+public class DocumentController {
+
+  @Autowired
+  private TusFileUploadService tusFileUploadService;
+
+  @PostMapping("/api/documents")
+  public ResponseEntity<Void> completeDocumentUpload(@RequestBody DocumentUploadRequest request)
+      throws IOException {
+    String uploadUrl = request.getUploadUrl();
+
+    // 1. Retrieve upload metadata (filename, original length, custom client metadata)
+    UploadInfo info = tusFileUploadService.getUploadInfo(uploadUrl);
+    String originalFileName = info.getMetadata().get("filename");
+
+    // 2. Stream uploaded bytes to permanent storage, database, or virus scanner
+    try (InputStream is = tusFileUploadService.getUploadedBytes(uploadUrl)) {
+      Files.copy(is, Paths.get("/var/data/documents", originalFileName));
+    }
+
+    // 3. Clean up the temporary upload bytes and locks
+    tusFileUploadService.deleteUpload(uploadUrl);
+
+    return ResponseEntity.ok().build();
+  }
+}
+```
+
+Using the `me.desair.tus.server.TusFileUploadService.getUploadInfo(String uploadUrl)` method you can retrieve metadata about a specific upload process. This includes metadata provided by the client as well as metadata kept by the library like creation timestamp, creator ip-address list, upload length... The method `UploadInfo.getId()` will return the unique identifier of this upload encapsulated in an `UploadId` instance. The original (custom generated) identifier object of this upload can be retrieved using `UploadId.getOriginalObject()`. A URL safe string representation of the identifier is returned by `UploadId.toString()`. It is highly recommended to consult the [JavaDoc of both classes](https://tus.desair.me/).
+
+#### Cloud Storage Native Processing (S3 & Azure Blob)
+When using cloud object storage backends, downstream services can directly obtain the raw cloud object key or blob name to perform zero-download server-side copying, background job processing, or direct cloud SDK operations:
+
+* **S3 / MinIO Storage**: Use `((S3StorageService) tusFileUploadService.getUploadStorageService()).getS3ObjectKey(uploadUrl)` to get the full S3 object key (e.g. `uploads/018f3a...`). For complete server-side `copyObject` examples and MinIO SDK usage, see the **[S3 Storage Guide](docs/S3_STORAGE.md#4-post-upload-processing-gets3objectkey)**.
+* **Azure Blob Storage**: Use `((AzureBlobStorageService) tusFileUploadService.getUploadStorageService()).getAzureBlobName(uploadUrl)` to get the full blob name. For complete Azure SDK examples with `BlobClient`, see the **[Azure Blob Storage Guide](docs/AZURE_BLOB_STORAGE.md#4-post-upload-processing-getazureblobname)**.
+
+### 4. Upload cleanup
+After having processed the uploaded bytes on the server backend (e.g. copy them to their final persistent location), it's important to cleanup the (temporary) uploaded bytes. This can be done by calling the `me.desair.tus.server.TusFileUploadService.deleteUpload(String uploadUri)` method as shown in the example above. This will remove the uploaded bytes and any associated upload information from the storage backend. Alternatively, a client can also remove an (in-progress) upload using the [termination extension](https://tus.io/protocols/resumable-upload.html#termination).
+
+Next to removing uploads after they have been completed and processed by the backend, it is also recommended to schedule a regular maintenance task to clean up any expired uploads or locks. Cleaning up expired uploads and locks can be achieved using the `me.desair.tus.server.TusFileUploadService.cleanup()` method:
+
+```java
+// Run periodically (e.g., via @Scheduled in Spring)
+@Scheduled(fixedDelay = 600000) // Every 10 minutes
+public void cleanupExpiredUploads() {
+    tusFileUploadService.cleanup();
+}
+```
 
 ## Protocol Version Support (Tus 1.0.0 & IETF Resumable Uploads)
 
@@ -94,7 +328,7 @@ You can configure protocol support via `withSupportedProtocolVersions(ProtocolVe
 | **Download Extension** | Supported (`Download` extension) | Supported (`Download` extension; without it, `GET` requests perform offset retrieval) |
 
 ## Protocol Extensions
-Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-protocol), the library has all optional tus protocol extensions enabled by default. This means that the `Tus-Extension` header has value `creation,creation-defer-length,creation-with-upload,checksum,checksum-trailer,termination,expiration,concatenation,concatenation-unfinished`. Optionally you can also enable an unofficial `download` extension (see [configuration section](#usage-and-configuration)).
+Besides the [tus core protocol](https://tus.io/protocols/resumable-upload.html#core-protocol), the library has all optional tus protocol extensions enabled by default. This means that the `Tus-Extension` header has value `creation,creation-defer-length,creation-with-upload,checksum,checksum-trailer,termination,expiration,concatenation,concatenation-unfinished`. Optionally you can also enable an unofficial `download` extension (see [configuration section](#usage-and-configuration)).
 
 * [creation](https://tus.io/protocols/resumable-upload.html#creation): The creation extension allows you to create new uploads and to retrieve the upload URL for them.
 * [creation-defer-length](https://tus.io/protocols/resumable-upload.html#post): You can create a new upload even if you don't know its final length at the time of creation.
@@ -111,27 +345,7 @@ Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-
 * `download`: The (unofficial) download extension allows clients to download uploaded files using a HTTP `GET` request. You can enable this extension by calling the `withDownloadFeature()` method.
 * `cors`: The (unofficial) CORS extension adds native CORS support out-of-the-box, setting CORS headers for all requests and responses, and handling preflight `OPTIONS` requests automatically. It is enabled by default.
 
-## Usage and Configuration
-
-### 1. Setup
-The first step is to create a `TusFileUploadService` object using its constructor. You can make this object available as a (Spring bean) singleton or create a new instance for each request. After creating the object, you can configure it using the following methods:
-
-* `withUploadUri(String)`: Set the relative path (e.g. `/files/upload`) or absolute base URL (e.g. `https://upload.example.com/files/upload`) under which the main tus upload endpoint will be made available. When configured with an absolute URL, the `Location` header returned upon upload creation (201 Created, 200 OK, or 104 Interim Response) will contain the full URL. Optionally, this URI may contain regex parameters in order to support endpoints that contain URL parameters, for example `/users/[0-9]+/files/upload` or `https://upload.example.com/users/[0-9]+/files/upload`.
-* `withSupportedProtocolVersions(ProtocolVersion)`: Configure supported protocol versions (`ProtocolVersion.AUTO` for automatic header-based detection, `ProtocolVersion.TUS_1_0_0` for Tus 1.0.0 only, or `ProtocolVersion.RUFH` for IETF Resumable Uploads only).
-* `withMaxUploadSize(Long)`: Specify the maximum number of bytes that can be uploaded per upload. If you don't call this method, the maximum number of bytes is `Long.MAX_VALUE`.
-* `withStoragePath(String)`: If you're using the default file system-based storage service, you can use this method to specify the path where to store the uploaded bytes and upload information.
-* `withMaxLockRetries(int)`: Specify the maximum number of retries the service will attempt to acquire an upload lock before failing with an `UploadAlreadyLockedException` during lock contention resolution (e.g. for `HEAD` or `DELETE` requests). Default is `40` retries (with a 200ms sleep between retries, resulting in an 8.0-second retry budget).
-* `withChunkedTransferDecoding`: You can enable or disable the decoding of chunked HTTP requests by this library. Enable this feature in case the web container in which this service is running does not decode chunked transfers itself. By default, chunked decoding via this library is disabled (as modern frameworks tend to already do this for you).
-* `withThreadLocalCache(Boolean)`: Optionally you can enable (or disable) an in-memory (thread local) cache of upload request data to reduce load on the storage backend and potentially increase performance when processing upload requests.
-* `withUploadExpirationPeriod(Long)`: You can set the number of milliseconds after which an upload is considered as expired and available for cleanup. Applies to both Tus 1.0.0 (`Upload-Expires` response header) and IETF RUFH (`max-age` parameter in `Upload-Limit` response header).
-* `withDownloadFeature()`: Enable the unofficial `download` extension that allows clients to download uploaded bytes via `GET`. This feature is disabled by default.
-  * **Disclaimer**: Enabling the download extension for `GET` requests may interfere with IETF RUFH `GET` offset retrieval conformity (Section 4.3 of draft-12), as RUFH specifies `GET` requests for offset retrieval returning `204 No Content`.
-* `withUploadDeduplication(Boolean)`: Enable duplicate file processing based on the checksum hash. If enabled, the server will scan previous completed uploads for a file with the same checksum. If a duplicate is found, the new upload will link to the existing file (`duplicatesUploadId`), skipping redundant disk storage writes and saving disk space.
-  * **Disclaimer**: If duplicate file processing is enabled, the duplicate (child) upload depends directly on the original (parent) upload file. If the original parent upload is deleted or terminated, any duplicate child uploads pointing to it will no longer be downloadable (returning `404 Not Found`).
-* `addTusExtension(TusExtension)`: Add a custom (application-specific) extension that implements the `me.desair.tus.server.TusExtension` interface. For example you can add your own extension that checks authentication and authorization policies within your application for the user doing the upload.
-* `disableTusExtension(String)`: Disable the `TusExtension` for which the `getName()` method matches the provided string. The default extensions have names "creation", "creation-with-upload", "checksum", "expiration", "concatenation", "termination", "download" and "cors". You cannot disable the "core" feature.
-* `withUploadIdFactory(UploadIdFactory)`: Provide a custom `UploadIdFactory` implementation that should be used to generate identifiers for the different uploads. The default implementation generates identifiers using a UUID (`UuidUploadIdFactory`). Another example implementation of a custom ID factory is the system-time based `TimeBasedUploadIdFactory` class.
-* `withJsonSerialization()`: Instruct the storage service (`DiskStorageService` or `S3StorageService`) to serialize upload metadata (`UploadInfo`) in JSON format instead of standard Java serialization. Requires Jackson databind on the application classpath (see below).
+## Advanced Usage
 
 ### HTTP Digests ([RFC 9530](https://www.rfc-editor.org/rfc/rfc9530.html))
 The `http-digests` extension implements RFC 9530 to support data integrity checks for both individual data chunks (`Content-Digest`) and the entire file (`Repr-Digest`).
@@ -155,24 +369,6 @@ public TomcatServletWebServerFactory tomcatFactory(TusFileUploadService tusFileU
     return factory;
 }
 ```
-
-
-The library provides filesystem-based storage (`DiskStorageService` / `LeaseFileLockingService`), S3-compatible object storage (`S3StorageService` / `S3LockingService`), and Azure Blob Storage (`AzureBlobStorageService` / `AzureBlobLockingService`). See the **[Disk & Network Storage Locking Guide](docs/DISK_BASED_LOCKING.md)**, **[S3 Storage Guide](docs/S3_STORAGE.md)**, and **[Azure Blob Storage Guide](docs/AZURE_BLOB_STORAGE.md)** for detailed instructions on multi-replica container deployments in Kubernetes, post-upload processing, and legacy locking opt-out. You can also provide custom implementations of `UploadStorageService` and `UploadLockingService` using `withUploadStorageService(UploadStorageService)` and `withUploadLockingService(UploadLockingService)`.
-
-### 2. Processing an upload
-To process an upload request you have to pass the current `jakarta.servlet.http.HttpServletRequest` and `jakarta.servlet.http.HttpServletResponse` objects to the `me.desair.tus.server.TusFileUploadService.process()` method. Typical places were you can do this are inside Servlets, Filters or REST API Controllers (see [examples](#quick-start-and-examples)).
-
-Optionally you can also pass a `String ownerKey` parameter. The `ownerKey` can be used to have a hard separation between uploads of different users, groups or tenants in a multi-tenant setup. Examples of `ownerKey` values are user ID's, group names, client ID's...
-
-### 3. Retrieving the uploaded bytes and metadata within the application
-Once the upload has been completed by the user, the business logic layer of your application needs to retrieve and do something with the uploaded bytes. For example it could read the contents of the file, or move the uploaded bytes to their final persistent storage location. Retrieving the uploaded bytes in the backend can be achieved by using the `me.desair.tus.server.TusFileUploadService.getUploadedBytes(String uploadUrl)` method. The passed `uploadUrl` value should be the upload url used by the client to which the file was uploaded. Therefor your application should pass the upload URL of completed uploads to the backend. Optionally, you can also pass an `ownerKey` value to this method in case your application chooses to process uploads using owner keys. Examples of values that can be used as an `ownerKey` are: an internal user identifier, a session ID, the name of the subpart of your application...
-
-Using the `me.desair.tus.server.TusFileUploadService.getUploadInfo(String uploadUrl)` method you can retrieve metadata about a specific upload process. This includes metadata provided by the client as well as metadata kept by the library like creation timestamp, creator ip-address list, upload length... The method `UploadInfo.getId()` will return the unique identifier of this upload encapsulated in an `UploadId` instance. The original (custom generated) identifier object of this upload can be retrieved using `UploadId.getOriginalObject()`. A URL safe string representation of the identifier is returned by `UploadId.toString()`. It is highly recommended to consult the [JavaDoc of both classes](https://tus.desair.me/).
-
-### 4. Upload cleanup
-After having processed the uploaded bytes on the server backend (e.g. copy them to their final persistent location), it's important to cleanup the (temporary) uploaded bytes. This can be done by calling the `me.desair.tus.server.TusFileUploadService.deleteUpload(String uploadUri)` method. This will remove the uploaded bytes and any associated upload information from the storage backend. Alternatively, a client can also remove an (in-progress) upload using the [termination extension](https://tus.io/protocols/resumable-upload.html#termination).
-
-Next to removing uploads after they have been completed and processed by the backend, it is also recommended to schedule a regular maintenance task to clean up any expired uploads or locks. Cleaning up expired uploads and locks can be achieved using the `me.desair.tus.server.TusFileUploadService.cleanup()` method.
 
 ## Compatible Client Implementations & Conformity Testing
 This server implementation has been tested with:
