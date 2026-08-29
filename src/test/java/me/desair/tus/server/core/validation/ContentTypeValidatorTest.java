@@ -2,7 +2,6 @@ package me.desair.tus.server.core.validation;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.fail;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -25,16 +24,10 @@ public class ContentTypeValidatorTest {
 
   @Test
   public void validateValid() throws Exception {
-    servletRequest.addHeader(
-        HttpHeader.CONTENT_TYPE, ContentTypeValidator.APPLICATION_OFFSET_OCTET_STREAM);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_OFFSET_OCTET_STREAM);
 
-    try {
-      validator.validate(HttpMethod.PATCH, servletRequest, null, null);
-    } catch (Exception ex) {
-      fail();
-    }
-
-    // No exception is thrown
+    validator.validate(HttpMethod.PATCH, servletRequest, null, null);
+    // KISS: verifying method executes cleanly without throwing an exception
   }
 
   @Test(expected = InvalidContentTypeException.class)
@@ -55,6 +48,32 @@ public class ContentTypeValidatorTest {
     validator.validate(HttpMethod.PATCH, servletRequest, null, null);
 
     // Expect a InvalidContentTypeException exception
+  }
+
+  @Test
+  public void validateValidWithCharset() throws Exception {
+    servletRequest.addHeader(
+        HttpHeader.CONTENT_TYPE, "application/offset+octet-stream;charset=UTF-8");
+
+    validator.validate(HttpMethod.PATCH, servletRequest, null, null);
+    // KISS: verifying method executes cleanly without throwing an exception
+  }
+
+  @Test
+  public void validateValidWithWhitespaceAndCharset() throws Exception {
+    servletRequest.addHeader(
+        HttpHeader.CONTENT_TYPE, "application/offset+octet-stream ; charset=utf-8");
+
+    validator.validate(HttpMethod.PATCH, servletRequest, null, null);
+    // KISS: verifying method executes cleanly without throwing an exception
+  }
+
+  @Test
+  public void validateValidCaseInsensitive() throws Exception {
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "APPLICATION/OFFSET+OCTET-STREAM");
+
+    validator.validate(HttpMethod.PATCH, servletRequest, null, null);
+    // KISS: verifying method executes cleanly without throwing an exception
   }
 
   @Test

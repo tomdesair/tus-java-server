@@ -76,4 +76,33 @@ public class PostContentTypeValidatorTest {
       fail();
     }
   }
+
+  @Test
+  public void validateContentTypeWithCharset() throws Exception {
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 100L);
+    servletRequest.addHeader(
+        HttpHeader.CONTENT_TYPE, "application/offset+octet-stream;charset=UTF-8");
+
+    validator.validate(HttpMethod.POST, servletRequest, null, null);
+    // KISS: verifying method executes cleanly without throwing an exception
+  }
+
+  @Test
+  public void validateContentTypeWithWhitespaceAndCharset() throws Exception {
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 100L);
+    servletRequest.addHeader(
+        HttpHeader.CONTENT_TYPE, "application/offset+octet-stream ; charset=utf-8");
+
+    validator.validate(HttpMethod.POST, servletRequest, null, null);
+    // KISS: verifying method executes cleanly without throwing an exception
+  }
+
+  @Test
+  public void validateContentTypeCaseInsensitive() throws Exception {
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 100L);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "APPLICATION/OFFSET+OCTET-STREAM");
+
+    validator.validate(HttpMethod.POST, servletRequest, null, null);
+    // KISS: verifying method executes cleanly without throwing an exception
+  }
 }

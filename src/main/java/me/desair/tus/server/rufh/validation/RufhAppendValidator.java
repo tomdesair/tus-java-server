@@ -20,7 +20,6 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.StructuredHeaderUtil;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.lang3.Strings;
 
 /**
  * Request validator checking data append requests via HTTP PATCH.
@@ -75,8 +74,8 @@ public class RufhAppendValidator implements RequestValidator {
     }
 
     String contentType = request.getHeader(HttpHeader.CONTENT_TYPE);
-    if (!Strings.CS.startsWith(contentType, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD)
-        && !Strings.CS.startsWith(contentType, "application/offset+octet-stream")) {
+    if (!Utils.isMediaType(contentType, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD)
+        && !Utils.isMediaType(contentType, HttpHeader.CONTENT_TYPE_OFFSET_OCTET_STREAM)) {
       throw new UnsupportedMediaTypeException("Unsupported Content-Type for append request");
     }
 

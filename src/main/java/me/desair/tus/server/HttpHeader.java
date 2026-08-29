@@ -119,6 +119,12 @@ public class HttpHeader {
   /** Media type application/partial-upload used for IETF Resumable Upload append requests. */
   public static final String CONTENT_TYPE_PARTIAL_UPLOAD = "application/partial-upload";
 
+  /**
+   * Media type application/offset+octet-stream used for Tus 1.0.0 PATCH and creation-with-upload
+   * POST requests.
+   */
+  public static final String CONTENT_TYPE_OFFSET_OCTET_STREAM = "application/offset+octet-stream";
+
   /** Media type application/problem+json used for RFC 7807 problem details error responses. */
   public static final String CONTENT_TYPE_PROBLEM_JSON = "application/problem+json";
 
