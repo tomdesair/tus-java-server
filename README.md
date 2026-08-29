@@ -7,7 +7,7 @@ The Javadoc of this library can be found at https://tus.desair.me/. As of versio
 
 ### Key Features
 * ⚡ **Dual Protocol Support**: Seamless interoperability with [Tus 1.0.0](https://tus.io/) and the official [IETF Resumable Uploads for HTTP (draft-12)](https://datatracker.ietf.org/doc/draft-ietf-httpbis-resumable-upload/).
-* ☁️ **Pluggable Storage Backends**: Native support for Local Disk, NFS network shares, S3-compatible Object Storage (AWS S3, MinIO, Cloudflare R2, Ceph, GCS), and Azure Blob Storage.
+* ☁️ **Pluggable Storage Backends**: Native support for Local Disk Volumes, NFS network shares, S3-compatible Object Storage (AWS S3, MinIO, Cloudflare R2, Ceph, GCS), and Azure Blob Storage.
 * 🔒 **Zero-Database Distributed Locking**: Built-in lease-based locking enabling multi-replica cluster & Kubernetes container deployments without requiring Redis or relational databases.
 * 🛡️ **Data Integrity & Resiliency**: Built-in HTTP Digests ([RFC 9530](https://www.rfc-editor.org/rfc/rfc9530.html)), checksum verification, and duplicate upload deduplication.
 * 🚀 **Production-Ready & Lightweight**: Minimal dependencies (Jakarta Servlet API 6.0 & Apache Commons), non-blocking lock contention resolution, and thread-local caching.
@@ -18,7 +18,7 @@ The Javadoc of this library can be found at https://tus.desair.me/. As of versio
 - [Quick Start and Examples](#quick-start-and-examples)
 - [Usage and Configuration](#usage-and-configuration)
   - [1. Setup & Configuration Options](#1-setup)
-  - [2. Processing an upload](#2-processing-an-upload)
+  - [2. Receiving a Resumable Upload](#2-receiving-a-resumable-upload)
   - [3. Handling Upload Completion & Retrieving Files](#3-handling-upload-completion--retrieving-files)
   - [4. Upload cleanup](#4-upload-cleanup)
 - [Protocol Version Support (Tus 1.0.0 & IETF Resumable Uploads)](#protocol-version-support-tus-100--ietf-resumable-uploads)
@@ -101,7 +101,7 @@ sequenceDiagram
 
 ## Quick Start and Examples
 The tus-java-server library only depends on Jakarta Servlet API 6.0 and some Apache Commons utility libraries. This
-means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on a (shared) file system of the application server.
+means that (in theory) you can use this library on any modern Java Web Application server like Tomcat, JBoss, Jetty... By default all uploaded data and information is stored on a (shared) file volume of the application server.
 
 You can add the latest stable version of this library to your application using Maven or Gradle:
 
@@ -146,9 +146,9 @@ When using S3 storage (`S3StorageService`) using the MinIO Java SDK or enabling 
 
 The main entry point of the library is the `me.desair.tus.server.TusFileUploadService.process(jakarta.servlet.http.HttpServletRequest, jakarta.servlet.http.HttpServletResponse)` method. You can call this method inside a `jakarta.servlet.http.HttpServlet`, a `jakarta.servlet.Filter` or any REST API controller of a framework that gives you access to `HttpServletRequest` and `HttpServletResponse` objects. In the following list, you can find some example implementations:
 
+* [Resumable and asynchronous file upload in Spring Boot REST API with Uppy JavaScript client.](https://github.com/tomdesair/tus-java-server-spring-demo)
 * [Detailed blog post by Ralph](https://golb.hplar.ch/2019/06/upload-with-tus.html) on how to use this library in [Spring Boot in combination with the Tus JavaScript client](https://github.com/ralscha/blog2019/tree/master/uploadtus).
 * [Resumable and asynchronous file upload using Uppy with form submission in Dropwizard (Jetty)](https://github.com/tomdesair/tus-java-server-dropwizard-demo)
-* [Resumable and asynchronous file upload in Spring Boot REST API with Uppy JavaScript client.](https://github.com/tomdesair/tus-java-server-spring-demo)
 * (more examples to come!)
 
 #### Frontend Client Example (Uppy / JavaScript)
@@ -206,7 +206,7 @@ After creating the object, you can configure it using the following methods:
 
 The library provides filesystem-based storage (`DiskStorageService` / `LeaseFileLockingService`), S3-compatible object storage (`S3StorageService` / `S3LockingService`), and Azure Blob Storage (`AzureBlobStorageService` / `AzureBlobLockingService`). See the **[Disk & Network Storage Locking Guide](docs/DISK_BASED_LOCKING.md)**, **[S3 Storage Guide](docs/S3_STORAGE.md)**, and **[Azure Blob Storage Guide](docs/AZURE_BLOB_STORAGE.md)** for detailed instructions on multi-replica container deployments in Kubernetes, post-upload processing, and legacy locking opt-out.
 
-### 2. Processing an upload
+### 2. Receiving a Resumable Upload
 To process an upload request you have to pass the current `jakarta.servlet.http.HttpServletRequest` and `jakarta.servlet.http.HttpServletResponse` objects to the `me.desair.tus.server.TusFileUploadService.process()` method. Typical places were you can do this are inside Servlets, Filters or REST API Controllers.
 
 For example, in a Spring MVC REST Controller:
@@ -328,7 +328,7 @@ You can configure protocol support via `withSupportedProtocolVersions(ProtocolVe
 | **Download Extension** | Supported (`Download` extension) | Supported (`Download` extension; without it, `GET` requests perform offset retrieval) |
 
 ## Protocol Extensions
-Besides the [core protocol](https://tus.io/protocols/resumable-upload.html#core-protocol), the library has all optional tus protocol extensions enabled by default. This means that the `Tus-Extension` header has value `creation,creation-defer-length,creation-with-upload,checksum,checksum-trailer,termination,expiration,concatenation,concatenation-unfinished`. Optionally you can also enable an unofficial `download` extension (see [configuration section](#usage-and-configuration)).
+Besides the [tus core protocol](https://tus.io/protocols/resumable-upload.html#core-protocol), the library has all optional tus protocol extensions enabled by default. This means that the `Tus-Extension` header has value `creation,creation-defer-length,creation-with-upload,checksum,checksum-trailer,termination,expiration,concatenation,concatenation-unfinished`. Optionally you can also enable an unofficial `download` extension (see [configuration section](#usage-and-configuration)).
 
 * [creation](https://tus.io/protocols/resumable-upload.html#creation): The creation extension allows you to create new uploads and to retrieve the upload URL for them.
 * [creation-defer-length](https://tus.io/protocols/resumable-upload.html#post): You can create a new upload even if you don't know its final length at the time of creation.
