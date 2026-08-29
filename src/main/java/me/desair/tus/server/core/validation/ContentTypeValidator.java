@@ -12,8 +12,6 @@ import me.desair.tus.server.util.Utils;
 /** All PATCH requests MUST use Content-Type: application/offset+octet-stream. */
 public class ContentTypeValidator implements RequestValidator {
 
-  static final String APPLICATION_OFFSET_OCTET_STREAM = "application/offset+octet-stream";
-
   @Override
   public void validate(
       HttpMethod method,
@@ -23,12 +21,12 @@ public class ContentTypeValidator implements RequestValidator {
       throws TusException {
 
     String contentType = Utils.getHeader(request, HttpHeader.CONTENT_TYPE);
-    if (!APPLICATION_OFFSET_OCTET_STREAM.equals(contentType)) {
+    if (!Utils.isMediaType(contentType, HttpHeader.CONTENT_TYPE_OFFSET_OCTET_STREAM)) {
       throw new InvalidContentTypeException(
           "The "
               + HttpHeader.CONTENT_TYPE
               + " header must contain value "
-              + APPLICATION_OFFSET_OCTET_STREAM);
+              + HttpHeader.CONTENT_TYPE_OFFSET_OCTET_STREAM);
     }
   }
 

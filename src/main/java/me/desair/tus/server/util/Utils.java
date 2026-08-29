@@ -308,6 +308,38 @@ public class Utils {
   }
 
   /**
+   * Checks whether the given Content-Type header matches the expected media type, ignoring optional
+   * parameters (such as ;charset=UTF-8) and casing per RFC 9110 §8.3.
+   *
+   * @param contentTypeHeader The Content-Type header value from the request
+   * @param expectedMediaType The expected media type (e.g. application/offset+octet-stream)
+   * @return true if the base media type matches the expected type, false otherwise
+   */
+  public static boolean isMediaType(String contentTypeHeader, String expectedMediaType) {
+    if (contentTypeHeader == null || expectedMediaType == null) {
+      return false;
+    }
+    String baseType = extractMediaType(contentTypeHeader);
+    return Strings.CI.equals(baseType, expectedMediaType.trim());
+  }
+
+  /**
+   * Extracts the base media type from a Content-Type header (the portion before any ';' parameter).
+   *
+   * @param contentTypeHeader The Content-Type header value
+   * @return The trimmed base media type, or null if the header is null
+   */
+  public static String extractMediaType(String contentTypeHeader) {
+    if (contentTypeHeader == null) {
+      return null;
+    }
+    int semicolonIdx = contentTypeHeader.indexOf(';');
+    String baseType =
+        semicolonIdx >= 0 ? contentTypeHeader.substring(0, semicolonIdx) : contentTypeHeader;
+    return baseType.trim();
+  }
+
+  /**
    * Resolves the upload URI from the HTTP request and response context.
    *
    * @param method The HttpMethod of the request
@@ -354,10 +386,11 @@ public class Utils {
           || StringUtils.isNotBlank(request.getHeader(HttpHeader.UPLOAD_COMPLETE))
           || StringUtils.isNotBlank(request.getHeader(HttpHeader.UPLOAD_DRAFT))
           || StringUtils.isNotBlank(request.getHeader("upload-draft-interop-version"))
-          || Strings.CS.startsWith(
+          || isMediaType(
               request.getHeader(HttpHeader.CONTENT_TYPE), HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD)
-          || Strings.CS.startsWith(
-              request.getHeader(HttpHeader.CONTENT_TYPE), "application/offset+octet-stream")) {
+          || isMediaType(
+              request.getHeader(HttpHeader.CONTENT_TYPE),
+              HttpHeader.CONTENT_TYPE_OFFSET_OCTET_STREAM)) {
         return ProtocolVersion.RUFH;
       }
       String method = request.getMethod();

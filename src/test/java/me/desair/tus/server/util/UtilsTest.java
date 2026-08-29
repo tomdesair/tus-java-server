@@ -907,6 +907,46 @@ public class UtilsTest {
     assertThat(Files.exists(unrelatedFile), is(true));
   }
 
+  @Test
+  public void testIsMediaType() {
+    assertThat(Utils.isMediaType(null, "application/offset+octet-stream"), is(false));
+    assertThat(Utils.isMediaType("application/offset+octet-stream", null), is(false));
+    assertThat(
+        Utils.isMediaType("application/offset+octet-stream", "application/offset+octet-stream"),
+        is(true));
+    assertThat(
+        Utils.isMediaType(
+            "application/offset+octet-stream;charset=UTF-8", "application/offset+octet-stream"),
+        is(true));
+    assertThat(
+        Utils.isMediaType(
+            "application/offset+octet-stream ; charset=utf-8", "application/offset+octet-stream"),
+        is(true));
+    assertThat(
+        Utils.isMediaType("APPLICATION/OFFSET+OCTET-STREAM", "application/offset+octet-stream"),
+        is(true));
+    assertThat(
+        Utils.isMediaType(
+            "application/partial-upload; charset=UTF-8", "application/partial-upload"),
+        is(true));
+    assertThat(Utils.isMediaType("application/json", "application/offset+octet-stream"), is(false));
+    assertThat(Utils.isMediaType("text/plain", "application/offset+octet-stream"), is(false));
+  }
+
+  @Test
+  public void testExtractMediaType() {
+    assertThat(Utils.extractMediaType(null), is(nullValue()));
+    assertThat(
+        Utils.extractMediaType("application/offset+octet-stream"),
+        is("application/offset+octet-stream"));
+    assertThat(
+        Utils.extractMediaType("application/offset+octet-stream;charset=UTF-8"),
+        is("application/offset+octet-stream"));
+    assertThat(
+        Utils.extractMediaType("  application/offset+octet-stream ; charset=utf-8 "),
+        is("application/offset+octet-stream"));
+  }
+
   /** Simple serializable class for testing. */
   public static class TestSerializable implements Serializable {
     private static final long serialVersionUID = 1L;
