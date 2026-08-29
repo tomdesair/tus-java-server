@@ -18,7 +18,7 @@ The Javadoc of this library can be found at https://tus.desair.me/. As of versio
 - [Quick Start and Examples](#quick-start-and-examples)
 - [Usage and Configuration](#usage-and-configuration)
   - [1. Setup & Configuration Options](#1-setup)
-  - [2. Processing an upload](#2-processing-an-upload)
+  - [2. Receiving a Resumable Upload](#2-receiving-a-resumable-upload)
   - [3. Handling Upload Completion & Retrieving Files](#3-handling-upload-completion--retrieving-files)
   - [4. Upload cleanup](#4-upload-cleanup)
 - [Protocol Version Support (Tus 1.0.0 & IETF Resumable Uploads)](#protocol-version-support-tus-100--ietf-resumable-uploads)
@@ -206,7 +206,7 @@ After creating the object, you can configure it using the following methods:
 
 The library provides filesystem-based storage (`DiskStorageService` / `LeaseFileLockingService`), S3-compatible object storage (`S3StorageService` / `S3LockingService`), and Azure Blob Storage (`AzureBlobStorageService` / `AzureBlobLockingService`). See the **[Disk & Network Storage Locking Guide](docs/DISK_BASED_LOCKING.md)**, **[S3 Storage Guide](docs/S3_STORAGE.md)**, and **[Azure Blob Storage Guide](docs/AZURE_BLOB_STORAGE.md)** for detailed instructions on multi-replica container deployments in Kubernetes, post-upload processing, and legacy locking opt-out.
 
-### 2. Processing an upload
+### 2. Receiving a Resumable Upload
 To process an upload request you have to pass the current `jakarta.servlet.http.HttpServletRequest` and `jakarta.servlet.http.HttpServletResponse` objects to the `me.desair.tus.server.TusFileUploadService.process()` method. Typical places were you can do this are inside Servlets, Filters or REST API Controllers.
 
 For example, in a Spring MVC REST Controller:
