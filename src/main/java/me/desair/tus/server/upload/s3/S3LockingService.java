@@ -265,12 +265,6 @@ public class S3LockingService extends AbstractLeaseLockingService {
     }
   }
 
-  private void deleteExpiredLockQuietly(String lockKey) {
-    if (isLockExpired(lockKey)) {
-      deleteObjectQuietly(lockKey);
-    }
-  }
-
   boolean isLockExpired(String lockKey) {
     try (InputStream stream =
         minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
