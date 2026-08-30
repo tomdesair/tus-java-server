@@ -173,6 +173,11 @@ To maintain a clear separation between fast, offline unit tests and containerize
 - Do NOT mix data serialization models (DTOs / JSON metadata objects) with active process or lifecycle management components (such as lock handles with scheduled thread executors or storage clients).
 - Keep constructors focused and minimal (typically 1 or 2 constructors per class). Classes requiring data models MUST accept the dedicated data object (e.g., `LeaseData`) in their constructor rather than defining multiple telescoping or metadata-only constructor overloads.
 
+### 22. Secure Temporary File Creation
+- Do NOT use legacy `java.io.File.createTempFile(...)`. On POSIX systems, it creates files with overly permissive default umask permissions (often world-readable or group-readable, CWE-378 / SonarQube java:S5443).
+- Always use `java.nio.file.Files.createTempFile(...)` (or `Utils.createTempSiblingPath(...)` / `Utils.createTempSibling(...)`), which creates temporary files with restricted owner-only permissions (`rw-------` / `0600`) by default.
+
+
 ## IETF Resumable Uploads for HTTP (RUFH) Spec Maintenance & Update Playbook
 
 ### 1. Spec Diff Review
