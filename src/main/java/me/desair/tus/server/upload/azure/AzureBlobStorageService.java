@@ -212,7 +212,7 @@ public class AzureBlobStorageService implements UploadStorageService {
     boolean streamFinished = false;
     IOException streamException = null;
 
-    File firstChunkFile = File.createTempFile("tus-azure-chunk-", ".tmp", tempBufferDir.toFile());
+    File firstChunkFile = Files.createTempFile(tempBufferDir, "tus-azure-chunk-", ".tmp").toFile();
     try {
       // 4. Read first chunk from incoming payload stream into local disk buffer
       ReadChunkResult firstChunkResult = readChunk(inputStream, firstChunkFile, optimalBlockSize);
@@ -500,7 +500,7 @@ public class AzureBlobStorageService implements UploadStorageService {
         blockBlobClient.deleteIfExists();
       } else {
         File tempFile =
-            File.createTempFile("tus-azure-block-trim-", ".tmp", tempBufferDir.toFile());
+            Files.createTempFile(tempBufferDir, "tus-azure-block-trim-", ".tmp").toFile();
         try {
           try (InputStream is =
                   BoundedInputStream.builder()
@@ -525,7 +525,7 @@ public class AzureBlobStorageService implements UploadStorageService {
       if (newPartSize <= 0) {
         partBlob.deleteIfExists();
       } else {
-        File tempFile = File.createTempFile("tus-azure-truncate-", ".tmp", tempBufferDir.toFile());
+        File tempFile = Files.createTempFile(tempBufferDir, "tus-azure-truncate-", ".tmp").toFile();
         try {
           try (InputStream is =
                   BoundedInputStream.builder()
@@ -862,7 +862,7 @@ public class AzureBlobStorageService implements UploadStorageService {
     while (!streamFinished) {
       File chunkFile = null;
       try {
-        chunkFile = File.createTempFile("tus-azure-chunk-", ".tmp", tempBufferDir.toFile());
+        chunkFile = Files.createTempFile(tempBufferDir, "tus-azure-chunk-", ".tmp").toFile();
         ReadChunkResult chunkResult = readChunk(inputStream, chunkFile, optimalBlockSize);
         long chunkSize = chunkResult.bytesRead;
         exception = chunkResult.exception;
@@ -903,7 +903,7 @@ public class AzureBlobStorageService implements UploadStorageService {
     if (existingPartSize == 0) {
       partBlob.upload(BinaryData.fromFile(tempFile.toPath()), true);
     } else {
-      File combinedTemp = File.createTempFile("tus-azure-part-", ".tmp", tempBufferDir.toFile());
+      File combinedTemp = Files.createTempFile(tempBufferDir, "tus-azure-part-", ".tmp").toFile();
       try {
         try (InputStream partIs = partBlob.openInputStream();
             InputStream tempIs = new FileInputStream(tempFile);

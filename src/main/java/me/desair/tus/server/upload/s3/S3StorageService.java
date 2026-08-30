@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.SequenceInputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -653,7 +654,7 @@ public class S3StorageService implements UploadStorageService {
             minioClient.getObject(
                 GetObjectArgs.builder().bucket(bucket).object(partObjectKey).build());
         File tempPrependedFile =
-            File.createTempFile("tus-s3-prep-", ".tmp", temporaryDirectory.toFile());
+            Files.createTempFile(temporaryDirectory, "tus-s3-prep-", ".tmp").toFile();
         tempPrependedFile.deleteOnExit();
 
         try (FileOutputStream fos = new FileOutputStream(tempPrependedFile)) {
@@ -691,7 +692,7 @@ public class S3StorageService implements UploadStorageService {
     boolean streamFinished = false;
     while (!streamFinished) {
       File tempChunkFile =
-          File.createTempFile("tus-s3-chunk-", ".tmp", temporaryDirectory.toFile());
+          Files.createTempFile(temporaryDirectory, "tus-s3-chunk-", ".tmp").toFile();
       tempChunkFile.deleteOnExit();
 
       long chunkBytesWritten = 0;
