@@ -25,6 +25,7 @@ All notable changes to this project will be documented in this file.
 - **`process()` Return Value (`UploadInfo`)**: `TusFileUploadService.process(...)` now returns the created or updated `UploadInfo` instance (or `null` on errors or `OPTIONS` preflight requests), enabling applications to track and store upload IDs directly into user sessions or database repositories.
 
 ### Fixed
+- **RFC 9110 Media Type Matching & MIME Parameter Tolerance**: Enhanced `Content-Type` header validation in `ContentTypeValidator`, `PostContentTypeValidator`, and `RufhAppendValidator` using RFC 9110 §8.3 compliant media-type parsing (`Utils.isMediaType`). Media type matching now tolerates MIME parameters (such as `;charset=UTF-8` automatically appended by Spring Boot `CharacterEncodingFilter`, servlet wrappers, proxies, or HTTP clients), whitespace variations, and case-insensitivity without incorrectly rejecting valid requests with `406 Not Acceptable`.
 - **Clear Content-Length on Error Responses**: Cleared `Content-Length` response header prior to invoking `HttpServletResponse.sendError(...)` during exception handling, resolving buffer conflicts and exceptions in Undertow and other servlet containers ([#40](https://github.com/tomdesair/tus-java-server/issues/40)).
 
 ### Breaking
