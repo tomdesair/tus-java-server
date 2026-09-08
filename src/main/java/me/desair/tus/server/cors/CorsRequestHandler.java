@@ -24,7 +24,7 @@ public class CorsRequestHandler implements RequestHandler {
 
     String origin = servletRequest.getHeader("Origin");
     if (StringUtils.isNotBlank(origin)) {
-      servletResponse.setHeader("Access-Control-Allow-Origin", origin);
+      servletResponse.setHeader("Access-Control-Allow-Origin", "*");
       servletResponse.setHeader(
           "Access-Control-Expose-Headers",
           "Upload-Offset, Upload-Length, Upload-Metadata, Upload-Expires, Upload-Concat, "

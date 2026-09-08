@@ -53,7 +53,7 @@ public class CorsRequestHandlerTest {
 
     handler.process(HttpMethod.GET, req, resp, null, null);
 
-    assertThat(mockResp.getHeader("Access-Control-Allow-Origin"), is("https://example.com"));
+    assertThat(mockResp.getHeader("Access-Control-Allow-Origin"), is("*"));
     assertThat(
         mockResp.getHeader("Access-Control-Expose-Headers"),
         is(
@@ -70,7 +70,7 @@ public class CorsRequestHandlerTest {
 
     handler.process(HttpMethod.OPTIONS, req, resp, null, null);
 
-    assertThat(mockResp.getHeader("Access-Control-Allow-Origin"), is("https://example.com"));
+    assertThat(mockResp.getHeader("Access-Control-Allow-Origin"), is("*"));
     assertThat(
         mockResp.getHeader("Access-Control-Allow-Methods"),
         is("POST, GET, HEAD, PATCH, DELETE, OPTIONS"));
