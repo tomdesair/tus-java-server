@@ -2,6 +2,7 @@ package me.desair.tus.server.core;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.eq;
@@ -19,13 +20,16 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -167,18 +171,24 @@ public class CorePatchRequestHandlerTest {
         .thenReturn(updatedInfo);
 
     UploadLockingService mockLocking = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    TusServletRequest tusRequest = new TusServletRequest(servletRequest);
+    tusRequest.setUploadLock(mockLock);
 
     handler.process(
         HttpMethod.PATCH,
-        new TusServletRequest(servletRequest),
+        tusRequest,
         new TusServletResponse(servletResponse),
         uploadStorageService,
         mockLocking,
         null,
         null);
 
+    ArgumentCaptor<InterruptibleInputStream> captor =
+        ArgumentCaptor.forClass(InterruptibleInputStream.class);
     verify(mockLocking, times(1))
-        .registerInputStream(eq(servletRequest.getRequestURI()), any(InputStream.class));
+        .registerInputStream(eq(servletRequest.getRequestURI()), captor.capture());
+    assertEquals(mockLock, captor.getValue().getCorrespondingUploadLock());
     verify(uploadStorageService, times(1)).append(eq(info), any(InputStream.class));
   }
 

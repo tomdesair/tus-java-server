@@ -21,6 +21,7 @@ import java.util.Set;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.TusExtension;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.upload.UploadLock;
 import org.apache.commons.io.IOUtils;
 import org.junit.Before;
 import org.junit.Test;
@@ -243,5 +244,15 @@ public class TusServletRequestTest {
   public void getHeaderNotFound() {
     when(servletRequest.getHeader("X-My-Header")).thenReturn(null);
     assertNull(request.getHeader("X-My-Header"));
+  }
+
+  @Test
+  public void testGetAndSetUploadLock() {
+    assertNull(request.getUploadLock());
+
+    UploadLock uploadLock = mock(UploadLock.class);
+    request.setUploadLock(uploadLock);
+
+    assertEquals(uploadLock, request.getUploadLock());
   }
 }

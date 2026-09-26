@@ -2,10 +2,12 @@ package me.desair.tus.server.rufh.handler;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -13,6 +15,7 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.InterruptibleInputStream;
@@ -21,6 +24,7 @@ import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -76,9 +80,13 @@ public class RufhAppendPatchRequestHandlerTest {
     when(storageService.getUploadInfo("/files/append-id", "owner")).thenReturn(info);
     when(storageService.append(any(UploadInfo.class), any())).thenReturn(updated);
 
+    UploadLock mockLock = mock(UploadLock.class);
+    TusServletRequest tusRequest = new TusServletRequest(request);
+    tusRequest.setUploadLock(mockLock);
+
     handler.process(
         HttpMethod.PATCH,
-        new TusServletRequest(request),
+        tusRequest,
         new TusServletResponse(response),
         storageService,
         lockingService,
@@ -89,8 +97,10 @@ public class RufhAppendPatchRequestHandlerTest {
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("1011"));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
 
-    verify(lockingService)
-        .registerInputStream(eq("/files/append-id"), any(InterruptibleInputStream.class));
+    ArgumentCaptor<InterruptibleInputStream> captor =
+        ArgumentCaptor.forClass(InterruptibleInputStream.class);
+    verify(lockingService).registerInputStream(eq("/files/append-id"), captor.capture());
+    assertEquals(mockLock, captor.getValue().getCorrespondingUploadLock());
   }
 
   @Test

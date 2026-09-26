@@ -2,11 +2,13 @@ package me.desair.tus.server.rufh.handler;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -14,6 +16,7 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.InterruptibleInputStream;
@@ -22,6 +25,7 @@ import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -107,17 +111,23 @@ public class RufhCreationPostRequestHandlerTest {
     when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
     when(storageService.append(any(UploadInfo.class), any())).thenReturn(info);
 
+    UploadLock mockLock = mock(UploadLock.class);
+    TusServletRequest tusRequest = new TusServletRequest(request);
+    tusRequest.setUploadLock(mockLock);
+
     handler.process(
         HttpMethod.POST,
-        new TusServletRequest(request),
+        tusRequest,
         new TusServletResponse(response),
         storageService,
         lockingService,
         "owner",
         null);
 
-    verify(lockingService)
-        .registerInputStream(eq("/files/creation-id"), any(InterruptibleInputStream.class));
+    ArgumentCaptor<InterruptibleInputStream> captor =
+        ArgumentCaptor.forClass(InterruptibleInputStream.class);
+    verify(lockingService).registerInputStream(eq("/files/creation-id"), captor.capture());
+    assertEquals(mockLock, captor.getValue().getCorrespondingUploadLock());
   }
 
   @Test

@@ -1,10 +1,13 @@
 package me.desair.tus.server.util;
 
 import static org.junit.Assert.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import me.desair.tus.server.upload.UploadLock;
 import org.junit.Test;
 
 public class InterruptibleInputStreamTest {
@@ -160,6 +163,54 @@ public class InterruptibleInputStreamTest {
       fail("Expected IOException");
     } catch (IOException e) {
       assertEquals("read range error", e.getMessage());
+    }
+  }
+
+  @Test
+  public void testInterruptWithUploadLock() throws IOException {
+    InputStream bis = new ByteArrayInputStream(new byte[] {1, 2, 3});
+    UploadLock uploadLock = mock(UploadLock.class);
+
+    InterruptibleInputStream iis = new InterruptibleInputStream(bis, uploadLock);
+    assertEquals(uploadLock, iis.getCorrespondingUploadLock());
+
+    iis.interrupt();
+
+    assertTrue(iis.isInterrupted());
+    verify(uploadLock).release();
+  }
+
+  @Test
+  public void testSetAndGetCorrespondingUploadLock() throws IOException {
+    InputStream bis = new ByteArrayInputStream(new byte[] {1, 2, 3});
+    InterruptibleInputStream iis = new InterruptibleInputStream(bis);
+    assertNull(iis.getCorrespondingUploadLock());
+
+    UploadLock uploadLock = mock(UploadLock.class);
+    iis.setCorrespondingUploadLock(uploadLock);
+    assertEquals(uploadLock, iis.getCorrespondingUploadLock());
+
+    iis.interrupt();
+    verify(uploadLock).release();
+  }
+
+  @Test
+  public void testInterruptWithoutUploadLock() {
+    InputStream bis = new ByteArrayInputStream(new byte[] {1, 2, 3});
+    InterruptibleInputStream iis = new InterruptibleInputStream(bis, null);
+
+    iis.interrupt();
+    assertTrue(iis.isInterrupted());
+  }
+
+  @Test
+  public void testNullConstructorArgWithUploadLock() {
+    UploadLock uploadLock = mock(UploadLock.class);
+    try {
+      new InterruptibleInputStream(null, uploadLock);
+      fail("Expected IllegalArgumentException");
+    } catch (IllegalArgumentException e) {
+      assertEquals("Delegate InputStream cannot be null", e.getMessage());
     }
   }
 }

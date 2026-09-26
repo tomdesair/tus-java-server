@@ -85,7 +85,8 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
     InputStream is = servletRequest.getContentInputStream();
     if (is != null && servletRequest.getContentLengthLong() != 0) {
       if (uploadLockingService != null) {
-        InterruptibleInputStream interruptibleStream = new InterruptibleInputStream(is);
+        InterruptibleInputStream interruptibleStream =
+            new InterruptibleInputStream(is, servletRequest.getUploadLock());
         uploadLockingService.registerInputStream(uploadUri, interruptibleStream);
         is = interruptibleStream;
       }

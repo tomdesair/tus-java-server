@@ -2,6 +2,7 @@ package me.desair.tus.server.util;
 
 import java.io.IOException;
 import java.io.InputStream;
+import me.desair.tus.server.upload.UploadLock;
 
 /**
  * An InputStream wrapper that can be interrupted by another thread. When interrupted, it throws an
@@ -10,13 +11,51 @@ import java.io.InputStream;
 public class InterruptibleInputStream extends InputStream {
 
   private final InputStream delegate;
+  private UploadLock uploadLock;
   private volatile boolean interrupted = false;
 
-  public InterruptibleInputStream(InputStream delegate) {
+  /**
+   * Constructs an interruptible input stream wrapping the given delegate stream and associating it
+   * with the provided {@link UploadLock}.
+   *
+   * @param delegate The delegate input stream to wrap
+   * @param uploadLock The upload lock associated with this stream, or null
+   * @throws IllegalArgumentException if the delegate is null
+   */
+  public InterruptibleInputStream(InputStream delegate, UploadLock uploadLock) {
     if (delegate == null) {
       throw new IllegalArgumentException("Delegate InputStream cannot be null");
     }
     this.delegate = delegate;
+    this.uploadLock = uploadLock;
+  }
+
+  /**
+   * Constructs an interruptible input stream wrapping the given delegate stream.
+   *
+   * @param delegate The delegate input stream to wrap
+   * @throws IllegalArgumentException if the delegate is null
+   */
+  public InterruptibleInputStream(InputStream delegate) {
+    this(delegate, null);
+  }
+
+  /**
+   * Sets the corresponding {@link UploadLock} associated with this stream.
+   *
+   * @param uploadLock The upload lock
+   */
+  public void setCorrespondingUploadLock(UploadLock uploadLock) {
+    this.uploadLock = uploadLock;
+  }
+
+  /**
+   * Retrieves the corresponding {@link UploadLock} associated with this stream.
+   *
+   * @return The upload lock, or null if none is set
+   */
+  public UploadLock getCorrespondingUploadLock() {
+    return uploadLock;
   }
 
   private void checkInterrupted() throws IOException {
@@ -31,6 +70,9 @@ public class InterruptibleInputStream extends InputStream {
       delegate.close();
     } catch (IOException e) {
       // Ignore close exception during interrupt
+    }
+    if (uploadLock != null) {
+      uploadLock.release();
     }
   }
 
