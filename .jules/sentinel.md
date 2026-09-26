@@ -19,3 +19,7 @@
 **Vulnerability:** A CRLF injection vulnerability was identified where unvalidated inputs could be reflected directly into HTTP response headers, leading to HTTP response splitting.
 **Learning:** Instead of sanitizing individual headers independently, the overarching wrapper that interacts with the HTTP response output should inherently validate and sanitize the input to prevent injection across all headers.
 **Prevention:** `TusServletResponse.java` was modified to include a `sanitizeHeaderValue` method, replacing any instances of `\r` and `\n` characters before interacting with the core `HttpServletResponse`, ensuring consistent CRLF prevention application-wide.
+## 2026-09-08 - Fix Arbitrary Origin Reflection in CORS Configuration
+**Vulnerability:** The `CorsRequestHandler.java` implementation blindly read the `Origin` header from incoming HTTP requests and reflected its exact value back in the `Access-Control-Allow-Origin` response header.
+**Learning:** Blindly mirroring the request's origin bypasses the intended security of CORS restrictions and can lead to arbitrary cross-origin data exposure, effectively negating the same-origin policy enforcement by browsers. Moreover, doing so without `Vary: Origin` could lead to cache poisoning in intermediate CDNs.
+**Prevention:** Hardcode public API endpoint CORS rules to return the explicitly permissive `*` (wildcard) instead of reflecting the user's string input.

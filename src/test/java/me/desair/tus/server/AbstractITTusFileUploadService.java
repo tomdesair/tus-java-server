@@ -1843,7 +1843,7 @@ public abstract class AbstractITTusFileUploadService {
     servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 100L);
 
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseHeader("Access-Control-Allow-Origin", "https://example.com");
+    assertResponseHeader("Access-Control-Allow-Origin", "*");
     assertResponseHeaderNotBlank("Access-Control-Expose-Headers");
   }
 
@@ -1856,7 +1856,7 @@ public abstract class AbstractITTusFileUploadService {
     servletRequest.addHeader("Access-Control-Request-Method", "PATCH");
 
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseHeader("Access-Control-Allow-Origin", "https://example.com");
+    assertResponseHeader("Access-Control-Allow-Origin", "*");
     assertResponseHeader("Access-Control-Allow-Methods", "POST, GET, HEAD, PATCH, DELETE, OPTIONS");
     assertResponseHeaderNotBlank("Access-Control-Allow-Headers");
     assertResponseHeader("Access-Control-Max-Age", "86400");
