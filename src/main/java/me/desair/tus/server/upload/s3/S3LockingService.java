@@ -212,7 +212,19 @@ public class S3LockingService extends AbstractLeaseLockingService {
       return false;
     }
     String lockKey = buildLockKey(uploadId);
-    return isLockExpired(lockKey);
+    if (!isLockExpired(lockKey)) {
+      return false;
+    }
+    // Delete the expired .lock object from S3 so the subsequent tryAcquireLock() conditional
+    // write with "If-None-Match: *" can succeed and take over the abandoned lock.
+    try {
+      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(lockKey).build());
+      log.info("Evicted expired S3 lock for key {}", lockKey);
+      return true;
+    } catch (Exception e) {
+      log.warn("Failed to evict expired S3 lock for key {}", lockKey, e);
+      return false;
+    }
   }
 
   @Override

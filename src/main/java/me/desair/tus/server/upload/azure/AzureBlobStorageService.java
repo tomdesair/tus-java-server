@@ -17,7 +17,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.SequenceInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,9 +53,8 @@ import org.slf4j.LoggerFactory;
  *   <li><b>Block Blobs & Staged Blocks</b>: Upload data is stored using Azure Block Blobs, which
  *       consist of up to 50,000 uncommitted staged blocks ({@code stageBlock}) that are committed
  *       atomically via {@code commitBlockList}.
- *   <li><b>Sub-Threshold Buffering ({@code .part})</b>: Appends smaller than the optimal block size
- *       (8 MB default) are buffered in a temporary {@code .part} blob under {@code metadata/} until
- *       a full block accumulates or the upload finishes.
+ *   <li><b>Direct Block Staging</b>: Appends are streamed directly into staged blocks and committed
+ *       atomically upon arrival without temporary intermediate blobs.
  *   <li><b>Metadata ({@code .info})</b>: Upload metadata is stored as JSON-serialized {@link
  *       UploadInfo} objects under {@code metadata/<uploadId>.info}.
  *   <li><b>Checksum Deduplication Index</b>: Completed uploads are indexed by checksum under {@code
@@ -118,7 +116,7 @@ public class AzureBlobStorageService implements UploadStorageService {
    *
    * @param containerClient Pre-configured Azure {@link BlobContainerClient}
    * @param uploadPrefix Key prefix for final data objects
-   * @param metadataPrefix Key prefix for metadata (.info and .part) objects
+   * @param metadataPrefix Key prefix for metadata (.info) objects
    * @param checksumsPrefix Key prefix for checksum deduplication index objects
    * @param locksPrefix Key prefix for distributed lock objects
    * @param tempBufferDir Local directory for staging chunk bytes before Azure upload
@@ -195,107 +193,82 @@ public class AzureBlobStorageService implements UploadStorageService {
     Objects.requireNonNull(upload, "UploadInfo must not be null");
     Objects.requireNonNull(inputStream, "InputStream must not be null");
 
-    // 1. Locate the incomplete sub-threshold .part blob buffer and query its current size
-    BlobClient partBlob = containerClient.getBlobClient(metadataPrefix + upload.getId() + ".part");
-    long existingPartSize = getPartBlobSize(partBlob);
-
-    // 2. Auto-calibrate optimal block size (4 MB floor up to 4000 MiB limit based on upload length)
-    long optimalBlockSize = calcOptimalBlockSize(upload.getLength());
-    Long effectiveMaxAppendSize = getMaxAppendSize();
-
-    // 3. Obtain Azure Block Blob client and fetch pre-existing committed block list
+    // 1. Obtain Azure Block Blob client and fetch pre-existing committed block list
     BlockBlobClient blockBlobClient =
         containerClient.getBlobClient(getAzureBlobName(upload)).getBlockBlobClient();
     List<String> blockIds = getCommittedBlockIds(blockBlobClient);
 
+    // 2. Validate block budget: Azure Block Blobs support up to 50,000 blocks
+    validateRemainingBlockBudget(upload, blockIds.size());
+
+    // 3. Auto-calibrate optimal chunk buffer size (4 MB floor up to 4000 MiB limit based on length)
+    long optimalBlockSize = calcOptimalBlockSize(upload.getLength());
+    Long effectiveMaxAppendSize = getMaxAppendSize();
+
     long totalAppended = 0L;
-    boolean streamFinished = false;
     IOException streamException = null;
 
-    File firstChunkFile = Files.createTempFile(tempBufferDir, "tus-azure-chunk-", ".tmp").toFile();
-    try {
-      // 4. Read first chunk from incoming payload stream into local disk buffer
-      ReadChunkResult firstChunkResult = readChunk(inputStream, firstChunkFile, optimalBlockSize);
-      long firstChunkSize = firstChunkResult.bytesRead;
-      totalAppended += firstChunkSize;
-      streamException = firstChunkResult.exception;
-
-      validateMaxAppendSize(totalAppended, effectiveMaxAppendSize);
-
-      long newOffset = upload.getOffset() + firstChunkSize;
-      boolean isUploadComplete = upload.getLength() != null && newOffset == upload.getLength();
-      long totalBuffered = existingPartSize + firstChunkSize;
-
-      if (firstChunkSize < optimalBlockSize && firstChunkSize >= 0) {
-        streamFinished = true;
-      }
-
-      // If the cumulative buffered data is below optimalBlockSize and the upload is not yet
-      // finished, and the stream has reached EOF or was interrupted by an IOException:
-      // Keep data in the temporary .part blob instead of committing a sub-optimal block to the
-      // Block Blob.
-      if (totalBuffered < optimalBlockSize
-          && !isUploadComplete
-          && (streamFinished || streamException != null)) {
-        // Small append under block size threshold: buffer data to .part blob directly
-        if (firstChunkSize > 0) {
-          bufferToPartBlob(partBlob, existingPartSize, firstChunkFile, firstChunkSize);
-        }
-      } else {
-        // Data exceeds block size threshold: stage blocks to Azure Block Blob
-        stagePartBlobIfPresent(partBlob, existingPartSize, blockBlobClient, blockIds);
-        stageChunkFile(firstChunkFile, firstChunkSize, blockBlobClient, blockIds);
-
-        // Process any remaining chunks from input stream
-        if (!streamFinished && streamException == null) {
-          ProcessChunksResult remainingResult =
-              processRemainingChunks(
-                  inputStream,
-                  optimalBlockSize,
-                  effectiveMaxAppendSize,
-                  upload,
-                  partBlob,
-                  blockBlobClient,
-                  blockIds,
-                  totalAppended);
-          totalAppended += remainingResult.additionalAppended;
-          if (remainingResult.exception != null) {
-            streamException = remainingResult.exception;
-          }
+    // 4. Read incoming stream in chunks, staging and committing blocks directly to Azure Block Blob
+    while (true) {
+      File chunkFile = null;
+      try {
+        chunkFile = Files.createTempFile(tempBufferDir, "tus-azure-chunk-", ".tmp").toFile();
+        ReadChunkResult chunkResult = readChunk(inputStream, chunkFile, optimalBlockSize);
+        long chunkSize = chunkResult.bytesRead;
+        if (chunkResult.exception != null) {
+          streamException = chunkResult.exception;
         }
 
-        // Commit updated block ID list on Azure so staged blocks become committed and readable
-        if (!blockIds.isEmpty()) {
-          blockBlobClient.commitBlockList(blockIds, true);
+        if (chunkSize <= 0) {
+          break;
         }
+
+        totalAppended += chunkSize;
+        validateMaxAppendSize(totalAppended, effectiveMaxAppendSize);
+
+        long newOffset = upload.getOffset() + totalAppended;
+        boolean isUploadComplete = upload.getLength() != null && newOffset == upload.getLength();
+
+        // Validate chunk against remaining block budget
+        validateRemainingBlockBudget(upload, blockIds.size());
+
+        // Stage block directly to Azure Block Blob
+        stageChunkFile(chunkFile, chunkSize, blockBlobClient, blockIds);
+
+        // Commit updated block list immediately to guarantee durability on crash or pause
+        blockBlobClient.commitBlockList(blockIds, true);
+
+        if (streamException != null) {
+          break;
+        }
+      } finally {
+        deleteFileQuietly(chunkFile);
       }
-
-      if (streamException == null) {
-        validateMinAppendSize(totalAppended);
-      }
-
-      // 5. Update UploadInfo offset, expiration timestamp, and optional deduplication state
-      upload.setOffset(upload.getOffset() + totalAppended);
-      if (uploadExpirationPeriod != null && uploadExpirationPeriod > 0) {
-        upload.setExpirationTimestamp(System.currentTimeMillis() + uploadExpirationPeriod);
-      }
-
-      boolean finalComplete =
-          upload.getLength() != null && upload.getOffset().equals(upload.getLength());
-      if (finalComplete) {
-        checkAndApplyDeduplication(upload);
-      }
-
-      saveUploadInfo(upload);
-
-      if (streamException != null) {
-        throw streamException;
-      }
-
-      return upload;
-    } finally {
-      deleteFileQuietly(firstChunkFile);
     }
+
+    if (streamException == null) {
+      validateMinAppendSize(totalAppended);
+    }
+
+    // 6. Update UploadInfo offset, expiration timestamp, and optional deduplication state
+    upload.setOffset(upload.getOffset() + totalAppended);
+    if (uploadExpirationPeriod != null && uploadExpirationPeriod > 0) {
+      upload.setExpirationTimestamp(System.currentTimeMillis() + uploadExpirationPeriod);
+    }
+
+    boolean finalComplete =
+        upload.getLength() != null && upload.getOffset().equals(upload.getLength());
+    if (finalComplete) {
+      checkAndApplyDeduplication(upload);
+    }
+
+    saveUploadInfo(upload);
+
+    if (streamException != null) {
+      throw streamException;
+    }
+
+    return upload;
   }
 
   @Override
@@ -378,35 +351,16 @@ public class AzureBlobStorageService implements UploadStorageService {
     String targetBlobName = getAzureBlobName(info);
     BlockBlobClient blockBlobClient =
         containerClient.getBlobClient(targetBlobName).getBlockBlobClient();
-    BlobClient partBlob = containerClient.getBlobClient(metadataPrefix + info.getId() + ".part");
 
-    InputStream committedStream = null;
     try {
       if (Boolean.TRUE.equals(blockBlobClient.exists())) {
-        committedStream = blockBlobClient.openInputStream();
+        return blockBlobClient.openInputStream();
       }
     } catch (Exception ignored) {
-      // Data blob does not exist yet (upload in progress under sub-threshold part buffer)
+      // Data blob does not exist yet (e.g. 0-byte upload or immediately after creation)
     }
 
-    InputStream partStream = null;
-    try {
-      if (Boolean.TRUE.equals(partBlob.exists()) && partBlob.getProperties().getBlobSize() > 0) {
-        partStream = partBlob.openInputStream();
-      }
-    } catch (Exception ignored) {
-      // No sub-threshold part buffer present
-    }
-
-    if (committedStream != null && partStream != null) {
-      return new SequenceInputStream(committedStream, partStream);
-    } else if (committedStream != null) {
-      return committedStream;
-    } else if (partStream != null) {
-      return partStream;
-    } else {
-      return new ByteArrayInputStream(new byte[0]);
-    }
+    return new ByteArrayInputStream(new byte[0]);
   }
 
   @Override
@@ -433,20 +387,17 @@ public class AzureBlobStorageService implements UploadStorageService {
     // 1. Delete committed data blob
     containerClient.getBlobClient(uploadPrefix + id).deleteIfExists();
 
-    // 2. Delete incomplete sub-threshold .part blob
-    containerClient.getBlobClient(metadataPrefix + id + ".part").deleteIfExists();
-
-    // 3. Delete metadata .info blob
+    // 2. Delete metadata .info blob
     containerClient.getBlobClient(metadataPrefix + id + ".info").deleteIfExists();
 
-    // 4. Delete checksum deduplication index blob if present
+    // 3. Delete checksum deduplication index blob if present
     if (uploadInfo.getChecksum() != null && uploadInfo.getChecksumAlgorithm() != null) {
       String checksumKey =
           buildChecksumKey(uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm());
       containerClient.getBlobClient(checksumKey).deleteIfExists();
     }
 
-    // 5. Delete lock target and stop signal blobs (handling active lease exceptions gracefully)
+    // 4. Delete lock target and stop signal blobs (handling active lease exceptions gracefully)
     try {
       containerClient.getBlobClient(locksPrefix + id + ".stop").deleteIfExists();
     } catch (Exception ignored) {
@@ -475,70 +426,27 @@ public class AzureBlobStorageService implements UploadStorageService {
 
     BlockBlobClient blockBlobClient =
         containerClient.getBlobClient(getAzureBlobName(uploadInfo)).getBlockBlobClient();
-    BlobClient partBlob =
-        containerClient.getBlobClient(metadataPrefix + uploadInfo.getId() + ".part");
 
-    long blockBlobSize = 0L;
-    List<Block> committedBlocks = new ArrayList<>();
-    try {
-      BlockList blockList = blockBlobClient.listBlocks(BlockListType.COMMITTED);
-      if (blockList != null && blockList.getCommittedBlocks() != null) {
-        committedBlocks = blockList.getCommittedBlocks();
-        for (Block b : committedBlocks) {
-          blockBlobSize += b.getSizeLong();
-        }
-      }
-    } catch (Exception ignored) {
-      // Blob doesn't exist or has no committed blocks
-    }
-
-    if (targetOffset <= blockBlobSize) {
-      // Truncation cuts into committed blocks: delete .part blob completely
-      partBlob.deleteIfExists();
-
-      if (targetOffset == 0) {
-        blockBlobClient.deleteIfExists();
-      } else {
-        File tempFile =
-            Files.createTempFile(tempBufferDir, "tus-azure-block-trim-", ".tmp").toFile();
-        try {
-          try (InputStream is =
-                  BoundedInputStream.builder()
-                      .setInputStream(blockBlobClient.openInputStream())
-                      .setMaxCount(targetOffset)
-                      .get();
-              OutputStream os = new FileOutputStream(tempFile)) {
-            IOUtils.copyLarge(is, os);
-          }
-          String newBlockId = generateBlockId(0);
-          try (InputStream is = new java.io.BufferedInputStream(new FileInputStream(tempFile))) {
-            blockBlobClient.stageBlock(newBlockId, is, tempFile.length());
-          }
-          blockBlobClient.commitBlockList(List.of(newBlockId), true);
-        } finally {
-          deleteFileQuietly(tempFile);
-        }
-      }
+    if (targetOffset == 0) {
+      blockBlobClient.deleteIfExists();
     } else {
-      // Truncation only affects .part buffer: keep committed blocks, trim .part blob
-      long newPartSize = targetOffset - blockBlobSize;
-      if (newPartSize <= 0) {
-        partBlob.deleteIfExists();
-      } else {
-        File tempFile = Files.createTempFile(tempBufferDir, "tus-azure-truncate-", ".tmp").toFile();
-        try {
-          try (InputStream is =
-                  BoundedInputStream.builder()
-                      .setInputStream(partBlob.openInputStream())
-                      .setMaxCount(newPartSize)
-                      .get();
-              OutputStream os = new FileOutputStream(tempFile)) {
-            IOUtils.copyLarge(is, os);
-          }
-          partBlob.upload(BinaryData.fromFile(tempFile.toPath()), true);
-        } finally {
-          deleteFileQuietly(tempFile);
+      File tempFile = Files.createTempFile(tempBufferDir, "tus-azure-block-trim-", ".tmp").toFile();
+      try {
+        try (InputStream is =
+                BoundedInputStream.builder()
+                    .setInputStream(blockBlobClient.openInputStream())
+                    .setMaxCount(targetOffset)
+                    .get();
+            OutputStream os = new FileOutputStream(tempFile)) {
+          IOUtils.copyLarge(is, os);
         }
+        String newBlockId = generateBlockId(0);
+        try (InputStream is = new java.io.BufferedInputStream(new FileInputStream(tempFile))) {
+          blockBlobClient.stageBlock(newBlockId, is, tempFile.length());
+        }
+        blockBlobClient.commitBlockList(List.of(newBlockId), true);
+      } finally {
+        deleteFileQuietly(tempFile);
       }
     }
 
@@ -597,7 +505,8 @@ public class AzureBlobStorageService implements UploadStorageService {
             infoName.substring(metadataPrefix.length(), infoName.length() - ".info".length());
         UploadId id = new UploadId(idStr);
         UploadInfo info = getUploadInfo(id);
-        if (info != null && info.isExpired()) {
+        // Only clean up in-progress uploads; completed uploads must be preserved per Tus 1.0.0 spec
+        if (info != null && info.isExpired() && info.isUploadInProgress()) {
           if (lockingService != null && lockingService.isLocked(id)) {
             log.debug("Skipping cleanup of expired upload {} because it is currently locked", id);
             continue;
@@ -606,10 +515,14 @@ public class AzureBlobStorageService implements UploadStorageService {
           try {
             terminateUpload(info);
           } catch (UploadNotFoundException ignored) {
+            // Upload was already terminated or deleted concurrently
           }
         }
       }
     }
+
+    // Prune orphaned checksum index entries pointing to expired/deleted parent uploads
+    pruneOrphanedChecksumIndices();
   }
 
   public void cleanupExpiredUploads() throws IOException {
@@ -708,7 +621,7 @@ public class AzureBlobStorageService implements UploadStorageService {
   // --- Helper Methods ---
 
   /** Calculates auto-calibrated optimal block size based on total upload length. */
-  private long calcOptimalBlockSize(Long totalLength) {
+  long calcOptimalBlockSize(Long totalLength) {
     long size = preferredBlockSize;
     if (totalLength != null && totalLength > 0 && totalLength / size >= MAX_BLOCKS_PER_BLOB) {
       size = (totalLength / MAX_BLOCKS_PER_BLOB) + 1;
@@ -719,21 +632,32 @@ public class AzureBlobStorageService implements UploadStorageService {
   /** Saves UploadInfo object as JSON in .info metadata blob. */
   private void saveUploadInfo(UploadInfo info) throws IOException {
     String infoAsString = UploadInfoJsonSerializer.serialize(info);
-    if (infoAsString == null) {
-      throw new IOException(
-          "Failed to serialize UploadInfo for ID " + (info == null ? "null" : info.getId()));
-    }
     byte[] jsonBytes = infoAsString.getBytes(StandardCharsets.UTF_8);
     BlobClient infoBlob = containerClient.getBlobClient(metadataPrefix + info.getId() + ".info");
     infoBlob.upload(BinaryData.fromBytes(jsonBytes), true);
   }
 
-  /** Gets size of existing .part blob using single HEAD call. */
-  private long getPartBlobSize(BlobClient partBlob) {
-    try {
-      return partBlob.getProperties().getBlobSize();
-    } catch (Exception e) {
-      return 0L;
+  /**
+   * Validates that the upload has sufficient block budget remaining within Azure's 50,000 blocks
+   * limit.
+   *
+   * <p><b>Why:</b> Azure Block Blobs enforce a strict maximum ceiling of 50,000 blocks per blob. If
+   * an upload receives too many small chunks, it risks hitting this limit before finishing. This
+   * check runs in O(1) time at the trust boundary to prevent deadlocked uploads.
+   *
+   * @param upload The current upload metadata
+   * @param currentBlockCount Number of already committed blocks
+   * @throws MaxAppendSizeExceededException If remaining block capacity is exhausted
+   */
+  void validateRemainingBlockBudget(UploadInfo upload, int currentBlockCount)
+      throws MaxAppendSizeExceededException {
+    int remainingBlocks = MAX_BLOCKS_PER_BLOB - currentBlockCount;
+    if (remainingBlocks <= 0) {
+      throw new MaxAppendSizeExceededException(
+          "Azure Block Blob maximum block limit of "
+              + MAX_BLOCKS_PER_BLOB
+              + " blocks has been reached for upload ID "
+              + (upload != null ? upload.getId() : "null"));
     }
   }
 
@@ -743,16 +667,6 @@ public class AzureBlobStorageService implements UploadStorageService {
 
     ReadChunkResult(long bytesRead, IOException exception) {
       this.bytesRead = bytesRead;
-      this.exception = exception;
-    }
-  }
-
-  private static class ProcessChunksResult {
-    final long additionalAppended;
-    final IOException exception;
-
-    ProcessChunksResult(long additionalAppended, IOException exception) {
-      this.additionalAppended = additionalAppended;
       this.exception = exception;
     }
   }
@@ -814,23 +728,6 @@ public class AzureBlobStorageService implements UploadStorageService {
     }
   }
 
-  /** Stages pre-existing .part blob as a Block Blob block if present. */
-  private void stagePartBlobIfPresent(
-      BlobClient partBlob,
-      long existingPartSize,
-      BlockBlobClient blockBlobClient,
-      List<String> blockIds)
-      throws IOException {
-    if (existingPartSize > 0) {
-      String partBlockId = generateBlockId(blockIds.size());
-      try (InputStream partIs = partBlob.openInputStream()) {
-        blockBlobClient.stageBlock(partBlockId, partIs, existingPartSize);
-      }
-      blockIds.add(partBlockId);
-      partBlob.deleteIfExists();
-    }
-  }
-
   /** Stages local chunk temp file as a Block Blob block. */
   private void stageChunkFile(
       File chunkFile, long chunkSize, BlockBlobClient blockBlobClient, List<String> blockIds)
@@ -844,77 +741,47 @@ public class AzureBlobStorageService implements UploadStorageService {
     }
   }
 
-  /** Processes remaining payload chunks from stream until EOF or interruption. */
-  private ProcessChunksResult processRemainingChunks(
-      InputStream inputStream,
-      long optimalBlockSize,
-      Long effectiveMaxAppendSize,
-      UploadInfo upload,
-      BlobClient partBlob,
-      BlockBlobClient blockBlobClient,
-      List<String> blockIds,
-      long currentTotalAppended)
-      throws MaxAppendSizeExceededException, IOException {
-    long additionalAppended = 0L;
-    boolean streamFinished = false;
-    IOException exception = null;
-
-    while (!streamFinished) {
-      File chunkFile = null;
-      try {
-        chunkFile = Files.createTempFile(tempBufferDir, "tus-azure-chunk-", ".tmp").toFile();
-        ReadChunkResult chunkResult = readChunk(inputStream, chunkFile, optimalBlockSize);
-        long chunkSize = chunkResult.bytesRead;
-        exception = chunkResult.exception;
-
-        if (chunkSize <= 0) {
-          break;
-        }
-
-        additionalAppended += chunkSize;
-        long totalAppendedSoFar = currentTotalAppended + additionalAppended;
-        validateMaxAppendSize(totalAppendedSoFar, effectiveMaxAppendSize);
-
-        long currentOffset = upload.getOffset() + totalAppendedSoFar;
-        boolean complete = upload.getLength() != null && currentOffset == upload.getLength();
-
-        if (chunkSize < optimalBlockSize && !complete) {
-          bufferToPartBlob(partBlob, 0L, chunkFile, chunkSize);
-        } else {
-          stageChunkFile(chunkFile, chunkSize, blockBlobClient, blockIds);
-        }
-
-        if (exception != null) {
-          break;
-        }
-      } finally {
-        if (chunkFile != null) {
-          deleteFileQuietly(chunkFile);
-        }
-      }
+  /**
+   * Scans checksum deduplication index blobs under {@code checksumsPrefix} and deletes any index
+   * blobs whose referenced parent upload has expired or no longer exists in Azure.
+   */
+  private void pruneOrphanedChecksumIndices() {
+    // 1. Skip scanning if deduplication is disabled; no checksum indices are generated or
+    // referenced
+    if (!isUploadDeduplicationEnabled()) {
+      return;
     }
-    return new ProcessChunksResult(additionalAppended, exception);
-  }
+    try {
+      // 2. Query all index blobs located under the deduplication prefix (e.g.
+      // checksums/<algo>/<hash>)
+      ListBlobsOptions options = new ListBlobsOptions().setPrefix(checksumsPrefix);
+      for (BlobItem item : containerClient.listBlobs(options, null)) {
+        try {
+          BlobClient checksumBlob = containerClient.getBlobClient(item.getName());
 
-  /** Buffers incoming data to temporary .part blob when under block threshold. */
-  private void bufferToPartBlob(
-      BlobClient partBlob, long existingPartSize, File tempFile, long appendSize)
-      throws IOException {
-    if (existingPartSize == 0) {
-      partBlob.upload(BinaryData.fromFile(tempFile.toPath()), true);
-    } else {
-      File combinedTemp = Files.createTempFile(tempBufferDir, "tus-azure-part-", ".tmp").toFile();
-      try {
-        try (InputStream partIs = partBlob.openInputStream();
-            InputStream tempIs = new FileInputStream(tempFile);
-            SequenceInputStream seqIs = new SequenceInputStream(partIs, tempIs);
-            FileOutputStream fos = new FileOutputStream(combinedTemp)) {
-          IOUtils.copyLarge(seqIs, fos);
+          // 3. Read the parent upload ID string stored as plain text inside the checksum index blob
+          String parentIdStr = checksumBlob.downloadContent().toString().trim();
+          UploadId parentId = new UploadId(parentIdStr);
+
+          // 4. Verify whether the parent upload's metadata (.info) still exists and is accessible
+          UploadInfo parentInfo = getUploadInfo(parentId);
+
+          // 5. Verify whether the parent upload's final data blob exists in Azure storage
+          BlobClient parentDataBlob = containerClient.getBlobClient(uploadPrefix + parentId);
+
+          // 6. If the parent upload or its data blob no longer exists (e.g. expired, deleted, or
+          // purged
+          // by Azure lifecycle policies), prune the orphaned index entry to keep storage clean
+          if (parentInfo == null || !Boolean.TRUE.equals(parentDataBlob.exists())) {
+            log.debug("Pruning orphaned Azure checksum index blob {}", item.getName());
+            checksumBlob.deleteIfExists();
+          }
+        } catch (Exception ignored) {
+          // Ignore individual blob read errors to allow full sweep of remaining index entries
         }
-        partBlob.upload(BinaryData.fromFile(combinedTemp.toPath()), true);
-      } finally {
-        deleteFileQuietly(combinedTemp);
       }
+    } catch (Exception e) {
+      log.debug("Failed to prune orphaned Azure checksum indices: {}", e.getMessage());
     }
   }
 

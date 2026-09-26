@@ -1,9 +1,13 @@
 package me.desair.tus.server.upload.azure;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
+import com.azure.core.util.BinaryData;
+import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -312,7 +316,7 @@ public class ITAzureBlobStorageService {
     storageService.setUploadExpirationPeriod(1L);
 
     UploadInfo info = new UploadInfo();
-    info.setLength(10L);
+    info.setLength(20L); // In-progress upload: 10 bytes uploaded out of 20
     UploadInfo created = storageService.create(info, "owner1");
 
     storageService.append(created, new ByteArrayInputStream("0123456789".getBytes()));
@@ -321,6 +325,24 @@ public class ITAzureBlobStorageService {
     // Cleanup with expiration period 0 (all uploads expired)
     storageService.cleanupExpiredUploads(new AzureBlobLockingService(containerClient));
     assertNull(storageService.getUploadInfo(created.getId()));
+  }
+
+  @Test
+  public void cleanupExpiredUploadsShouldPreserveCompletedUploads() throws Exception {
+    storageService.setUploadExpirationPeriod(1L);
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    // Upload completes (offset == length == 10)
+    storageService.append(created, new ByteArrayInputStream("0123456789".getBytes()));
+
+    Thread.sleep(50L);
+    storageService.cleanupExpiredUploads(new AzureBlobLockingService(containerClient));
+
+    // Completed uploads must be preserved per Tus specification
+    assertNotNull(storageService.getUploadInfo(created.getId()));
   }
 
   @Test
@@ -529,7 +551,7 @@ public class ITAzureBlobStorageService {
   }
 
   @Test
-  public void testTruncatePartBlobDownToZeroDeletesPartBlob() throws Exception {
+  public void testTruncateDownToBlockBoundary() throws Exception {
     storageService.setPreferredBlockSize(4L * 1024 * 1024); // 4MB
 
     byte[] data = new byte[(4 * 1024 + 500) * 1024]; // 4.5MB
@@ -545,11 +567,6 @@ public class ITAzureBlobStorageService {
     // Truncate by exactly 500KB down to 4MB (block boundary)
     storageService.removeLastNumberOfBytes(created, 500 * 1024L);
     assertEquals(Long.valueOf(4L * 1024 * 1024), created.getOffset());
-
-    // .part blob should be deleted
-    com.azure.storage.blob.BlobClient partBlob =
-        containerClient.getBlobClient("metadata/" + created.getId() + ".part");
-    org.junit.Assert.assertFalse(partBlob.exists());
   }
 
   @Test
@@ -639,5 +656,111 @@ public class ITAzureBlobStorageService {
     UploadInfo fetched = storageService.getUploadInfo(created.getId());
     assertNotNull(fetched);
     assertEquals(Long.valueOf(4L * 1024 * 1024 + 100L), fetched.getOffset());
+  }
+
+  @Test
+  public void testPruneOrphanedChecksumIndices() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+
+    BlobClient orphanedIndex = containerClient.getBlobClient("checksums/sha1/deadbeef12345678");
+    orphanedIndex.upload(BinaryData.fromString("non-existent-upload-id"), true);
+    assertTrue(orphanedIndex.exists());
+
+    storageService.cleanupExpiredUploads();
+
+    assertFalse(orphanedIndex.exists());
+  }
+
+  @Test
+  public void testPruneOrphanedChecksumIndicesMissingDataBlob() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+
+    UploadInfo parentInfo = new UploadInfo();
+    parentInfo.setLength(10L);
+    UploadInfo created = storageService.create(parentInfo, "owner1");
+
+    BlobClient orphanedIndex = containerClient.getBlobClient("checksums/sha1/missingdatablob");
+    orphanedIndex.upload(BinaryData.fromString(created.getId().toString()), true);
+    assertTrue(orphanedIndex.exists());
+
+    // Data blob doesn't exist yet (upload created but no bytes uploaded)
+    storageService.cleanupExpiredUploads();
+
+    assertFalse(orphanedIndex.exists());
+  }
+
+  @Test
+  public void testGetUploadInfoByChecksumStaleIndexDeleted() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+
+    BlobClient staleIndex = containerClient.getBlobClient("checksums/sha1/nonexistentparent");
+    staleIndex.upload(BinaryData.fromString("missing-parent-id"), true);
+    assertTrue(staleIndex.exists());
+
+    // Looking up non-existent parent should self-clean the stale index
+    UploadInfo match =
+        storageService.getUploadInfoByChecksum("nonexistentparent", ChecksumAlgorithm.SHA1);
+    assertNull(match);
+    assertFalse(staleIndex.exists());
+  }
+
+  @Test
+  public void testRemoveLastNumberOfBytesDownToZero() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    storageService.append(created, new ByteArrayInputStream("0123456789".getBytes()));
+    assertEquals(Long.valueOf(10L), created.getOffset());
+
+    storageService.removeLastNumberOfBytes(created, 10L);
+    assertEquals(Long.valueOf(0L), created.getOffset());
+
+    BlobClient dataBlob = containerClient.getBlobClient("uploads/" + created.getId());
+    assertFalse(dataBlob.exists());
+  }
+
+  @Test
+  public void testConfigurationProperties() {
+    storageService.setMaxUploadSize(5000L);
+    assertEquals(5000L, storageService.getMaxUploadSize());
+
+    storageService.setMinSize(200L);
+    assertEquals(Long.valueOf(200L), storageService.getMinSize());
+
+    assertTrue(storageService.isJsonSerializationEnabled());
+
+    assertNotNull(storageService.getUploadConcatenationService());
+    storageService.setUploadConcatenationService(null);
+    assertNull(storageService.getUploadConcatenationService());
+  }
+
+  @Test
+  public void testCorruptInfoBlobReturnsNull() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    BlobClient infoBlob = containerClient.getBlobClient("metadata/" + created.getId() + ".info");
+    infoBlob.upload(BinaryData.fromString("not-valid-json"), true);
+
+    assertNull(storageService.getUploadInfo(created.getId()));
+  }
+
+  @Test
+  public void testTerminateUploadWithLocksAndStopBlob() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    BlobClient stopBlob = containerClient.getBlobClient("locks/" + created.getId() + ".stop");
+    stopBlob.upload(BinaryData.fromString("stop"), true);
+    BlobClient lockBlob = containerClient.getBlobClient("locks/" + created.getId() + ".lock");
+    lockBlob.upload(BinaryData.fromString("lock"), true);
+
+    storageService.terminateUpload(created);
+
+    assertFalse(stopBlob.exists());
+    assertFalse(lockBlob.exists());
   }
 }

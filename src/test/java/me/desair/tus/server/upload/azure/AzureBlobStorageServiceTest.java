@@ -5,12 +5,14 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
@@ -23,7 +25,7 @@ import org.junit.Test;
  */
 public class AzureBlobStorageServiceTest {
 
-  private BlobContainerClient containerClient;
+  private com.azure.storage.blob.BlobContainerClient containerClient;
   private AzureBlobStorageService storageService;
 
   @Before
@@ -190,5 +192,45 @@ public class AzureBlobStorageServiceTest {
         new AzureBlobStorageService(
             containerClient, "", "", "", "", Paths.get(System.getProperty("java.io.tmpdir")));
     assertNotNull(service);
+  }
+
+  @Test
+  public void constructorFailsToCreateBufferDirHandledGracefully() throws Exception {
+    Path tempFile = Files.createTempFile("tus-azure-buffer-file", ".tmp");
+    try {
+      Path uncreatablePath = tempFile.resolve("child-dir");
+      AzureBlobStorageService service =
+          new AzureBlobStorageService(
+              containerClient, "uploads", "metadata", "checksums", "locks", uncreatablePath);
+      assertNotNull(service);
+    } finally {
+      Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test(expected = MaxAppendSizeExceededException.class)
+  public void validateRemainingBlockBudgetThrowsWhenLimitReached() throws Exception {
+    storageService.validateRemainingBlockBudget(new UploadInfo(), 50_000);
+  }
+
+  @Test(expected = MaxAppendSizeExceededException.class)
+  public void validateRemainingBlockBudgetThrowsWhenLimitReachedNullUpload() throws Exception {
+    storageService.validateRemainingBlockBudget(null, 50_001);
+  }
+
+  @Test
+  public void validateRemainingBlockBudgetSucceedsWhenWithinBudget() throws Exception {
+    storageService.validateRemainingBlockBudget(new UploadInfo(), 49_999);
+  }
+
+  @Test
+  public void calcOptimalBlockSizeCalculations() {
+    assertEquals(8 * 1024 * 1024L, storageService.calcOptimalBlockSize(null));
+    assertEquals(8 * 1024 * 1024L, storageService.calcOptimalBlockSize(0L));
+    assertEquals(8 * 1024 * 1024L, storageService.calcOptimalBlockSize(100L));
+    assertEquals(8 * 1024 * 1024L, storageService.calcOptimalBlockSize(100L * 1024 * 1024));
+    // When 50000 * 8MB is exceeded, optimal block size scales up
+    long largeLength = 50_000L * 16 * 1024 * 1024L;
+    assertEquals((largeLength / 50_000L) + 1, storageService.calcOptimalBlockSize(largeLength));
   }
 }

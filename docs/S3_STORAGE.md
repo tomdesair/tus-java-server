@@ -47,7 +47,7 @@ import me.desair.tus.server.upload.s3.S3StorageService;
 import me.desair.tus.server.upload.s3.S3LockingService;
 
 // 1. Production Configuration: Load S3 parameters securely from environment variables
-String endpoint = System.getenv().getOrDefault("S3_ENDPOINT", "https://s3.us-east-1.amazonaws.com");
+String endpoint = System.getenv().getOrDefault("S3_ENDPOINT", "https://s3.eu-central-1.amazonaws.com");
 String bucketName = System.getenv().getOrDefault("S3_BUCKET_NAME", "my-upload-bucket");
 String accessKey = System.getenv("AWS_ACCESS_KEY_ID");
 String secretKey = System.getenv("AWS_SECRET_ACCESS_KEY");
@@ -240,37 +240,41 @@ The following minimal AWS IAM policy permissions are required for `S3StorageServ
 
 ```json
 {
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "s3:CreateMultipartUpload",
-        "s3:UploadPart",
-        "s3:UploadPartCopy",
-        "s3:CompleteMultipartUpload",
-        "s3:AbortMultipartUpload",
-        "s3:ListMultipartUploadParts",
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject"
-      ],
-      "Resource": "arn:aws:s3:::my-upload-bucket/*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": "s3:ListBucket",
-      "Resource": "arn:aws:s3:::my-upload-bucket"
-    }
-  ]
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Sid": "BucketLevelActions",
+			"Effect": "Allow",
+			"Action": [
+				"s3:ListBucket",
+				"s3:ListBucketMultipartUploads"
+			],
+			"Resource": "arn:aws:s3:::my-upload-bucket"
+		},
+		{
+			"Sid": "ObjectLevelActions",
+			"Effect": "Allow",
+			"Action": [
+				"s3:PutObject",
+				"s3:GetObject",
+				"s3:DeleteObject",
+				"s3:AbortMultipartUpload",
+				"s3:ListMultipartUploadParts"
+			],
+			"Resource": "arn:aws:s3:::my-upload-bucket/*"
+		}
+	]
 }
 ```
+
+> [!IMPORTANT]
+> Make sure to change "my-upload-bucket" to the correct bucket name that you created for your uploads.
 
 ---
 
 ## 9. Developer Instructions: Running Local S3 Integration Tests
 
-This section explains how developers can run the S3 integration test suite locally on their machine using Testcontainers and a MinIO test container.
+This section explains how developers can run the S3 integration test suite locally on their machine using Testcontainers and a RustFS test container (via its S3 API).
 
 ### Prerequisites
 
@@ -278,10 +282,10 @@ Before running the S3 integration tests locally, ensure you have:
 
 1. **Java 17 or higher** installed (`java -version`).
 2. **Maven 3.6 or higher** installed (`mvn -version`).
-3. **Docker Engine / Docker Desktop** running on your local machine (`docker info`).
+3. **Docker Engine / Docker Desktop or Podman** running on your local machine (`docker info` or `podman info`).
 
 > [!NOTE]
-> Testcontainers requires an active local Docker daemon to spin up the MinIO container. If Docker is not running, integration tests will automatically be skipped gracefully.
+> Testcontainers requires an active local container runtime (Docker or Podman) to spin up the RustFS container. If the container runtime is not running, integration tests will automatically be skipped gracefully.
 
 ### Command to Run Local S3 Integration Tests
 
@@ -297,14 +301,14 @@ Or using Maven Failsafe integration testing phase:
 mvn verify -Dtest="me.desair.tus.server.upload.s3.IT*"
 ```
 
-### How Testcontainers + MinIO Works
+### How Testcontainers + RustFS Works
 
 When the test suite executes:
 
-1. **Automatic Container Lifecycle**: Testcontainers automatically pulls the official `minio/minio` Docker image (if not already cached) and starts a container on a dynamic local port.
-2. **Dynamic Endpoint Override**: The base test class queries `minio.getHost()` and `minio.getMappedPort(9000)` to configure `MinioClient` with `endpoint(...)`.
-3. **Bucket Setup**: An isolated test bucket (`test-tus-bucket`) is automatically created in MinIO before tests begin.
-4. **Execution & Teardown**: The integration tests execute full HTTP request lifecycles (`POST`, `PATCH`, `HEAD`, `DELETE`, deduplication, and locking) against the live local MinIO container. Once tests finish, the container is stopped and cleaned up automatically.
+1. **Automatic Container Lifecycle**: Testcontainers automatically pulls the official `rustfs/rustfs:latest` Docker image (if not already cached) and starts a container on dynamic local ports.
+2. **Dynamic Endpoint Override**: The base test class queries `rustfs.getHost()` and `rustfs.getMappedPort(9000)` to configure `MinioClient` with `endpoint(...)` using the `rustfsadmin` credentials.
+3. **Bucket Setup**: An isolated test bucket is automatically created in RustFS before tests begin.
+4. **Execution & Teardown**: The integration tests execute full HTTP request lifecycles (`POST`, `PATCH`, `HEAD`, `DELETE`, deduplication, and locking) against the live local RustFS S3 endpoint. Once tests finish, the container is stopped and cleaned up automatically.
 
 ### Test Suite Structure
 
@@ -315,15 +319,15 @@ When the test suite executes:
 | `S3StorageServiceTest` | Fast unit test for S3 storage logic | Mocked `MinioClient` |
 | `S3LockingServiceTest` | Fast unit test for S3 distributed locking | Mocked `MinioClient` |
 | `S3ConcatenationServiceTest` | Fast unit test for S3 concatenation logic | Mocked `MinioClient` |
-| `ITS3StorageService` | Integration test for S3 storage | Live MinIO Testcontainer |
-| `ITS3LockingService` | Integration test for S3 distributed locking & contention | Live MinIO Testcontainer |
-| `ITS3RufhProtocol` | IETF RUFH protocol integration suite for S3 backend | Live MinIO Testcontainer |
-| `ITS3TusFileUploadService` | Full end-to-end HTTP protocol lifecycle test | Live MinIO Testcontainer |
+| `ITS3StorageService` | Integration test for S3 storage | Live RustFS Testcontainer |
+| `ITS3LockingService` | Integration test for S3 distributed locking & contention | Live RustFS Testcontainer |
+| `ITS3RufhProtocol` | IETF RUFH protocol integration suite for S3 backend | Live RustFS Testcontainer |
+| `ITS3TusFileUploadService` | Full end-to-end HTTP protocol lifecycle test | Live RustFS Testcontainer |
 
 ### Troubleshooting
 
-- **Test Skipped**: If you see tests reported as skipped, verify that Docker Desktop or Docker Engine is running locally.
-- **Port Conflicts**: Testcontainers dynamically binds MinIO to random available host ports, preventing port collision with existing local services.
+- **Test Skipped**: If you see tests reported as skipped, verify that Docker Desktop, Docker Engine, or Podman is running locally.
+- **Port Conflicts**: Testcontainers dynamically binds RustFS to random available host ports, preventing port collision with existing local services.
 
 ---
 
