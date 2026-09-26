@@ -1,10 +1,12 @@
 package me.desair.tus.server.upload.s3;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -15,6 +17,7 @@ import io.minio.GetObjectResponse;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
 import io.minio.Result;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
@@ -1415,8 +1418,333 @@ public class S3StorageServiceTest {
     assertNotNull(s2);
   }
 
+  @Test
+  public void testFinalizeCompletedUploadStreamingReuploadWhenSub5MbIntermediatePart()
+      throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("sub5mb-test-123");
+    info.setId(id);
+    info.setLength(2000L);
+    info.setOffset(0L);
+
+    String json = UploadInfoJsonSerializer.serialize(info);
+
+    Item item1 = mock(Item.class);
+    when(item1.objectName()).thenReturn("uploads/sub5mb-test-123.part.00001");
+    when(item1.size()).thenReturn(1000L);
+
+    Item item2 = mock(Item.class);
+    when(item2.objectName()).thenReturn("uploads/sub5mb-test-123.part.00002");
+    when(item2.size()).thenReturn(1000L);
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(Arrays.asList(new Result<>(item1), new Result<>(item2)));
+
+    StatObjectResponse stat1 = mock(StatObjectResponse.class);
+    when(stat1.size()).thenReturn(1000L);
+    StatObjectResponse stat2 = mock(StatObjectResponse.class);
+    when(stat2.size()).thenReturn(1000L);
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".part.00001")) {
+                return stat1;
+              } else if (args.object().endsWith(".part.00002")) {
+                return stat2;
+              }
+              ErrorResponse err = mock(ErrorResponse.class);
+              when(err.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(err, null, null);
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json.getBytes());
+              }
+              return mockGetObjectResponse(new byte[1000]);
+            });
+
+    UploadInfo result = storageService.append(info, new ByteArrayInputStream(new byte[2000]));
+    assertNotNull(result);
+    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.never())
+        .composeObject(any(ComposeObjectArgs.class));
+    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.atLeastOnce())
+        .putObject(any(PutObjectArgs.class));
+  }
+
+  @Test
+  public void testFinalizeCompletedUploadComposeObjectWhenAllIntermediatePartsAreAtLeast5Mb()
+      throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("compose-test-123");
+    long fiveMb = 5L * 1024L * 1024L;
+    info.setId(id);
+    info.setLength(fiveMb + 100L);
+    info.setOffset(0L);
+
+    String json = UploadInfoJsonSerializer.serialize(info);
+
+    Item item1 = mock(Item.class);
+    when(item1.objectName()).thenReturn("uploads/compose-test-123.part.00001");
+    when(item1.size()).thenReturn(fiveMb);
+
+    Item item2 = mock(Item.class);
+    when(item2.objectName()).thenReturn("uploads/compose-test-123.part.00002");
+    when(item2.size()).thenReturn(100L);
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(Arrays.asList(new Result<>(item1), new Result<>(item2)));
+
+    StatObjectResponse stat1 = mock(StatObjectResponse.class);
+    when(stat1.size()).thenReturn(fiveMb);
+    StatObjectResponse stat2 = mock(StatObjectResponse.class);
+    when(stat2.size()).thenReturn(100L);
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".part.00001")) {
+                return stat1;
+              } else if (args.object().endsWith(".part.00002")) {
+                return stat2;
+              }
+              ErrorResponse err = mock(ErrorResponse.class);
+              when(err.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(err, null, null);
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json.getBytes());
+              }
+              return mockGetObjectResponse(new byte[100]);
+            });
+
+    UploadInfo result =
+        storageService.append(info, new ByteArrayInputStream(new byte[(int) (fiveMb + 100L)]));
+    assertNotNull(result);
+    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.times(1))
+        .composeObject(any(ComposeObjectArgs.class));
+  }
+
+  @Test
+  public void testPrepareStreamRollsBackSub5MbNumberedPart() throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("rollback-test-123");
+    info.setId(id);
+    info.setLength(10000L);
+    info.setOffset(500L);
+
+    String json = UploadInfoJsonSerializer.serialize(info);
+
+    Item item1 = mock(Item.class);
+    when(item1.objectName()).thenReturn("uploads/rollback-test-123.part.00001");
+    when(item1.size()).thenReturn(500L);
+
+    java.util.Set<String> deletedObjects = new java.util.HashSet<>();
+    doAnswer(
+            invocation -> {
+              RemoveObjectArgs args = invocation.getArgument(0);
+              deletedObjects.add(args.object());
+              return null;
+            })
+        .when(minioClient)
+        .removeObject(any(RemoveObjectArgs.class));
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              if (!deletedObjects.contains("uploads/rollback-test-123.part.00001")) {
+                return java.util.Collections.singletonList(new Result<>(item1));
+              }
+              return java.util.Collections.emptyList();
+            });
+
+    StatObjectResponse stat1 = mock(StatObjectResponse.class);
+    when(stat1.size()).thenReturn(500L);
+
+    StatObjectResponse statPart = mock(StatObjectResponse.class);
+    when(statPart.size()).thenReturn(1000L);
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".part.00001")) {
+                return stat1;
+              } else if (args.object().endsWith(".part")) {
+                return statPart;
+              }
+              ErrorResponse err = mock(ErrorResponse.class);
+              when(err.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(err, null, null);
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json.getBytes());
+              }
+              return mockGetObjectResponse(new byte[500]);
+            });
+
+    UploadInfo result = storageService.append(info, new ByteArrayInputStream(new byte[500]));
+    assertNotNull(result);
+    assertEquals(1000L, result.getOffset().longValue());
+  }
+
+  @Test
+  public void testAppendWithInterruptedStreamKeepsChunkInPartObject() throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("interrupted-test-123");
+    info.setId(id);
+    info.setLength(10000L);
+    info.setOffset(0L);
+
+    String json = UploadInfoJsonSerializer.serialize(info);
+
+    StatObjectResponse partStat = mock(StatObjectResponse.class);
+    when(partStat.size()).thenReturn(50L);
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".part")) {
+                return partStat;
+              }
+              ErrorResponse err = mock(ErrorResponse.class);
+              when(err.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(err, null, null);
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json.getBytes());
+              }
+              return mockGetObjectResponse(new byte[0]);
+            });
+
+    InputStream faultyStream =
+        new InputStream() {
+          private int count = 0;
+
+          @Override
+          public int read() throws IOException {
+            if (count++ < 50) {
+              return 'x';
+            }
+            throw new IOException("Simulated network disconnection");
+          }
+        };
+
+    try {
+      storageService.append(info, faultyStream);
+    } catch (IOException expected) {
+      // Expected exception due to stream disconnection
+    }
+
+    assertEquals(50L, info.getOffset().longValue());
+  }
+
+  @Test
+  public void testCleanupExpiredUploadsPreservesCompletedUpload() throws Exception {
+    UploadInfo completedInfo = new UploadInfo();
+    UploadId id = new UploadId("completed-123");
+    completedInfo.setId(id);
+    completedInfo.setLength(100L);
+    completedInfo.setOffset(100L);
+    completedInfo.setExpirationTimestamp(System.currentTimeMillis() - 10000L);
+
+    String json = UploadInfoJsonSerializer.serialize(completedInfo);
+
+    Item item = mock(Item.class);
+    when(item.objectName()).thenReturn("uploads/completed-123.info");
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(java.util.Collections.singletonList(new Result<>(item)));
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
+
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+    when(mockLocking.isLocked(id)).thenReturn(false);
+
+    storageService.cleanupExpiredUploads(mockLocking);
+
+    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.never())
+        .removeObject(
+            org.mockito.Mockito.argThat(
+                (io.minio.RemoveObjectArgs args) -> args.object().equals("uploads/completed-123")));
+  }
+
+  @Test
+  public void testCleanupExpiredUploadsPrunesStaleTempFilesAndChecksumIndices() throws Exception {
+    java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("s3-cleanup-test");
+    try {
+      java.nio.file.Path staleChunk =
+          java.nio.file.Files.createFile(tempDir.resolve("tus-s3-chunk-12345.tmp"));
+      java.nio.file.Path stalePrep =
+          java.nio.file.Files.createFile(tempDir.resolve("tus-s3-prep-67890.tmp"));
+      long twoDaysAgo = System.currentTimeMillis() - (48L * 3600L * 1000L);
+      staleChunk.toFile().setLastModified(twoDaysAgo);
+      stalePrep.toFile().setLastModified(twoDaysAgo);
+
+      S3StorageService customService =
+          new S3StorageService(
+              minioClient, "test-bucket", "uploads/", "metadata/", "checksums/", "locks/", tempDir);
+      customService.setUploadDeduplicationEnabled(true);
+
+      Item checksumItem = mock(Item.class);
+      when(checksumItem.isDir()).thenReturn(false);
+      when(checksumItem.objectName()).thenReturn("checksums/sha1/abcdef123456");
+
+      when(minioClient.listObjects(any(ListObjectsArgs.class)))
+          .thenAnswer(
+              invocation -> {
+                ListObjectsArgs args = invocation.getArgument(0);
+                if (args.prefix().startsWith("checksums/")) {
+                  return java.util.Collections.singletonList(new Result<>(checksumItem));
+                }
+                return java.util.Collections.emptyList();
+              });
+
+      when(minioClient.getObject(any(GetObjectArgs.class)))
+          .thenAnswer(
+              invocation -> {
+                GetObjectArgs args = invocation.getArgument(0);
+                if (args.object().equals("checksums/sha1/abcdef123456")) {
+                  return mockGetObjectResponse("non-existent-parent".getBytes());
+                }
+                ErrorResponse err = mock(ErrorResponse.class);
+                when(err.code()).thenReturn("NoSuchKey");
+                throw new ErrorResponseException(err, null, null);
+              });
+
+      customService.cleanupExpiredUploads(null);
+
+      assertFalse(java.nio.file.Files.exists(staleChunk));
+      assertFalse(java.nio.file.Files.exists(stalePrep));
+    } finally {
+      org.apache.commons.io.FileUtils.deleteDirectory(tempDir.toFile());
+    }
+  }
+
   private GetObjectResponse mockGetObjectResponse(byte[] bytes) {
     return new GetObjectResponse(
-        null, "test-bucket", "us-east-1", "object-key", new ByteArrayInputStream(bytes));
+        null, "test-bucket", "eu-central-1", "object-key", new ByteArrayInputStream(bytes));
   }
 }

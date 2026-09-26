@@ -14,6 +14,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import me.desair.tus.server.upload.AbstractCloseableResourceService;
@@ -65,8 +67,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
 
   private UploadIdFactory idFactory = new UuidUploadIdFactory();
 
-  private Thread watchdogThread = null;
-  private final Object watchdogLock = new Object();
+  private final ScheduledExecutorService watchdogExecutor;
 
   /**
    * Constructs an {@link AzureBlobLockingService} with default lock key prefix.
@@ -88,14 +89,16 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
     this.containerClient =
         Objects.requireNonNull(containerClient, "containerClient must not be null");
     this.locksPrefix = sanitizePrefix(locksPrefix);
+
+    // Use pooled scheduled daemon executor to poll .stop signals across pods without thread leaks
+    this.watchdogExecutor =
+        Utils.scheduleWatchdog(
+            "azure-lock-watchdog", this::pollStopSignals, 2000L, 2000L, TimeUnit.MILLISECONDS);
   }
 
   @Override
   protected void cleanupOnClose() throws IOException {
-    synchronized (watchdogLock) {
-      Utils.interruptThread(watchdogThread);
-      watchdogThread = null;
-    }
+    Utils.shutdownExecutor(watchdogExecutor);
     for (WeakReference<InterruptibleInputStream> streamRef : activeStreams.values()) {
       if (streamRef != null) {
         Utils.interruptStream(streamRef.get());
@@ -171,7 +174,6 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
     if (uploadId != null && inputStream instanceof InterruptibleInputStream) {
       activeStreams.put(
           uploadId.toString(), new WeakReference<>((InterruptibleInputStream) inputStream));
-      ensureWatchdogRunning();
     }
   }
 
@@ -234,35 +236,24 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
     }
   }
 
-  /** Ensures background watchdog thread is active for polling .stop signal blobs. */
-  private void ensureWatchdogRunning() {
-    synchronized (watchdogLock) {
-      if (watchdogThread == null || !watchdogThread.isAlive()) {
-        watchdogThread = new Thread(this::pollStopSignals, "azure-lock-watchdog");
-        watchdogThread.setDaemon(true);
-        watchdogThread.start();
-      }
-    }
-  }
-
-  /** Polls for .stop signal blobs every 2 seconds while active streams exist. */
+  /**
+   * Periodically polled by {@link #watchdogExecutor} to detect remote .stop signal blobs on Azure
+   * and interrupt local active streams.
+   */
   private void pollStopSignals() {
-    while (!Thread.currentThread().isInterrupted() && !activeStreams.isEmpty()) {
+    if (activeStreams.isEmpty()) {
+      return;
+    }
+    for (String idStr : activeStreams.keySet()) {
       try {
-        Thread.sleep(2000L);
-        for (String idStr : activeStreams.keySet()) {
-          BlobClient stopBlob = containerClient.getBlobClient(locksPrefix + idStr + ".stop");
-          if (stopBlob.exists()) {
-            log.info("Detected remote .stop signal blob for upload ID {}", idStr);
-            interruptLocalStream(idStr);
-            stopBlob.deleteIfExists();
-          }
+        BlobClient stopBlob = containerClient.getBlobClient(locksPrefix + idStr + ".stop");
+        if (Boolean.TRUE.equals(stopBlob.exists())) {
+          log.info("Detected remote .stop signal blob for upload ID {}", idStr);
+          interruptLocalStream(idStr);
+          stopBlob.deleteIfExists();
         }
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        break;
       } catch (Exception e) {
-        log.debug("Error in azure-lock-watchdog polling loop: {}", e.getMessage());
+        log.debug("Error in azure-lock-watchdog polling execution: {}", e.getMessage());
       }
     }
   }

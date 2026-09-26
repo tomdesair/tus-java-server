@@ -75,7 +75,11 @@ public class S3LockingServiceTest {
                 throw new ErrorResponseException(errorResponse, null, "NoSuchKey");
               }
               return new GetObjectResponse(
-                  null, "test-bucket", "us-east-1", args.object(), new ByteArrayInputStream(bytes));
+                  null,
+                  "test-bucket",
+                  "eu-central-1",
+                  args.object(),
+                  new ByteArrayInputStream(bytes));
             });
 
     Mockito.doAnswer(
@@ -134,7 +138,7 @@ public class S3LockingServiceTest {
                 new GetObjectResponse(
                     null,
                     "test-bucket",
-                    "us-east-1",
+                    "eu-central-1",
                     "tus-locks/24249a5b.lock",
                     new ByteArrayInputStream(lockJson.getBytes(StandardCharsets.UTF_8))));
 
@@ -218,7 +222,7 @@ public class S3LockingServiceTest {
         new GetObjectResponse(
             null,
             "test-bucket",
-            "us-east-1",
+            "eu-central-1",
             "tus-locks/expired.lock",
             new ByteArrayInputStream(expiredJson.getBytes(StandardCharsets.UTF_8)));
 
@@ -447,7 +451,7 @@ public class S3LockingServiceTest {
         new GetObjectResponse(
             null,
             "test-bucket",
-            "us-east-1",
+            "eu-central-1",
             "locks/expired.lock",
             new ByteArrayInputStream(
                 me.desair.tus.server.util.LeaseDataJsonSerializer.serialize(expiredLock)
@@ -456,7 +460,7 @@ public class S3LockingServiceTest {
         new GetObjectResponse(
             null,
             "test-bucket",
-            "us-east-1",
+            "eu-central-1",
             "locks/valid.lock",
             new ByteArrayInputStream(
                 me.desair.tus.server.util.LeaseDataJsonSerializer.serialize(validLock)
@@ -570,7 +574,7 @@ public class S3LockingServiceTest {
               return new GetObjectResponse(
                   null,
                   "test-bucket",
-                  "us-east-1",
+                  "eu-central-1",
                   "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.lock",
                   new ByteArrayInputStream(rivalJson.getBytes(StandardCharsets.UTF_8)));
             });
@@ -727,7 +731,7 @@ public class S3LockingServiceTest {
         new GetObjectResponse(
             null,
             "test-bucket",
-            "us-east-1",
+            "eu-central-1",
             "locks/test.lock",
             new ByteArrayInputStream(invalidBytes));
     Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenReturn(response);
@@ -752,5 +756,71 @@ public class S3LockingServiceTest {
   public void testNullUploadIdChecks() {
     assertTrue(lockingService.isLockExpired((UploadId) null));
     assertFalse(lockingService.evictExpiredLock((UploadId) null));
+  }
+
+  @Test
+  public void testEvictExpiredLockDeletesS3Object() throws Exception {
+    UploadId uploadId = new UploadId("test-expired-upload");
+    String lockJson =
+        "{\"holderId\":\"h1\",\"expiresAt\":" + (System.currentTimeMillis() - 5000L) + "}";
+    GetObjectResponse response =
+        new GetObjectResponse(
+            null,
+            "test-bucket",
+            "eu-central-1",
+            "locks/test-expired-upload.lock",
+            new ByteArrayInputStream(lockJson.getBytes(StandardCharsets.UTF_8)));
+
+    Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenReturn(response);
+
+    // Evict expired lock: should verify expiration and physically remove .lock object in S3
+    boolean evicted = lockingService.evictExpiredLock(uploadId);
+    assertTrue(evicted);
+    Mockito.verify(minioClient, Mockito.times(1))
+        .removeObject(
+            Mockito.argThat(
+                (io.minio.RemoveObjectArgs args) ->
+                    "locks/test-expired-upload.lock".equals(args.object())));
+  }
+
+  @Test
+  public void testEvictExpiredLockReturnsFalseWhenNotExpired() throws Exception {
+    UploadId uploadId = new UploadId("test-active-upload");
+    String lockJson =
+        "{\"holderId\":\"h1\",\"expiresAt\":" + (System.currentTimeMillis() + 30000L) + "}";
+    GetObjectResponse response =
+        new GetObjectResponse(
+            null,
+            "test-bucket",
+            "eu-central-1",
+            "locks/test-active-upload.lock",
+            new ByteArrayInputStream(lockJson.getBytes(StandardCharsets.UTF_8)));
+
+    Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenReturn(response);
+
+    boolean evicted = lockingService.evictExpiredLock(uploadId);
+    assertFalse(evicted);
+  }
+
+  @Test
+  public void testEvictExpiredLockHandlesRemoveObjectException() throws Exception {
+    UploadId uploadId = new UploadId("test-remove-err");
+    String lockJson =
+        "{\"holderId\":\"h1\",\"expiresAt\":" + (System.currentTimeMillis() - 5000L) + "}";
+    GetObjectResponse response =
+        new GetObjectResponse(
+            null,
+            "test-bucket",
+            "eu-central-1",
+            "locks/test-remove-err.lock",
+            new ByteArrayInputStream(lockJson.getBytes(StandardCharsets.UTF_8)));
+
+    Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenReturn(response);
+    Mockito.doThrow(new RuntimeException("RemoveObject network failure"))
+        .when(minioClient)
+        .removeObject(Mockito.any(io.minio.RemoveObjectArgs.class));
+
+    boolean evicted = lockingService.evictExpiredLock(uploadId);
+    assertFalse(evicted);
   }
 }

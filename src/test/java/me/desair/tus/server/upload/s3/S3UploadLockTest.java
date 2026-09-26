@@ -123,7 +123,7 @@ public class S3UploadLockTest {
         new io.minio.GetObjectResponse(
             null,
             "test-bucket",
-            "us-east-1",
+            "eu-central-1",
             "tus-locks/upload-1.lock",
             new java.io.ByteArrayInputStream(
                 json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
@@ -167,7 +167,7 @@ public class S3UploadLockTest {
         new io.minio.GetObjectResponse(
             null,
             "test-bucket",
-            "us-east-1",
+            "eu-central-1",
             "tus-locks/upload-1.lock",
             new java.io.ByteArrayInputStream(
                 json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
@@ -278,7 +278,7 @@ public class S3UploadLockTest {
         new io.minio.GetObjectResponse(
             null,
             "test-bucket",
-            "us-east-1",
+            "eu-central-1",
             "tus-locks/upload-1.lock",
             new java.io.ByteArrayInputStream(
                 json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
@@ -319,7 +319,7 @@ public class S3UploadLockTest {
         new io.minio.GetObjectResponse(
             null,
             "test-bucket",
-            "us-east-1",
+            "eu-central-1",
             "tus-locks/upload-1.lock",
             new java.io.ByteArrayInputStream(
                 json.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
