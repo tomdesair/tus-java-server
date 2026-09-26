@@ -72,7 +72,8 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
         // If a locking service is provided, wrap the input stream in an InterruptibleInputStream
         // and register it with the locking service to allow for interruption of the upload.
         if (lockingService != null) {
-          InterruptibleInputStream interruptibleStream = new InterruptibleInputStream(stream);
+          InterruptibleInputStream interruptibleStream =
+              new InterruptibleInputStream(stream, servletRequest.getUploadLock());
           lockingService.registerInputStream(servletRequest.getRequestURI(), interruptibleStream);
           stream = interruptibleStream;
         }

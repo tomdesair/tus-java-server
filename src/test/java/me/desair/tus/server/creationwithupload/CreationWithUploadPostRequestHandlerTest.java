@@ -2,6 +2,7 @@ package me.desair.tus.server.creationwithupload;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -13,12 +14,15 @@ import java.io.InputStream;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
 public class CreationWithUploadPostRequestHandlerTest {
 
@@ -41,10 +45,12 @@ public class CreationWithUploadPostRequestHandlerTest {
     TusServletResponse response = mock(TusServletResponse.class);
     UploadStorageService storageService = mock(UploadStorageService.class);
     UploadLockingService lockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
 
     when(request.getHeader(HttpHeader.CONTENT_LENGTH)).thenReturn("5");
     when(response.getHeader(HttpHeader.LOCATION)).thenReturn("/files/123");
     when(request.getContentInputStream()).thenReturn(new ByteArrayInputStream("hello".getBytes()));
+    when(request.getUploadLock()).thenReturn(mockLock);
 
     UploadInfo uploadInfo = new UploadInfo();
     uploadInfo.setLength(10L);
@@ -60,7 +66,10 @@ public class CreationWithUploadPostRequestHandlerTest {
     handler.process(
         HttpMethod.POST, request, response, storageService, lockingService, "owner", null);
 
-    verify(lockingService).registerInputStream(eq("/files/123"), any());
+    ArgumentCaptor<InterruptibleInputStream> captor =
+        ArgumentCaptor.forClass(InterruptibleInputStream.class);
+    verify(lockingService).registerInputStream(eq("/files/123"), captor.capture());
+    assertEquals(mockLock, captor.getValue().getCorrespondingUploadLock());
     verify(response).setHeader(HttpHeader.UPLOAD_OFFSET, "5");
   }
 

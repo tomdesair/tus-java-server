@@ -531,7 +531,7 @@ public class TusFileUploadService implements Closeable {
     boolean wasInProgress = checkWasInProgress(request, ownerKey);
 
     try (UploadLock lock = acquireUploadLock(method, request.getRequestURI())) {
-
+      request.setUploadLock(lock);
       processedUploadInfo = processLockedRequest(method, request, response, ownerKey);
 
     } catch (TusException e) {
