@@ -35,7 +35,8 @@ public final class TestUtils {
         "/var/run/docker.sock",
         "/run/podman/podman.sock",
         userHome + "/.local/share/containers/podman/machine/podman-machine-default/podman.sock",
-        userHome + "/.local/share/containers/podman/machine/qemu/podman.sock"
+        userHome + "/.local/share/containers/podman/machine/qemu/podman.sock",
+        System.getProperty("java.io.tmpdir", "/tmp") + "/podman/podman-machine-default-api.sock"
       };
 
       for (String socketPath : possibleSockets) {
@@ -65,27 +66,35 @@ public final class TestUtils {
   }
 
   /**
-   * Create and configure a GenericContainer running MinIO for integration testing.
+   * Create and configure a GenericContainer running RustFS for S3 integration testing.
+   *
+   * @return A configured GenericContainer instance (not started yet)
+   */
+  public static GenericContainer<?> createRustFsContainer() {
+    return new GenericContainer<>("rustfs/rustfs:latest")
+        .withExposedPorts(9000)
+        .withEnv("RUSTFS_ACCESS_KEY", "rustfsadmin")
+        .withEnv("RUSTFS_SECRET_KEY", "rustfsadmin");
+  }
+
+  /**
+   * Alias for {@link #createRustFsContainer()} for compatibility.
    *
    * @return A configured GenericContainer instance (not started yet)
    */
   public static GenericContainer<?> createMinioContainer() {
-    return new GenericContainer<>("minio/minio:RELEASE.2025-09-07T16-13-09Z")
-        .withExposedPorts(9000)
-        .withEnv("MINIO_ROOT_USER", "minioadmin")
-        .withEnv("MINIO_ROOT_PASSWORD", "minioadmin")
-        .withCommand("server /data");
+    return createRustFsContainer();
   }
 
   /**
-   * Create a {@link MinioClient} configured to connect to the given MinIO container.
+   * Create a {@link MinioClient} configured to connect to the given S3/RustFS container.
    *
-   * @param minio The active MinIO Testcontainer
+   * @param s3Container The active S3 Testcontainer (RustFS)
    * @return Pre-configured MinioClient
    */
-  public static MinioClient createMinioClient(GenericContainer<?> minio) {
-    String minioUrl = "http://" + minio.getHost() + ":" + minio.getMappedPort(9000);
-    return MinioClient.builder().endpoint(minioUrl).credentials("minioadmin", "minioadmin").build();
+  public static MinioClient createMinioClient(GenericContainer<?> s3Container) {
+    String s3Url = "http://" + s3Container.getHost() + ":" + s3Container.getMappedPort(9000);
+    return MinioClient.builder().endpoint(s3Url).credentials("rustfsadmin", "rustfsadmin").build();
   }
 
   /**
