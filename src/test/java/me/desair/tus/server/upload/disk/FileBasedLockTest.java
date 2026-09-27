@@ -5,6 +5,7 @@ import static org.junit.Assert.fail;
 import static org.mockito.Mockito.anyBoolean;
 import static org.mockito.Mockito.anyLong;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.spy;
 
 import java.io.IOException;
@@ -237,6 +238,32 @@ public class FileBasedLockTest {
     // Verify fileChannel was closed when lock acquisition failed with IOException to prevent file
     // descriptor leaks.
     org.junit.Assert.assertTrue(channelClosed.get());
+  }
+
+  @Test
+  public void testFileChannelCloseExceptionIgnoredOnLockAcquisitionFailure() throws Exception {
+    UUID test = UUID.randomUUID();
+    Path path = storagePath.resolve(test.toString());
+
+    FileChannel channel = createFileChannelMock();
+    doThrow(new IOException("Simulated lock failure"))
+        .when(channel)
+        .tryLock(anyLong(), anyLong(), anyBoolean());
+    doThrow(new IOException("Simulated close exception during error cleanup"))
+        .when(channel)
+        .close();
+
+    try {
+      new FileBasedLock("/test/upload/" + test, path) {
+        @Override
+        protected FileChannel createFileChannel() {
+          return channel;
+        }
+      };
+      fail("Expected IOException to be thrown");
+    } catch (IOException e) {
+      org.junit.Assert.assertTrue(e.getMessage().contains("Unable to create or open file"));
+    }
   }
 
   private FileChannel createFileChannelMock() throws IOException {

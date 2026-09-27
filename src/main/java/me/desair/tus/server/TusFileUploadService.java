@@ -320,7 +320,7 @@ public class TusFileUploadService implements Closeable {
    * @return The current service
    */
   public TusFileUploadService withUploadLockingService(UploadLockingService uploadLockingService) {
-    Objects.requireNonNull(uploadLockingService, "The UploadStorageService cannot be null");
+    Objects.requireNonNull(uploadLockingService, "The UploadLockingService cannot be null");
     uploadLockingService.setIdFactory(this.idFactory);
     // Update the upload storage service
     this.uploadLockingService = uploadLockingService;
@@ -895,9 +895,7 @@ public class TusFileUploadService implements Closeable {
   }
 
   private UploadLock lockUploadByUri(String uploadUri) throws IOException, TusException {
-    return (uploadLockingService != null && uploadUri != null)
-        ? uploadLockingService.lockUploadByUri(uploadUri)
-        : null;
+    return uploadLockingService.lockUploadByUri(uploadUri);
   }
 
   /**

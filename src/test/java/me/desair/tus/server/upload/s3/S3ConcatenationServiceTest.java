@@ -191,6 +191,78 @@ public class S3ConcatenationServiceTest {
     assertEquals(Long.valueOf(100L), finalUpload.getLength());
   }
 
+  @Test
+  public void testMergeMultiplePartsWithMissingStorageUploadIdFallsBackToStreaming()
+      throws Exception {
+    UploadInfo p1 = new UploadInfo();
+    p1.setId(new UploadId("part-no-storage-id"));
+    p1.setOwnerKey("owner-1");
+    p1.setLength(10L * 1024 * 1024);
+    p1.setOffset(10L * 1024 * 1024);
+    p1.setStorageUploadId(null); // Missing storageUploadId triggers fallback
+
+    UploadInfo p2 = new UploadInfo();
+    p2.setId(new UploadId("part-2"));
+    p2.setOwnerKey("owner-1");
+    p2.setLength(10L * 1024 * 1024);
+    p2.setOffset(10L * 1024 * 1024);
+    p2.setStorageUploadId("uploads/part-2");
+
+    Mockito.when(storageService.getUploadInfo("/part-no-storage-id", "owner-1")).thenReturn(p1);
+    Mockito.when(storageService.getUploadInfo("/part-2", "owner-1")).thenReturn(p2);
+    Mockito.when(storageService.getUploadedBytes(new UploadId("part-no-storage-id")))
+        .thenReturn(new ByteArrayInputStream(new byte[10]));
+    Mockito.when(storageService.getUploadedBytes(new UploadId("part-2")))
+        .thenReturn(new ByteArrayInputStream(new byte[10]));
+
+    UploadInfo finalUpload = new UploadInfo();
+    finalUpload.setId(new UploadId("final-fallback-1"));
+    finalUpload.setOwnerKey("owner-1");
+    finalUpload.setConcatenationPartIds(Arrays.asList("/part-no-storage-id", "/part-2"));
+
+    concatenationService.merge(finalUpload);
+
+    Mockito.verify(minioClient, Mockito.never())
+        .composeObject(Mockito.any(ComposeObjectArgs.class));
+    Mockito.verify(minioClient).putObject(Mockito.any(PutObjectArgs.class));
+    assertEquals(Long.valueOf(20L * 1024 * 1024), finalUpload.getLength());
+  }
+
+  @Test
+  public void testMergeMultiplePartsWithSub5MbNonFinalPartFallsBackToStreaming() throws Exception {
+    UploadInfo p1 = new UploadInfo();
+    p1.setId(new UploadId("part-small-first"));
+    p1.setOwnerKey("owner-1");
+    p1.setLength(100L); // Intermediate part < 5MB minPartSize triggers fallback
+    p1.setOffset(100L);
+    p1.setStorageUploadId("uploads/part-small-first");
+
+    UploadInfo p2 = new UploadInfo();
+    p2.setId(new UploadId("part-final"));
+    p2.setOwnerKey("owner-1");
+    p2.setLength(10L * 1024 * 1024);
+    p2.setOffset(10L * 1024 * 1024);
+    p2.setStorageUploadId("uploads/part-final");
+
+    Mockito.when(storageService.getUploadInfo("/part-small-first", "owner-1")).thenReturn(p1);
+    Mockito.when(storageService.getUploadInfo("/part-final", "owner-1")).thenReturn(p2);
+    Mockito.when(storageService.getUploadedBytes(new UploadId("part-small-first")))
+        .thenReturn(new ByteArrayInputStream(new byte[100]));
+    Mockito.when(storageService.getUploadedBytes(new UploadId("part-final")))
+        .thenReturn(new ByteArrayInputStream(new byte[10]));
+
+    UploadInfo finalUpload = new UploadInfo();
+    finalUpload.setId(new UploadId("final-fallback-2"));
+    finalUpload.setOwnerKey("owner-1");
+    finalUpload.setConcatenationPartIds(Arrays.asList("/part-small-first", "/part-final"));
+
+    concatenationService.merge(finalUpload);
+
+    Mockito.verify(minioClient, Mockito.never())
+        .composeObject(Mockito.any(ComposeObjectArgs.class));
+    Mockito.verify(minioClient).putObject(Mockito.any(PutObjectArgs.class));
+  }
+
   @Test(expected = IOException.class)
   public void testMergeServerSideCopyFails() throws Exception {
     UploadInfo p1 = new UploadInfo();

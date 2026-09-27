@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -19,6 +20,8 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.TusServletRequest;
+import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Test;
 
 public class TusFileUploadServiceTest {
@@ -743,5 +746,137 @@ public class TusFileUploadServiceTest {
     assertThat(is, is(nullValue()));
     // Lock must be closed immediately when upload info is not found
     verify(mockLock, times(1)).close();
+  }
+
+  @Test
+  public void testGetUploadedBytesNullArguments() throws Exception {
+    TusFileUploadService service = new TusFileUploadService();
+    assertThat(service.getUploadedBytes((UploadId) null, "owner"), is(nullValue()));
+    assertThat(service.getUploadedBytes((String) null, "owner"), is(nullValue()));
+  }
+
+  @Test
+  public void testGetUploadedBytesStorageReturnsNullStreamClosesLock() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadStorageService mockStorageService = mock(UploadStorageService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    UploadId uploadId = new UploadId("null-stream-id");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setOwnerKey("owner-1");
+
+    when(mockLockingService.lockUploadByUri("null-stream-id")).thenReturn(mockLock);
+    when(mockStorageService.getUploadInfo(uploadId)).thenReturn(info);
+    when(mockStorageService.getUploadedBytes(uploadId)).thenReturn(null);
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorageService);
+
+    InputStream is = service.getUploadedBytes(uploadId, "owner-1");
+    assertThat(is, is(nullValue()));
+    verify(mockLock, times(1)).close();
+
+    // URI overload
+    when(mockLockingService.lockUploadByUri("/files/null-stream-uri")).thenReturn(mockLock);
+    when(mockStorageService.getUploadedBytes("/files/null-stream-uri", "owner-1")).thenReturn(null);
+    InputStream uriIs = service.getUploadedBytes("/files/null-stream-uri", "owner-1");
+    assertThat(uriIs, is(nullValue()));
+    verify(mockLock, times(2)).close();
+  }
+
+  @Test
+  public void testGetUploadedBytesWithoutLockingServiceReturnsRawStream() throws Exception {
+    UploadStorageService mockStorageService = mock(UploadStorageService.class);
+    UploadId uploadId = new UploadId("raw-id");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setOwnerKey("owner-1");
+
+    ByteArrayInputStream rawStream1 = new ByteArrayInputStream("data1".getBytes());
+    ByteArrayInputStream rawStream2 = new ByteArrayInputStream("data2".getBytes());
+    when(mockStorageService.getUploadInfo(uploadId)).thenReturn(info);
+    when(mockStorageService.getUploadedBytes(uploadId)).thenReturn(rawStream1);
+    when(mockStorageService.getUploadedBytes("/files/raw-uri", "owner-1")).thenReturn(rawStream2);
+
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(null);
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorageService);
+
+    InputStream is1 = service.getUploadedBytes(uploadId, "owner-1");
+    assertThat(is1, is(rawStream1));
+
+    InputStream is2 = service.getUploadedBytes("/files/raw-uri", "owner-1");
+    assertThat(is2, is(rawStream2));
+  }
+
+  @Test
+  public void testGetUploadedBytesLockCloseExceptionHandledGracefully() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadStorageService mockStorageService = mock(UploadStorageService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    UploadId uploadId = new UploadId("close-fail-id");
+
+    doThrow(new RuntimeException("Lock close failed")).when(mockLock).close();
+    when(mockLockingService.lockUploadByUri("close-fail-id")).thenReturn(mockLock);
+    when(mockStorageService.getUploadInfo(uploadId)).thenReturn(null);
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorageService);
+
+    // Should not throw even if lock.close() throws exception
+    InputStream is = service.getUploadedBytes(uploadId, "owner-1");
+    assertThat(is, is(nullValue()));
+
+    // URI overload
+    when(mockLockingService.lockUploadByUri("/files/close-fail-uri")).thenReturn(mockLock);
+    when(mockStorageService.getUploadedBytes("/files/close-fail-uri", "owner-1")).thenReturn(null);
+    InputStream uriIs = service.getUploadedBytes("/files/close-fail-uri", "owner-1");
+    assertThat(uriIs, is(nullValue()));
+  }
+
+  @Test
+  public void testProcessLockedRequestCatchesUnexpectedRuntimeException() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+
+    jakarta.servlet.http.HttpServletRequest mockReq =
+        mock(jakarta.servlet.http.HttpServletRequest.class);
+    jakarta.servlet.http.HttpServletResponse mockResp =
+        mock(jakarta.servlet.http.HttpServletResponse.class);
+    when(mockReq.getMethod()).thenReturn("POST");
+    when(mockReq.getRequestURI()).thenReturn("/");
+    when(mockReq.getHeader(anyString())).thenReturn(null);
+    when(mockReq.getHeader(me.desair.tus.server.HttpHeader.TUS_RESUMABLE)).thenReturn("1.0.0");
+    when(mockReq.getHeader(me.desair.tus.server.HttpHeader.UPLOAD_DEFER_LENGTH)).thenReturn("1");
+
+    TusFileUploadService service =
+        new TusFileUploadService().withUploadLockingService(mockLockingService);
+
+    TusExtension crashingExtension = mock(TusExtension.class);
+    when(crashingExtension.getName()).thenReturn("crashing");
+    doThrow(new NullPointerException("Simulated crash"))
+        .when(crashingExtension)
+        .validate(any(), any(), any(), any(), any(), any());
+
+    service.addTusExtension(crashingExtension);
+
+    TusServletRequest tusRequest = new TusServletRequest(mockReq);
+    TusServletResponse tusResponse = new TusServletResponse(mockResp);
+
+    UploadInfo result =
+        service.processLockedRequest(HttpMethod.POST, tusRequest, tusResponse, "owner");
+    assertThat(result, is(nullValue()));
+    verify(mockResp, atLeastOnce()).setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
   }
 }

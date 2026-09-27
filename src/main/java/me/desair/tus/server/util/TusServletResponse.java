@@ -31,18 +31,27 @@ public class TusServletResponse extends HttpServletResponseWrapper {
 
   @Override
   public void setDateHeader(String name, long date) {
+    if (name == null) {
+      return;
+    }
     super.setDateHeader(name, date);
     overwriteHeader(name, Objects.toString(date));
   }
 
   @Override
   public void addDateHeader(String name, long date) {
+    if (name == null) {
+      return;
+    }
     super.addDateHeader(name, date);
     recordHeader(name, Objects.toString(date));
   }
 
   @Override
   public void setHeader(String name, String value) {
+    if (name == null) {
+      return;
+    }
     String sanitizedValue = sanitizeHeaderValue(value);
     super.setHeader(name, sanitizedValue);
     overwriteHeader(name, sanitizedValue);
@@ -50,6 +59,9 @@ public class TusServletResponse extends HttpServletResponseWrapper {
 
   @Override
   public void addHeader(String name, String value) {
+    if (name == null) {
+      return;
+    }
     String sanitizedValue = sanitizeHeaderValue(value);
     super.addHeader(name, sanitizedValue);
     recordHeader(name, sanitizedValue);
@@ -57,12 +69,18 @@ public class TusServletResponse extends HttpServletResponseWrapper {
 
   @Override
   public void setIntHeader(String name, int value) {
+    if (name == null) {
+      return;
+    }
     super.setIntHeader(name, value);
     overwriteHeader(name, Objects.toString(value));
   }
 
   @Override
   public void addIntHeader(String name, int value) {
+    if (name == null) {
+      return;
+    }
     super.addIntHeader(name, value);
     recordHeader(name, Objects.toString(value));
   }
@@ -82,17 +100,11 @@ public class TusServletResponse extends HttpServletResponseWrapper {
   }
 
   private void recordHeader(String name, String value) {
-    if (name == null) {
-      return;
-    }
     List<String> values = headers.computeIfAbsent(name, k -> new LinkedList<>());
     values.add(value);
   }
 
   private void overwriteHeader(String name, String value) {
-    if (name == null) {
-      return;
-    }
     if (value == null) {
       headers.remove(name);
     } else {

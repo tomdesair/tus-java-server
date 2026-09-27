@@ -205,9 +205,6 @@ public class StructuredHeaderUtil {
    */
   private static java.util.List<String> splitMembers(String headerValue) {
     java.util.List<String> members = new java.util.ArrayList<>();
-    if (headerValue == null || headerValue.isBlank()) {
-      return members;
-    }
     StringBuilder current = new StringBuilder();
     boolean inQuotes = false;
     boolean escaped = false;

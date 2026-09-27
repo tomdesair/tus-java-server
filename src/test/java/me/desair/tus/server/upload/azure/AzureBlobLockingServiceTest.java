@@ -110,4 +110,14 @@ public class AzureBlobLockingServiceTest {
     lockingService.close();
     org.junit.Assert.assertTrue(stream.isInterrupted());
   }
+
+  @Test
+  public void testPollStopSignalsCleansStaleWeakReferences() {
+    lockingService.activeStreams.put("stale-upload-id", new java.lang.ref.WeakReference<>(null));
+    org.junit.Assert.assertTrue(lockingService.activeStreams.containsKey("stale-upload-id"));
+
+    lockingService.pollStopSignals();
+
+    org.junit.Assert.assertFalse(lockingService.activeStreams.containsKey("stale-upload-id"));
+  }
 }

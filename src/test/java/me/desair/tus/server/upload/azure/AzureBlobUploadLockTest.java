@@ -67,6 +67,17 @@ public class AzureBlobUploadLockTest {
   }
 
   @Test
+  public void testNullRenewalExecutorAndNullLeaseClient() {
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(null, null, "/test/upload/null-exec", null, null, null);
+    org.junit.Assert.assertNull(lock.getLeaseClient());
+    assertEquals("/test/upload/null-exec", lock.getUploadUri());
+    lock.executeRenew();
+    lock.renewLease();
+    lock.release();
+  }
+
+  @Test
   public void testRenewLeaseWhenReleasedIsNoOp() throws Exception {
     ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
     AzureBlobUploadLock lock =

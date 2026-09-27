@@ -137,4 +137,12 @@ public class StructuredHeaderUtilTest {
         is("\"quoted \\\"word\\\" and \\\\backslash\""));
     assertThat(StructuredHeaderUtil.formatString(null), is("\"\""));
   }
+
+  @Test
+  public void testParseListWithTrailingAndEmptyMembers() {
+    java.util.List<String> list = StructuredHeaderUtil.parseList("item1, , item2, ");
+    assertThat(list.size(), is(2));
+    assertThat(list.get(0), is("item1"));
+    assertThat(list.get(1), is("item2"));
+  }
 }

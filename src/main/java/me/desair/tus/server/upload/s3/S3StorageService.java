@@ -47,6 +47,7 @@ import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -897,12 +898,7 @@ public class S3StorageService implements UploadStorageService {
           throw maxAppendSizeException;
         }
       } finally {
-        if (tempChunkFile.exists()) {
-          boolean deleted = tempChunkFile.delete();
-          if (!deleted) {
-            log.warn("Failed to delete temp chunk file {}", tempChunkFile.getAbsolutePath());
-          }
-        }
+        FileUtils.deleteQuietly(tempChunkFile);
       }
     }
 
@@ -918,10 +914,7 @@ public class S3StorageService implements UploadStorageService {
     } catch (Exception e) {
       throw new IOException("Failed to upload part chunk to S3 key " + chunkKey, e);
     } finally {
-      boolean deleted = tempChunkFile.delete();
-      if (!deleted) {
-        log.warn("Failed to delete temp chunk file {}", tempChunkFile.getAbsolutePath());
-      }
+      FileUtils.deleteQuietly(tempChunkFile);
     }
   }
 
@@ -934,10 +927,7 @@ public class S3StorageService implements UploadStorageService {
     } catch (Exception e) {
       throw new IOException("Failed to write incomplete part object to S3 key " + partObjectKey, e);
     } finally {
-      boolean deleted = tempChunkFile.delete();
-      if (!deleted) {
-        log.warn("Failed to delete temp chunk file {}", tempChunkFile.getAbsolutePath());
-      }
+      FileUtils.deleteQuietly(tempChunkFile);
     }
   }
 

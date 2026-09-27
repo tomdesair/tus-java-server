@@ -62,7 +62,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
 
   private final BlobContainerClient containerClient;
   private final String locksPrefix;
-  private final Map<String, WeakReference<InterruptibleInputStream>> activeStreams =
+  final Map<String, WeakReference<InterruptibleInputStream>> activeStreams =
       new ConcurrentHashMap<>();
 
   private UploadIdFactory idFactory = new UuidUploadIdFactory();
@@ -122,7 +122,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
 
     // 1. Target lock blob and instantiate Azure Blob Lease client
     BlobClient lockBlob = containerClient.getBlobClient(locksPrefix + idStr + ".lock");
-    BlobLeaseClient leaseClient = new BlobLeaseClientBuilder().blobClient(lockBlob).buildClient();
+    BlobLeaseClient leaseClient = createBlobLeaseClient(lockBlob);
 
     try {
       // Optimistic lease acquisition: in ongoing uploads, the .lock blob already exists
@@ -247,11 +247,15 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
     }
   }
 
+  BlobLeaseClient createBlobLeaseClient(BlobClient lockBlob) {
+    return new BlobLeaseClientBuilder().blobClient(lockBlob).buildClient();
+  }
+
   /**
    * Periodically polled by {@link #watchdogExecutor} to detect remote .stop signal blobs on Azure
    * and interrupt local active streams.
    */
-  private void pollStopSignals() {
+  void pollStopSignals() {
     if (activeStreams.isEmpty()) {
       return;
     }

@@ -154,4 +154,22 @@ public class TusServletResponseTest {
     // Null header name should safely return null
     assertThat(tusServletResponse.getHeader(null), is(nullValue()));
   }
+
+  @Test
+  public void testHeaderEdgeCasesNullAndRemove() {
+    // Setting or adding null header name is safely ignored across all header variants
+    tusServletResponse.setHeader(null, "some-value");
+    tusServletResponse.addHeader(null, "some-value");
+    tusServletResponse.setDateHeader(null, 12345L);
+    tusServletResponse.addDateHeader(null, 12345L);
+    tusServletResponse.setIntHeader(null, 42);
+    tusServletResponse.addIntHeader(null, 42);
+
+    // Setting null value removes pre-existing header
+    tusServletResponse.setHeader("Custom-Header", "value1");
+    assertThat(tusServletResponse.getHeader("Custom-Header"), is("value1"));
+
+    tusServletResponse.setHeader("Custom-Header", null);
+    assertThat(tusServletResponse.getHeader("Custom-Header"), is(nullValue()));
+  }
 }

@@ -110,7 +110,7 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
 
         try {
           // 1. Attempt zero-copy server-side block copying on Azure Storage cluster
-          finalBlockBlob.stageBlockFromUrl(blockId, partialBlob.getBlobUrl(), null);
+          stageBlockFromUrl(finalBlockBlob, blockId, partialBlob.getBlobUrl());
         } catch (BlobStorageException e) {
           // 2. In private Azure containers without SAS tokens or in emulators, stageBlockFromUrl
           // fails with 403 (ACCESS_DENIED) or 400/501 (API_NOT_IMPLEMENTED). Fall back
@@ -225,5 +225,9 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
     }
     String result = prefix.startsWith("/") ? prefix.substring(1) : prefix;
     return result.endsWith("/") ? result : result + "/";
+  }
+
+  void stageBlockFromUrl(BlockBlobClient finalBlockBlob, String blockId, String sourceUrl) {
+    finalBlockBlob.stageBlockFromUrl(blockId, sourceUrl, null);
   }
 }
