@@ -15,9 +15,10 @@ import org.apache.commons.lang3.Validate;
 public abstract class UploadIdFactory {
 
   private String uploadUri = "/";
-  // volatile ensures changes made via setUploadUri(..) are immediately visible across
-  // multiple concurrent request threads without stale caching.
-  private volatile Pattern uploadUriPattern = null;
+  // Access and mutation of uploadUri and uploadUriPattern are synchronized on this instance.
+  // Using synchronized methods avoids Sonar S3077 warnings regarding volatile object references
+  // while guaranteeing thread-safe lazy compilation and cross-thread memory visibility.
+  private Pattern uploadUriPattern = null;
 
   /**
    * Set the URI or absolute URL under which the main tus upload endpoint is hosted. Optionally,
@@ -27,7 +28,7 @@ public abstract class UploadIdFactory {
    *
    * @param uploadUri The URI or URL of the main tus upload endpoint
    */
-  public void setUploadUri(String uploadUri) {
+  public synchronized void setUploadUri(String uploadUri) {
     Validate.notBlank(uploadUri, "The upload URI pattern cannot be blank");
     Validate.isTrue(
         Strings.CS.startsWith(uploadUri, "/")
@@ -45,7 +46,7 @@ public abstract class UploadIdFactory {
    *
    * @return The URI of the main tus upload endpoint.
    */
-  public String getUploadUri() {
+  public synchronized String getUploadUri() {
     return uploadUri;
   }
 
@@ -90,10 +91,10 @@ public abstract class UploadIdFactory {
    *
    * @return A (cached) Pattern to match upload URI's
    */
-  protected Pattern getUploadUriPattern() {
+  protected synchronized Pattern getUploadUriPattern() {
     if (uploadUriPattern == null) {
       // We will extract the upload ID's by removing the upload URI from the start of the
-      // request URI
+      // request URI. Synchronization ensures single compilation across concurrent threads.
       String path = Utils.extractUriPath(uploadUri);
       uploadUriPattern =
           Pattern.compile("^.*" + path + (Strings.CS.endsWith(path, "/") ? "" : "/?"));
