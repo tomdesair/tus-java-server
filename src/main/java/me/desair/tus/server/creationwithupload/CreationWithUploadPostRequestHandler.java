@@ -47,8 +47,7 @@ public class CreationWithUploadPostRequestHandler extends AbstractRequestHandler
         if (uploadInfo != null && uploadInfo.isUploadInProgress()) {
           InputStream stream = servletRequest.getContentInputStream();
           if (uploadLockingService != null) {
-            InterruptibleInputStream interruptibleStream =
-                new InterruptibleInputStream(stream, servletRequest.getUploadLock());
+            InterruptibleInputStream interruptibleStream = new InterruptibleInputStream(stream);
             uploadLockingService.registerInputStream(location, interruptibleStream);
             stream = interruptibleStream;
           }

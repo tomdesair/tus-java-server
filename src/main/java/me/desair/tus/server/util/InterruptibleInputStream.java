@@ -2,7 +2,6 @@ package me.desair.tus.server.util;
 
 import java.io.IOException;
 import java.io.InputStream;
-import me.desair.tus.server.upload.UploadLock;
 
 /**
  * An InputStream wrapper that can be interrupted by another thread. When interrupted, it throws an
@@ -11,24 +10,7 @@ import me.desair.tus.server.upload.UploadLock;
 public class InterruptibleInputStream extends InputStream {
 
   private final InputStream delegate;
-  private UploadLock uploadLock;
   private volatile boolean interrupted = false;
-
-  /**
-   * Constructs an interruptible input stream wrapping the given delegate stream and associating it
-   * with the provided {@link UploadLock}.
-   *
-   * @param delegate The delegate input stream to wrap
-   * @param uploadLock The upload lock associated with this stream, or null
-   * @throws IllegalArgumentException if the delegate is null
-   */
-  public InterruptibleInputStream(InputStream delegate, UploadLock uploadLock) {
-    if (delegate == null) {
-      throw new IllegalArgumentException("Delegate InputStream cannot be null");
-    }
-    this.delegate = delegate;
-    this.uploadLock = uploadLock;
-  }
 
   /**
    * Constructs an interruptible input stream wrapping the given delegate stream.
@@ -37,25 +19,10 @@ public class InterruptibleInputStream extends InputStream {
    * @throws IllegalArgumentException if the delegate is null
    */
   public InterruptibleInputStream(InputStream delegate) {
-    this(delegate, null);
-  }
-
-  /**
-   * Sets the corresponding {@link UploadLock} associated with this stream.
-   *
-   * @param uploadLock The upload lock
-   */
-  public void setCorrespondingUploadLock(UploadLock uploadLock) {
-    this.uploadLock = uploadLock;
-  }
-
-  /**
-   * Retrieves the corresponding {@link UploadLock} associated with this stream.
-   *
-   * @return The upload lock, or null if none is set
-   */
-  public UploadLock getCorrespondingUploadLock() {
-    return uploadLock;
+    if (delegate == null) {
+      throw new IllegalArgumentException("Delegate InputStream cannot be null");
+    }
+    this.delegate = delegate;
   }
 
   private void checkInterrupted() throws IOException {
@@ -64,15 +31,23 @@ public class InterruptibleInputStream extends InputStream {
     }
   }
 
+  /**
+   * Interrupts the active stream by marking it interrupted and closing the underlying delegate
+   * stream to abort any blocking socket read operations.
+   *
+   * <p>Note: Stream interruption intentionally does NOT release the upload lock. The thread
+   * processing the upload must continue holding the lock while it persists any buffered or received
+   * payload bytes to storage (e.g. S3, Azure Blob, or Disk) and updates the metadata offset. The
+   * upload lock is released only when the upload handler finishes processing and exits its
+   * try-with-resources lock block. This guarantees that concurrent or resuming requests (such as
+   * HEAD requests) wait for all in-flight bytes to be committed before reading the upload offset.
+   */
   public void interrupt() {
     interrupted = true;
     try {
       delegate.close();
     } catch (IOException e) {
       // Ignore close exception during interrupt
-    }
-    if (uploadLock != null) {
-      uploadLock.release();
     }
   }
 

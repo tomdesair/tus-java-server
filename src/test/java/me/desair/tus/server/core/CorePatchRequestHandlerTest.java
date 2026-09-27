@@ -2,7 +2,7 @@ package me.desair.tus.server.core;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.eq;
@@ -20,7 +20,6 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
-import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.InterruptibleInputStream;
@@ -171,9 +170,7 @@ public class CorePatchRequestHandlerTest {
         .thenReturn(updatedInfo);
 
     UploadLockingService mockLocking = mock(UploadLockingService.class);
-    UploadLock mockLock = mock(UploadLock.class);
     TusServletRequest tusRequest = new TusServletRequest(servletRequest);
-    tusRequest.setUploadLock(mockLock);
 
     handler.process(
         HttpMethod.PATCH,
@@ -188,7 +185,7 @@ public class CorePatchRequestHandlerTest {
         ArgumentCaptor.forClass(InterruptibleInputStream.class);
     verify(mockLocking, times(1))
         .registerInputStream(eq(servletRequest.getRequestURI()), captor.capture());
-    assertEquals(mockLock, captor.getValue().getCorrespondingUploadLock());
+    assertNotNull(captor.getValue());
     verify(uploadStorageService, times(1)).append(eq(info), any(InputStream.class));
   }
 

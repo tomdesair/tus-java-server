@@ -16,6 +16,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -1692,6 +1693,180 @@ public abstract class AbstractITTusFileUploadService {
 
     // Clean up
     bgThread.join(2000);
+  }
+
+  /**
+   * Tests that when an upload stream is interrupted/paused midway after receiving partial bytes,
+   * the thread performing the upload continues to hold the lock while persisting all received bytes
+   * to storage (S3, Azure Blob, Disk) and updating the metadata offset. A concurrent HEAD request
+   * (resuming the upload) waits for the upload thread to complete persistence and release the lock,
+   * receiving the up-to-date offset without rollback or data loss.
+   */
+  @Test
+  public void testInterruptedUploadPersistsBytesBeforeHeadResponds() throws Exception {
+    // 1. Create upload resource for 1000 bytes
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 1000L);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    String location =
+        UPLOAD_URI
+            + StringUtils.substringAfter(
+                servletResponse.getHeader(HttpHeader.LOCATION), UPLOAD_URI);
+
+    // 2. Start a PATCH in a background thread that streams 100 bytes and then blocks
+    final byte[] payload = new byte[100];
+    java.util.Arrays.fill(payload, (byte) 'A');
+    final java.util.concurrent.CountDownLatch bytesDelivered =
+        new java.util.concurrent.CountDownLatch(1);
+    final java.util.concurrent.atomic.AtomicReference<Exception> bgException =
+        new java.util.concurrent.atomic.AtomicReference<>();
+
+    InputStream partialBlockingStream =
+        new InputStream() {
+          private final InputStream byteStream = new ByteArrayInputStream(payload);
+          private volatile boolean closed = false;
+
+          @Override
+          public int read() throws IOException {
+            int b = byteStream.read();
+            if (b != -1) {
+              return b;
+            }
+            // All 100 payload bytes delivered; notify that upload thread has buffered them
+            bytesDelivered.countDown();
+            synchronized (this) {
+              while (!closed) {
+                try {
+                  this.wait(100);
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                  throw new IOException("Stream read interrupted", e);
+                }
+              }
+            }
+            throw new IOException("Stream closed");
+          }
+
+          @Override
+          public int read(byte[] b, int off, int len) throws IOException {
+            int read = byteStream.read(b, off, len);
+            if (read != -1) {
+              return read;
+            }
+            bytesDelivered.countDown();
+            synchronized (this) {
+              while (!closed) {
+                try {
+                  this.wait(100);
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                  throw new IOException("Stream read interrupted", e);
+                }
+              }
+            }
+            throw new IOException("Stream closed");
+          }
+
+          @Override
+          public void close() throws IOException {
+            synchronized (this) {
+              closed = true;
+              this.notifyAll();
+            }
+          }
+        };
+
+    final MockHttpServletRequest bgRequest =
+        new MockHttpServletRequest() {
+          @Override
+          public jakarta.servlet.ServletInputStream getInputStream() {
+            return new jakarta.servlet.ServletInputStream() {
+              @Override
+              public int read() throws IOException {
+                return partialBlockingStream.read();
+              }
+
+              @Override
+              public int read(byte[] b, int off, int len) throws IOException {
+                return partialBlockingStream.read(b, off, len);
+              }
+
+              @Override
+              public void close() throws IOException {
+                partialBlockingStream.close();
+              }
+
+              @Override
+              public boolean isFinished() {
+                return false;
+              }
+
+              @Override
+              public boolean isReady() {
+                return true;
+              }
+
+              @Override
+              public void setReadListener(jakarta.servlet.ReadListener readListener) {}
+            };
+          }
+        };
+    bgRequest.setMethod("PATCH");
+    bgRequest.setRequestURI(location);
+    bgRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    bgRequest.addHeader(HttpHeader.CONTENT_LENGTH, 100);
+    bgRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    bgRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+    Thread bgThread =
+        new Thread(
+            () -> {
+              try {
+                MockHttpServletResponse bgResponse = new MockHttpServletResponse();
+                tusFileUploadService.process(bgRequest, bgResponse, OWNER_KEY);
+              } catch (Exception e) {
+                bgException.set(e);
+              }
+            });
+    bgThread.start();
+
+    // Wait for the background thread to read all 100 bytes and enter blocking wait
+    assertTrue(bytesDelivered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+
+    // 3. Concurrent HEAD request (resume request) arrives within the same second
+    MockHttpServletRequest headRequest = new MockHttpServletRequest();
+    MockHttpServletResponse headResponse = new MockHttpServletResponse();
+    headRequest.setMethod("HEAD");
+    headRequest.setRequestURI(location);
+    headRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+
+    tusFileUploadService.process(headRequest, headResponse, OWNER_KEY);
+
+    // The HEAD request must succeed (204) and see the newly persisted offset of 100 bytes!
+    assertThat(headResponse.getStatus(), is(204));
+    assertThat(headResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("100"));
+
+    bgThread.join(3000);
+
+    // 4. Resume upload: send remaining 900 bytes starting at offset 100
+    MockHttpServletRequest resumeRequest = new MockHttpServletRequest();
+    MockHttpServletResponse resumeResponse = new MockHttpServletResponse();
+    resumeRequest.setMethod("PATCH");
+    resumeRequest.setRequestURI(location);
+    resumeRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    resumeRequest.addHeader(HttpHeader.CONTENT_LENGTH, 900);
+    resumeRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 100);
+    resumeRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    byte[] remainingPayload = new byte[900];
+    java.util.Arrays.fill(remainingPayload, (byte) 'B');
+    resumeRequest.setContent(remainingPayload);
+
+    tusFileUploadService.process(resumeRequest, resumeResponse, OWNER_KEY);
+    assertThat(resumeResponse.getStatus(), is(204));
+    assertThat(resumeResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("1000"));
   }
 
   @Test
