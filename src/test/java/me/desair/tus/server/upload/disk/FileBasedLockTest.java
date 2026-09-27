@@ -126,6 +126,119 @@ public class FileBasedLockTest {
     lock.release();
   }
 
+  @Test
+  public void testTryLockIOExceptionClosesChannel() throws Exception {
+    UUID test = UUID.randomUUID();
+    Path path = storagePath.resolve(test.toString());
+    java.util.concurrent.atomic.AtomicBoolean channelClosed =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    FileChannel customChannel =
+        new FileChannel() {
+          @Override
+          public int read(java.nio.ByteBuffer dst) {
+            return 0;
+          }
+
+          @Override
+          public long read(java.nio.ByteBuffer[] dsts, int offset, int length) {
+            return 0;
+          }
+
+          @Override
+          public int write(java.nio.ByteBuffer src) {
+            return 0;
+          }
+
+          @Override
+          public long write(java.nio.ByteBuffer[] srcs, int offset, int length) {
+            return 0;
+          }
+
+          @Override
+          public long position() {
+            return 0;
+          }
+
+          @Override
+          public FileChannel position(long newPosition) {
+            return this;
+          }
+
+          @Override
+          public long size() {
+            return 0;
+          }
+
+          @Override
+          public FileChannel truncate(long size) {
+            return this;
+          }
+
+          @Override
+          public void force(boolean metaData) {}
+
+          @Override
+          public long transferTo(
+              long position, long count, java.nio.channels.WritableByteChannel target) {
+            return 0;
+          }
+
+          @Override
+          public long transferFrom(
+              java.nio.channels.ReadableByteChannel src, long position, long count) {
+            return 0;
+          }
+
+          @Override
+          public int read(java.nio.ByteBuffer dst, long position) {
+            return 0;
+          }
+
+          @Override
+          public int write(java.nio.ByteBuffer src, long position) {
+            return 0;
+          }
+
+          @Override
+          public java.nio.MappedByteBuffer map(MapMode mode, long position, long size) {
+            return null;
+          }
+
+          @Override
+          public java.nio.channels.FileLock lock(long position, long size, boolean shared) {
+            return null;
+          }
+
+          @Override
+          public java.nio.channels.FileLock tryLock(long position, long size, boolean shared)
+              throws IOException {
+            throw new IOException("Simulated lock failure");
+          }
+
+          @Override
+          protected void implCloseChannel() throws IOException {
+            channelClosed.set(true);
+          }
+        };
+
+    try {
+      new FileBasedLock("/test/upload/" + test.toString(), path) {
+        @Override
+        protected FileChannel createFileChannel() throws IOException {
+          return customChannel;
+        }
+      };
+      fail("Expected IOException to be thrown");
+    } catch (IOException e) {
+      // Expected
+    }
+
+    // Verify fileChannel was closed when lock acquisition failed with IOException to prevent file
+    // descriptor leaks.
+    org.junit.Assert.assertTrue(channelClosed.get());
+  }
+
   private FileChannel createFileChannelMock() throws IOException {
     return spy(FileChannel.class);
   }

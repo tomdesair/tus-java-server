@@ -370,7 +370,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         // Lock will be released when the channel closes
         file.lock();
 
-        file.truncate(file.size() - byteCount);
+        // Guard against Math.max(0, file.size() - byteCount) to prevent FileChannel.truncate
+        // from throwing IllegalArgumentException on over-truncation during checksum rollback
+        file.truncate(Math.max(0L, file.size() - byteCount));
         file.force(true);
 
         info.setOffset(file.size());

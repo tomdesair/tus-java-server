@@ -234,4 +234,20 @@ public class AzureBlobConcatenationServiceTest {
     concatenationService.merge(finalInfo);
     assertEquals(Long.valueOf(0L), finalInfo.getOffset());
   }
+
+  @Test(expected = UploadNotFoundException.class)
+  public void getPartialUploadsShouldThrowOnOwnerMismatch() throws Exception {
+    UploadInfo part1 = new UploadInfo();
+    part1.setId(new UploadId("part-1"));
+    part1.setOwnerKey("owner-A");
+    when(storageService.getUploadInfo("/test/upload/part-1", "owner-B")).thenReturn(part1);
+
+    UploadInfo finalInfo = new UploadInfo();
+    finalInfo.setOwnerKey("owner-B");
+    finalInfo.setConcatenationPartIds(Arrays.asList("/test/upload/part-1"));
+
+    // Verifies that getPartialUploads rejects partial uploads whose ownerKey does not match the
+    // final upload's ownerKey, preventing unauthorized partial stitching.
+    concatenationService.getPartialUploads(finalInfo);
+  }
 }

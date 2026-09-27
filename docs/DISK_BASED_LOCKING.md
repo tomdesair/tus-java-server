@@ -85,6 +85,9 @@ When a client sends a `HEAD` or `DELETE` request to resume or cancel an upload w
 3. A background watchdog thread on the holding replica (polling every 1.5 seconds) detects `.stop` and calls `stream.interrupt()`.
 4. The stalled `PATCH` stream aborts and releases its lock. The server's 8.0-second retry budget ($40 \times 200\text{ms}$) allows the `HEAD` or `DELETE` request to acquire the lock and succeed seamlessly.
 
+### 5. Clock Synchronization & NTP Requirement
+Distributed lease evaluation across nodes relies on `expiresAt` timestamps written to `lease.json`. When sharing a network volume across multiple pods or virtual machines, all host nodes MUST synchronize system clocks using NTP (Network Time Protocol) or cloud time synchronization daemons (`chrony`). To absorb inevitable minor NTP drift, `LeaseFileLockingService` incorporates a built-in 2.0-second safety margin (`CLOCK_SKEW_SAFETY_MARGIN_MS = 2000L` inherited from `AbstractLeaseLockingService`), ensuring that a node whose clock is slightly ahead will never prematurely evict a live peer's lease. Clock drift between cluster nodes should remain well within $\pm 1$ second to ensure accurate TTL lease expiration and takeover.
+
 ---
 
 ## 4. Production Network Mount Configuration Guide

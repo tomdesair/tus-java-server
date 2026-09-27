@@ -253,6 +253,9 @@ public class S3LockingService extends AbstractLeaseLockingService {
       minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(stopKey).build());
       // Remote stop signal object found! Interrupt local byte stream immediately
       Utils.interruptStream(inputStream);
+      // Clean up the stream registration and delete the stop signal to avoid duplicate interrupts
+      activeInputStreams.remove(uri);
+      deleteObjectQuietly(stopKey);
     } catch (ErrorResponseException e) {
       if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
         // Normal state: no stop signal object in S3
@@ -282,10 +285,9 @@ public class S3LockingService extends AbstractLeaseLockingService {
         minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
 
       LeaseData lock = LeaseDataJsonSerializer.deserialize(stream);
-      if (lock == null) {
-        return true;
-      }
-      return lock.getExpiresAt() < System.currentTimeMillis();
+      // Add a 2000ms safety buffer beyond expiration time to absorb NTP clock
+      // drift between distributed pods before considering a lease expired.
+      return isLeaseExpired(lock, System.currentTimeMillis());
     } catch (ErrorResponseException e) {
       if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
         return true; // Key missing -> Not locked

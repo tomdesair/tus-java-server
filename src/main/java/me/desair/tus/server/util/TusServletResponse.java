@@ -2,11 +2,11 @@ package me.desair.tus.server.util;
 
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpServletResponseWrapper;
-import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.TreeMap;
 import org.apache.commons.lang3.StringUtils;
 
 /**
@@ -15,7 +15,9 @@ import org.apache.commons.lang3.StringUtils;
  */
 public class TusServletResponse extends HttpServletResponseWrapper {
 
-  private Map<String, List<String>> headers = new HashMap<>();
+  // HTTP headers are case-insensitive per RFC 9110 §5.1. Using a TreeMap with
+  // String.CASE_INSENSITIVE_ORDER ensures getHeader("location") finds setHeader("Location").
+  private final Map<String, List<String>> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 
   /**
    * Constructs a response adaptor wrapping the given response.
@@ -67,6 +69,9 @@ public class TusServletResponse extends HttpServletResponseWrapper {
 
   @Override
   public String getHeader(String name) {
+    if (name == null) {
+      return null;
+    }
     String value;
     if (headers.containsKey(name)) {
       value = headers.get(name).get(0);
@@ -77,11 +82,17 @@ public class TusServletResponse extends HttpServletResponseWrapper {
   }
 
   private void recordHeader(String name, String value) {
+    if (name == null) {
+      return;
+    }
     List<String> values = headers.computeIfAbsent(name, k -> new LinkedList<>());
     values.add(value);
   }
 
   private void overwriteHeader(String name, String value) {
+    if (name == null) {
+      return;
+    }
     if (value == null) {
       headers.remove(name);
     } else {

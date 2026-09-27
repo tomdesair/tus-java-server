@@ -80,24 +80,26 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
    * ensure a paused or ungracefully expired holder does not overwrite a successor's active lease.
    */
   @Override
-  protected void doRenewLease() {
+  protected void doRenewLease() throws Exception {
     if (lockDirPath == null || !Files.exists(lockDirPath)) {
-      return;
+      throw new IllegalStateException("Lock directory does not exist: " + lockDirPath);
     }
     try (LeaseFileMutex mutex = new LeaseFileMutex(lockDirPath)) {
       if (!mutex.isAcquired()) {
+        log.warn("Failed to acquire mutex to renew lease for {}", lockDirPath);
         return;
       }
+      // If another node took over the lease, abort renewal by throwing IllegalStateException
+      // so AbstractLeaseLock terminates the heartbeat and aborts the active stream.
       if (!doesLockOwnershipMatch()) {
         log.info("Lease for {} was taken over by another holder. Aborting renewal.", lockDirPath);
-        return;
+        throw new IllegalStateException(
+            "Lease for " + lockDirPath + " was taken over by another holder");
       }
 
       Path leaseFile = lockDirPath.resolve("lease.json");
       leaseData.setExpiresAt(getExpiresAt());
       LeaseDataJsonSerializer.serializeToPath(leaseData, leaseFile);
-    } catch (Exception e) {
-      log.warn("Failed to renew lease for lock directory {}", lockDirPath, e);
     }
   }
 

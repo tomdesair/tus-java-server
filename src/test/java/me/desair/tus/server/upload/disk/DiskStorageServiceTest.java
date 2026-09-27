@@ -408,6 +408,23 @@ public class DiskStorageServiceTest {
   }
 
   @Test
+  public void testRemoveLastNumberOfBytesMoreThanTotalSize() throws Exception {
+    String content = "Small content";
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(50L);
+
+    info = storageService.create(info, null);
+    storageService.append(info, IOUtils.toInputStream(content, StandardCharsets.UTF_8));
+
+    // Truncate more bytes than the total file size (e.g. 500 bytes when file is 13 bytes)
+    storageService.removeLastNumberOfBytes(info, 500);
+
+    assertThat(info.getOffset(), is(0L));
+    assertThat(Files.size(getUploadDataPath(info.getId())), is(0L));
+  }
+
+  @Test
   public void getUploadedBytes() throws Exception {
     String content = "This is the content of my upload";
 

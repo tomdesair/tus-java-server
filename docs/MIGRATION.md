@@ -147,3 +147,46 @@ Ensure that reverse proxies (Nginx, HAProxy, AWS ALB, Cloudflare):
 1. Forward custom headers: `Upload-Offset`, `Upload-Complete`, `Upload-Length`, `Upload-Limit`, `Upload-Draft`.
 2. Do not strip or alter `Content-Type: application/partial-upload`.
 3. Support HTTP `PATCH` and `DELETE` requests.
+
+---
+
+## 6. Java Server API Migration Guide (v1.0.0-3.3 to v2.0.0)
+
+When upgrading backend Java applications from `1.0.0-3.3` to `2.0.0`, note the following changes and recommendations:
+
+### 6.1 Java 17 & Jakarta EE Baseline
+- **Java 17**: `tus-java-server` 2.0.0 targets Java 17+.
+- **Jakarta EE**: The library uses `jakarta.servlet.*` package imports instead of legacy `javax.servlet.*` packages, aligning with Spring Boot 3.x, Tomcat 10+, and Jetty 11+.
+
+### 6.2 Default Distributed Lease Locking
+- In `1.0.0-3.3`, `TusFileUploadService.withStoragePath(path)` defaulted to `DiskLockingService`, which relied on OS kernel file locks (`java.nio.channels.FileLock`).
+- In `2.0.0`, `withStoragePath(path)` defaults to `LeaseFileLockingService`, which uses atomic sibling mutex directories (`<UploadId>.mutex/`) and JSON lease files with auto-renewal. This provides container-safe, distributed locking across multi-replica pods on Kubernetes, NFS (v3/v4), AWS EFS, Azure Files, and SMB without requiring OS-level lock daemons or external coordination.
+- **Opting Out**: If your application runs exclusively on local disks and you prefer kernel file locks, explicitly configure:
+  ```java
+  tusService.withUploadLockingService(new DiskLockingService(storagePath));
+  ```
+
+### 6.3 Jackson Dependencies Bundled in Compile Scope
+- Jackson dependencies (`jackson-databind`, `jackson-annotations`, `jackson-core`) are now included with compile scope in `tus-java-server`. You no longer need to declare Jackson separately in your application `pom.xml` when using JSON metadata serialization (`withJsonSerialization()`) or cloud storage.
+
+### 6.4 Safe Lock-Holding InputStream Lifecycle
+- In 2.0.0, `tusService.getUploadedBytes(...)` returns a stream that retains an exclusive upload lock until closed. This prevents concurrent `DELETE` or `PATCH` requests from corrupting data mid-stream.
+- **Best Practice**: Always consume uploaded bytes within a `try-with-resources` block:
+  ```java
+  try (InputStream stream = tusService.getUploadedBytes(uploadUri)) {
+      // Process file data safely under lock protection
+  } // Lock is automatically released on close
+  ```
+
+### 6.5 Pluggable Cloud Storage Backends
+- `2.0.0` introduces native cloud object storage backends:
+  - **S3 Storage**: `S3StorageService`, `S3LockingService`, and `S3ConcatenationService` (AWS S3, MinIO, RustFS, Cloudflare R2, Ceph, GCS). See [docs/S3_STORAGE.md](S3_STORAGE.md).
+  - **Azure Blob Storage**: `AzureBlobStorageService`, `AzureBlobLockingService`, and `AzureBlobConcatenationService`. See [docs/AZURE_BLOB_STORAGE.md](AZURE_BLOB_STORAGE.md).
+
+### 6.6 Post-Upload Listeners (`UploadCompletionListener`)
+- You can now register callbacks that fire immediately upon upload completion:
+  ```java
+  tusService.withUploadCompletionListener((uploadInfo, service) -> {
+      log.info("Upload completed: {}", uploadInfo.getId());
+  });
+  ```

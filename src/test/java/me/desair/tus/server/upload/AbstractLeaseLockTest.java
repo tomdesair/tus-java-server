@@ -137,4 +137,34 @@ public class AbstractLeaseLockTest {
     lockNullUri.close();
     assertTrue(lockNullUri.released.get());
   }
+
+  @Test
+  public void testRenewLeaseFailureInterruptsActiveStreamAndShutsDownExecutor() {
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
+
+    me.desair.tus.server.util.InterruptibleInputStream stream =
+        new me.desair.tus.server.util.InterruptibleInputStream(
+            new ByteArrayInputStream("test".getBytes()));
+    activeStreams.put("/files/upload-failing", stream);
+
+    LeaseData leaseData =
+        new LeaseData(
+            "holder-fail", "/files/upload-failing", 10000L, System.currentTimeMillis() + 10000L);
+
+    TestLeaseLock lock =
+        new TestLeaseLock(leaseData, activeStreams, mockExecutor, "test-watchdog") {
+          @Override
+          protected void doRenewLease() {
+            throw new RuntimeException("Simulated S3 network failure during lease renewal");
+          }
+        };
+
+    // Trigger renewLease and verify that active streaming input stream was interrupted
+    // immediately to prevent un-locked writes, and heartbeat daemon stopped.
+    lock.renewLease();
+
+    assertTrue(stream.isInterrupted());
+    verify(mockExecutor).shutdownNow();
+  }
 }

@@ -753,6 +753,38 @@ public class S3LockingServiceTest {
   }
 
   @Test
+  public void testIsLockExpiredClockSkewSafetyMargin() throws Exception {
+    long now = System.currentTimeMillis();
+    // Case 1: Lease expired 500ms ago. With 2000ms clock skew margin, it must NOT be considered
+    // expired yet.
+    String recentExpiredJson = "{\"holderId\":\"h1\",\"expiresAt\":" + (now - 500L) + "}";
+    GetObjectResponse response1 =
+        new GetObjectResponse(
+            null,
+            "test-bucket",
+            "eu-central-1",
+            "locks/skew.lock",
+            new ByteArrayInputStream(recentExpiredJson.getBytes(StandardCharsets.UTF_8)));
+    Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenReturn(response1);
+
+    // 500ms in the past is inside the 2000ms margin, so isLockExpired is false.
+    assertFalse(lockingService.isLockExpired("locks/skew.lock"));
+
+    // Case 2: Lease expired 3000ms ago. Outside the 2000ms margin, so it IS considered expired.
+    String oldExpiredJson = "{\"holderId\":\"h1\",\"expiresAt\":" + (now - 3000L) + "}";
+    GetObjectResponse response2 =
+        new GetObjectResponse(
+            null,
+            "test-bucket",
+            "eu-central-1",
+            "locks/skew.lock",
+            new ByteArrayInputStream(oldExpiredJson.getBytes(StandardCharsets.UTF_8)));
+    Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenReturn(response2);
+
+    assertTrue(lockingService.isLockExpired("locks/skew.lock"));
+  }
+
+  @Test
   public void testNullUploadIdChecks() {
     assertTrue(lockingService.isLockExpired((UploadId) null));
     assertFalse(lockingService.evictExpiredLock((UploadId) null));

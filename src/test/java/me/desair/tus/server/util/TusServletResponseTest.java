@@ -137,4 +137,21 @@ public class TusServletResponseTest {
     assertThat(tusServletResponse.getHeader("TEST"), is(nullValue()));
     assertThat(servletResponse.getHeader("TEST"), is(nullValue()));
   }
+
+  @Test
+  public void testCaseInsensitiveHeaderLookup() {
+    tusServletResponse.setHeader("Location", "https://example.com/files/123");
+
+    // HTTP headers must be case-insensitive per RFC 9110 §5.1.
+    assertThat(tusServletResponse.getHeader("location"), is("https://example.com/files/123"));
+    assertThat(tusServletResponse.getHeader("LOCATION"), is("https://example.com/files/123"));
+    assertThat(tusServletResponse.getHeader("Location"), is("https://example.com/files/123"));
+
+    // Overwrite using different casing
+    tusServletResponse.setHeader("location", "https://example.com/files/456");
+    assertThat(tusServletResponse.getHeader("LOCATION"), is("https://example.com/files/456"));
+
+    // Null header name should safely return null
+    assertThat(tusServletResponse.getHeader(null), is(nullValue()));
+  }
 }

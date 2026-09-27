@@ -31,12 +31,33 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
 
   private static final Logger log = LoggerFactory.getLogger(AbstractLeaseLockingService.class);
 
+  /**
+   * Safety buffer in milliseconds added beyond a lease's expiration timestamp to absorb NTP clock
+   * skew and network latency between distributed cluster nodes.
+   */
+  public static final long CLOCK_SKEW_SAFETY_MARGIN_MS = 2000L;
+
   protected final long leaseDurationMs;
   protected final long pollIntervalMs;
   protected UploadIdFactory idFactory;
 
   protected final Map<String, InputStream> activeInputStreams = new ConcurrentHashMap<>();
   protected final ScheduledExecutorService watchdogExecutor;
+
+  /**
+   * Returns whether the given lease is expired, taking into account the {@link
+   * #CLOCK_SKEW_SAFETY_MARGIN_MS} clock drift buffer.
+   *
+   * @param lease The lease data to check
+   * @param now Current timestamp in milliseconds
+   * @return true if the lease is null or expired beyond the clock skew margin; false otherwise
+   */
+  protected boolean isLeaseExpired(LeaseData lease, long now) {
+    if (lease == null) {
+      return true;
+    }
+    return lease.isExpired(now, CLOCK_SKEW_SAFETY_MARGIN_MS);
+  }
 
   /**
    * Constructs an {@link AbstractLeaseLockingService} and initializes the background contention

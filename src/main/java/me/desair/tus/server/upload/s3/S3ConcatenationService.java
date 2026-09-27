@@ -134,10 +134,29 @@ public class S3ConcatenationService implements UploadConcatenationService {
     boolean completed = checkAllCompleted(expirationPeriod, partialUploads);
 
     if (totalLength != null && totalLength > 0 && completed) {
-      // S3 Constraint Check: Server-side composeObject requires all source parts to be >= 5 MB
-      boolean canUseServerSideCopy =
-          partialUploads.stream()
-              .allMatch(p -> p.getLength() != null && p.getLength() >= minPartSize);
+      // AWS S3 composeObject / multipart upload constraints:
+      // 1. Single part: must be >= minPartSize (5MB) and have valid storageUploadId to compose.
+      // 2. Multiple parts (>= 2): all parts EXCEPT the final part must be >= minPartSize (5MB).
+      //    The final part is allowed to be < 5MB while still using zero-copy server-side
+      //    composition.
+      boolean canUseServerSideCopy = !partialUploads.isEmpty();
+      if (partialUploads.size() == 1) {
+        UploadInfo p = partialUploads.get(0);
+        canUseServerSideCopy =
+            p.getLength() != null && p.getLength() >= minPartSize && p.getStorageUploadId() != null;
+      } else {
+        for (int i = 0; i < partialUploads.size(); i++) {
+          UploadInfo p = partialUploads.get(i);
+          if (p.getLength() == null || p.getStorageUploadId() == null) {
+            canUseServerSideCopy = false;
+            break;
+          }
+          if (i < partialUploads.size() - 1 && p.getLength() < minPartSize) {
+            canUseServerSideCopy = false;
+            break;
+          }
+        }
+      }
 
       String targetObjectKey = buildObjectKey(uploadInfo.getId());
 

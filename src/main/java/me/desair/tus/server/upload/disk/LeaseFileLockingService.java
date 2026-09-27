@@ -217,8 +217,9 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
         if (Files.exists(leaseFile)) {
           try {
             LeaseData existingLease = LeaseDataJsonSerializer.deserialize(leaseFile);
-            if (existingLease != null && !existingLease.isExpired(now)) {
-              // Active unexpired lease held by another live node
+            // Active unexpired lease held by another live node (taking into account
+            // the 2000ms clock skew buffer to prevent premature eviction).
+            if (existingLease != null && !isLeaseExpired(existingLease, now)) {
               return null;
             }
           } catch (Exception e) {
@@ -326,7 +327,9 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
       try {
         LeaseData lease = LeaseDataJsonSerializer.deserialize(leaseFile);
         if (lease != null) {
-          return lease.isExpired(now);
+          // Add a 2000ms safety buffer beyond expiration time to absorb NTP clock
+          // drift between distributed pods mounting shared network drives.
+          return isLeaseExpired(lease, now);
         }
       } catch (Exception e) {
         log.debug("Failed to read lease file {}, checking grace period", leaseFile, e);

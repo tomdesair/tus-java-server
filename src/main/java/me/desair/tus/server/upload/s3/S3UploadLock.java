@@ -82,27 +82,24 @@ public class S3UploadLock extends AbstractLeaseLock {
   }
 
   @Override
-  protected void doRenewLease() {
+  protected void doRenewLease() throws Exception {
     if (minioClient == null || lockKey == null) {
       return;
     }
-    try {
-      if (!doesLockOwnershipMatch(lockKey)) {
-        log.info(
-            "Skipping renewal of S3 lock key {}: lock was taken over by another node", lockKey);
-        return;
-      }
-
-      getLeaseData().setExpiresAt(getExpiresAt());
-      byte[] lockContentBytes = LeaseDataJsonSerializer.serializeToBytes(getLeaseData());
-
-      minioClient.putObject(
-          PutObjectArgs.builder().bucket(bucket).object(lockKey).stream(
-                  new ByteArrayInputStream(lockContentBytes), (long) lockContentBytes.length, -1L)
-              .build());
-    } catch (Exception e) {
-      log.warn("Failed to renew S3 lock lease for key {}", lockKey, e);
+    // If another node took over the lease, abort renewal by throwing IllegalStateException
+    // so AbstractLeaseLock terminates the heartbeat and aborts the active stream.
+    if (!doesLockOwnershipMatch(lockKey)) {
+      log.info("Skipping renewal of S3 lock key {}: lock was taken over by another node", lockKey);
+      throw new IllegalStateException("S3 lock key " + lockKey + " was taken over by another node");
     }
+
+    getLeaseData().setExpiresAt(getExpiresAt());
+    byte[] lockContentBytes = LeaseDataJsonSerializer.serializeToBytes(getLeaseData());
+
+    minioClient.putObject(
+        PutObjectArgs.builder().bucket(bucket).object(lockKey).stream(
+                new ByteArrayInputStream(lockContentBytes), (long) lockContentBytes.length, -1L)
+            .build());
   }
 
   @Override

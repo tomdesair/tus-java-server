@@ -23,10 +23,14 @@ All notable changes to this project will be documented in this file.
 - **Calibrated Retry Budget**: Extended `TusFileUploadService` lock acquisition retry budget to 8.0 seconds (40 retries x 200ms) to ensure reliable contention resolution over network storage.
 - **Absolute Base URL & Location Header Support**: Extended `withUploadUri(String)` to accept absolute base URLs (e.g. `https://upload.example.com/files`), returning full URLs in `Location` response headers for upload creation across both Tus 1.0.0 and RUFH protocols while preserving backward compatibility for relative paths.
 - **`process()` Return Value (`UploadInfo`)**: `TusFileUploadService.process(...)` now returns the created or updated `UploadInfo` instance (or `null` on errors or `OPTIONS` preflight requests), enabling applications to track and store upload IDs directly into user sessions or database repositories.
+- **Jackson Bundled in Compile Scope**: Promoted Jackson dependencies (`jackson-databind`, `jackson-annotations`, `jackson-core`) to `compile` scope, eliminating `NoClassDefFoundError` when enabling JSON serialization or using cloud storage.
+- **Lock-Holding Stream Lifecycle**: `TusFileUploadService.getUploadedBytes(...)` now retains the upload lock until the returned stream is closed, preventing concurrent modifications or deletions from corrupting data mid-stream.
 
 ### Fixed
 - **RFC 9110 Media Type Matching & MIME Parameter Tolerance**: Enhanced `Content-Type` header validation in `ContentTypeValidator`, `PostContentTypeValidator`, and `RufhAppendValidator` using RFC 9110 §8.3 compliant media-type parsing (`Utils.isMediaType`). Media type matching now tolerates MIME parameters (such as `;charset=UTF-8` automatically appended by Spring Boot `CharacterEncodingFilter`, servlet wrappers, proxies, or HTTP clients), whitespace variations, and case-insensitivity without incorrectly rejecting valid requests with `406 Not Acceptable`.
 - **Clear Content-Length on Error Responses**: Cleared `Content-Length` response header prior to invoking `HttpServletResponse.sendError(...)` during exception handling, resolving buffer conflicts and exceptions in Undertow and other servlet containers ([#40](https://github.com/tomdesair/tus-java-server/issues/40)).
+- **Prevent Disk Truncate Underflow**: Guarded file truncate logic in `DiskStorageService` against underflow when removing bytes (`Math.max(0L, file.size() - byteCount)`).
+- **File Channel Leak Prevention in FileBasedLock**: Guaranteed `FileChannel` is closed immediately upon lock acquisition errors to avoid file descriptor leaks.
 
 ### Breaking
 - **Downloads**: In order to support both the Tus protocol and RUFH protocol, the unofficial download extension will not return a HTTP status code `204` for uploads that are still in progress and will not contain the response header `Tus-Resumable`. Removed the `UploadInProgressException` class.

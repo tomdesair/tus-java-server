@@ -10,8 +10,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -651,5 +654,94 @@ public class TusFileUploadServiceTest {
     assertEquals(
         "https://upload.example.com/files/upload",
         service.getUploadStorageService().getUploadUri());
+  }
+
+  @Test
+  public void testGetUploadedBytesHoldsLockUntilStreamClosed() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadStorageService mockStorageService = mock(UploadStorageService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    UploadId uploadId = new UploadId("test-id");
+
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setOwnerKey("owner-1");
+
+    when(mockLockingService.lockUploadByUri("test-id")).thenReturn(mockLock);
+    when(mockStorageService.getUploadInfo(uploadId)).thenReturn(info);
+    ByteArrayInputStream payloadStream = new ByteArrayInputStream("hello world".getBytes());
+    when(mockStorageService.getUploadedBytes(uploadId)).thenReturn(payloadStream);
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorageService);
+
+    // 1. Retrieve the stream and verify lock was acquired but NOT yet closed
+    InputStream is = service.getUploadedBytes(uploadId, "owner-1");
+    assertNotNull(is);
+    verify(mockLockingService, times(1)).lockUploadByUri("test-id");
+    verify(mockLock, never()).close();
+
+    // 2. Read from stream while lock is held
+    byte[] buf = new byte[11];
+    int read = is.read(buf);
+    assertEquals(11, read);
+    assertEquals("hello world", new String(buf));
+    verify(mockLock, never()).close();
+
+    // 3. Close the stream and verify lock.close() is called exactly once
+    is.close();
+    verify(mockLock, times(1)).close();
+
+    // 4. Repeated close should be idempotent
+    is.close();
+    verify(mockLock, times(1)).close();
+  }
+
+  @Test
+  public void testGetUploadedBytesByUriHoldsLockUntilStreamClosed() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadStorageService mockStorageService = mock(UploadStorageService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    String uploadUri = "/files/test-uri";
+
+    when(mockLockingService.lockUploadByUri(uploadUri)).thenReturn(mockLock);
+    ByteArrayInputStream payloadStream = new ByteArrayInputStream("stream-by-uri".getBytes());
+    when(mockStorageService.getUploadedBytes(uploadUri, "owner-2")).thenReturn(payloadStream);
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorageService);
+
+    InputStream is = service.getUploadedBytes(uploadUri, "owner-2");
+    assertNotNull(is);
+    verify(mockLockingService, times(1)).lockUploadByUri(uploadUri);
+    verify(mockLock, never()).close();
+
+    is.close();
+    verify(mockLock, times(1)).close();
+  }
+
+  @Test
+  public void testLockClosedWhenGetUploadedBytesReturnsNull() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadStorageService mockStorageService = mock(UploadStorageService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    UploadId uploadId = new UploadId("missing-id");
+
+    when(mockLockingService.lockUploadByUri("missing-id")).thenReturn(mockLock);
+    when(mockStorageService.getUploadInfo(uploadId)).thenReturn(null);
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorageService);
+
+    InputStream is = service.getUploadedBytes(uploadId, "owner-x");
+    assertThat(is, is(nullValue()));
+    // Lock must be closed immediately when upload info is not found
+    verify(mockLock, times(1)).close();
   }
 }

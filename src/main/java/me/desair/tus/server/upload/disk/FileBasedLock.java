@@ -66,6 +66,15 @@ public class FileBasedLock implements UploadLock {
       }
       throw new UploadAlreadyLockedException(message);
     } catch (IOException e) {
+      // Close fileChannel on IOException to prevent file descriptor leaks
+      // when file lock acquisition fails unexpectedly.
+      if (fileChannel != null) {
+        try {
+          fileChannel.close();
+        } catch (IOException ignored) {
+          // Ignore secondary exception during cleanup
+        }
+      }
       throw new IOException(
           "Unable to create or open file required to implement file-based locking", e);
     }

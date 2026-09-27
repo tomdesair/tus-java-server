@@ -77,4 +77,62 @@ public class AzureBlobUploadLockTest {
     lock.renewLease();
     assertNotNull(lock);
   }
+
+  @Test
+  public void testReleaseRemovesActiveStreamRegistration() {
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    java.util.Map<
+            String, java.lang.ref.WeakReference<me.desair.tus.server.util.InterruptibleInputStream>>
+        activeStreams = new java.util.concurrent.ConcurrentHashMap<>();
+
+    me.desair.tus.server.util.InterruptibleInputStream stream =
+        new me.desair.tus.server.util.InterruptibleInputStream(
+            new java.io.ByteArrayInputStream("test".getBytes()));
+    activeStreams.put("upload-123", new java.lang.ref.WeakReference<>(stream));
+
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            null, null, "/test/upload/upload-123", mockExecutor, "upload-123", activeStreams);
+
+    // Verify release removes the upload ID from activeStreams
+    lock.release();
+    org.junit.Assert.assertFalse(activeStreams.containsKey("upload-123"));
+    org.junit.Assert.assertFalse(stream.isInterrupted());
+  }
+
+  @Test
+  public void testRenewLeaseFailureInterruptsActiveStream() {
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    java.util.Map<
+            String, java.lang.ref.WeakReference<me.desair.tus.server.util.InterruptibleInputStream>>
+        activeStreams = new java.util.concurrent.ConcurrentHashMap<>();
+
+    me.desair.tus.server.util.InterruptibleInputStream stream =
+        new me.desair.tus.server.util.InterruptibleInputStream(
+            new java.io.ByteArrayInputStream("test".getBytes()));
+    activeStreams.put("upload-failing", new java.lang.ref.WeakReference<>(stream));
+
+    // Subclass to simulate Azure lease renewal failure without needing to mock
+    // final Azure SDK classes.
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            null,
+            null,
+            "/test/upload/upload-failing",
+            mockExecutor,
+            "upload-failing",
+            activeStreams) {
+          @Override
+          void executeRenew() {
+            throw new RuntimeException("Simulated Azure lease renewal failure");
+          }
+        };
+
+    // Verify that failed renewal immediately aborts the active stream
+    lock.renewLease();
+
+    org.junit.Assert.assertTrue(stream.isInterrupted());
+    org.junit.Assert.assertFalse(activeStreams.containsKey("upload-failing"));
+    verify(mockExecutor).shutdownNow();
+  }
 }

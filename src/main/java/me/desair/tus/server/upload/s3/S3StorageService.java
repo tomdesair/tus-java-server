@@ -322,10 +322,14 @@ public class S3StorageService implements UploadStorageService {
           processPayloadChunks(info, preparedStream, info.getId(), partObjectKey);
 
       // Step 4: Validate minimum append size constraints if configured
-      if (minAppendSize != null && appendResult.totalBytesAppended < minAppendSize) {
+      // Subtract prependedBytes so minAppendSize accurately measures the payload transferred
+      // in THIS request rather than earlier buffered bytes.
+      long requestPayloadAppended =
+          Math.max(0L, appendResult.totalBytesAppended - preparedStream.prependedBytes);
+      if (minAppendSize != null && requestPayloadAppended < minAppendSize) {
         throw new MinAppendSizeNotMetException(
             "Append payload size "
-                + appendResult.totalBytesAppended
+                + requestPayloadAppended
                 + " is below minimum limit "
                 + minAppendSize);
       }
@@ -807,73 +811,98 @@ public class S3StorageService implements UploadStorageService {
     long baseOffset = info.getOffset() - preparedStream.prependedBytes;
 
     boolean streamFinished = false;
+    MaxAppendSizeExceededException maxAppendSizeException = null;
+
     while (!streamFinished) {
       File tempChunkFile =
           Files.createTempFile(temporaryDirectory, "tus-s3-chunk-", ".tmp").toFile();
-      tempChunkFile.deleteOnExit();
+      // Do not call tempChunkFile.deleteOnExit() here. In high-throughput long-running services,
+      // deleteOnExit() registers entries in a static JVM set that cannot be garbage collected,
+      // creating an unbounded memory leak. Temp files are deleted in try-finally blocks below.
 
       long chunkBytesWritten = 0;
       IOException readException = null;
-      try (FileOutputStream fos = new FileOutputStream(tempChunkFile)) {
-        int bytesRead;
-        while (chunkBytesWritten < optimalPartSize
-            && (bytesRead = streamToRead.read(buffer)) != -1) {
-          if (maxAppendSize != null && (totalBytesAppended + bytesRead) > maxAppendSize) {
-            boolean deleted = tempChunkFile.delete();
-            if (!deleted) {
-              log.warn("Failed to delete temp chunk file {}", tempChunkFile.getAbsolutePath());
+      try {
+        try (FileOutputStream fos = new FileOutputStream(tempChunkFile)) {
+          int bytesRead;
+          while (chunkBytesWritten < optimalPartSize
+              && (bytesRead = streamToRead.read(buffer)) != -1) {
+            long requestBytesSoFar =
+                (totalBytesAppended + bytesRead) - preparedStream.prependedBytes;
+            if (maxAppendSize != null && requestBytesSoFar > maxAppendSize) {
+              // If maxAppendSize is exceeded, do not discard tempChunkFile immediately.
+              // If preparedStream had prepended bytes from a previous incomplete .part, discarding
+              // tempChunkFile would permanently lose those bytes. Instead, stop reading and record
+              // maxAppendSizeException so the bytes currently in tempChunkFile are flushed to S3
+              // and UploadInfo offset is accurately preserved.
+              maxAppendSizeException =
+                  new MaxAppendSizeExceededException(
+                      "Append payload exceeded limit of " + maxAppendSize);
+              streamFinished = true;
+              break;
             }
-            throw new MaxAppendSizeExceededException(
-                "Append payload exceeded limit of " + maxAppendSize);
+            fos.write(buffer, 0, bytesRead);
+            chunkBytesWritten += bytesRead;
+            totalBytesAppended += bytesRead;
           }
-          fos.write(buffer, 0, bytesRead);
-          chunkBytesWritten += bytesRead;
-          totalBytesAppended += bytesRead;
-        }
 
-        if (chunkBytesWritten < optimalPartSize) {
+          if (chunkBytesWritten < optimalPartSize) {
+            streamFinished = true;
+          }
+        } catch (IOException e) {
+          readException = e;
           streamFinished = true;
         }
-      } catch (IOException e) {
-        readException = e;
-        streamFinished = true;
-      }
 
-      if (chunkBytesWritten == 0) {
-        boolean deleted = tempChunkFile.delete();
-        if (!deleted) {
-          log.warn("Failed to delete temp chunk file {}", tempChunkFile.getAbsolutePath());
+        if (chunkBytesWritten == 0) {
+          if (readException != null) {
+            throw readException;
+          }
+          if (maxAppendSizeException != null) {
+            throw maxAppendSizeException;
+          }
+          break;
         }
+
+        // Base offset plus total bytes appended accurately measures uploaded progress without
+        // double-counting
+        long currentTotalOffset = baseOffset + totalBytesAppended;
+
+        // Interruption Guard: If an IOException or limit exception occurred (e.g. client pause or
+        // connection drop),
+        // the chunk must NEVER be considered complete, preventing sub-5MB chunks from being
+        // promoted.
+        boolean isUploadComplete =
+            readException == null
+                && maxAppendSizeException == null
+                && info.getLength() != null
+                && currentTotalOffset >= info.getLength();
+
+        // AWS S3 / MinIO Rule: Parts must be >= 5 MB unless it's the final part completing the
+        // upload
+        if (chunkBytesWritten >= minPartSize || (streamFinished && isUploadComplete)) {
+          String chunkKey = buildChunkPartKey(id, nextPartNumber);
+          uploadChunkToS3(chunkKey, tempChunkFile, chunkBytesWritten);
+          allPartKeys.add(chunkKey);
+          nextPartNumber++;
+        } else {
+          // Store sub-5MB tail chunk as temporary .part object in S3 for subsequent appends
+          storeIncompletePartToS3(partObjectKey, tempChunkFile, chunkBytesWritten);
+        }
+
         if (readException != null) {
           throw readException;
         }
-        break;
-      }
-
-      // Base offset plus total bytes appended accurately measures uploaded progress without
-      // double-counting
-      long currentTotalOffset = baseOffset + totalBytesAppended;
-
-      // Interruption Guard: If an IOException occurred (e.g. client pause or connection drop),
-      // the chunk must NEVER be considered complete, preventing sub-5MB chunks from being promoted.
-      boolean isUploadComplete =
-          readException == null
-              && info.getLength() != null
-              && currentTotalOffset >= info.getLength();
-
-      // AWS S3 / MinIO Rule: Parts must be >= 5 MB unless it's the final part completing the upload
-      if (chunkBytesWritten >= minPartSize || (streamFinished && isUploadComplete)) {
-        String chunkKey = buildChunkPartKey(id, nextPartNumber);
-        uploadChunkToS3(chunkKey, tempChunkFile, chunkBytesWritten);
-        allPartKeys.add(chunkKey);
-        nextPartNumber++;
-      } else {
-        // Store sub-5MB tail chunk as temporary .part object in S3 for subsequent appends
-        storeIncompletePartToS3(partObjectKey, tempChunkFile, chunkBytesWritten);
-      }
-
-      if (readException != null) {
-        throw readException;
+        if (maxAppendSizeException != null) {
+          throw maxAppendSizeException;
+        }
+      } finally {
+        if (tempChunkFile.exists()) {
+          boolean deleted = tempChunkFile.delete();
+          if (!deleted) {
+            log.warn("Failed to delete temp chunk file {}", tempChunkFile.getAbsolutePath());
+          }
+        }
       }
     }
 

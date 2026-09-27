@@ -2,16 +2,19 @@ package me.desair.tus.server.upload.s3;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import me.desair.tus.server.upload.LeaseData;
+import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import org.junit.Before;
 import org.junit.Test;
@@ -286,6 +289,10 @@ public class S3UploadLockTest {
     Mockito.when(minioClient.getObject(any(io.minio.GetObjectArgs.class))).thenReturn(response);
 
     LeaseData myLeaseData = createLeaseData("my-holder", "/files/upload-1");
+    InterruptibleInputStream stream =
+        new InterruptibleInputStream(new ByteArrayInputStream("data".getBytes()));
+    inputStreamMap.put("/files/upload-1", stream);
+
     S3UploadLock lock =
         new S3UploadLock(
             myLeaseData,
@@ -296,6 +303,10 @@ public class S3UploadLockTest {
             inputStreamMap);
 
     lock.renewLease();
+
+    // On lease ownership loss, renewLease must abort the active input stream immediately
+    // to prevent writing un-locked bytes to S3.
+    assertTrue(stream.isInterrupted());
 
     // Must NOT call putObject because lock is now held by other-holder
     Mockito.verify(minioClient, Mockito.never()).putObject(any(PutObjectArgs.class));
@@ -341,5 +352,44 @@ public class S3UploadLockTest {
     // Must call putObject because holder matches
     Mockito.verify(minioClient).putObject(any(PutObjectArgs.class));
     lock.close();
+  }
+
+  @Test
+  public void testDoesLockOwnershipMatchNullChecksAndException() throws Exception {
+    LeaseData myLeaseData = createLeaseData("my-holder", "/files/upload-1");
+    S3UploadLock lock =
+        new S3UploadLock(
+            myLeaseData,
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            inputStreamMap);
+
+    // Null key returns false
+    org.junit.Assert.assertFalse(lock.doesLockOwnershipMatch(null));
+
+    // Null minioClient returns false
+    S3UploadLock nullClientLock =
+        new S3UploadLock(
+            myLeaseData, null, "test-bucket", "tus-locks/upload-1.lock", null, inputStreamMap);
+    org.junit.Assert.assertFalse(nullClientLock.doesLockOwnershipMatch("key"));
+
+    // Null bucket returns false
+    S3UploadLock nullBucketLock =
+        new S3UploadLock(
+            myLeaseData, minioClient, null, "tus-locks/upload-1.lock", null, inputStreamMap);
+    org.junit.Assert.assertFalse(nullBucketLock.doesLockOwnershipMatch("key"));
+
+    // General exception (non-ErrorResponseException) returns true to allow proceed
+    Mockito.when(minioClient.getObject(any(io.minio.GetObjectArgs.class)))
+        .thenThrow(new RuntimeException("Transient S3 error"));
+    org.junit.Assert.assertTrue(lock.doesLockOwnershipMatch("tus-locks/upload-1.lock"));
+
+    // Renew lease with null lockKey or null minioClient
+    nullClientLock.doRenewLease();
+    S3UploadLock nullKeyLock =
+        new S3UploadLock(myLeaseData, minioClient, "test-bucket", null, null, inputStreamMap);
+    nullKeyLock.doRenewLease();
   }
 }

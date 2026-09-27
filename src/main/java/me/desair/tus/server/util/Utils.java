@@ -468,9 +468,31 @@ public class Utils {
     }
     String requestUri = request.getRequestURI();
     String baseUri = extractUriPath(uploadStorageService.getUploadUri());
-    return requestUri != null
-        && baseUri != null
-        && (requestUri.equals(baseUri) || requestUri.equals(baseUri + "/"));
+    if (requestUri == null || baseUri == null) {
+      return false;
+    }
+    // Fast path: exact string match with or without trailing slash
+    if (requestUri.equals(baseUri) || requestUri.equals(baseUri + "/")) {
+      return true;
+    }
+    // Supports dynamic upload URIs configured with regex (e.g., /users/[0-9]+/files/upload).
+    // When baseUri contains regex metacharacters, compile a regex anchored to match the
+    // entire path with optional trailing slash.
+    if (baseUri.contains("[")
+        || baseUri.contains("(")
+        || baseUri.contains("+")
+        || baseUri.contains("*")) {
+      String normalizedBase =
+          Strings.CS.endsWith(baseUri, "/") ? baseUri.substring(0, baseUri.length() - 1) : baseUri;
+      String patternStr = "^" + normalizedBase + "/?$";
+      try {
+        return Pattern.compile(patternStr).matcher(requestUri).matches();
+      } catch (Exception e) {
+        log.debug("Invalid regex in upload URI pattern: {}", baseUri, e);
+        return false;
+      }
+    }
+    return false;
   }
 
   /**

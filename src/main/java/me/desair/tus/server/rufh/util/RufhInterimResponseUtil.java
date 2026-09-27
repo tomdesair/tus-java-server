@@ -6,14 +6,21 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.rufh.handler.RufhCreationPostRequestHandler;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.util.StructuredHeaderUtil;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.Utils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Utility class for formatting raw HTTP 104 interim response frames for IETF Resumable Uploads for
  * HTTP (RUFH).
  */
 public final class RufhInterimResponseUtil {
+
+  public static final String PRE_CREATED_UPLOAD_INFO_ATTR = "me.desair.tus.preCreatedUploadInfo";
+
+  private static final Logger log = LoggerFactory.getLogger(RufhInterimResponseUtil.class);
 
   private RufhInterimResponseUtil() {
     // Utility class
@@ -60,7 +67,7 @@ public final class RufhInterimResponseUtil {
       uploadInfo = uploadStorageService.create(uploadInfo, ownerKey);
       uploadUri = Utils.getUploadUriOnCreation(uploadInfo, servletRequest, uploadStorageService);
 
-      servletRequest.setAttribute("me.desair.tus.preCreatedUploadInfo", uploadInfo);
+      servletRequest.setAttribute(PRE_CREATED_UPLOAD_INFO_ATTR, uploadInfo);
 
     } catch (Exception e) {
       return null;
@@ -70,7 +77,15 @@ public final class RufhInterimResponseUtil {
       String scheme = servletRequest.getScheme();
       String host = servletRequest.getHeader("Host");
       if (scheme != null && host != null) {
-        uploadUri = scheme + "://" + host + uploadUri;
+        // Security (CWE-113): Reject CR and LF characters in Host header to prevent HTTP response
+        // splitting
+        // when emitting raw HTTP 104 interim response frame strings to the network socket.
+        if (host.indexOf('\r') != -1 || host.indexOf('\n') != -1) {
+          log.warn("Potential HTTP response splitting attempt rejected in Host header: {}", host);
+          return null;
+        }
+        String sanitizedHost = StructuredHeaderUtil.sanitizeHeaderValue(host);
+        uploadUri = scheme + "://" + sanitizedHost + uploadUri;
       }
     }
 
@@ -101,6 +116,12 @@ public final class RufhInterimResponseUtil {
    */
   public static String getRawInterimResponse(String uploadUri, long offset) {
     if (uploadUri == null) {
+      return null;
+    }
+    // Security (CWE-113): Ensure uploadUri does not contain CR or LF characters before constructing
+    // raw status frame
+    if (uploadUri.indexOf('\r') != -1 || uploadUri.indexOf('\n') != -1) {
+      log.warn("Potential HTTP response splitting attempt rejected in uploadUri: {}", uploadUri);
       return null;
     }
     StringBuilder sb = new StringBuilder();

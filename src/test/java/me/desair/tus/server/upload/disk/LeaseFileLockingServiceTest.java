@@ -882,6 +882,32 @@ public class LeaseFileLockingServiceTest {
     service.close();
   }
 
+  @Test
+  public void testClockSkewSafetyMarginProtectsExpiringLease() throws Exception {
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = UPLOAD_URL + "/" + uploadIdStr;
+    Path lockDir = storagePath.resolve("locks").resolve(uploadIdStr + ".lock");
+    Files.createDirectories(lockDir);
+
+    long now = System.currentTimeMillis();
+    // Within the 2000ms CLOCK_SKEW_SAFETY_MARGIN_MS, a lease that expired 500ms ago must NOT be
+    // treated as expired to accommodate inter-node clock drift.
+    LeaseData slightlyExpiredLease =
+        createExpiredLease("peer-node", uri, lockDir.toString(), now - 500L);
+    LeaseDataJsonSerializer.serializeToPath(slightlyExpiredLease, lockDir.resolve("lease.json"));
+
+    assertFalse(lockingService.isLockDirectoryExpired(lockDir, now));
+
+    // Past the 2000ms safety margin (3000ms ago), the lease is safely considered expired.
+    LeaseData fullyExpiredLease =
+        createExpiredLease("peer-node", uri, lockDir.toString(), now - 3000L);
+    LeaseDataJsonSerializer.serializeToPath(fullyExpiredLease, lockDir.resolve("lease.json"));
+
+    assertTrue(lockingService.isLockDirectoryExpired(lockDir, now));
+
+    FileUtils.deleteDirectory(lockDir.toFile());
+  }
+
   private LeaseData createExpiredLease(
       String holderId, String uri, String storagePath, long expiresAt) {
     LeaseData lease = new LeaseData();

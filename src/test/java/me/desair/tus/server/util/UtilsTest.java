@@ -631,6 +631,30 @@ public class UtilsTest {
 
     when(request.getRequestURI()).thenReturn("/files/123");
     assertThat(Utils.isCreationEndpoint(request, storageService), is(false));
+
+    // Test with regex URL pattern configured (e.g. /users/[0-9]+/files)
+    when(storageService.getUploadUri()).thenReturn("/users/[0-9]+/files");
+    when(request.getRequestURI()).thenReturn("/users/42/files");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(true));
+
+    when(request.getRequestURI()).thenReturn("/users/42/files/");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(true));
+
+    when(request.getRequestURI()).thenReturn("/users/42/files/upload-123");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(false));
+
+    // Test with trailing slash in regex base URL pattern
+    when(storageService.getUploadUri()).thenReturn("/users/[0-9]+/files/");
+    when(request.getRequestURI()).thenReturn("/users/42/files");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(true));
+
+    when(request.getRequestURI()).thenReturn("/users/42/files/");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(true));
+
+    // Test with invalid regex pattern
+    when(storageService.getUploadUri()).thenReturn("/users/[0-9+/files");
+    when(request.getRequestURI()).thenReturn("/users/42/files");
+    assertThat(Utils.isCreationEndpoint(request, storageService), is(false));
   }
 
   @Test

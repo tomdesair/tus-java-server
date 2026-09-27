@@ -88,19 +88,14 @@ public class StructuredHeaderUtil {
       return dictionary;
     }
 
-    // Split dictionary members by comma (RFC 9651 Section 3.2)
-    String[] members = headerValue.split(",");
+    // Split dictionary members by comma respecting RFC 9651 quoted strings
+    java.util.List<String> members = splitMembers(headerValue);
     for (String member : members) {
-      String trimmedMember = member.trim();
-      if (trimmedMember.isEmpty()) {
-        continue;
-      }
-
-      int eqIdx = trimmedMember.indexOf('=');
+      int eqIdx = member.indexOf('=');
       if (eqIdx > 0) {
         // Key-value pair member
-        String key = trimmedMember.substring(0, eqIdx).trim();
-        String valStr = trimmedMember.substring(eqIdx + 1).trim();
+        String key = member.substring(0, eqIdx).trim();
+        String valStr = member.substring(eqIdx + 1).trim();
 
         // Attempt parsing as structured boolean item first (?1 / ?0)
         Boolean boolVal = parseBoolean(valStr);
@@ -112,16 +107,32 @@ public class StructuredHeaderUtil {
           if (intVal != null) {
             dictionary.put(key, intVal);
           } else {
-            // Fallback to sanitized string value
-            dictionary.put(key, sanitizeHeaderValue(valStr));
+            // Per RFC 9651 §3.3.3, string values are enclosed in DQUOTEs.
+            // Unquote and unescape before sanitizing to preserve intended content.
+            dictionary.put(key, sanitizeHeaderValue(unquoteString(valStr)));
           }
         }
       } else {
         // According to RFC 9651 Section 3.2, a member with no value defaults to boolean true
-        dictionary.put(trimmedMember, Boolean.TRUE);
+        dictionary.put(member, Boolean.TRUE);
       }
     }
     return dictionary;
+  }
+
+  /**
+   * Format a string value into an RFC 9651 Structured Header String item (Section 3.3.3), enclosed
+   * in DQUOTEs with backslash and quote characters escaped.
+   *
+   * @param value Raw string value
+   * @return RFC 9651 quoted string
+   */
+  public static String formatString(String value) {
+    if (value == null) {
+      return "\"\"";
+    }
+    String escaped = value.replace("\\", "\\\\").replace("\"", "\\\"");
+    return "\"" + sanitizeHeaderValue(escaped) + "\"";
   }
 
   /**
@@ -178,13 +189,69 @@ public class StructuredHeaderUtil {
     if (headerValue == null || headerValue.isBlank()) {
       return list;
     }
-    String[] members = headerValue.split(",");
+    java.util.List<String> members = splitMembers(headerValue);
     for (String member : members) {
-      String trimmedMember = member.trim();
-      if (!trimmedMember.isEmpty()) {
-        list.add(sanitizeHeaderValue(trimmedMember));
-      }
+      list.add(sanitizeHeaderValue(unquoteString(member)));
     }
     return list;
+  }
+
+  /**
+   * Split a comma-separated structured header value into members per RFC 9651 Section 3, respecting
+   * double-quoted strings so that commas inside quotes are not treated as member separators.
+   *
+   * @param headerValue The raw header string
+   * @return List of trimmed member strings
+   */
+  private static java.util.List<String> splitMembers(String headerValue) {
+    java.util.List<String> members = new java.util.ArrayList<>();
+    if (headerValue == null || headerValue.isBlank()) {
+      return members;
+    }
+    StringBuilder current = new StringBuilder();
+    boolean inQuotes = false;
+    boolean escaped = false;
+
+    for (int i = 0; i < headerValue.length(); i++) {
+      char c = headerValue.charAt(i);
+      if (escaped) {
+        current.append(c);
+        escaped = false;
+      } else if (c == '\\') {
+        current.append(c);
+        escaped = true;
+      } else if (c == '"') {
+        inQuotes = !inQuotes;
+        current.append(c);
+      } else if (c == ',' && !inQuotes) {
+        String member = current.toString().trim();
+        if (!member.isEmpty()) {
+          members.add(member);
+        }
+        current.setLength(0);
+      } else {
+        current.append(c);
+      }
+    }
+    String lastMember = current.toString().trim();
+    if (!lastMember.isEmpty()) {
+      members.add(lastMember);
+    }
+    return members;
+  }
+
+  /**
+   * Unquotes an RFC 9651 String item by removing enclosing DQUOTEs and unescaping escaped
+   * characters (\" and \\).
+   */
+  private static String unquoteString(String valStr) {
+    if (valStr != null
+        && valStr.length() >= 2
+        && valStr.startsWith("\"")
+        && valStr.endsWith("\"")) {
+      String inner = valStr.substring(1, valStr.length() - 1);
+      return inner.replace("\\\"", "\"").replace("\\\\", "\\");
+    }
+    return valStr;
   }
 }

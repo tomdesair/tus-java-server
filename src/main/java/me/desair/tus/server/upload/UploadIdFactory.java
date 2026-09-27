@@ -15,7 +15,9 @@ import org.apache.commons.lang3.Validate;
 public abstract class UploadIdFactory {
 
   private String uploadUri = "/";
-  private Pattern uploadUriPattern = null;
+  // volatile ensures changes made via setUploadUri(..) are immediately visible across
+  // multiple concurrent request threads without stale caching.
+  private volatile Pattern uploadUriPattern = null;
 
   /**
    * Set the URI or absolute URL under which the main tus upload endpoint is hosted. Optionally,

@@ -137,6 +137,40 @@ public class S3ConcatenationServiceTest {
   }
 
   @Test
+  public void testMergeServerSideCopyWithSub5MbFinalPart() throws Exception {
+    UploadInfo p1 = new UploadInfo();
+    p1.setId(new UploadId("part-1"));
+    p1.setOwnerKey("owner-1");
+    p1.setLength(10L * 1024 * 1024);
+    p1.setOffset(10L * 1024 * 1024);
+    p1.setStorageUploadId("uploads/part-1");
+
+    UploadInfo p2 = new UploadInfo();
+    p2.setId(new UploadId("part-2"));
+    p2.setOwnerKey("owner-1");
+    p2.setLength(1L * 1024 * 1024); // 1MB < 5MB minPartSize
+    p2.setOffset(1L * 1024 * 1024);
+    p2.setStorageUploadId("uploads/part-2");
+
+    Mockito.when(storageService.getUploadInfo("/part-1", "owner-1")).thenReturn(p1);
+    Mockito.when(storageService.getUploadInfo("/part-2", "owner-1")).thenReturn(p2);
+
+    UploadInfo finalUpload = new UploadInfo();
+    finalUpload.setId(new UploadId("final-sub5mb"));
+    finalUpload.setOwnerKey("owner-1");
+    finalUpload.setConcatenationPartIds(Arrays.asList("/part-1", "/part-2"));
+
+    // In S3 ComposeObject, the final part is allowed to be < 5 MiB.
+    // Verifies that canUseServerSideCopy allows server-side compose when the last part is small.
+    concatenationService.merge(finalUpload);
+
+    Mockito.verify(minioClient).composeObject(Mockito.any(ComposeObjectArgs.class));
+    Mockito.verify(minioClient, Mockito.never()).putObject(Mockito.any(PutObjectArgs.class));
+    assertEquals(Long.valueOf(11L * 1024 * 1024), finalUpload.getLength());
+    assertEquals(Long.valueOf(11L * 1024 * 1024), finalUpload.getOffset());
+  }
+
+  @Test
   public void testMergePartialUploadsStreamingReupload() throws Exception {
     UploadInfo p1 = new UploadInfo();
     p1.setId(new UploadId("small-part-1"));

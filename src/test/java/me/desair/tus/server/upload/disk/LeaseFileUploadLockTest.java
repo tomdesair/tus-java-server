@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import me.desair.tus.server.upload.LeaseData;
+import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
@@ -182,6 +183,9 @@ public class LeaseFileUploadLockTest {
     assertThat(data.getAcquiredAt(), is(100000L));
     assertTrue(data.isExpired(300000L));
     assertFalse(data.isExpired(100000L));
+    // Test with safety margin parameter
+    assertTrue(data.isExpired(201000L, 500L));
+    assertFalse(data.isExpired(200500L, 1000L));
   }
 
   @Test
@@ -373,7 +377,12 @@ public class LeaseFileUploadLockTest {
             null);
     LeaseDataJsonSerializer.serializeToPath(successorLease, dir.resolve("lease.json"));
 
-    // Stale original lock holder calls renewLease()
+    // Stale original lock holder calls renewLease() with an active streaming request registered
+    Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
+    InterruptibleInputStream stream =
+        new InterruptibleInputStream(new ByteArrayInputStream("data".getBytes()));
+    activeStreams.put("/files/upload/test", stream);
+
     LeaseData originalLease =
         new LeaseData(
             "original-holder",
@@ -383,9 +392,14 @@ public class LeaseFileUploadLockTest {
             System.currentTimeMillis(),
             dir.toString(),
             null);
-    LeaseFileUploadLock originalLock = new LeaseFileUploadLock(originalLease, dir, null, null);
+    LeaseFileUploadLock originalLock =
+        new LeaseFileUploadLock(originalLease, dir, null, activeStreams);
 
     originalLock.renewLease();
+
+    // On lease ownership loss, renewLease must abort the active input stream immediately to prevent
+    // writing un-locked bytes.
+    assertTrue(stream.isInterrupted());
 
     // Successor lease must remain untouched with successor's holderId
     LeaseData currentLease = LeaseDataJsonSerializer.deserialize(dir.resolve("lease.json"));
@@ -394,6 +408,45 @@ public class LeaseFileUploadLockTest {
     assertEquals(successorExpiry, currentLease.getExpiresAt());
 
     originalLock.close();
+    FileUtils.deleteDirectory(dir.toFile());
+  }
+
+  @Test
+  public void testDoesLockOwnershipMatchWithNullLockDirPath() {
+    LeaseData lease = new LeaseData("h", "/uri", 10000L, 50000L);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(lease, null, null, null);
+    assertFalse(lock.doesLockOwnershipMatch());
+  }
+
+  @Test
+  public void testDoesLockOwnershipMatchWithCorruptedLeaseFile() throws Exception {
+    Path dir = storagePath.resolve("corrupt-ownership-test-" + UUID.randomUUID() + ".lock");
+    Files.createDirectories(dir);
+    Files.write(dir.resolve("lease.json"), "invalid json".getBytes());
+
+    LeaseData lease = new LeaseData("h", "/uri", 10000L, 50000L, 40000L, dir.toString(), null);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(lease, dir, null, null);
+    // Unparseable or corrupt lease file should be considered owned / proceed
+    assertTrue(lock.doesLockOwnershipMatch());
+
+    FileUtils.deleteDirectory(dir.toFile());
+  }
+
+  @Test
+  public void testDoRenewLeaseWhenMutexAcquisitionFails() throws Exception {
+    Path dir = storagePath.resolve("mutex-renew-test-" + UUID.randomUUID() + ".lock");
+    Files.createDirectories(dir);
+
+    LeaseData lease = new LeaseData("h", "/uri", 10000L, 50000L, 40000L, dir.toString(), null);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(lease, dir, null, null);
+
+    // Pre-acquire the mutex to simulate another thread holding it
+    try (LeaseFileMutex mutex = new LeaseFileMutex(dir)) {
+      assertTrue(mutex.isAcquired());
+      // When mutex is already held, doRenewLease logs warning and returns cleanly without throwing
+      lock.renewLease();
+    }
+
     FileUtils.deleteDirectory(dir.toFile());
   }
 }
