@@ -41,6 +41,7 @@ import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.BoundedInputStream;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -666,6 +667,9 @@ public class AzureBlobStorageService implements UploadStorageService {
   /** Saves UploadInfo object as JSON in .info metadata blob. */
   private void saveUploadInfo(UploadInfo info) throws IOException {
     String infoAsString = UploadInfoJsonSerializer.serialize(info);
+    if (StringUtils.isEmpty(infoAsString)) {
+      throw new IOException("Failed to serialize UploadInfo to JSON");
+    }
     byte[] jsonBytes = infoAsString.getBytes(StandardCharsets.UTF_8);
     BlobClient infoBlob = containerClient.getBlobClient(metadataPrefix + info.getId() + ".info");
     infoBlob.upload(BinaryData.fromBytes(jsonBytes), true);
