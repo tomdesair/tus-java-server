@@ -533,7 +533,6 @@ public class TusFileUploadService implements Closeable {
     boolean wasInProgress = true;
 
     try (UploadLock lock = acquireUploadLock(method, request.getRequestURI())) {
-      request.setUploadLock(lock);
       // Evaluate initial progress state safely under the acquired upload lock
       // to avoid uncoordinated disk I/O or race conditions with concurrent requests.
       wasInProgress = checkWasInProgress(request, ownerKey);

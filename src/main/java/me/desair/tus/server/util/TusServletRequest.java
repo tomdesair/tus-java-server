@@ -16,7 +16,6 @@ import java.util.TreeSet;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.TusExtension;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
-import me.desair.tus.server.upload.UploadLock;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.io.input.BoundedInputStream;
 import org.apache.commons.lang3.StringUtils;
@@ -24,7 +23,6 @@ import org.apache.commons.lang3.Strings;
 
 public class TusServletRequest extends HttpServletRequestWrapper {
 
-  private UploadLock uploadLock;
   private BoundedInputStream countingInputStream;
   private Map<ChecksumAlgorithm, DigestInputStream> digestInputStreamMap =
       new EnumMap<>(ChecksumAlgorithm.class);
@@ -150,24 +148,6 @@ public class TusServletRequest extends HttpServletRequestWrapper {
 
   private boolean hasChunkedTransferEncoding() {
     return Strings.CI.equals("chunked", getHeader(HttpHeader.TRANSFER_ENCODING));
-  }
-
-  /**
-   * Retrieves the active {@link UploadLock} associated with this request.
-   *
-   * @return The active upload lock, or null if no lock is held
-   */
-  public UploadLock getUploadLock() {
-    return uploadLock;
-  }
-
-  /**
-   * Sets the active {@link UploadLock} associated with this request.
-   *
-   * @param uploadLock The active upload lock
-   */
-  public void setUploadLock(UploadLock uploadLock) {
-    this.uploadLock = uploadLock;
   }
 
   private MessageDigest getMessageDigest(ChecksumAlgorithm algorithm) {
