@@ -6,6 +6,7 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.rufh.util.RufhInterimResponseUtil;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -56,7 +57,8 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
     }
 
     UploadInfo preCreatedUploadInfo =
-        (UploadInfo) servletRequest.getAttribute("me.desair.tus.preCreatedUploadInfo");
+        (UploadInfo)
+            servletRequest.getAttribute(RufhInterimResponseUtil.PRE_CREATED_UPLOAD_INFO_ATTR);
 
     String uploadLengthHeader = servletRequest.getHeader(HttpHeader.UPLOAD_LENGTH);
     Long uploadLength = StructuredHeaderUtil.parseInteger(uploadLengthHeader);

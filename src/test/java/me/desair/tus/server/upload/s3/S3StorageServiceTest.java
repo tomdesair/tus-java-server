@@ -5,10 +5,14 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.minio.ComposeObjectArgs;
@@ -203,6 +207,55 @@ public class S3StorageServiceTest {
 
     storageService.setMaxAppendSize(50L);
     storageService.append(info, new ByteArrayInputStream(new byte[100]));
+  }
+
+  @Test
+  public void testAppendExceedsMaxAppendSizePreservesIncompletePartAndUpdatesOffset()
+      throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId uploadId = new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e");
+    info.setId(uploadId);
+    info.setLength(10000L);
+    info.setOffset(20L);
+
+    String json = UploadInfoJsonSerializer.serialize(info);
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              // Simulate existing .part buffer object of 20 bytes
+              if (args.object().endsWith(".part")) {
+                return mockGetObjectResponse(new byte[20]);
+              }
+              return mockGetObjectResponse(json.getBytes());
+            });
+
+    StatObjectResponse partStat = mock(StatObjectResponse.class);
+    when(partStat.size()).thenReturn(20L);
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".part")) {
+                return partStat;
+              }
+              throw new ErrorResponseException(
+                  new ErrorResponse("NoSuchKey", "Not found", null, null, null, null, null),
+                  null,
+                  null);
+            });
+
+    storageService.setMaxAppendSize(50L);
+    try {
+      storageService.append(info, new ByteArrayInputStream(new byte[100]));
+      fail("Expected MaxAppendSizeExceededException to be thrown");
+    } catch (me.desair.tus.server.exception.MaxAppendSizeExceededException e) {
+      // Expected
+    }
+
+    // Verify that when maxAppendSize was exceeded, the prepended bytes were NOT lost
+    // and were flushed back to S3 as an incomplete .part object.
+    verify(minioClient, atLeastOnce()).putObject(argThat(args -> args.object().endsWith(".part")));
   }
 
   @Test(expected = MinUploadLengthNotReachedException.class)

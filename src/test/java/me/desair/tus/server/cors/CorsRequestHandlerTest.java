@@ -58,6 +58,7 @@ public class CorsRequestHandlerTest {
         mockResp.getHeader("Access-Control-Expose-Headers"),
         is(
             "Upload-Offset, Upload-Length, Upload-Metadata, Upload-Expires, Upload-Concat, "
+                + "Upload-Complete, Upload-Draft, Upload-Limit, Content-Digest, Repr-Digest, "
                 + "Tus-Resumable, Tus-Version, Tus-Max-Size, Tus-Extension, Tus-Checksum-Algorithm, Location"));
   }
 
@@ -78,7 +79,9 @@ public class CorsRequestHandlerTest {
         mockResp.getHeader("Access-Control-Allow-Headers"),
         is(
             "Origin, X-Requested-With, Content-Type, Upload-Length, Upload-Offset, Upload-Metadata, "
-                + "Upload-Expires, Upload-Checksum, Upload-Concat, Upload-Defer-Length, Tus-Resumable, X-HTTP-Method-Override"));
+                + "Upload-Expires, Upload-Checksum, Upload-Concat, Upload-Defer-Length, "
+                + "Upload-Complete, Upload-Draft, Upload-Limit, Content-Digest, Repr-Digest, "
+                + "Want-Content-Digest, Want-Repr-Digest, Tus-Resumable, X-HTTP-Method-Override"));
     assertThat(mockResp.getHeader("Access-Control-Max-Age"), is("86400"));
   }
 }

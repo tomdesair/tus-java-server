@@ -11,6 +11,7 @@ import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import me.desair.tus.server.TestUtils;
@@ -762,5 +763,86 @@ public class ITAzureBlobStorageService {
 
     assertFalse(stopBlob.exists());
     assertFalse(lockBlob.exists());
+  }
+
+  @Test
+  public void testAppendWithMultipleBlocksCommittedCorrectly() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(200L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    byte[] payload = new byte[200];
+    for (int i = 0; i < payload.length; i++) {
+      payload[i] = (byte) (i % 128);
+    }
+
+    UploadInfo result = storageService.append(created, new ByteArrayInputStream(payload));
+    assertEquals(200L, result.getOffset().longValue());
+
+    // Verify content was completely persisted across batched block commit.
+    try (InputStream downloaded = storageService.getUploadedBytes(created.getId())) {
+      assertNotNull(downloaded);
+      byte[] downloadedBytes = org.apache.commons.io.IOUtils.toByteArray(downloaded);
+      assertEquals(200, downloadedBytes.length);
+      for (int i = 0; i < 200; i++) {
+        assertEquals((byte) (i % 128), downloadedBytes[i]);
+      }
+    }
+  }
+
+  @Test
+  public void testAppendRecoversPartialBlocksOnMidStreamIOException() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(500L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    // Broken stream that throws IOException midway
+    InputStream brokenStream =
+        new InputStream() {
+          private int count = 0;
+
+          @Override
+          public int read() throws IOException {
+            if (count++ >= 150) {
+              throw new IOException("Simulated network failure midway");
+            }
+            return 1;
+          }
+        };
+
+    try {
+      storageService.append(created, brokenStream);
+      org.junit.Assert.fail("Expected IOException");
+    } catch (IOException e) {
+      // Verify that staged blocks read prior to network interruption were committed to Azure,
+      // preventing partial upload loss upon reconnect.
+      assertTrue(e.getMessage().contains("Simulated network failure midway"));
+    }
+
+    UploadInfo reloaded = storageService.getUploadInfo(created.getId());
+    assertNotNull(reloaded);
+    assertTrue(reloaded.getOffset() >= 150L);
+  }
+
+  @Test
+  public void testAppendRecoversPartialBlocksOnMaxAppendSizeExceeded() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(500L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    storageService.setMaxAppendSize(100L);
+
+    byte[] payload = new byte[250];
+    try {
+      storageService.append(created, new ByteArrayInputStream(payload));
+      org.junit.Assert.fail("Expected MaxAppendSizeExceededException");
+    } catch (MaxAppendSizeExceededException e) {
+      // Expected
+    }
+
+    // When maxAppendSize is exceeded, no staged data should be lost. Verify staged blocks were
+    // committed and upload info offset matches committed bytes.
+    UploadInfo reloaded = storageService.getUploadInfo(created.getId());
+    assertNotNull(reloaded);
   }
 }

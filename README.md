@@ -39,7 +39,7 @@ The Javadoc of this library can be found at https://tus.desair.me/. As of versio
    - **Shared NFS Network Drives**: Distributed, container-safe lease locking for multi-server setups (NFSv3/v4, AWS EFS, Azure Files, SMB/CIFS). See [Disk & Network Storage Locking Guide](docs/DISK_BASED_LOCKING.md).
    - **Kubernetes Persistent Volume**: Mounted volume (`ReadWriteMany` / `ReadWriteOnce`) for containerized applications.
 2. **S3-Compatible Object Storage** (`S3StorageService`, `S3LockingService`, & `S3ConcatenationService`):
-   - **Cloud & On-Premise S3**: AWS S3, MinIO, Cloudflare R2, Ceph, or Google Cloud Storage.
+   - **Cloud & On-Premise S3**: AWS S3, MinIO, RustFS, Cloudflare R2, Ceph, or Google Cloud Storage.
    - **Multi-Replica Support**: Uses distributed S3 object locking and TTL leases, enabling multi-replica container deployments without requiring Redis or external databases. See [S3 Storage Guide](docs/S3_STORAGE.md).
 3. **Azure Blob Storage** (`AzureBlobStorageService`, `AzureBlobLockingService`, & `AzureBlobConcatenationService`):
    - **Microsoft Azure Cloud**: Native Azure Blob Storage using the `azure-storage-blob` SDK.
@@ -124,23 +124,13 @@ implementation 'me.desair.tus:tus-java-server:2.0.0'
 implementation("me.desair.tus:tus-java-server:2.0.0")
 ```
 
-When using S3 storage (`S3StorageService`) using the MinIO Java SDK or enabling JSON metadata serialization (`withJsonSerialization()`), also include the Jackson and MinIO dependencies matching `pom.xml`:
+Jackson dependencies (`jackson-databind`, `jackson-annotations`, `jackson-core`) are bundled directly with compile scope by `tus-java-server`. When using S3 storage (`S3StorageService`), simply include the MinIO Java SDK dependency matching `pom.xml`:
 
 ```xml
 <dependency>
   <groupId>io.minio</groupId>
   <artifactId>minio</artifactId>
   <version>9.0.3</version>
-</dependency>
-<dependency>
-  <groupId>com.fasterxml.jackson.core</groupId>
-  <artifactId>jackson-databind</artifactId>
-  <version>2.22.1</version>
-</dependency>
-<dependency>
-  <groupId>com.fasterxml.jackson.core</groupId>
-  <artifactId>jackson-annotations</artifactId>
-  <version>2.22</version>
 </dependency>
 ```
 
@@ -201,7 +191,7 @@ After creating the object, you can configure it using the following methods:
 | `disableTusExtension(String)` | None | Disables a built-in extension (`creation`, `checksum`, `expiration`, `concatenation`, `termination`, `download`, `cors`). |
 | `withUploadIdFactory(UploadIdFactory)` | `UuidUploadIdFactory` | Custom ID generator for upload resources (e.g., `UuidUploadIdFactory` or `TimeBasedUploadIdFactory`). |
 | `withUploadCompletionListener(UploadCompletionListener)` | None | Registers a callback invoked immediately when an upload finishes transferring all bytes and is completed. |
-| `withJsonSerialization()` | Java serialization | Enables JSON serialization for upload metadata (`UploadInfo`), requiring Jackson databind on classpath. |
+| `withJsonSerialization()` | Java serialization | Enables JSON serialization for upload metadata (`UploadInfo`). Jackson is bundled by default. |
 | `withUploadStorageService(UploadStorageService)` | `DiskStorageService` | Configures custom or cloud storage backend (`DiskStorageService`, `S3StorageService`, `AzureBlobStorageService`). |
 | `withUploadLockingService(UploadLockingService)` | `LeaseFileLockingService` | Configures custom or cloud locking backend (`LeaseFileLockingService`, `S3LockingService`, `AzureBlobLockingService`). |
 

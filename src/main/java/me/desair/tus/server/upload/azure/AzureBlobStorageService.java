@@ -41,6 +41,7 @@ import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.BoundedInputStream;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -205,10 +206,13 @@ public class AzureBlobStorageService implements UploadStorageService {
     long optimalBlockSize = calcOptimalBlockSize(upload.getLength());
     Long effectiveMaxAppendSize = getMaxAppendSize();
 
+    long initialOffset = upload.getOffset();
+    int initialBlockCount = blockIds.size();
     long totalAppended = 0L;
     IOException streamException = null;
+    TusException pendingTusException = null;
 
-    // 4. Read incoming stream in chunks, staging and committing blocks directly to Azure Block Blob
+    // 4. Read incoming stream in chunks, staging blocks directly to Azure Block Blob
     while (true) {
       File chunkFile = null;
       try {
@@ -223,11 +227,20 @@ public class AzureBlobStorageService implements UploadStorageService {
           break;
         }
 
-        totalAppended += chunkSize;
-        validateMaxAppendSize(totalAppended, effectiveMaxAppendSize);
+        if (effectiveMaxAppendSize != null
+            && (totalAppended + chunkSize) > effectiveMaxAppendSize) {
+          // If maxAppendSize is exceeded, stop reading from the stream but commit
+          // previously staged blocks so no uploaded data or offset is corrupted.
+          pendingTusException =
+              new MaxAppendSizeExceededException(
+                  "Append payload size "
+                      + (totalAppended + chunkSize)
+                      + " exceeded limit of "
+                      + effectiveMaxAppendSize);
+          break;
+        }
 
-        long newOffset = upload.getOffset() + totalAppended;
-        boolean isUploadComplete = upload.getLength() != null && newOffset == upload.getLength();
+        totalAppended += chunkSize;
 
         // Validate chunk against remaining block budget
         validateRemainingBlockBudget(upload, blockIds.size());
@@ -235,38 +248,60 @@ public class AzureBlobStorageService implements UploadStorageService {
         // Stage block directly to Azure Block Blob
         stageChunkFile(chunkFile, chunkSize, blockBlobClient, blockIds);
 
-        // Commit updated block list immediately to guarantee durability on crash or pause
-        blockBlobClient.commitBlockList(blockIds, true);
-
         if (streamException != null) {
           break;
         }
+      } catch (IOException e) {
+        streamException = e;
+        break;
+      } catch (TusException te) {
+        pendingTusException = te;
+        break;
       } finally {
         deleteFileQuietly(chunkFile);
       }
     }
 
-    if (streamException == null) {
-      validateMinAppendSize(totalAppended);
-    }
+    // 5. Commit any newly staged blocks in batch (1 single commit call for entire request)
+    // Batching block commits into a single call at the end eliminates redundant network
+    // round-trips for every chunk, drastically improving performance. In addition, committing
+    // here before throwing any pending stream or limit exception guarantees zero data loss
+    // if network drops or limits are hit midway.
+    if (blockIds.size() > initialBlockCount) {
+      try {
+        blockBlobClient.commitBlockList(blockIds, true);
+        upload.setOffset(initialOffset + totalAppended);
+        if (uploadExpirationPeriod != null && uploadExpirationPeriod > 0) {
+          upload.setExpirationTimestamp(System.currentTimeMillis() + uploadExpirationPeriod);
+        }
 
-    // 6. Update UploadInfo offset, expiration timestamp, and optional deduplication state
-    upload.setOffset(upload.getOffset() + totalAppended);
-    if (uploadExpirationPeriod != null && uploadExpirationPeriod > 0) {
-      upload.setExpirationTimestamp(System.currentTimeMillis() + uploadExpirationPeriod);
-    }
+        boolean finalComplete =
+            upload.getLength() != null && upload.getOffset().equals(upload.getLength());
+        if (finalComplete) {
+          checkAndApplyDeduplication(upload);
+        }
 
-    boolean finalComplete =
-        upload.getLength() != null && upload.getOffset().equals(upload.getLength());
-    if (finalComplete) {
-      checkAndApplyDeduplication(upload);
+        saveUploadInfo(upload);
+      } catch (Exception e) {
+        log.error(
+            "Failed to commit staged blocks or save metadata for upload ID {}", upload.getId(), e);
+        if (e instanceof IOException) {
+          throw (IOException) e;
+        }
+        throw new IOException("Failed to commit staged blocks for upload ID " + upload.getId(), e);
+      }
     }
-
-    saveUploadInfo(upload);
 
     if (streamException != null) {
       throw streamException;
     }
+
+    if (pendingTusException != null) {
+      throw pendingTusException;
+    }
+
+    // 6. Validate minimum append size constraints if configured
+    validateMinAppendSize(totalAppended);
 
     return upload;
   }
@@ -632,6 +667,9 @@ public class AzureBlobStorageService implements UploadStorageService {
   /** Saves UploadInfo object as JSON in .info metadata blob. */
   private void saveUploadInfo(UploadInfo info) throws IOException {
     String infoAsString = UploadInfoJsonSerializer.serialize(info);
+    if (StringUtils.isEmpty(infoAsString)) {
+      throw new IOException("Failed to serialize UploadInfo to JSON");
+    }
     byte[] jsonBytes = infoAsString.getBytes(StandardCharsets.UTF_8);
     BlobClient infoBlob = containerClient.getBlobClient(metadataPrefix + info.getId() + ".info");
     infoBlob.upload(BinaryData.fromBytes(jsonBytes), true);

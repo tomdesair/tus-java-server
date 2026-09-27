@@ -164,4 +164,137 @@ public class ITAzureBlobConcatenationService {
     assertNotNull(is);
     assertEquals("hello", org.apache.commons.io.IOUtils.toString(is, StandardCharsets.UTF_8));
   }
+
+  @Test
+  public void mergeShouldFallbackToStreamingWhenStageBlockFromUrlFails() throws Exception {
+    UploadInfo part1Info = new UploadInfo();
+    part1Info.setLength(10L);
+    UploadInfo part1 = storageService.create(part1Info, null);
+    storageService.append(part1, new ByteArrayInputStream("part1-data".getBytes()));
+
+    UploadInfo finalInfo = new UploadInfo();
+    finalInfo.setConcatenationPartIds(Arrays.asList("/test/upload/" + part1.getId()));
+    finalInfo.setUploadType(UploadType.CONCATENATED);
+    UploadInfo createdFinal = storageService.create(finalInfo, null);
+
+    AzureBlobConcatenationService fallbackService =
+        new AzureBlobConcatenationService(containerClient, storageService) {
+          @Override
+          void stageBlockFromUrl(
+              com.azure.storage.blob.specialized.BlockBlobClient client,
+              String blockId,
+              String sourceUrl) {
+            throw new com.azure.storage.blob.models.BlobStorageException(
+                "Simulated 403",
+                new com.azure.core.http.HttpResponse(null) {
+                  @Override
+                  public int getStatusCode() {
+                    return 403;
+                  }
+
+                  @Override
+                  public String getHeaderValue(String name) {
+                    return null;
+                  }
+
+                  @Override
+                  public com.azure.core.http.HttpHeaders getHeaders() {
+                    return new com.azure.core.http.HttpHeaders();
+                  }
+
+                  @Override
+                  public reactor.core.publisher.Flux<java.nio.ByteBuffer> getBody() {
+                    return reactor.core.publisher.Flux.empty();
+                  }
+
+                  @Override
+                  public reactor.core.publisher.Mono<byte[]> getBodyAsByteArray() {
+                    return reactor.core.publisher.Mono.empty();
+                  }
+
+                  @Override
+                  public reactor.core.publisher.Mono<String> getBodyAsString() {
+                    return reactor.core.publisher.Mono.empty();
+                  }
+
+                  @Override
+                  public reactor.core.publisher.Mono<String> getBodyAsString(
+                      java.nio.charset.Charset charset) {
+                    return reactor.core.publisher.Mono.empty();
+                  }
+                },
+                null);
+          }
+        };
+
+    fallbackService.merge(createdFinal);
+
+    assertEquals(Long.valueOf(10L), createdFinal.getOffset());
+    assertEquals(Long.valueOf(10L), createdFinal.getLength());
+  }
+
+  @Test(expected = com.azure.storage.blob.models.BlobStorageException.class)
+  public void mergeShouldRethrowUnexpectedBlobStorageException() throws Exception {
+    UploadInfo part1Info = new UploadInfo();
+    part1Info.setLength(10L);
+    UploadInfo part1 = storageService.create(part1Info, null);
+    storageService.append(part1, new ByteArrayInputStream("part1-data".getBytes()));
+
+    UploadInfo finalInfo = new UploadInfo();
+    finalInfo.setConcatenationPartIds(Arrays.asList("/test/upload/" + part1.getId()));
+    finalInfo.setUploadType(UploadType.CONCATENATED);
+    UploadInfo createdFinal = storageService.create(finalInfo, null);
+
+    AzureBlobConcatenationService failingService =
+        new AzureBlobConcatenationService(containerClient, storageService) {
+          @Override
+          void stageBlockFromUrl(
+              com.azure.storage.blob.specialized.BlockBlobClient client,
+              String blockId,
+              String sourceUrl) {
+            throw new com.azure.storage.blob.models.BlobStorageException(
+                "Simulated 500 Server Error",
+                new com.azure.core.http.HttpResponse(null) {
+                  @Override
+                  public int getStatusCode() {
+                    return 500;
+                  }
+
+                  @Override
+                  public String getHeaderValue(String name) {
+                    return null;
+                  }
+
+                  @Override
+                  public com.azure.core.http.HttpHeaders getHeaders() {
+                    return new com.azure.core.http.HttpHeaders();
+                  }
+
+                  @Override
+                  public reactor.core.publisher.Flux<java.nio.ByteBuffer> getBody() {
+                    return reactor.core.publisher.Flux.empty();
+                  }
+
+                  @Override
+                  public reactor.core.publisher.Mono<byte[]> getBodyAsByteArray() {
+                    return reactor.core.publisher.Mono.empty();
+                  }
+
+                  @Override
+                  public reactor.core.publisher.Mono<String> getBodyAsString() {
+                    return reactor.core.publisher.Mono.empty();
+                  }
+
+                  @Override
+                  public reactor.core.publisher.Mono<String> getBodyAsString(
+                      java.nio.charset.Charset charset) {
+                    return reactor.core.publisher.Mono.empty();
+                  }
+                },
+                null);
+          }
+        };
+
+    failingService.merge(createdFinal);
+  }
 }

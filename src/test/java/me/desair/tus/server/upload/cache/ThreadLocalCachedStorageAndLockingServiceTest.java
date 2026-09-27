@@ -136,6 +136,11 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
 
     UploadLock lock = service.lockUploadByUri("/files/1");
     assertNotNull(lock);
+    lock.getUploadUri();
+    verify(mockLock).getUploadUri();
+
+    lock.release();
+    verify(mockLock, times(1)).release();
 
     lock.close();
     verify(mockLock, times(1)).close();

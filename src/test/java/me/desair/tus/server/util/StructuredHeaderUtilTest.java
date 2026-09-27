@@ -99,4 +99,50 @@ public class StructuredHeaderUtilTest {
     assertThat(StructuredHeaderUtil.parseList(null).isEmpty(), is(true));
     assertThat(StructuredHeaderUtil.parseList("   ").isEmpty(), is(true));
   }
+
+  @Test
+  public void testParseDictionaryWithQuotedStringAndCommas() {
+    Map<String, Object> dict =
+        StructuredHeaderUtil.parseDictionary("desc=\"hello, world!\", max-size=5000, flag");
+
+    assertThat(dict.get("desc"), is("hello, world!"));
+    assertThat(dict.get("max-size"), is(5000L));
+    assertThat(dict.get("flag"), is(Boolean.TRUE));
+  }
+
+  @Test
+  public void testParseDictionaryWithEscapedQuotesAndBackslashes() {
+    Map<String, Object> dict =
+        StructuredHeaderUtil.parseDictionary("msg=\"hello \\\"world\\\" with \\\\ backslash\"");
+
+    assertThat(dict.get("msg"), is("hello \"world\" with \\ backslash"));
+  }
+
+  @Test
+  public void testParseListWithQuotedStringsAndCommas() {
+    java.util.List<String> list =
+        StructuredHeaderUtil.parseList("\"token1, extra\", \"token2\", sha-256");
+
+    assertThat(list.size(), is(3));
+    assertThat(list.get(0), is("token1, extra"));
+    assertThat(list.get(1), is("token2"));
+    assertThat(list.get(2), is("sha-256"));
+  }
+
+  @Test
+  public void testFormatString() {
+    assertThat(StructuredHeaderUtil.formatString("simple"), is("\"simple\""));
+    assertThat(
+        StructuredHeaderUtil.formatString("quoted \"word\" and \\backslash"),
+        is("\"quoted \\\"word\\\" and \\\\backslash\""));
+    assertThat(StructuredHeaderUtil.formatString(null), is("\"\""));
+  }
+
+  @Test
+  public void testParseListWithTrailingAndEmptyMembers() {
+    java.util.List<String> list = StructuredHeaderUtil.parseList("item1, , item2, ");
+    assertThat(list.size(), is(2));
+    assertThat(list.get(0), is("item1"));
+    assertThat(list.get(1), is("item2"));
+  }
 }

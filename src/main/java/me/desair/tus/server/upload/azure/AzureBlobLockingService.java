@@ -62,7 +62,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
 
   private final BlobContainerClient containerClient;
   private final String locksPrefix;
-  private final Map<String, WeakReference<InterruptibleInputStream>> activeStreams =
+  final Map<String, WeakReference<InterruptibleInputStream>> activeStreams =
       new ConcurrentHashMap<>();
 
   private UploadIdFactory idFactory = new UuidUploadIdFactory();
@@ -120,21 +120,32 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
     }
     String idStr = uploadId.toString();
 
-    // 1. Ensure lock target blob exists on Azure Storage under locksPrefix
+    // 1. Target lock blob and instantiate Azure Blob Lease client
     BlobClient lockBlob = containerClient.getBlobClient(locksPrefix + idStr + ".lock");
-    ensureLockBlobExists(lockBlob);
-
-    // 2. Instantiate Azure Blob Lease client for target lock blob
-    BlobLeaseClient leaseClient = new BlobLeaseClientBuilder().blobClient(lockBlob).buildClient();
+    BlobLeaseClient leaseClient = createBlobLeaseClient(lockBlob);
 
     try {
-      // 3. Acquire 30-second exclusive lease from Azure Blob Storage
-      leaseClient.acquireLease(LEASE_DURATION_SECONDS);
+      // Optimistic lease acquisition: in ongoing uploads, the .lock blob already exists
+      // 99.9% of the time. Calling acquireLease directly eliminates an expensive round-trip
+      // lockBlob.exists() call on every lock acquisition.
+      try {
+        leaseClient.acquireLease(LEASE_DURATION_SECONDS);
+      } catch (BlobStorageException e) {
+        AzureErrorType errorType = AzureUtils.parseErrorResponse(e);
+        if (errorType == AzureErrorType.BLOB_NOT_FOUND) {
+          // If lock blob does not exist yet (first upload request), create it and retry acquisition
+          // once
+          ensureLockBlobExists(lockBlob);
+          leaseClient.acquireLease(LEASE_DURATION_SECONDS);
+        } else {
+          throw e;
+        }
+      }
 
       // Lock successfully acquired: clear any lingering .stop signal blob
       deleteStopSignalBlob(idStr);
 
-      return new AzureBlobUploadLock(leaseClient, lockBlob, requestUri);
+      return new AzureBlobUploadLock(leaseClient, lockBlob, requestUri, idStr, activeStreams);
     } catch (BlobStorageException e) {
       AzureErrorType errorType = AzureUtils.parseErrorResponse(e);
       if (errorType == AzureErrorType.LEASE_ALREADY_PRESENT
@@ -236,16 +247,27 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
     }
   }
 
+  BlobLeaseClient createBlobLeaseClient(BlobClient lockBlob) {
+    return new BlobLeaseClientBuilder().blobClient(lockBlob).buildClient();
+  }
+
   /**
    * Periodically polled by {@link #watchdogExecutor} to detect remote .stop signal blobs on Azure
    * and interrupt local active streams.
    */
-  private void pollStopSignals() {
+  void pollStopSignals() {
     if (activeStreams.isEmpty()) {
       return;
     }
     for (String idStr : activeStreams.keySet()) {
       try {
+        // Clean up garbage-collected weak references to prevent memory/key leaks
+        // in activeStreams map over long-running service lifecycles.
+        WeakReference<InterruptibleInputStream> streamRef = activeStreams.get(idStr);
+        if (streamRef == null || streamRef.get() == null) {
+          activeStreams.remove(idStr);
+          continue;
+        }
         BlobClient stopBlob = containerClient.getBlobClient(locksPrefix + idStr + ".stop");
         if (Boolean.TRUE.equals(stopBlob.exists())) {
           log.info("Detected remote .stop signal blob for upload ID {}", idStr);

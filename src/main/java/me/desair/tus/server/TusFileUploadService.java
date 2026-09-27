@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.Closeable;
 import java.io.File;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.EnumSet;
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import me.desair.tus.server.checksum.ChecksumExtension;
 import me.desair.tus.server.concatenation.ConcatenationExtension;
 import me.desair.tus.server.core.CoreProtocol;
@@ -318,7 +320,7 @@ public class TusFileUploadService implements Closeable {
    * @return The current service
    */
   public TusFileUploadService withUploadLockingService(UploadLockingService uploadLockingService) {
-    Objects.requireNonNull(uploadLockingService, "The UploadStorageService cannot be null");
+    Objects.requireNonNull(uploadLockingService, "The UploadLockingService cannot be null");
     uploadLockingService.setIdFactory(this.idFactory);
     // Update the upload storage service
     this.uploadLockingService = uploadLockingService;
@@ -528,10 +530,13 @@ public class TusFileUploadService implements Closeable {
     TusServletResponse response = new TusServletResponse(servletResponse);
 
     UploadInfo processedUploadInfo = null;
-    boolean wasInProgress = checkWasInProgress(request, ownerKey);
+    boolean wasInProgress = true;
 
     try (UploadLock lock = acquireUploadLock(method, request.getRequestURI())) {
       request.setUploadLock(lock);
+      // Evaluate initial progress state safely under the acquired upload lock
+      // to avoid uncoordinated disk I/O or race conditions with concurrent requests.
+      wasInProgress = checkWasInProgress(request, ownerKey);
       processedUploadInfo = processLockedRequest(method, request, response, ownerKey);
 
     } catch (TusException e) {
@@ -645,12 +650,37 @@ public class TusFileUploadService implements Closeable {
     if (uploadId == null) {
       return null;
     }
-    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadId.toString())) {
+    UploadLock lock = lockUploadByUri(uploadId.toString());
+    boolean streamCreated = false;
+    try {
       UploadInfo storedInfo = uploadStorageService.getUploadInfo(uploadId);
       if (storedInfo == null || !Objects.equals(storedInfo.getOwnerKey(), ownerKey)) {
         return null;
       }
-      return uploadStorageService.getUploadedBytes(uploadId);
+      InputStream bytesStream = uploadStorageService.getUploadedBytes(uploadId);
+      if (bytesStream == null) {
+        return null;
+      }
+      // If locking is active, wrap in LockHoldingInputStream to retain the lock until
+      // the stream is fully closed by the caller, preventing concurrent mutations.
+      if (lock != null) {
+        LockHoldingInputStream lockHoldingStream = new LockHoldingInputStream(bytesStream, lock);
+        streamCreated = true;
+        return lockHoldingStream;
+      } else {
+        return bytesStream;
+      }
+    } finally {
+      if (!streamCreated && lock != null) {
+        try {
+          lock.close();
+        } catch (Exception closeEx) {
+          log.warn(
+              "Failed to close upload lock after failure retrieving bytes for upload ID {}",
+              uploadId,
+              closeEx);
+        }
+      }
     }
   }
 
@@ -677,10 +707,36 @@ public class TusFileUploadService implements Closeable {
    */
   public InputStream getUploadedBytes(String uploadUri, String ownerKey)
       throws IOException, TusException {
-
-    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadUri)) {
-
-      return uploadStorageService.getUploadedBytes(uploadUri, ownerKey);
+    if (uploadUri == null) {
+      return null;
+    }
+    UploadLock lock = lockUploadByUri(uploadUri);
+    boolean streamCreated = false;
+    try {
+      InputStream bytesStream = uploadStorageService.getUploadedBytes(uploadUri, ownerKey);
+      if (bytesStream == null) {
+        return null;
+      }
+      // If locking is active, wrap in LockHoldingInputStream to retain the lock until
+      // the stream is fully closed by the caller, preventing concurrent mutations.
+      if (lock != null) {
+        LockHoldingInputStream lockHoldingStream = new LockHoldingInputStream(bytesStream, lock);
+        streamCreated = true;
+        return lockHoldingStream;
+      } else {
+        return bytesStream;
+      }
+    } finally {
+      if (!streamCreated && lock != null) {
+        try {
+          lock.close();
+        } catch (Exception closeEx) {
+          log.warn(
+              "Failed to close upload lock after failure retrieving bytes for upload URI {}",
+              uploadUri,
+              closeEx);
+        }
+      }
     }
   }
 
@@ -711,7 +767,7 @@ public class TusFileUploadService implements Closeable {
     if (uploadId == null) {
       return null;
     }
-    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadId.toString())) {
+    try (UploadLock lock = lockUploadByUri(uploadId.toString())) {
       UploadInfo storedInfo = uploadStorageService.getUploadInfo(uploadId);
       if (storedInfo == null || !Objects.equals(storedInfo.getOwnerKey(), ownerKey)) {
         return null;
@@ -743,7 +799,7 @@ public class TusFileUploadService implements Closeable {
    */
   public UploadInfo getUploadInfo(String uploadUri, String ownerKey)
       throws IOException, TusException {
-    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadUri)) {
+    try (UploadLock lock = lockUploadByUri(uploadUri)) {
 
       return uploadStorageService.getUploadInfo(uploadUri, ownerKey);
     }
@@ -804,7 +860,7 @@ public class TusFileUploadService implements Closeable {
     if (uploadId == null) {
       return;
     }
-    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadId.toString())) {
+    try (UploadLock lock = lockUploadByUri(uploadId.toString())) {
       UploadInfo storedInfo = uploadStorageService.getUploadInfo(uploadId);
       if (storedInfo != null && Objects.equals(storedInfo.getOwnerKey(), ownerKey)) {
         uploadStorageService.terminateUpload(storedInfo);
@@ -830,12 +886,16 @@ public class TusFileUploadService implements Closeable {
    * @param ownerKey The key of the owner of this upload
    */
   public void deleteUpload(String uploadUri, String ownerKey) throws IOException, TusException {
-    try (UploadLock lock = uploadLockingService.lockUploadByUri(uploadUri)) {
+    try (UploadLock lock = lockUploadByUri(uploadUri)) {
       UploadInfo uploadInfo = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
       if (uploadInfo != null) {
         uploadStorageService.terminateUpload(uploadInfo);
       }
     }
+  }
+
+  private UploadLock lockUploadByUri(String uploadUri) throws IOException, TusException {
+    return uploadLockingService.lockUploadByUri(uploadUri);
   }
 
   /**
@@ -862,6 +922,18 @@ public class TusFileUploadService implements Closeable {
 
     } catch (TusException e) {
       processTusException(method, request, response, ownerKey, e, detectedVersion);
+      return null;
+    } catch (RuntimeException e) {
+      // Catch unexpected RuntimeException (e.g. NPE in custom extension) and convert it to an
+      // internal server error TusException so that it routes through standard error handling
+      // (RFC 7807 problem details in RUFH mode, or plain error in Tus mode) rather than an
+      // unhandled container 500.
+      log.error("Unexpected runtime exception processing request " + request.getRequestURI(), e);
+      TusException wrapped =
+          new TusException(
+              HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+              "Internal server error: " + e.getMessage());
+      processTusException(method, request, response, ownerKey, wrapped, detectedVersion);
       return null;
     }
   }
@@ -1050,6 +1122,35 @@ public class TusFileUploadService implements Closeable {
     }
     if (uploadStorageService != null) {
       uploadStorageService.close();
+    }
+  }
+
+  /**
+   * FilterInputStream wrapper that retains an active {@link UploadLock} until the consumer closes
+   * the stream.
+   *
+   * <p>This prevents concurrent DELETE or PATCH requests from corrupting, modifying, or truncating
+   * upload data while a caller is actively reading the stream.
+   */
+  private static class LockHoldingInputStream extends FilterInputStream {
+
+    private final UploadLock lock;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+
+    protected LockHoldingInputStream(InputStream in, UploadLock lock) {
+      super(Objects.requireNonNull(in, "InputStream must not be null"));
+      this.lock = Objects.requireNonNull(lock, "UploadLock must not be null");
+    }
+
+    @Override
+    public void close() throws IOException {
+      if (closed.compareAndSet(false, true)) {
+        try {
+          super.close();
+        } finally {
+          lock.close();
+        }
+      }
     }
   }
 }

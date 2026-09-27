@@ -110,11 +110,16 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
 
         try {
           // 1. Attempt zero-copy server-side block copying on Azure Storage cluster
-          finalBlockBlob.stageBlockFromUrl(blockId, partialBlob.getBlobUrl(), null);
+          stageBlockFromUrl(finalBlockBlob, blockId, partialBlob.getBlobUrl());
         } catch (BlobStorageException e) {
-          // 2. Fallback to stream staging if stageBlockFromUrl is not implemented by emulator
+          // 2. In private Azure containers without SAS tokens or in emulators, stageBlockFromUrl
+          // fails with 403 (ACCESS_DENIED) or 400/501 (API_NOT_IMPLEMENTED). Fall back
+          // gracefully to streaming block staging via getUploadedBytes().
           AzureErrorType errorType = AzureUtils.parseErrorResponse(e);
-          if (errorType == AzureErrorType.API_NOT_IMPLEMENTED || e.getStatusCode() == 400) {
+          if (errorType == AzureErrorType.API_NOT_IMPLEMENTED
+              || errorType == AzureErrorType.ACCESS_DENIED
+              || e.getStatusCode() == 400
+              || e.getStatusCode() == 403) {
             try (InputStream partIs = storageService.getUploadedBytes(partialInfo.getId())) {
               finalBlockBlob.stageBlock(blockId, partIs, partialInfo.getOffset());
             }
@@ -127,14 +132,6 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
 
       // 3. Atomically commit block list on Azure Storage
       finalBlockBlob.commitBlockList(blockIds, true);
-
-      // Clean up any sub-threshold .part blob created during upload instantiation
-      try {
-        containerClient
-            .getBlobClient(uploadPrefix + finalUpload.getId() + ".part")
-            .deleteIfExists();
-      } catch (Exception ignored) {
-      }
 
       // 4. Update final upload attributes
       finalUpload.setOffset(totalLength);
@@ -180,7 +177,9 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
     List<UploadInfo> result = new ArrayList<>();
     for (String partUri : info.getConcatenationPartIds()) {
       UploadInfo partInfo = storageService.getUploadInfo(partUri, info.getOwnerKey());
-      if (partInfo == null) {
+      // Validate that the partial upload exists and belongs to the exact same ownerKey
+      // (or both null) as the parent concatenated upload, preventing cross-tenant access.
+      if (partInfo == null || !Objects.equals(partInfo.getOwnerKey(), info.getOwnerKey())) {
         throw new UploadNotFoundException(
             "Partial upload with URI " + partUri + " not found for concatenated upload");
       }
@@ -226,5 +225,9 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
     }
     String result = prefix.startsWith("/") ? prefix.substring(1) : prefix;
     return result.endsWith("/") ? result : result + "/";
+  }
+
+  void stageBlockFromUrl(BlockBlobClient finalBlockBlob, String blockId, String sourceUrl) {
+    finalBlockBlob.stageBlockFromUrl(blockId, sourceUrl, null);
   }
 }

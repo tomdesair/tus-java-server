@@ -290,17 +290,26 @@ public class ThreadLocalCachedStorageAndLockingService
 
     @Override
     public void release() {
-      if (delegate != null) {
-        delegate.release();
+      try {
+        if (delegate != null) {
+          delegate.release();
+        }
+      } finally {
+        // Clean up thread-local upload info cache when release() is called
+        // to prevent ThreadLocal memory leaks across pooled servlet threads.
+        cleanupCache();
       }
     }
 
     @Override
     public void close() throws IOException {
-      if (delegate != null) {
-        delegate.close();
+      try {
+        if (delegate != null) {
+          delegate.close();
+        }
+      } finally {
+        cleanupCache();
       }
-      cleanupCache();
     }
   }
 }

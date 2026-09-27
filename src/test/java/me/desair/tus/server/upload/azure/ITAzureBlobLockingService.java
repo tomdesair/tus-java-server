@@ -68,6 +68,34 @@ public class ITAzureBlobLockingService {
     assertEquals("/test/upload/12345", lock.getUploadUri());
     assertTrue(lockingService.isLocked(new UploadId("12345")));
     lock.release();
+
+    // Re-acquire on the existing lock blob to test optimistic lease acquisition path
+    UploadLock reacquired = lockingService.lockUploadByUri("/test/upload/12345");
+    assertNotNull(reacquired);
+    reacquired.release();
+  }
+
+  @Test
+  public void testAzureBlobUploadLock3ArgConstructor() throws Exception {
+    UploadId testId = new TimeBasedUploadIdFactory().createId();
+    UploadLock lock = lockingService.lockUploadByUri("/test/upload/" + testId);
+    assertNotNull(lock);
+    lock.release();
+
+    com.azure.storage.blob.BlobClient lockBlob =
+        containerClient.getBlobClient("locks/" + testId + ".lock");
+    com.azure.storage.blob.specialized.BlobLeaseClient lease =
+        new com.azure.storage.blob.specialized.BlobLeaseClientBuilder()
+            .blobClient(lockBlob)
+            .buildClient();
+    lease.acquireLease(30);
+
+    AzureBlobUploadLock threeArgLock =
+        new AzureBlobUploadLock(lease, lockBlob, "/test/upload/" + testId);
+    assertEquals("/test/upload/" + testId, threeArgLock.getUploadUri());
+    assertEquals(lease, threeArgLock.getLeaseClient());
+    threeArgLock.executeRenew();
+    threeArgLock.release();
   }
 
   @Test

@@ -44,8 +44,7 @@ When performing a release, please strictly follow the instructions outlined in t
 
 ### 4. Serializable UploadInfo & Backward Compatibility
 - The `UploadInfo` class is stored on disk serialized. If you modify fields in `UploadInfo`, you **must** preserve the `serialVersionUID = -8751200491586638308L` to ensure pre-existing uploads on disk do not trigger `InvalidClassException` upon deserialization.
-- Backward compatibility is paramount for this project. Breaking changes should only be done if all other options lead to ugly code and design. Breaking changes require a new major version.
-- **Release Scope for Backward Compatibility**: Only maintain backward compatibility for classes, methods, or public API signatures that are present in the latest official Git release tag. Signatures, classes, or helper methods introduced in unreleased commits or feature branches do not require backward compatibility and should be refactored or deleted directly.
+- **No Backward Compatibility for Unreleased Changes**: Backward compatibility is paramount for this project. Breaking changes should only be done if all other options lead to ugly code and design. Breaking changes require a new major version. Only maintain backward compatibility for classes, methods, fields, constants, or public API signatures that are present in the latest official Git release tag. Code, constants, classes, signatures, or helper methods introduced in unreleased commits, SNAPSHOT versions, or feature branches do NOT require backward compatibility under any circumstances. Never introduce deprecated aliases, bridge constants, or adapter shims for unreleased changes; refactor or delete them directly.
 
 ### 5. Lock Contention Resolution & InterruptibleInputStream
 - Request handlers that stream payload bytes to storage (`CorePatchRequestHandler`, `RufhCreationPostRequestHandler`, `RufhAppendPatchRequestHandler`) MUST wrap body input streams in `InterruptibleInputStream` and register them via `lockingService.registerInputStream(...)`. This ensures concurrent `HEAD` and `DELETE` requests can interrupt ongoing byte streams cleanly and resolve lock contention.
@@ -97,6 +96,7 @@ When running builds, tests, or coverage checks via Maven:
 ### 12. Mandatory Javadocs & Code Formatting
 - Always write thorough Javadoc comments for all new and modified public/protected classes, interfaces, and methods.
 - Always remove unused imports across all modified and newly created Java source files.
+- The project enforces Google Java Style with a maximum line length limit of 100 characters via `com.spotify.fmt:fmt-maven-plugin`. Ensure inline comments and code lines are formatted smoothly without awkward manual line breaks or single orphan words on trailing lines.
 - Run code formatting before committing:
   ```bash
   mvn -P codestyle com.spotify.fmt:fmt-maven-plugin:format -q
@@ -124,9 +124,12 @@ To avoid duplicate test code and ensure all protocol integration tests run consi
 - **Template Factory Method**: Base test classes declare an abstract method `protected abstract TusFileUploadService createTusFileUploadService() throws Exception;` which subclasses implement to supply the backend-configured service instance.
 - **Backend Subclasses**: Create concrete test subclasses per storage backend (e.g., `ITRufhProtocol` / `ITTusFileUploadService` for Disk, `ITS3RufhProtocol` / `ITS3TusFileUploadService` for S3, `ITAzureBlobRufhProtocol` / `ITAzureBlobTusFileUploadService` for Azure Blob). Subclasses handle backend-specific `@BeforeClass` / `@AfterClass` setup (such as starting Testcontainers) and storage-specific assertion tests.
 
-### 17. Mandatory Inline Comments & Code Readability
+### 17. The "2-Year Maintainability Rule" for Inline Documentation & Code Readability
+- **The "2-Year Maintainability Rule"**: Every single fix, complicated or non-trivial code block, boundary condition, and `if`-test MUST include thorough inline comments explaining *why* that specific call, calculation, or branch condition was chosen. The code must be documented so clearly that after 2 years, any maintainer can immediately understand the reasoning, edge-case rationale, or protocol specification behind it without having to reverse-engineer the commit history.
+- Write natural, explanatory comments describing the reasoning and intent directly. Do NOT prefix comments with literal meta-labels such as `The 2-Year Maintainability Rule:` or review audit section identifiers (e.g., `H5:`).
+- Keep comment line breaks balanced and clean within the 100-character column limit enforced by Google Java Style.
 - Always write and preserve thorough inline comments across all main and test Java source files to explain non-obvious algorithms, multi-step operations, and complex logic.
-- Ensure all function implementations remain short, clean, well-documented, and stick to the same level of abstraction.
+- Ensure all function implementations remain short, clean, well-documented, and stick to the same level of abstraction. Use helper methods to break down complex logic into smaller, readable pieces.
 
 ### 18. Efficient Batch Test & Code Coverage Verification Strategy
 To maximize developer velocity and minimize test execution overhead when increasing code coverage:

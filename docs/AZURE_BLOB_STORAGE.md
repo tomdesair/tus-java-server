@@ -3,10 +3,10 @@
 `tus-java-server` provides native support for storing resumable file uploads in **Azure Blob Storage** using the official Microsoft Azure Storage Blob SDK (`com.azure:azure-storage-blob`).
 
 The implementation consists of four primary components:
-- **`AzureBlobStorageService`** (implements `UploadStorageService`) — handles Block Blob uploads via staged block staging (`stageBlock` / `commitBlockList`), streaming appends, sub-threshold `.part` buffering, block list truncation, expiration, and checksum deduplication.
+- **`AzureBlobStorageService`** (implements `UploadStorageService`) — handles Block Blob uploads via staged block staging (`stageBlock` / `commitBlockList`), streaming appends, batched block list commits, block list truncation, expiration, and checksum deduplication.
 - **`AzureBlobLockingService`** (implements `UploadLockingService`) — provides distributed locking using native Azure Blob Leases (30s duration) on `.lock` target blobs with background renewal, enabling multi-replica container deployments without requiring Redis or external databases.
 - **`AzureBlobUploadLock`** (implements `UploadLock`) — encapsulates active Azure Blob Leases with a background daemon thread that periodically renews the lease every 10 seconds.
-- **`AzureBlobConcatenationService`** (implements `UploadConcatenationService`) — provides server-side zero-copy concatenation using Azure's native `stageBlockFromUrl` operation.
+- **`AzureBlobConcatenationService`** (implements `UploadConcatenationService`) — provides server-side zero-copy concatenation using Azure's native `stageBlockFromUrl` operation (with streaming fallback for private containers).
 
 ---
 
@@ -14,7 +14,7 @@ The implementation consists of four primary components:
 
 ### Step 1: Add Dependencies
 
-Add the official Azure Storage Blob SDK and Jackson dependencies to your application's `pom.xml`:
+Jackson dependencies (`jackson-databind`, `jackson-annotations`, `jackson-core`) are bundled directly with compile scope by `tus-java-server`. Simply add the official Azure Storage Blob SDK to your application's `pom.xml`:
 
 ```xml
 <dependencies>
@@ -23,13 +23,6 @@ Add the official Azure Storage Blob SDK and Jackson dependencies to your applica
         <groupId>com.azure</groupId>
         <artifactId>azure-storage-blob</artifactId>
         <version>12.35.0</version>
-    </dependency>
-
-    <!-- Jackson databind & annotations for UploadInfo JSON serialization -->
-    <dependency>
-        <groupId>com.fasterxml.jackson.core</groupId>
-        <artifactId>jackson-databind</artifactId>
-        <version>2.22.1</version>
     </dependency>
 </dependencies>
 ```
@@ -96,7 +89,6 @@ TusFileUploadService tusService = new TusFileUploadService()
 <container>/
 ├── uploads/<uploadId>                # Final upload data (Block Blob)
 ├── metadata/<uploadId>.info          # JSON-serialized UploadInfo
-├── metadata/<uploadId>.part          # Incomplete sub-threshold buffer blob
 ├── checksums/<algorithm>/<hex_hash>  # Deduplication checksum index object
 ├── locks/<uploadId>.lock             # Distributed lock target blob (Blob Lease)
 └── locks/<uploadId>.stop             # Cross-replica contention interrupt signal
@@ -107,7 +99,7 @@ TusFileUploadService tusService = new TusFileUploadService()
 | Setting | Default Value | Description |
 |---------|---------------|-------------|
 | `uploadPrefix` | `"uploads/"` | Blob name prefix for final completed file objects |
-| `metadataPrefix` | `"metadata/"` | Blob name prefix for `.info` JSON and `.part` buffers |
+| `metadataPrefix` | `"metadata/"` | Blob name prefix for `.info` JSON metadata blobs |
 | `checksumsPrefix` | `"checksums/"` | Blob name prefix for deduplication index objects |
 | `locksPrefix` | `"locks/"` | Blob name prefix for distributed lock lease objects |
 
@@ -254,9 +246,10 @@ Lock contention resolution operates on two levels:
 
 ## 11. Operational Hardening & Cost Optimization Guidance
 
-1. **Storage Lifecycle Management Policies**: Configure an Azure Lifecycle Management policy to automatically delete uncommitted block blobs or orphaned `.part` buffers older than 7 days.
+1. **Storage Lifecycle Management Policies**: Configure an Azure Lifecycle Management policy to automatically delete uncommitted block blobs older than 7 days.
 2. **Container Soft Delete & Versioning**: Enable Azure Container Soft Delete (e.g. 7-day retention) to protect completed upload data from accidental deletion.
 3. **API Cost Optimization**: `AzureBlobStorageService` minimizes API costs by combining GET calls, using single `getProperties()` lookups, and caching metadata in `ThreadLocalCachedStorageAndLockingService`.
+4. **Clock Synchronization & NTP Requirement**: While Azure Blob Leases are tracked by Azure Storage server-side, local node renewal schedules (10s intervals) and request timeouts depend on local system clocks. Ensure all cluster nodes and containers synchronize their clocks using NTP or Azure Time Sync.
 
 ---
 

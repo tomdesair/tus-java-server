@@ -191,4 +191,37 @@ public class RufhInterimResponseUtilTest {
     assertNotNull(raw);
     assertTrue(raw.contains("Location: /files/789"));
   }
+
+  @Test
+  public void testGetRawInterimResponseWithCrlfInHostHeader() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.setScheme("https");
+    // Attempt HTTP response splitting / header injection via Host header (CWE-113)
+    request.addHeader("Host", "example.com\r\nX-Injected-Header: malicious-value");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+
+    me.desair.tus.server.upload.UploadStorageService mockStorage =
+        org.mockito.Mockito.mock(me.desair.tus.server.upload.UploadStorageService.class);
+    org.mockito.Mockito.when(mockStorage.getUploadUri()).thenReturn("/files");
+    me.desair.tus.server.upload.UploadInfo created = new me.desair.tus.server.upload.UploadInfo();
+    created.setId(new me.desair.tus.server.upload.UploadId("sec-123"));
+    org.mockito.Mockito.when(
+            mockStorage.create(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("owner")))
+        .thenReturn(created);
+
+    // Host with CR/LF must be rejected to prevent HTTP response splitting
+    String raw = RufhInterimResponseUtil.getRawInterimResponse(request, mockStorage, "owner");
+    assertNull(raw);
+  }
+
+  @Test
+  public void testGetRawInterimResponseWithCrlfInUploadUri() {
+    // Malicious URI with CRLF injection
+    String maliciousUri = "/files/123\r\nInjected-Header: attack";
+    String raw = RufhInterimResponseUtil.getRawInterimResponse(maliciousUri, 0L);
+    assertNull(raw);
+  }
 }

@@ -126,7 +126,19 @@ public class LeaseData implements Serializable {
   }
 
   public boolean isExpired(long now) {
-    return expiresAt < now;
+    return isExpired(now, 0L);
+  }
+
+  /**
+   * Determines if the lease is expired taking into account a safety margin (e.g. clock drift
+   * buffer).
+   *
+   * @param now Current timestamp in milliseconds
+   * @param safetyMarginMs Safety margin in milliseconds added to expiresAt
+   * @return true if the lease has expired beyond the safety margin
+   */
+  public boolean isExpired(long now, long safetyMarginMs) {
+    return (expiresAt + safetyMarginMs) < now;
   }
 
   @Override

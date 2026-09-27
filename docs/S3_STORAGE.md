@@ -1,11 +1,11 @@
 # S3-Compatible Storage Support for `tus-java-server`
 
-`tus-java-server` provides native support for storing resumable file uploads in AWS S3 and any S3-compatible object storage service (such as MinIO, Cloudflare R2, Ceph, or Google Cloud Storage) using the lightweight MinIO Java SDK.
+`tus-java-server` provides native support for storing resumable file uploads in AWS S3 and any S3-compatible object storage service (such as MinIO, RustFS, Cloudflare R2, Ceph, or Google Cloud Storage) using the lightweight MinIO Java SDK.
 
 The implementation consists of three primary components:
 - **`S3StorageService`** (implements `UploadStorageService`) — handles server-side object composition (`composeObject`), chunk appends, sub-5MB incomplete part persistence (`.part`), expiration, and checksum deduplication.
 - **`S3LockingService`** (implements `UploadLockingService`) — provides distributed locking using S3 object leases (`.lock`) and TTL leases, enabling multi-replica container deployments without requiring Redis or external databases.
-- **`S3ConcatenationService`** (implements `UploadConcatenationService`) — provides S3-native concatenation using server-side `composeObject` (for parts $\ge$ 5 MB) with a streaming re-upload fallback.
+- **`S3ConcatenationService`** (implements `UploadConcatenationService`) — provides S3-native concatenation using server-side `composeObject` (for parts $\ge$ 5 MB, with sub-5MB final parts allowed) with a streaming re-upload fallback.
 
 ---
 
@@ -13,7 +13,7 @@ The implementation consists of three primary components:
 
 ### Step 1: Add Dependencies
 
-Add the MinIO Java SDK and Jackson `ObjectMapper` dependencies to your application's `pom.xml` (matching `pom.xml` versions):
+Jackson dependencies (`jackson-databind`, `jackson-annotations`, `jackson-core`) are bundled directly with compile scope by `tus-java-server`. Simply add the MinIO Java SDK to your application's `pom.xml`:
 
 ```xml
 <dependencies>
@@ -22,18 +22,6 @@ Add the MinIO Java SDK and Jackson `ObjectMapper` dependencies to your applicati
         <groupId>io.minio</groupId>
         <artifactId>minio</artifactId>
         <version>9.0.3</version>
-    </dependency>
-
-    <!-- Jackson databind & annotations for UploadInfo JSON serialization -->
-    <dependency>
-        <groupId>com.fasterxml.jackson.core</groupId>
-        <artifactId>jackson-databind</artifactId>
-        <version>2.22.1</version>
-    </dependency>
-    <dependency>
-        <groupId>com.fasterxml.jackson.core</groupId>
-        <artifactId>jackson-annotations</artifactId>
-        <version>2.22</version>
     </dependency>
 </dependencies>
 ```
@@ -151,9 +139,9 @@ try (InputStream stream = minioClient.getObject(
 
 ---
 
-## 5. Configuring Custom S3 Endpoints (MinIO, R2, Ceph, GCS)
+## 5. Configuring Custom S3 Endpoints (MinIO, RustFS, R2, Ceph, GCS)
 
-`S3StorageService` accepts any pre-configured `MinioClient`. To connect to an S3-compatible backend (such as local MinIO or Cloudflare R2), override the endpoint when building the `MinioClient`:
+`S3StorageService` accepts any pre-configured `MinioClient`. To connect to an S3-compatible backend (such as local MinIO, RustFS, or Cloudflare R2), override the endpoint when building the `MinioClient`:
 
 ```java
 import io.minio.MinioClient;
@@ -231,6 +219,10 @@ To guarantee waterproof single-winner lock exclusivity across cloud providers an
    - When evicting an expired lock, the lock object's expiration is verified again immediately before deletion to prevent evicting a fresh lock created by a winning peer.
 4. **Owner-Safe Lock Release**:
    - In `S3UploadLock.close()`, the node verifies that the remote lock is still owned by its own `holderId` before deleting it. If its lease expired while the process was paused and another node took over ownership, the previous node will never delete the new owner's active lock.
+
+### Clock Synchronization & NTP Requirement
+
+Distributed TTL lease evaluation relies on wall-clock timestamps (`expiresAt`). While `S3LockingService` incorporates a 2-second safety buffer (`CLOCK_SKEW_SAFETY_MARGIN_MS`) to absorb minor time deviations between pods, all cluster nodes and containers running `tus-java-server` MUST synchronize their system clocks using NTP (Network Time Protocol) or Amazon Time Sync Service (`chrony`). Avoid clock skew exceeding $\pm 1$ second between cluster nodes.
 
 ---
 

@@ -137,4 +137,39 @@ public class TusServletResponseTest {
     assertThat(tusServletResponse.getHeader("TEST"), is(nullValue()));
     assertThat(servletResponse.getHeader("TEST"), is(nullValue()));
   }
+
+  @Test
+  public void testCaseInsensitiveHeaderLookup() {
+    tusServletResponse.setHeader("Location", "https://example.com/files/123");
+
+    // HTTP headers must be case-insensitive per RFC 9110 §5.1.
+    assertThat(tusServletResponse.getHeader("location"), is("https://example.com/files/123"));
+    assertThat(tusServletResponse.getHeader("LOCATION"), is("https://example.com/files/123"));
+    assertThat(tusServletResponse.getHeader("Location"), is("https://example.com/files/123"));
+
+    // Overwrite using different casing
+    tusServletResponse.setHeader("location", "https://example.com/files/456");
+    assertThat(tusServletResponse.getHeader("LOCATION"), is("https://example.com/files/456"));
+
+    // Null header name should safely return null
+    assertThat(tusServletResponse.getHeader(null), is(nullValue()));
+  }
+
+  @Test
+  public void testHeaderEdgeCasesNullAndRemove() {
+    // Setting or adding null header name is safely ignored across all header variants
+    tusServletResponse.setHeader(null, "some-value");
+    tusServletResponse.addHeader(null, "some-value");
+    tusServletResponse.setDateHeader(null, 12345L);
+    tusServletResponse.addDateHeader(null, 12345L);
+    tusServletResponse.setIntHeader(null, 42);
+    tusServletResponse.addIntHeader(null, 42);
+
+    // Setting null value removes pre-existing header
+    tusServletResponse.setHeader("Custom-Header", "value1");
+    assertThat(tusServletResponse.getHeader("Custom-Header"), is("value1"));
+
+    tusServletResponse.setHeader("Custom-Header", null);
+    assertThat(tusServletResponse.getHeader("Custom-Header"), is(nullValue()));
+  }
 }

@@ -126,12 +126,31 @@ public abstract class AbstractLeaseLock implements UploadLock {
    * Renew the lock lease by advancing the expiration timestamp and persisting the updated metadata.
    */
   public void renewLease() {
-    leaseData.setExpiresAt(System.currentTimeMillis() + leaseData.getLeaseDurationMs());
-    doRenewLease();
+    try {
+      leaseData.setExpiresAt(System.currentTimeMillis() + leaseData.getLeaseDurationMs());
+      doRenewLease();
+    } catch (Exception e) {
+      // If lease renewal fails, abort any active input stream immediately
+      // to prevent the upload thread from continuing to write un-locked bytes.
+      if (activeInputStreams != null && getRequestUri() != null) {
+        InputStream stream = activeInputStreams.get(getRequestUri());
+        if (stream != null) {
+          log.info(
+              "Aborting active input stream for upload URI {} due to lease renewal failure",
+              getRequestUri());
+          Utils.interruptStream(stream);
+        }
+      }
+      Utils.shutdownExecutor(heartbeatExecutor);
+    }
   }
 
-  /** Subclass hook to persist updated lease metadata during heartbeat renewal. */
-  protected abstract void doRenewLease();
+  /**
+   * Subclass hook to persist updated lease metadata during heartbeat renewal.
+   *
+   * @throws Exception If lease renewal fails or ownership was lost
+   */
+  protected abstract void doRenewLease() throws Exception;
 
   /**
    * Subclass hook to release backend-specific lock resources (e.g. delete lock files or S3
