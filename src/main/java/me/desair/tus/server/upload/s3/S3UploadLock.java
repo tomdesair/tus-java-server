@@ -3,12 +3,19 @@ package me.desair.tus.server.upload.s3;
 import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import io.minio.RemoveObjectArgs;
+import io.minio.RemoveObjectsArgs;
+import io.minio.Result;
 import io.minio.errors.ErrorResponseException;
+import io.minio.messages.DeleteRequest;
+import io.minio.messages.DeleteResult;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import me.desair.tus.server.upload.AbstractLeaseLock;
 import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.upload.UploadLock;
@@ -104,24 +111,54 @@ public class S3UploadLock extends AbstractLeaseLock {
 
   @Override
   protected void releaseLockResource() {
-    // Owner-Safe Lock Release: only delete .lock lease if it is still owned by this holder
-    deleteS3LockObjectIfOwner(lockKey);
-    deleteS3ObjectQuietly(stopKey);
+    // Owner-Safe Lock Release: only delete .lock lease if it is still owned by this holder.
+    // If ownership was stolen by another node (e.g. heartbeat lost or execution ran too long),
+    // skip deletion entirely so we do not delete another node's lock or any stop signal
+    // potentially intended for that new holder.
+    if (lockKey != null && !doesLockOwnershipMatch(lockKey)) {
+      log.info(
+          "Skipping deletion of S3 lock key {}: lock is currently held by another node", lockKey);
+      return;
+    }
+
+    // Batch deletion of .lock and .stop keys via S3 Multi-Object Delete.
+    // AWS S3 and MinIO execute multi-object delete in a single network round trip (POST /?delete),
+    // eliminating an extra round trip on every lock release.
+    deleteS3Objects(lockKey, stopKey);
   }
 
-  void deleteS3LockObjectIfOwner(String key) {
-    if (key == null || minioClient == null || bucket == null) {
+  void deleteS3Objects(String firstKey, String secondKey) {
+    if (minioClient == null || bucket == null) {
+      return;
+    }
+    List<DeleteRequest.Object> objects =
+        Stream.of(firstKey, secondKey)
+            .filter(Objects::nonNull)
+            .map(DeleteRequest.Object::new)
+            .collect(Collectors.toList());
+    if (objects.isEmpty()) {
       return;
     }
     try {
-      if (!doesLockOwnershipMatch(key)) {
-        log.info(
-            "Skipping deletion of S3 lock key {}: lock is currently held by another node", key);
-        return;
+      Iterable<Result<DeleteResult.Error>> results =
+          minioClient.removeObjects(
+              RemoveObjectsArgs.builder().bucket(bucket).objects(objects).build());
+      if (results != null) {
+        for (Result<DeleteResult.Error> result : results) {
+          try {
+            if (result != null) {
+              DeleteResult.Error error = result.get();
+              if (error != null) {
+                log.debug("Failed to delete S3 object {}: {}", error.objectName(), error.message());
+              }
+            }
+          } catch (Exception e) {
+            log.debug("Failed to process batch delete result", e);
+          }
+        }
       }
-      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
     } catch (Exception e) {
-      log.debug("Failed to delete S3 lock object {}", key, e);
+      log.debug("Failed to batch delete S3 objects {} and {}", firstKey, secondKey, e);
     }
   }
 
@@ -148,16 +185,5 @@ public class S3UploadLock extends AbstractLeaseLock {
       log.debug("Error checking lock ownership for S3 key {}", key, e);
     }
     return true;
-  }
-
-  private void deleteS3ObjectQuietly(String key) {
-    if (key == null || minioClient == null || bucket == null) {
-      return;
-    }
-    try {
-      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
-    } catch (Exception e) {
-      log.debug("Failed to delete S3 object {}", key, e);
-    }
   }
 }

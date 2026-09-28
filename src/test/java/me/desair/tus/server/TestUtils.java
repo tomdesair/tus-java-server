@@ -7,8 +7,8 @@ import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
 
 /**
- * Helper utility class for S3 integration tests running against Testcontainers MinIO using the
- * MinIO Java SDK. Supports both Docker and Podman container engines automatically.
+ * Helper utility class for integration tests running against Testcontainers RustFS (S3) and Azurite
+ * (Azure Blob). Supports both Docker and Podman container engines automatically.
  */
 public final class TestUtils {
 
@@ -75,15 +75,6 @@ public final class TestUtils {
         .withExposedPorts(9000)
         .withEnv("RUSTFS_ACCESS_KEY", "rustfsadmin")
         .withEnv("RUSTFS_SECRET_KEY", "rustfsadmin");
-  }
-
-  /**
-   * Alias for {@link #createRustFsContainer()} for compatibility.
-   *
-   * @return A configured GenericContainer instance (not started yet)
-   */
-  public static GenericContainer<?> createMinioContainer() {
-    return createRustFsContainer();
   }
 
   /**

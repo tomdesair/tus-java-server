@@ -21,7 +21,7 @@ import org.testcontainers.containers.GenericContainer;
 
 public class ITS3StorageService {
 
-  private static GenericContainer<?> minio;
+  private static GenericContainer<?> rustfsContainer;
   private static MinioClient minioClient;
   private static final String BUCKET = "test-storage-service-bucket";
 
@@ -30,20 +30,20 @@ public class ITS3StorageService {
   @BeforeClass
   public static void setUpClass() {
     org.junit.Assume.assumeTrue(
-        "Container runtime is not available; skipping Testcontainers MinIO test",
+        "Container runtime is not available; skipping Testcontainers S3 (RustFS) test",
         TestUtils.isContainerRuntimeAvailable());
 
-    minio = TestUtils.createMinioContainer();
-    minio.start();
+    rustfsContainer = TestUtils.createRustFsContainer();
+    rustfsContainer.start();
 
-    minioClient = TestUtils.createMinioClient(minio);
+    minioClient = TestUtils.createMinioClient(rustfsContainer);
     TestUtils.createBucket(minioClient, BUCKET);
   }
 
   @AfterClass
   public static void tearDownClass() {
-    if (minio != null) {
-      minio.stop();
+    if (rustfsContainer != null) {
+      rustfsContainer.stop();
     }
   }
 

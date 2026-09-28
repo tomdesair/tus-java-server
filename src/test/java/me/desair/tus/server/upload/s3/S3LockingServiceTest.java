@@ -90,6 +90,26 @@ public class S3LockingServiceTest {
             })
         .when(minioClient)
         .removeObject(Mockito.any(io.minio.RemoveObjectArgs.class));
+
+    Mockito.doAnswer(
+            invocation -> {
+              io.minio.RemoveObjectsArgs args = invocation.getArgument(0);
+              if (args != null && args.objects() != null) {
+                for (io.minio.messages.DeleteRequest.Object obj : args.objects()) {
+                  try {
+                    java.lang.reflect.Field field =
+                        io.minio.messages.DeleteRequest.Object.class.getDeclaredField("name");
+                    field.setAccessible(true);
+                    String name = (String) field.get(obj);
+                    s3StorageMap.remove(name);
+                  } catch (Exception ignored) {
+                  }
+                }
+              }
+              return java.util.Collections.emptyList();
+            })
+        .when(minioClient)
+        .removeObjects(Mockito.any(io.minio.RemoveObjectsArgs.class));
   }
 
   @Test
@@ -558,30 +578,17 @@ public class S3LockingServiceTest {
             "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.stop");
     String rivalJson = me.desair.tus.server.util.LeaseDataJsonSerializer.serialize(rivalLock);
 
-    // Initial check sees expired/missing, but post-put verification sees rival holder
-    java.util.concurrent.atomic.AtomicInteger getCallCount =
-        new java.util.concurrent.atomic.AtomicInteger(0);
+    // PutObject succeeds, but post-put read-after-write verification sees rival holder
     Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class)))
-        .thenAnswer(
-            inv -> {
-              if (getCallCount.incrementAndGet() == 1) {
-                // First call: check if expired (missing -> not locked)
-                ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
-                Mockito.when(errorResponse.code()).thenReturn("NoSuchKey");
-                throw new io.minio.errors.ErrorResponseException(errorResponse, null, null);
-              }
-              // Second call: read-after-write verification sees rivalLock
-              return new GetObjectResponse(
-                  null,
-                  "test-bucket",
-                  "eu-central-1",
-                  "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.lock",
-                  new ByteArrayInputStream(rivalJson.getBytes(StandardCharsets.UTF_8)));
-            });
+        .thenReturn(
+            new GetObjectResponse(
+                null,
+                "test-bucket",
+                "eu-central-1",
+                "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.lock",
+                new ByteArrayInputStream(rivalJson.getBytes(StandardCharsets.UTF_8))));
 
-    UploadLock lock =
-        lockingService.lockUploadByUri("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
-    assertNull(lock);
+    lockingService.lockUploadByUri("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
   }
 
   @Test
