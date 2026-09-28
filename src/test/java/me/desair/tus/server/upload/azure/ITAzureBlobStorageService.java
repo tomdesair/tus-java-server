@@ -73,6 +73,25 @@ public class ITAzureBlobStorageService {
     storageService.append(created, new ByteArrayInputStream("0123456789".getBytes()));
   }
 
+  /**
+   * §4.1.4: "This limit does not apply to upload creation requests with no content, or to requests
+   * completing the upload by including the Upload-Complete: ?1 header field."
+   */
+  @Test
+  public void completingUploadBypassesMinAppendSize() throws Exception {
+    storageService.setMinAppendSize(100L);
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    UploadInfo completed =
+        storageService.append(created, new ByteArrayInputStream("0123456789".getBytes()));
+    assertNotNull(completed);
+    assertEquals(Long.valueOf(10L), completed.getOffset());
+    assertFalse(completed.isUploadInProgress());
+  }
+
   @Test(expected = MaxAppendSizeExceededException.class)
   public void appendExceedsMaxAppendSizeShouldThrow() throws Exception {
     storageService.setMaxAppendSize(5L);

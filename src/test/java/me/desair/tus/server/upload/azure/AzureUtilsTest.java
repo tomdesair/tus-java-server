@@ -69,6 +69,9 @@ public class AzureUtilsTest {
   public void testParseErrorResponseAccessDenied() {
     BlobStorageException ex = createException(403, BlobErrorCode.AUTHORIZATION_FAILURE);
     assertEquals(AzureErrorType.ACCESS_DENIED, AzureUtils.parseErrorResponse(ex));
+
+    BlobStorageException ex401 = createException(401, null);
+    assertEquals(AzureErrorType.ACCESS_DENIED, AzureUtils.parseErrorResponse(ex401));
   }
 
   @Test

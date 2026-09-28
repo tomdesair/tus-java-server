@@ -160,8 +160,19 @@ S3StorageService s3Storage = new S3StorageService(minioClient, "my-bucket");
 
 S3 requires every part chunk of a multipart upload to be at least 5 MB (except the final part).
 
-- **Disk Buffering**: `S3StorageService` buffers incoming bytes to local disk in chunks (default 50 MB) before uploading them to S3.
-- **Incomplete Parts**: If a client upload stream ends before reaching 5 MB and the upload is not complete, the sub-5MB chunk is saved as a `<metadataPrefix>/<UploadId>.part` object in S3. On the next `PATCH` request, this chunk is downloaded, prepended to the incoming stream, and upload proceeds seamlessly.
+- **Disk Buffering & Preferred Part Size**: `S3StorageService` buffers incoming bytes to local disk in chunks of **8 MB** (`DEFAULT_PREFERRED_PART_SIZE`), matching Azure Blob Storage's block size. Preferred part size is configurable via `setPreferredPartSize(long)` (between 5 MB and 5 GB).
+- **Multi-TB Support & Dynamic Part Size Auto-Calibration**: AWS S3 enforces a maximum ceiling of 10,000 parts per multipart upload. When an upload length exceeds 80 GB ($10,000 \times 8\text{ MB}$), `S3StorageService` automatically scales the part size up proportionally:
+  - **1 TB upload**: auto-calibrated to ~105 MB per part.
+  - **5 TB upload** (S3 maximum limit): auto-calibrated to ~525 MB per part.
+  - Guarantees the entire upload completes within 10,000 parts without exceeding S3's 5 GB maximum part limit.
+  - Peak local disk buffer usage remains bounded to at most $2 \times \text{optimalPartSize}$ (one receiving slot + one waiting slot).
+- **Asynchronous Chunk Pipelining (`AsyncChunkUploader`)**: Instead of blocking the HTTP client thread while uploading chunks to S3, `S3StorageService` pipelines chunks using a bounded 3-slot model:
+  - **Slot 1 (Receiving)**: Streaming incoming bytes from the client into a local temporary file.
+  - **Slot 2 (Waiting)**: Holds one ready chunk on local disk buffer.
+  - **Slot 3 (Uploading)**: Actively uploading a chunk to S3 on a background daemon worker thread.
+  - When the background thread pool is fully utilized, work seamlessly falls back to the client thread without blocking (`ThreadPoolExecutor.CallerRunsPolicy` on a `SynchronousQueue`), ensuring zero queuing overhead and immediate backpressure.
+- **Thread Pool Sizing**: Worker threads are managed via a shared executor, default 10 threads, configurable on `TusFileUploadService` via `.withCloudUploadThreadPoolSize(int)` or directly on `S3StorageService.setCloudUploadThreadPoolSize(int)`.
+- **Incomplete Parts & Stale Buffer Protection**: If a client upload stream ends before reaching 5 MB and the upload is not complete, the sub-5MB chunk is saved as a `<metadataPrefix>/<UploadId>.part` object in S3. On subsequent requests, an arithmetic budget guard ($\text{existingPartsTotalSize} + \text{size}(.part) == \text{length}$) verifies whether the `.part` represents a legitimate final part or an obsolete buffer from a previous attempt, preventing file corruption and size inflation.
 - **Configurable Temp Directory**: The temporary buffer directory can be configured in the constructor or builder:
 
 ```java

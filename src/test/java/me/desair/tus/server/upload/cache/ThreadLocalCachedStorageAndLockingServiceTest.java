@@ -161,6 +161,30 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
     assertEquals(0, service.getMaxUploadSize());
     verify(mockStorage, times(1)).getMaxUploadSize();
 
+    service.setMaxAppendSize(500L);
+    verify(mockStorage, times(1)).setMaxAppendSize(500L);
+
+    service.getMaxAppendSize();
+    verify(mockStorage, times(1)).getMaxAppendSize();
+
+    service.setMinAppendSize(200L);
+    verify(mockStorage, times(1)).setMinAppendSize(200L);
+
+    service.getMinAppendSize();
+    verify(mockStorage, times(1)).getMinAppendSize();
+
+    service.setMinSize(300L);
+    verify(mockStorage, times(1)).setMinSize(300L);
+
+    service.getMinSize();
+    verify(mockStorage, times(1)).getMinSize();
+
+    service.setCloudUploadThreadPoolSize(12);
+    verify(mockStorage, times(1)).setCloudUploadThreadPoolSize(12);
+
+    service.getCloudUploadThreadPoolSize();
+    verify(mockStorage, times(1)).getCloudUploadThreadPoolSize();
+
     when(mockStorage.create(info, "owner")).thenReturn(info);
     assertEquals(info, service.create(info, "owner"));
     verify(mockStorage, times(1)).create(info, "owner");

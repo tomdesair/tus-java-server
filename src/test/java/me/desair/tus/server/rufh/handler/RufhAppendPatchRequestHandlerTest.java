@@ -162,6 +162,7 @@ public class RufhAppendPatchRequestHandlerTest {
     request.setRequestURI("/files/append-id");
     request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
     request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    request.addHeader(HttpHeader.CONTENT_LENGTH, "4");
     request.setContent("data".getBytes());
 
     UploadInfo info = new UploadInfo();
@@ -213,6 +214,95 @@ public class RufhAppendPatchRequestHandlerTest {
         null);
 
     assertThat(response.getStatus(), is(200));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+  }
+
+  /**
+   * §4.1.4: "This limit does not apply to upload creation requests with no content, or to requests
+   * completing the upload by including the Upload-Complete: ?1 header field."
+   *
+   * <p>§4.2.1: "If the upload length is not known when creating the upload resource, the
+   * Upload-Length header field is omitted, and the length is deferred... In subsequent requests,
+   * the upload length can be indicated by including the Upload-Length header field or by completing
+   * the upload using the Upload-Complete: ?1 header field."
+   */
+  @Test
+  public void testProcessCompletingAppendOnDeferredLengthUploadSetsLength() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/append-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "100");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    byte[] content = "final-bytes".getBytes();
+    request.setContent(content);
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("append-id"));
+    info.setOffset(100L);
+    info.setLength(null); // Deferred length
+
+    UploadInfo updated = new UploadInfo();
+    updated.setId(info.getId());
+    updated.setOffset(100L + content.length);
+    updated.setLength(100L + content.length);
+
+    when(storageService.getUploadInfo("/files/append-id", "owner")).thenReturn(info);
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(updated);
+
+    handler.process(
+        HttpMethod.PATCH,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    verify(storageService).update(info);
+    assertThat(info.getLength(), is(100L + content.length));
+    assertThat(response.getStatus(), is(200));
+    assertThat(
+        response.getHeader(HttpHeader.UPLOAD_OFFSET), is(String.valueOf(100L + content.length)));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+  }
+
+  @Test
+  public void testProcessCompletingAppendOnDeferredLengthUploadWithNullOffsetSetsLength()
+      throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/append-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    byte[] content = "initial-and-final-bytes".getBytes();
+    request.setContent(content);
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("append-id"));
+    info.setOffset(null);
+    info.setLength(null); // Deferred length
+
+    UploadInfo updated = new UploadInfo();
+    updated.setId(info.getId());
+    updated.setOffset((long) content.length);
+    updated.setLength((long) content.length);
+
+    when(storageService.getUploadInfo("/files/append-id", "owner")).thenReturn(info);
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(updated);
+
+    handler.process(
+        HttpMethod.PATCH,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    verify(storageService).update(info);
+    assertThat(info.getLength(), is((long) content.length));
+    assertThat(response.getStatus(), is(200));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is(String.valueOf(content.length)));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
   }
 }

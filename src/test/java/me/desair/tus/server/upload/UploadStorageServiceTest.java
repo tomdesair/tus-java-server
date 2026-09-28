@@ -142,6 +142,9 @@ public class UploadStorageServiceTest {
     dummyStorageService.setJsonSerializationEnabled(true);
     assertThat(dummyStorageService.isJsonSerializationEnabled(), is(false));
 
+    dummyStorageService.setCloudUploadThreadPoolSize(15);
+    assertThat(dummyStorageService.getCloudUploadThreadPoolSize(), is(10));
+
     // Default close is a no-op
     dummyStorageService.close();
   }

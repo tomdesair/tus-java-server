@@ -234,6 +234,16 @@ public class ThreadLocalCachedStorageAndLockingService
   }
 
   @Override
+  public void setCloudUploadThreadPoolSize(int size) {
+    storageServiceDelegate.setCloudUploadThreadPoolSize(size);
+  }
+
+  @Override
+  public int getCloudUploadThreadPoolSize() {
+    return storageServiceDelegate.getCloudUploadThreadPoolSize();
+  }
+
+  @Override
   public UploadLock lockUploadByUri(String requestUri) throws TusException, IOException {
     UploadLock uploadLock = lockingServiceDelegate.lockUploadByUri(requestUri);
     return new CachedLock(uploadLock);

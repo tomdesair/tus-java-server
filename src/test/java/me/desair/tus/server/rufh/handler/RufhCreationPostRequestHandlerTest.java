@@ -473,4 +473,46 @@ public class RufhCreationPostRequestHandlerTest {
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("100"));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
   }
+
+  /**
+   * §4.1.4: "This limit does not apply to upload creation requests with no content, or to requests
+   * completing the upload by including the Upload-Complete: ?1 header field."
+   *
+   * <p>§4.2.1: "If the upload length is not known when creating the upload resource, the
+   * Upload-Length header field is omitted, and the length is deferred... In subsequent requests,
+   * the upload length can be indicated by including the Upload-Length header field or by completing
+   * the upload using the Upload-Complete: ?1 header field."
+   */
+  @Test
+  public void testProcessCreationWithUploadCompleteAndContentLengthSetsAnnouncedLength()
+      throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    byte[] content = "hello world".getBytes();
+    request.setContent(content);
+
+    ArgumentCaptor<UploadInfo> captor = ArgumentCaptor.forClass(UploadInfo.class);
+    UploadInfo createdInfo = new UploadInfo();
+    createdInfo.setId(new UploadId("complete-no-length-id"));
+    createdInfo.setLength((long) content.length);
+    createdInfo.setOffset((long) content.length);
+
+    when(storageService.create(captor.capture(), nullable(String.class))).thenReturn(createdInfo);
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(createdInfo);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(captor.getValue().getLength(), is((long) content.length));
+    assertThat(response.getStatus(), is(200));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is(String.valueOf(content.length)));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+  }
 }

@@ -96,8 +96,8 @@ public class RufhInterimResponseUtilTest {
   @Test
   public void testGetRawInterimResponseWithExistingUploadNotFoundAndNullHost() throws Exception {
     MockHttpServletRequest request = new MockHttpServletRequest();
-    request.setMethod("PATCH");
-    request.setRequestURI("/files/not-found-123");
+    request.setMethod("POST");
+    request.setRequestURI("/files");
     request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
     // Host header is not set (null host)
 
@@ -107,8 +107,6 @@ public class RufhInterimResponseUtilTest {
     me.desair.tus.server.upload.UploadInfo created = new me.desair.tus.server.upload.UploadInfo();
     created.setId(new me.desair.tus.server.upload.UploadId("created-456"));
 
-    org.mockito.Mockito.when(mockStorage.getUploadInfo("/files/not-found-123", "owner"))
-        .thenReturn(null);
     org.mockito.Mockito.when(
             mockStorage.create(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("owner")))
@@ -117,6 +115,23 @@ public class RufhInterimResponseUtilTest {
     String raw = RufhInterimResponseUtil.getRawInterimResponse(request, mockStorage, "owner");
     assertNotNull(raw);
     assertTrue(raw.contains("Location: /files/created-456"));
+  }
+
+  @Test
+  public void testGetRawInterimResponseWithPatchUploadNotFoundReturnsNull() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/not-found-123");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+
+    me.desair.tus.server.upload.UploadStorageService mockStorage =
+        org.mockito.Mockito.mock(me.desair.tus.server.upload.UploadStorageService.class);
+    org.mockito.Mockito.when(mockStorage.getUploadUri()).thenReturn("/files");
+    org.mockito.Mockito.when(mockStorage.getUploadInfo("/files/not-found-123", "owner"))
+        .thenReturn(null);
+
+    String raw = RufhInterimResponseUtil.getRawInterimResponse(request, mockStorage, "owner");
+    assertNull(raw);
   }
 
   @Test

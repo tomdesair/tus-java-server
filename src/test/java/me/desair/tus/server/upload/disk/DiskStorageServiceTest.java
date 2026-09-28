@@ -1106,4 +1106,21 @@ public class DiskStorageServiceTest {
 
     storageService.update(child);
   }
+
+  @Test
+  public void testSetAndGetCloudUploadThreadPoolSize() {
+    assertThat(storageService.getCloudUploadThreadPoolSize(), is(10));
+    storageService.setCloudUploadThreadPoolSize(24);
+    assertThat(storageService.getCloudUploadThreadPoolSize(), is(24));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testSetCloudUploadThreadPoolSizeZeroThrowsIllegalArgumentException() {
+    storageService.setCloudUploadThreadPoolSize(0);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testSetCloudUploadThreadPoolSizeNegativeThrowsIllegalArgumentException() {
+    storageService.setCloudUploadThreadPoolSize(-1);
+  }
 }

@@ -157,15 +157,23 @@ BlobContainerClient containerClient = new BlobContainerClientBuilder()
 
 ---
 
-## 6. Local Disk Buffer & Block Size Auto-Calibration
+## 6. Local Disk Buffer & Asynchronous Chunk Pipelining
 
-`AzureBlobStorageService` streams incoming PATCH payloads in chunks of `optimalBlockSize` into temporary files, staging each block to Azure as it completes. Peak disk usage per upload is capped at `1 × optimalBlockSize` (e.g. 8 MB).
+`AzureBlobStorageService` streams incoming PATCH payloads in chunks of `optimalBlockSize` into temporary files, pipelining block staging to Azure Blob Storage asynchronously via `AsyncChunkUploader`:
+- **Asynchronous 3-Slot Pipeline**:
+  - **Slot 1 (Receiving)**: Streaming incoming bytes from the client into a local temporary file.
+  - **Slot 2 (Waiting)**: Holds one ready chunk on disk buffer.
+  - **Slot 3 (Uploading)**: Actively staging the block (`stageBlock`) to Azure Blob Storage on a background daemon worker thread.
+  - Falls back to synchronous caller execution (`CallerRunsPolicy` on a `SynchronousQueue`) when the thread pool is saturated, preventing worker queue latency and unbounded buffering.
+- **Thread Pool Sizing**: Worker threads are managed via a shared executor, default 10 threads, configurable on `TusFileUploadService` via `.withCloudUploadThreadPoolSize(int)` or directly on `AzureBlobStorageService.setCloudUploadThreadPoolSize(int)`.
+- **Bounded Disk Footprint**: Peak disk usage per active upload is bounded to at most $2 \times \text{optimalBlockSize}$ (one receiving slot + one waiting slot).
 
 Block sizes auto-calibrate based on total upload size:
-- **Baseline Preferred Size**: 8 MB (configurable via constructor)
+- **Baseline Preferred Size**: 8 MB (configurable via constructor or `setPreferredBlockSize(long)`)
 - **Minimum Block Size**: 4 MB
 - **Maximum Block Size**: 4000 MiB (Azure limit)
 - **Maximum Blocks per Blob**: 50,000 (Azure limit)
+- **Multi-TB Support & Auto-Calibration**: When upload length exceeds 400 GB ($50,000 \times 8\text{ MB}$), block size automatically scales up proportionally (e.g. ~22 MB for 1 TB, ~110 MB for 5 TB, supporting blobs up to 190 TB) to ensure the upload finishes within Azure's 50,000 blocks ceiling.
 
 ---
 

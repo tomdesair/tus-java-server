@@ -236,6 +236,20 @@ public class TusFileUploadService implements Closeable {
   }
 
   /**
+   * Set the maximum number of worker threads used for asynchronous background chunk uploading in
+   * cloud storage backends (S3, Azure). Defaults to 10.
+   *
+   * @param cloudUploadThreadPoolSize Number of worker threads (must be > 0)
+   * @return The current service
+   */
+  public TusFileUploadService withCloudUploadThreadPoolSize(int cloudUploadThreadPoolSize) {
+    Validate.isTrue(
+        cloudUploadThreadPoolSize > 0, "The cloud upload thread pool size must be greater than 0");
+    this.uploadStorageService.setCloudUploadThreadPoolSize(cloudUploadThreadPoolSize);
+    return this;
+  }
+
+  /**
    * Provide a custom {@link UploadIdFactory} implementation that should be used to generate
    * identifiers for the different uploads. Example implementation are {@link
    * me.desair.tus.server.upload.UuidUploadIdFactory} and {@link
@@ -268,6 +282,8 @@ public class TusFileUploadService implements Closeable {
     uploadStorageService.setMaxAppendSize(this.uploadStorageService.getMaxAppendSize());
     uploadStorageService.setMinAppendSize(this.uploadStorageService.getMinAppendSize());
     uploadStorageService.setMinSize(this.uploadStorageService.getMinSize());
+    uploadStorageService.setCloudUploadThreadPoolSize(
+        this.uploadStorageService.getCloudUploadThreadPoolSize());
     uploadStorageService.setUploadExpirationPeriod(
         this.uploadStorageService.getUploadExpirationPeriod());
     uploadStorageService.setUploadDeduplicationEnabled(
@@ -1085,6 +1101,13 @@ public class TusFileUploadService implements Closeable {
       response.setStatus(status);
       if (problemDetails != null) {
         problemDetails.writeTo(response);
+      } else if (status == 460) {
+        // Non-standard HTTP status 460 (Checksum Mismatch) is not recognized by standard
+        // servlet container error controllers (such as Spring Boot's BasicErrorController),
+        // which would cause sendError() to fail with an unhandled IllegalArgumentException
+        // and degrade to HTTP 500. We explicitly set the status and omit sendError().
+        response.setHeader(HttpHeader.CONTENT_LENGTH, null);
+        response.setStatus(status);
       } else {
         response.setHeader(HttpHeader.CONTENT_LENGTH, null);
         response.sendError(status, message);

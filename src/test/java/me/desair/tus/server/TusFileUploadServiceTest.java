@@ -331,6 +331,7 @@ public class TusFileUploadServiceTest {
     service.withMaxAppendSize(1024L);
     service.withMinAppendSize(512L);
     service.withMinSize(2048L);
+    service.withCloudUploadThreadPoolSize(18);
     service.withUploadDeduplication(true);
 
     UploadStorageService newStorage = mock(UploadStorageService.class);
@@ -340,6 +341,7 @@ public class TusFileUploadServiceTest {
     verify(newStorage).setMaxAppendSize(1024L);
     verify(newStorage).setMinAppendSize(512L);
     verify(newStorage).setMinSize(2048L);
+    verify(newStorage).setCloudUploadThreadPoolSize(18);
     verify(newStorage).setUploadDeduplicationEnabled(true);
   }
 
@@ -349,11 +351,25 @@ public class TusFileUploadServiceTest {
     service.withMaxAppendSize(1024L);
     service.withMinAppendSize(512L);
     service.withMinSize(2048L);
+    service.withCloudUploadThreadPoolSize(16);
     service.withThreadLocalCache(true);
 
     assertThat(service.getUploadStorageService().getMaxAppendSize(), is(1024L));
     assertThat(service.getUploadStorageService().getMinAppendSize(), is(512L));
     assertThat(service.getUploadStorageService().getMinSize(), is(2048L));
+    assertThat(service.getUploadStorageService().getCloudUploadThreadPoolSize(), is(16));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testWithCloudUploadThreadPoolSizeZeroThrowsException() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withCloudUploadThreadPoolSize(0);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testWithCloudUploadThreadPoolSizeNegativeThrowsException() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withCloudUploadThreadPoolSize(-5);
   }
 
   @Test

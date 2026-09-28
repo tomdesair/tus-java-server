@@ -55,6 +55,13 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
     String uploadCompleteHeader = servletRequest.getHeader(HttpHeader.UPLOAD_COMPLETE);
     Boolean uploadComplete = StructuredHeaderUtil.parseBoolean(uploadCompleteHeader);
 
+    long cl = servletRequest.getContentLengthLong();
+    if (Boolean.TRUE.equals(uploadComplete) && !uploadInfo.hasLength() && cl >= 0) {
+      long currentOffset = uploadInfo.getOffset() != null ? uploadInfo.getOffset() : 0L;
+      uploadInfo.setLength(currentOffset + cl);
+      uploadStorageService.update(uploadInfo);
+    }
+
     InputStream is = servletRequest.getContentInputStream();
     if (is != null) {
       if (uploadLockingService != null) {

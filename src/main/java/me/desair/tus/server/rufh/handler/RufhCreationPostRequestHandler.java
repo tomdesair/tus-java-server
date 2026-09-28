@@ -66,17 +66,23 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
     String uploadCompleteHeader = servletRequest.getHeader(HttpHeader.UPLOAD_COMPLETE);
     Boolean uploadComplete = StructuredHeaderUtil.parseBoolean(uploadCompleteHeader);
 
+    long cl = servletRequest.getContentLengthLong();
+    Long announcedLength = uploadLength;
+    if (announcedLength == null && Boolean.TRUE.equals(uploadComplete) && cl >= 0) {
+      announcedLength = cl;
+    }
+
     UploadInfo uploadInfo;
     if (preCreatedUploadInfo != null) {
       uploadInfo = preCreatedUploadInfo;
-      if (uploadLength != null && uploadLength >= 0) {
-        uploadInfo.setLength(uploadLength);
+      if (announcedLength != null && announcedLength >= 0) {
+        uploadInfo.setLength(announcedLength);
       }
       uploadStorageService.update(uploadInfo);
     } else {
       uploadInfo = new UploadInfo();
-      if (uploadLength != null && uploadLength >= 0) {
-        uploadInfo.setLength(uploadLength);
+      if (announcedLength != null && announcedLength >= 0) {
+        uploadInfo.setLength(announcedLength);
       }
       uploadInfo = uploadStorageService.create(uploadInfo, ownerKey);
     }

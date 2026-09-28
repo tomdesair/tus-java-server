@@ -211,6 +211,7 @@ When updating the IETF protocol implementation for a new draft revision, follow 
 ### 4. Conformity Test Suite Maintenance & Subagent Isolation
 Whenever a new draft revision of the RUFH specification is published, the repository's Python conformity test suite (`scripts/rufh_conformity_test.py`) MUST be reviewed and updated by a separate, dedicated subagent.
 - **Strict Isolation Rule**: The subagent tasked with updating `scripts/rufh_conformity_test.py` MUST ONLY consult the official IETF specification document (and RFC 9530) and MUST NOT inspect the Java server implementation code under `src/main/java/`. This ensures the conformity test suite remains an independent, unbiased specification benchmark.
+- **Default Multi-Backend Execution**: When executing the conformity test suite (`scripts/rufh_conformity_test.py`), tests MUST be run by default against all three supported storage backend types (Disk: `/test/api/upload`, S3: `/test-s3/api/upload`, and Azure Blob: `/test-azure/api/upload`) as documented in [`docs/CONFORMITY_TESTING.md`](docs/CONFORMITY_TESTING.md).
 
 ### 5. Conformity Test Suite Audit — Repeatable Procedure
 Use this procedure to audit `scripts/rufh_conformity_test.py` against the current (or a new) specification revision. The goal is to identify untested MUST/SHOULD/MAY requirements and produce an actionable improvement report.

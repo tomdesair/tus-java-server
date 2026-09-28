@@ -280,6 +280,24 @@ public interface UploadStorageService {
   }
 
   /**
+   * Set the thread pool size used for asynchronous background chunk uploading to cloud storage.
+   *
+   * @param size Number of worker threads
+   */
+  default void setCloudUploadThreadPoolSize(int size) {
+    // Default no-op for non-cloud implementations
+  }
+
+  /**
+   * Get the thread pool size used for asynchronous background chunk uploading to cloud storage.
+   *
+   * @return Thread pool size, defaults to 10
+   */
+  default int getCloudUploadThreadPoolSize() {
+    return 10;
+  }
+
+  /**
    * Closes any underlying storage resources.
    *
    * @throws IOException If closing fails

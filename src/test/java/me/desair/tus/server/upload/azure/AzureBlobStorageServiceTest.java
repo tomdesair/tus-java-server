@@ -233,4 +233,46 @@ public class AzureBlobStorageServiceTest {
     long largeLength = 50_000L * 16 * 1024 * 1024L;
     assertEquals((largeLength / 50_000L) + 1, storageService.calcOptimalBlockSize(largeLength));
   }
+
+  @Test
+  public void testCloudUploadThreadPoolSizeConfiguration() {
+    assertEquals(
+        "Default thread pool size is 10", 10, storageService.getCloudUploadThreadPoolSize());
+
+    storageService.setCloudUploadThreadPoolSize(30);
+    assertEquals(
+        "Updated thread pool size is 30", 30, storageService.getCloudUploadThreadPoolSize());
+
+    storageService.setCloudUploadThreadPoolSize(4);
+    assertEquals("Reduced thread pool size is 4", 4, storageService.getCloudUploadThreadPoolSize());
+
+    try {
+      storageService.setCloudUploadThreadPoolSize(0);
+      org.junit.Assert.fail("Should reject 0 pool size");
+    } catch (IllegalArgumentException expected) {
+      assertTrue(expected.getMessage().contains("greater than 0"));
+    }
+
+    try {
+      storageService.setCloudUploadThreadPoolSize(-1);
+      org.junit.Assert.fail("Should reject negative pool size");
+    } catch (IllegalArgumentException expected) {
+      assertTrue(expected.getMessage().contains("greater than 0"));
+    }
+  }
+
+  @Test
+  public void testCloseGracefulShutdown() throws Exception {
+    // Verify closing storage service cleanly terminates background upload executor without error
+    storageService.close();
+    // KISS: verifying method executes cleanly without throwing an exception
+
+    // Verify close handles thread interruption gracefully
+    Thread.currentThread().interrupt();
+    try {
+      storageService.close();
+    } finally {
+      Thread.interrupted(); // Clear interrupted status
+    }
+  }
 }

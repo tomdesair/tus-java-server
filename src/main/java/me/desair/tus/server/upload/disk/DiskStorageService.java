@@ -34,6 +34,7 @@ import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,6 +51,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   private Long maxAppendSize = null;
   private Long minAppendSize = null;
   private Long minSize = null;
+  private int cloudUploadThreadPoolSize = 10;
   private Long uploadExpirationPeriod = null;
   private UploadIdFactory idFactory;
   private UploadConcatenationService uploadConcatenationService;
@@ -115,6 +117,17 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   @Override
   public Long getMinSize() {
     return minSize;
+  }
+
+  @Override
+  public void setCloudUploadThreadPoolSize(int size) {
+    Validate.isTrue(size > 0, "The cloud upload thread pool size must be greater than 0");
+    this.cloudUploadThreadPoolSize = size;
+  }
+
+  @Override
+  public int getCloudUploadThreadPoolSize() {
+    return cloudUploadThreadPoolSize;
   }
 
   @Override
@@ -338,8 +351,18 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
                     + " bytes. You can only append to the end of an upload");
           }
 
-          // write all bytes in the channel up to the configured maximum
-          transferred = file.transferFrom(uploadedBytes, offset, max - offset);
+          // write all bytes in the channel up to the configured maximum in a loop to support
+          // transfers larger than 2GB (OS syscall limits)
+          long bytesTransferred = 0;
+          while (offset + bytesTransferred < max) {
+            long toTransfer = max - (offset + bytesTransferred);
+            long n = file.transferFrom(uploadedBytes, offset + bytesTransferred, toTransfer);
+            if (n <= 0) {
+              break;
+            }
+            bytesTransferred += n;
+          }
+          transferred = bytesTransferred;
           file.force(true);
           newOffset = offset + transferred;
 
@@ -492,8 +515,18 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
                 "The upload bytes for id " + readId + " could not be found.");
           }
           try (FileChannel file = FileChannel.open(bytesPath, READ)) {
-            // Efficiently copy the bytes to the output stream
-            file.transferTo(0, upload.getLength(), outputChannel);
+            // Efficiently copy the bytes to the output stream in a loop to handle transfers
+            // exceeding OS single-syscall limits (e.g. 2GB sendfile limit)
+            long position = 0;
+            long remaining = upload.getLength() != null ? upload.getLength() : file.size();
+            while (remaining > 0) {
+              long bytesTransferred = file.transferTo(position, remaining, outputChannel);
+              if (bytesTransferred <= 0) {
+                break;
+              }
+              position += bytesTransferred;
+              remaining -= bytesTransferred;
+            }
           }
         }
       }
