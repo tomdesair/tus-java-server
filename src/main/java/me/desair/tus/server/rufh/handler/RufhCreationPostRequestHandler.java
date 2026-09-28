@@ -16,6 +16,7 @@ import me.desair.tus.server.util.StructuredHeaderUtil;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.lang3.Strings;
 
 /**
  * Request handler for upload creation requests via HTTP POST, PUT, or PATCH.
@@ -66,10 +67,13 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
     String uploadCompleteHeader = servletRequest.getHeader(HttpHeader.UPLOAD_COMPLETE);
     Boolean uploadComplete = StructuredHeaderUtil.parseBoolean(uploadCompleteHeader);
 
-    long cl = servletRequest.getContentLengthLong();
+    // Per RUFH §4.2.1: If upload length is deferred upon creation and the client completes
+    // the upload in the creation request via Upload-Complete: ?1, the total length is derived
+    // from Content-Length.
+    long contentLength = servletRequest.getContentLengthLong();
     Long announcedLength = uploadLength;
-    if (announcedLength == null && Boolean.TRUE.equals(uploadComplete) && cl >= 0) {
-      announcedLength = cl;
+    if (announcedLength == null && Boolean.TRUE.equals(uploadComplete) && contentLength >= 0) {
+      announcedLength = contentLength;
     }
 
     UploadInfo uploadInfo;
@@ -90,8 +94,22 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
     String uploadUri =
         Utils.getUploadUriOnCreation(uploadInfo, servletRequest, uploadStorageService);
 
+    // Per RUFH §4.1.4: "This limit does not apply to upload creation requests with no content,
+    // or to requests completing the upload by including the Upload-Complete: ?1 header field."
+    // An empty creation request carries no body (contentLength <= 0 without chunked encoding).
+    // In servlet requests without a body, getContentLengthLong() returns -1. We must verify
+    // that actual payload content is present before invoking storageService.append(); otherwise,
+    // sending a 0-byte stream to backends with minAppendSize configured (e.g. S3 or Azure Blob)
+    // would trigger MinAppendSizeNotMetException on an empty creation request.
+    boolean hasContent =
+        contentLength > 0
+            || (contentLength < 0
+                && servletRequest.getHeader(HttpHeader.TRANSFER_ENCODING) != null
+                && Strings.CI.contains(
+                    servletRequest.getHeader(HttpHeader.TRANSFER_ENCODING), "chunked"));
+
     InputStream is = servletRequest.getContentInputStream();
-    if (is != null && servletRequest.getContentLengthLong() != 0) {
+    if (is != null && hasContent) {
       if (uploadLockingService != null) {
         InterruptibleInputStream interruptibleStream = new InterruptibleInputStream(is);
         uploadLockingService.registerInputStream(uploadUri, interruptibleStream);

@@ -55,10 +55,13 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
     String uploadCompleteHeader = servletRequest.getHeader(HttpHeader.UPLOAD_COMPLETE);
     Boolean uploadComplete = StructuredHeaderUtil.parseBoolean(uploadCompleteHeader);
 
-    long cl = servletRequest.getContentLengthLong();
-    if (Boolean.TRUE.equals(uploadComplete) && !uploadInfo.hasLength() && cl >= 0) {
+    // Per RUFH §4.2.1: If upload length was deferred and the client completes the upload
+    // via Upload-Complete: ?1, derive and set the total length from current offset +
+    // Content-Length.
+    long contentLength = servletRequest.getContentLengthLong();
+    if (Boolean.TRUE.equals(uploadComplete) && !uploadInfo.hasLength() && contentLength >= 0) {
       long currentOffset = uploadInfo.getOffset() != null ? uploadInfo.getOffset() : 0L;
-      uploadInfo.setLength(currentOffset + cl);
+      uploadInfo.setLength(currentOffset + contentLength);
       uploadStorageService.update(uploadInfo);
     }
 

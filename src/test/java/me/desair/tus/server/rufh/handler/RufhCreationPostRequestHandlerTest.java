@@ -11,6 +11,7 @@ import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.InputStream;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadId;
@@ -514,5 +515,56 @@ public class RufhCreationPostRequestHandlerTest {
     assertThat(response.getStatus(), is(200));
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is(String.valueOf(content.length)));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+  }
+
+  @Test
+  public void testProcessCreationWithChunkedTransferEncodingCallsAppend() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
+    byte[] content = "chunked stream data".getBytes();
+    // Do not set content via setContent to keep Content-Length at -1, provide via InputStream
+    request.setContent(content);
+
+    // Custom request to simulate chunked request without Content-Length header (cl < 0)
+    TusServletRequest tusRequest =
+        new TusServletRequest(request) {
+          @Override
+          public long getContentLengthLong() {
+            return -1L;
+          }
+
+          @Override
+          public InputStream getContentInputStream() {
+            return new java.io.ByteArrayInputStream(content);
+          }
+        };
+
+    UploadInfo createdInfo = new UploadInfo();
+    createdInfo.setId(new UploadId("chunked-id"));
+    createdInfo.setOffset(0L);
+
+    UploadInfo appendedInfo = new UploadInfo();
+    appendedInfo.setId(new UploadId("chunked-id"));
+    appendedInfo.setOffset((long) content.length);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class)))
+        .thenReturn(createdInfo);
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(appendedInfo);
+
+    handler.process(
+        HttpMethod.POST,
+        tusRequest,
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    verify(storageService).append(eq(createdInfo), any(InputStream.class));
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is(String.valueOf(content.length)));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
   }
 }
