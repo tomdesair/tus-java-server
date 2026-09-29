@@ -6,6 +6,11 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -158,5 +163,54 @@ public class UuidUploadIdFactoryTest {
   @Test
   public void createId() throws Exception {
     assertThat(idFactory.createId(), not(nullValue()));
+  }
+
+  @Test
+  public void testConcurrentUploadUriAccessAndUpdates() throws Exception {
+    int threadCount = 12;
+    int iterations = 100;
+    ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+    CountDownLatch startLatch = new CountDownLatch(1);
+    CountDownLatch doneLatch = new CountDownLatch(threadCount);
+    AtomicBoolean errorOccurred = new AtomicBoolean(false);
+
+    idFactory.setUploadUri("/test/upload");
+
+    for (int i = 0; i < threadCount; i++) {
+      final int threadId = i;
+      executor.submit(
+          () -> {
+            try {
+              startLatch.await();
+              for (int j = 0; j < iterations; j++) {
+                if (threadId % 3 == 0) {
+                  idFactory.setUploadUri("/test/upload" + (j % 5));
+                } else if (threadId % 3 == 1) {
+                  String uri = idFactory.getUploadUri();
+                  if (uri == null || !uri.startsWith("/test/upload")) {
+                    errorOccurred.set(true);
+                  }
+                } else {
+                  UploadId id =
+                      idFactory.readUploadId(
+                          "/test/upload" + (j % 5) + "/1911e8a4-6939-490c-b58b-a5d70f8d91fb");
+                  if (id != null && !id.toString().equals("1911e8a4-6939-490c-b58b-a5d70f8d91fb")) {
+                    errorOccurred.set(true);
+                  }
+                }
+              }
+            } catch (Exception e) {
+              errorOccurred.set(true);
+            } finally {
+              doneLatch.countDown();
+            }
+          });
+    }
+
+    startLatch.countDown();
+    assertThat(doneLatch.await(5, TimeUnit.SECONDS), is(true));
+    executor.shutdown();
+
+    assertThat(errorOccurred.get(), is(false));
   }
 }
