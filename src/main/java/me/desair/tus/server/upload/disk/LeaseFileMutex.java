@@ -45,11 +45,10 @@ public class LeaseFileMutex implements AutoCloseable {
    * @param storagePath Path to the base locks storage directory
    * @param uploadId The upload identifier
    */
-  public LeaseFileMutex(Path storagePath, UploadId uploadId) {
+  public LeaseFileMutex(final Path storagePath, final UploadId uploadId) {
     if (storagePath != null && uploadId != null) {
       Path path = storagePath.resolve(uploadId.toString() + ".mutex");
-      if (!path.normalize().toAbsolutePath()
-          .startsWith(storagePath.normalize().toAbsolutePath())) {
+      if (!path.normalize().toAbsolutePath().startsWith(storagePath.normalize().toAbsolutePath())) {
         throw new IllegalArgumentException(
             "Upload ID is not valid and would result in a path traversal");
       }
