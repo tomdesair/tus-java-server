@@ -374,18 +374,28 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
     }
   }
 
-  Path getLockDirPath(UploadId id) {
+  Path getLockDirPath(final UploadId id) {
     if (id == null) {
       return null;
     }
-    return storagePath.resolve(id.toString() + ".lock");
+    Path path = storagePath.resolve(id.toString() + ".lock");
+    if (!path.normalize().toAbsolutePath().startsWith(storagePath.normalize().toAbsolutePath())) {
+      throw new IllegalArgumentException(
+          "Upload ID is not valid and would result in a path traversal");
+    }
+    return path;
   }
 
-  Path getStopFilePath(UploadId id) {
+  Path getStopFilePath(final UploadId id) {
     if (id == null) {
       return null;
     }
-    return storagePath.resolve(id.toString() + ".stop");
+    Path path = storagePath.resolve(id.toString() + ".stop");
+    if (!path.normalize().toAbsolutePath().startsWith(storagePath.normalize().toAbsolutePath())) {
+      throw new IllegalArgumentException(
+          "Upload ID is not valid and would result in a path traversal");
+    }
+    return path;
   }
 
   private synchronized void initStoragePath() {
