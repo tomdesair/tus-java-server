@@ -37,6 +37,17 @@ public class LeaseFileMutexTest {
   }
 
   @Test
+  public void testPathTraversalAttempt() {
+    UploadId badId = new UploadId("../../../etc/passwd");
+    try {
+      new LeaseFileMutex(storagePath, badId);
+      fail("Expected IllegalArgumentException for path traversal");
+    } catch (IllegalArgumentException e) {
+      assertTrue(e.getMessage().contains("path traversal"));
+    }
+  }
+
+  @Test
   public void testAcquireAndReleaseWithTryWithResources() throws Exception {
     Path lockDir = storagePath.resolve("test-" + UUID.randomUUID() + ".lock");
 

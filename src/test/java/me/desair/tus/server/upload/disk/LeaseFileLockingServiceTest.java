@@ -103,6 +103,19 @@ public class LeaseFileLockingServiceTest {
   }
 
   @Test
+  public void testPathTraversalAttempt() {
+    UploadId badId = new UploadId("../../../etc/passwd");
+    try {
+      lockingService.lockUploadByUri(badId.toString());
+      fail("Expected IllegalArgumentException for path traversal");
+    } catch (IllegalArgumentException e) {
+      assertTrue(e.getMessage().contains("path traversal"));
+    } catch (Exception e) {
+      fail("Expected IllegalArgumentException, got: " + e);
+    }
+  }
+
+  @Test
   public void testLockAcquireCreatesDirectoryAndLeaseFile() throws Exception {
     String uploadIdStr = UUID.randomUUID().toString();
     String uri = UPLOAD_URL + "/" + uploadIdStr;

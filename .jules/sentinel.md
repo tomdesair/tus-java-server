@@ -19,3 +19,7 @@
 **Vulnerability:** A CRLF injection vulnerability was identified where unvalidated inputs could be reflected directly into HTTP response headers, leading to HTTP response splitting.
 **Learning:** Instead of sanitizing individual headers independently, the overarching wrapper that interacts with the HTTP response output should inherently validate and sanitize the input to prevent injection across all headers.
 **Prevention:** `TusServletResponse.java` was modified to include a `sanitizeHeaderValue` method, replacing any instances of `\r` and `\n` characters before interacting with the core `HttpServletResponse`, ensuring consistent CRLF prevention application-wide.
+## 2026-09-29 - Prevent Path Traversal in LeaseFileLockingService and LeaseFileMutex
+**Vulnerability:** A Path Traversal vulnerability existed in `LeaseFileLockingService` and `LeaseFileMutex` when appending suffixes like `.lock`, `.stop`, and `.mutex` to an `UploadId` and resolving it against the base storage directory without validation.
+**Learning:** File paths resolved by concatenating user input with suffixes must still be validated to ensure they remain within the intended base directory, as an attacker could supply an input like `../../../etc/passwd` leading to path traversal (`../../../etc/passwd.lock`).
+**Prevention:** Always normalize and verify that file paths derived from user input remain within their intended boundary directory by using `path.normalize().toAbsolutePath().startsWith(basePath.normalize().toAbsolutePath())`.
