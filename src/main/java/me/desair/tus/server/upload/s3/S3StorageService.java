@@ -352,7 +352,8 @@ public class S3StorageService implements UploadStorageService {
           processPayloadChunks(info, preparedStream, info.getId(), partObjectKey);
 
       // Step 4: Recalculate total uploaded byte offset across all uploaded part objects in S3.
-      // S3 listObjects can exhibit eventual consistency; take the maximum of remote parts query
+      // S3 listObjects in distributed clusters (e.g. multi-site Ceph, cluster rebalancing, or
+      // async replication) can exhibit listing delays; take the maximum of remote parts query
       // and locally verified stream progression to ensure newOffset accurately reflects bytes
       // successfully written.
       long calculatedOffset =

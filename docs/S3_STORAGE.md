@@ -211,7 +211,7 @@ Understanding the architectural distinction between disk/file locking and S3 dis
     - Removing renewal with a short TTL would cause locks to expire mid-upload during long transfers, leading to race conditions and data corruption.
     - Removing renewal with an infinite/static lock would mean a single pod crash (`kill -9`, node OOM) leaves behind an orphaned `.lock` object in S3, permanently deadlocking that upload ID.
 
-### TOCTOU (Time-of-Check to Time-of-Use) Mitigation in S3
+### Lock Arbitration & TOCTOU Mitigation in S3
 
 In stateless distributed object storage, acquiring a lock via standard `GetObject` followed by `PutObject` is vulnerable to a classic **Time-of-Check to Time-of-Use (TOCTOU)** race condition:
 1. **Time of Check (TOC)**: Two contender nodes (Node A and Node B) concurrently check if a `.lock` object exists or is expired. Both observe it as available.
@@ -222,14 +222,45 @@ To guarantee waterproof single-winner lock exclusivity across cloud providers an
 
 1. **Conditional Writes (`If-None-Match: *`)**:
    - `PutObject` requests include the `If-None-Match: *` header.
-   - On Amazon S3 and compliant object storage engines, S3 atomically rejects the second write with `HTTP 412 Precondition Failed` (`PreconditionFailed`), immediately preventing concurrent overwrites.
-2. **Jittered Read-After-Write Verification**:
-   - For S3-compatible emulators or endpoints that do not strictly enforce conditional writes on `PutObject`, the acquiring node sleeps for a brief randomized jitter (20–60ms) to allow in-flight writes to settle, then re-reads `GetObject`.
+   - On Amazon S3 and compliant object storage engines, S3 atomically rejects the second write with `HTTP 412 Precondition Failed` (`PreconditionFailed`), immediately preventing concurrent overwrites in a single network round-trip.
+2. **Lock Arbitration on Backends Without Atomic Conditional Writes (Jittered Read-After-Write Verification)**:
+   - Several major S3-compatible engines do not support atomic conditional writes:
+     | Backend | Conditional Write (`If-None-Match: *`) Behavior | `S3LockingService` Handling |
+     | :--- | :--- | :--- |
+     | **AWS S3, Cloudflare R2, LocalStack, RustFS** | Returns `HTTP 412 Precondition Failed` | Optimistic CAS (1 network call) |
+     | **Backblaze B2, Ceph RGW** | Returns `HTTP 501 Not Implemented` | Auto-downgrades to non-CAS arbitration |
+     | **Wasabi** | Silently ignored (last-write-wins overwrite) | Layer 2 jitter arbitration or `withS3ConditionalWritesSupported(false)` |
+   - On backends without conditional write support, contender nodes sleep for a brief randomized jitter (default: 20–60ms) to allow competing writes to settle, then re-read `GetObject`.
    - If the remote `holderId` does not match its own, the node detects that it was overtaken, rejects the acquisition, and leaves the winner's lock intact.
 3. **Safe Expired Lock Eviction**:
    - When evicting an expired lock, the lock object's expiration is verified again immediately before deletion to prevent evicting a fresh lock created by a winning peer.
 4. **Owner-Safe Lock Release**:
    - In `S3UploadLock.close()`, the node verifies that the remote lock is still owned by its own `holderId` before deleting it. If its lease expired while the process was paused and another node took over ownership, the previous node will never delete the new owner's active lock.
+
+### Jitter Configuration & Zero-Jitter Performance Tuning
+
+The jitter window can be customized via `.withJitter(minMs, maxMs)` on `S3LockingService`:
+
+```java
+// Option A: Zero-Jitter for AWS S3 & Cloudflare R2 (Maximum Throughput)
+// On backends with atomic conditional writes, jitter is not needed.
+// Passing (0L, 0L) completely bypasses Thread.sleep for fastest lock acquisition:
+S3LockingService s3LockingService =
+    new S3LockingService(minioClient, bucketName)
+        .withJitter(0L, 0L);
+
+// Option B: High-Latency or Distributed Backends (Ceph, multi-datacenter MinIO)
+// High-latency backends or geo-replicated clusters may need a wider window to settle writes:
+S3LockingService s3LockingService =
+    new S3LockingService(minioClient, bucketName)
+        .withJitter(50L, 200L);
+
+// Option C: Explicit Non-CAS Mode (e.g. Wasabi)
+// Pre-checks existing locks before writing unconditionally:
+S3LockingService s3LockingService =
+    new S3LockingService(minioClient, bucketName)
+        .withS3ConditionalWritesSupported(false);
+```
 
 ### Clock Synchronization & NTP Requirement
 

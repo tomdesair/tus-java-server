@@ -4,7 +4,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import io.minio.GetObjectArgs;
 import io.minio.GetObjectResponse;
@@ -28,6 +30,7 @@ import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadLock;
+import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.util.InterruptibleInputStream;
 import org.junit.Before;
 import org.junit.Test;
@@ -333,11 +336,12 @@ public class S3LockingServiceTest {
   @Test
   public void testSanitizePrefixNullOrEmpty() throws Exception {
     S3LockingService serviceWithEmptyPrefix =
-        new S3LockingService(minioClient, "test-bucket", "", 30000L, 0L);
+        new S3LockingService(minioClient, "test-bucket", "", 30000L, 0L, new UuidUploadIdFactory());
     assertNotNull(serviceWithEmptyPrefix);
 
     S3LockingService serviceWithNullPrefix =
-        new S3LockingService(minioClient, "test-bucket", null, 30000L, 0L);
+        new S3LockingService(
+            minioClient, "test-bucket", null, 30000L, 0L, new UuidUploadIdFactory());
     assertNotNull(serviceWithNullPrefix);
   }
 
@@ -376,12 +380,12 @@ public class S3LockingServiceTest {
     io.minio.StatObjectResponse mockStat = Mockito.mock(io.minio.StatObjectResponse.class);
     Mockito.when(mockClient.statObject(Mockito.any(StatObjectArgs.class))).thenReturn(mockStat);
 
-    S3LockingService service =
-        new S3LockingService(mockClient, "test-bucket", "locks", 30000L, 50L);
     me.desair.tus.server.upload.TimeBasedUploadIdFactory idFactory =
         new me.desair.tus.server.upload.TimeBasedUploadIdFactory();
     idFactory.setUploadUri("/files/upload");
-    service.setIdFactory(idFactory);
+
+    S3LockingService service =
+        new S3LockingService(mockClient, "test-bucket", "locks", 30000L, 50L, idFactory);
 
     ByteArrayInputStream bais = new ByteArrayInputStream("test".getBytes());
     InterruptibleInputStream stream = new InterruptibleInputStream(bais);
@@ -411,12 +415,12 @@ public class S3LockingServiceTest {
     Mockito.when(mockClient.statObject(Mockito.any(StatObjectArgs.class)))
         .thenThrow(noSuchKeyException);
 
-    S3LockingService service =
-        new S3LockingService(mockClient, "test-bucket", "locks", 30000L, 50L);
     me.desair.tus.server.upload.TimeBasedUploadIdFactory idFactory =
         new me.desair.tus.server.upload.TimeBasedUploadIdFactory();
     idFactory.setUploadUri("/files/upload");
-    service.setIdFactory(idFactory);
+
+    S3LockingService service =
+        new S3LockingService(mockClient, "test-bucket", "locks", 30000L, 50L, idFactory);
 
     ByteArrayInputStream bais = new ByteArrayInputStream("test".getBytes());
     InterruptibleInputStream stream = new InterruptibleInputStream(bais);
@@ -861,5 +865,121 @@ public class S3LockingServiceTest {
 
     boolean evicted = lockingService.evictExpiredLock(uploadId);
     assertFalse(evicted);
+  }
+
+  @Test
+  public void testWithJitterConfiguresBoundsAndReturnsSelf() {
+    S3LockingService returned = lockingService.withJitter(15L, 75L);
+    assertSame(lockingService, returned);
+    assertEquals(15L, lockingService.getJitterMinMs());
+    assertEquals(75L, lockingService.getJitterMaxMs());
+  }
+
+  @Test
+  public void testLockAcquisitionWithJitterDisabled() throws Exception {
+    lockingService.withJitter(0L, 0L);
+    assertEquals(0L, lockingService.getJitterMinMs());
+    assertEquals(0L, lockingService.getJitterMaxMs());
+
+    UploadLock lock =
+        lockingService.lockUploadByUri("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
+    assertNotNull(lock);
+    lock.close();
+  }
+
+  @Test
+  public void testWithS3ConditionalWritesSupported() {
+    assertTrue(lockingService.isS3ConditionalWritesSupported());
+    S3LockingService returned = lockingService.withS3ConditionalWritesSupported(false);
+    assertSame(lockingService, returned);
+    assertFalse(lockingService.isS3ConditionalWritesSupported());
+  }
+
+  @Test
+  public void testConditionalWriteNotImplementedDowngradesToNonCasModeAndSucceeds()
+      throws Exception {
+    ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
+    Mockito.when(errorResponse.code()).thenReturn("NotImplemented");
+    ErrorResponseException notImplementedEx =
+        new ErrorResponseException(errorResponse, null, "NotImplemented");
+
+    // The first PutObject with If-None-Match: * throws NotImplemented (e.g. Backblaze B2, Ceph RGW)
+    Mockito.doAnswer(
+            invocation -> {
+              PutObjectArgs args = invocation.getArgument(0);
+              if (args.extraHeaders() != null && args.extraHeaders().containsKey("If-None-Match")) {
+                throw notImplementedEx;
+              }
+              // Unconditional fallback write stores bytes in our in-memory map
+              java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+              byte[] buf = new byte[1024];
+              int read;
+              java.io.InputStream is = args.stream();
+              while ((read = is.read(buf)) != -1) {
+                baos.write(buf, 0, read);
+              }
+              s3StorageMap.put(args.object(), baos.toByteArray());
+              return null;
+            })
+        .when(minioClient)
+        .putObject(Mockito.any(PutObjectArgs.class));
+
+    assertTrue(lockingService.isS3ConditionalWritesSupported());
+
+    UploadLock lock =
+        lockingService.lockUploadByUri("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
+    assertNotNull(lock);
+    // Verified that service automatically downgraded to non-CAS mode
+    assertFalse(lockingService.isS3ConditionalWritesSupported());
+    lock.close();
+  }
+
+  @Test(expected = UploadAlreadyLockedException.class)
+  public void testConditionalWriteNotImplementedFailsWhenActiveLockExists() throws Exception {
+    ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
+    Mockito.when(errorResponse.code()).thenReturn("NotImplemented");
+    ErrorResponseException notImplementedEx =
+        new ErrorResponseException(errorResponse, null, "NotImplemented");
+
+    // PutObject throws NotImplemented when attempting conditional write
+    Mockito.doThrow(notImplementedEx).when(minioClient).putObject(Mockito.any(PutObjectArgs.class));
+
+    // Existing lock in S3 is actively held by another contender
+    LeaseData rivalLock =
+        new LeaseData(
+            "rival-holder",
+            "/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e",
+            30000L,
+            System.currentTimeMillis() + 30000L,
+            System.currentTimeMillis(),
+            "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.lock",
+            "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.stop");
+    s3StorageMap.put(
+        "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.lock",
+        me.desair.tus.server.util.LeaseDataJsonSerializer.serializeToBytes(rivalLock));
+
+    lockingService.lockUploadByUri("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
+  }
+
+  @Test
+  public void testExplicitNonCasModeChecksLockExpirationBeforeUnconditionalWrite()
+      throws Exception {
+    lockingService.withS3ConditionalWritesSupported(false);
+    assertFalse(lockingService.isS3ConditionalWritesSupported());
+
+    // First lock acquisition succeeds
+    UploadLock lock1 =
+        lockingService.lockUploadByUri("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
+    assertNotNull(lock1);
+
+    // Second lock acquisition while first is active fails because isLockExpired returns false
+    try {
+      lockingService.lockUploadByUri("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
+      fail("Expected UploadAlreadyLockedException when trying to acquire an actively locked URI");
+    } catch (UploadAlreadyLockedException expected) {
+      assertNotNull(expected.getMessage());
+    }
+
+    lock1.close();
   }
 }

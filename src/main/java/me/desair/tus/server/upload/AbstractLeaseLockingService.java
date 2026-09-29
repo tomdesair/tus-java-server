@@ -37,9 +37,14 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
    */
   public static final long CLOCK_SKEW_SAFETY_MARGIN_MS = 2000L;
 
+  public static final long DEFAULT_JITTER_MIN_MS = 20L;
+  public static final long DEFAULT_JITTER_MAX_MS = 60L;
+
   protected final long leaseDurationMs;
   protected final long pollIntervalMs;
   protected UploadIdFactory idFactory;
+  protected long jitterMinMs = DEFAULT_JITTER_MIN_MS;
+  protected long jitterMaxMs = DEFAULT_JITTER_MAX_MS;
 
   protected final Map<String, InputStream> activeInputStreams = new ConcurrentHashMap<>();
   protected final ScheduledExecutorService watchdogExecutor;
@@ -251,17 +256,71 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
   }
 
   /**
-   * Applies randomized jitter backoff to settle concurrent in-flight writes.
+   * Applies randomized jitter backoff to settle concurrent in-flight writes and arbitrate lock
+   * acquisition races on storage backends lacking atomic conditional writes.
+   *
+   * <p>If {@code maxMs <= 0}, this method returns immediately without sleeping, allowing callers to
+   * bypass jitter on backends with guaranteed atomic conditional writes (e.g. AWS S3).
    *
    * @param minMs Minimum jitter duration in milliseconds
    * @param maxMs Maximum jitter duration in milliseconds
    */
   protected void applyJitter(long minMs, long maxMs) {
+    if (maxMs <= 0) {
+      return;
+    }
     try {
-      long jitterMs = minMs + (long) (Math.random() * (maxMs - minMs));
-      Thread.sleep(jitterMs);
+      long jitterMs = (minMs >= maxMs) ? minMs : minMs + (long) (Math.random() * (maxMs - minMs));
+      if (jitterMs > 0) {
+        Thread.sleep(jitterMs);
+      }
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
     }
+  }
+
+  /**
+   * Applies randomized jitter backoff using the configured {@link #getJitterMinMs()} and {@link
+   * #getJitterMaxMs()} bounds.
+   */
+  protected void applyJitter() {
+    applyJitter(jitterMinMs, jitterMaxMs);
+  }
+
+  /**
+   * Returns the configured minimum jitter duration in milliseconds.
+   *
+   * @return Minimum jitter duration in milliseconds
+   */
+  public long getJitterMinMs() {
+    return jitterMinMs;
+  }
+
+  /**
+   * Returns the configured maximum jitter duration in milliseconds.
+   *
+   * @return Maximum jitter duration in milliseconds
+   */
+  public long getJitterMaxMs() {
+    return jitterMaxMs;
+  }
+
+  /**
+   * Configures the jitter bounds used during lock acquisition read-after-write verification.
+   *
+   * @param minMs Minimum jitter duration in milliseconds (must be &gt;= 0)
+   * @param maxMs Maximum jitter duration in milliseconds (must be &gt;= minMs)
+   * @throws IllegalArgumentException If minMs is negative or maxMs is less than minMs
+   */
+  public void setJitter(long minMs, long maxMs) {
+    if (minMs < 0) {
+      throw new IllegalArgumentException("jitterMinMs cannot be negative: " + minMs);
+    }
+    if (maxMs < minMs) {
+      throw new IllegalArgumentException(
+          "jitterMaxMs (" + maxMs + ") cannot be less than jitterMinMs (" + minMs + ")");
+    }
+    this.jitterMinMs = minMs;
+    this.jitterMaxMs = maxMs;
   }
 }
