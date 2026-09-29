@@ -167,7 +167,7 @@ public class UuidUploadIdFactoryTest {
 
   @Test
   public void testConcurrentUploadUriAccessAndUpdates() throws Exception {
-    int threadCount = 10;
+    int threadCount = 12;
     int iterations = 100;
     ExecutorService executor = Executors.newFixedThreadPool(threadCount);
     CountDownLatch startLatch = new CountDownLatch(1);
@@ -183,8 +183,13 @@ public class UuidUploadIdFactoryTest {
             try {
               startLatch.await();
               for (int j = 0; j < iterations; j++) {
-                if (threadId % 2 == 0) {
+                if (threadId % 3 == 0) {
                   idFactory.setUploadUri("/test/upload" + (j % 5));
+                } else if (threadId % 3 == 1) {
+                  String uri = idFactory.getUploadUri();
+                  if (uri == null || !uri.startsWith("/test/upload")) {
+                    errorOccurred.set(true);
+                  }
                 } else {
                   UploadId id =
                       idFactory.readUploadId(

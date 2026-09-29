@@ -1,6 +1,8 @@
 package me.desair.tus.server.upload;
 
 import java.io.Serializable;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import me.desair.tus.server.util.Utils;
@@ -14,10 +16,12 @@ import org.apache.commons.lang3.Validate;
  */
 public abstract class UploadIdFactory {
 
+  private final ReadWriteLock lock = new ReentrantReadWriteLock();
   private String uploadUri = "/";
-  // Access and mutation of uploadUri and uploadUriPattern are synchronized on this instance.
-  // Using synchronized methods avoids Sonar S3077 warnings regarding volatile object references
-  // while guaranteeing thread-safe lazy compilation and cross-thread memory visibility.
+  // Read and write operations on uploadUri and uploadUriPattern are guarded by a
+  // ReentrantReadWriteLock.
+  // This enables concurrent lock-free reads for high performance while ensuring thread-safe lazy
+  // pattern compilation and state mutation without triggering Sonar S3077 warnings.
   private Pattern uploadUriPattern = null;
 
   /**
@@ -28,7 +32,7 @@ public abstract class UploadIdFactory {
    *
    * @param uploadUri The URI or URL of the main tus upload endpoint
    */
-  public synchronized void setUploadUri(String uploadUri) {
+  public void setUploadUri(String uploadUri) {
     Validate.notBlank(uploadUri, "The upload URI pattern cannot be blank");
     Validate.isTrue(
         Strings.CS.startsWith(uploadUri, "/")
@@ -36,8 +40,14 @@ public abstract class UploadIdFactory {
             || Strings.CS.startsWith(uploadUri, "https://"),
         "The upload URI should start with /, http://, or https://");
     Validate.isTrue(!Strings.CS.endsWith(uploadUri, "$"), "The upload URI should not end with $");
-    this.uploadUri = uploadUri;
-    this.uploadUriPattern = null;
+
+    lock.writeLock().lock();
+    try {
+      this.uploadUri = uploadUri;
+      this.uploadUriPattern = null;
+    } finally {
+      lock.writeLock().unlock();
+    }
   }
 
   /**
@@ -46,8 +56,13 @@ public abstract class UploadIdFactory {
    *
    * @return The URI of the main tus upload endpoint.
    */
-  public synchronized String getUploadUri() {
-    return uploadUri;
+  public String getUploadUri() {
+    lock.readLock().lock();
+    try {
+      return uploadUri;
+    } finally {
+      lock.readLock().unlock();
+    }
   }
 
   /**
@@ -91,14 +106,28 @@ public abstract class UploadIdFactory {
    *
    * @return A (cached) Pattern to match upload URI's
    */
-  protected synchronized Pattern getUploadUriPattern() {
-    if (uploadUriPattern == null) {
-      // We will extract the upload ID's by removing the upload URI from the start of the
-      // request URI. Synchronization ensures single compilation across concurrent threads.
-      String path = Utils.extractUriPath(uploadUri);
-      uploadUriPattern =
-          Pattern.compile("^.*" + path + (Strings.CS.endsWith(path, "/") ? "" : "/?"));
+  protected Pattern getUploadUriPattern() {
+    lock.readLock().lock();
+    try {
+      if (uploadUriPattern != null) {
+        return uploadUriPattern;
+      }
+    } finally {
+      lock.readLock().unlock();
     }
-    return uploadUriPattern;
+
+    lock.writeLock().lock();
+    try {
+      if (uploadUriPattern == null) {
+        // Extract upload IDs by removing upload URI from start of request URI.
+        // Write lock ensures single pattern compilation across concurrent threads.
+        String path = Utils.extractUriPath(uploadUri);
+        uploadUriPattern =
+            Pattern.compile("^.*" + path + (Strings.CS.endsWith(path, "/") ? "" : "/?"));
+      }
+      return uploadUriPattern;
+    } finally {
+      lock.writeLock().unlock();
+    }
   }
 }
