@@ -17,6 +17,8 @@ import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.Strings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Request handler for upload creation requests via HTTP POST, PUT, or PATCH.
@@ -28,6 +30,8 @@ import org.apache.commons.lang3.Strings;
  * draft-ietf-httpbis-resumable-upload-12.
  */
 public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
+
+  private static final Logger log = LoggerFactory.getLogger(RufhCreationPostRequestHandler.class);
 
   public RufhCreationPostRequestHandler() {
     // Default constructor
@@ -109,15 +113,37 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
                     servletRequest.getHeader(HttpHeader.TRANSFER_ENCODING), "chunked"));
 
     InputStream is = servletRequest.getContentInputStream();
+    InterruptibleInputStream interruptibleStream = null;
     if (is != null && hasContent) {
       if (uploadLockingService != null) {
-        InterruptibleInputStream interruptibleStream = new InterruptibleInputStream(is);
+        interruptibleStream = new InterruptibleInputStream(is);
         uploadLockingService.registerInputStream(uploadUri, interruptibleStream);
         is = interruptibleStream;
       }
-      UploadInfo appended = uploadStorageService.append(uploadInfo, is);
-      if (appended != null) {
-        uploadInfo = appended;
+      try {
+        UploadInfo appended = uploadStorageService.append(uploadInfo, is);
+        if (appended != null) {
+          uploadInfo = appended;
+        }
+      } catch (IOException e) {
+        // When an upload stream is interrupted by the locking service watchdog or a concurrent
+        // lock contention release request (e.g. from a concurrent HEAD or DELETE), the storage
+        // backend (Disk, S3, Azure) commits all bytes received up to the interruption and updates
+        // the offset in storage. We reload the updated UploadInfo and acknowledge the partial
+        // upload rather than propagating an unhandled error to the servlet container.
+        if (interruptibleStream != null && interruptibleStream.isInterrupted()) {
+          log.info(
+              "RUFH creation request with body for URI {} was interrupted by locking service"
+                  + " contention; saved partial upload up to offset {}",
+              uploadUri,
+              uploadInfo != null ? uploadInfo.getOffset() : "unknown");
+          UploadInfo refreshed = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
+          if (refreshed != null) {
+            uploadInfo = refreshed;
+          }
+        } else {
+          throw e;
+        }
       }
     }
 

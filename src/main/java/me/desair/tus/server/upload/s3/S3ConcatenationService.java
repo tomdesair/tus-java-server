@@ -1,9 +1,7 @@
 package me.desair.tus.server.upload.s3;
 
-import io.minio.ComposeObjectArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import io.minio.SourceObject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.SequenceInputStream;
@@ -48,6 +46,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
   private final long minPartSize;
   private final Path temporaryDirectory;
   private UploadStorageService uploadStorageService;
+  private S3ServerSideComposeHelper s3ComposeHelper;
 
   /**
    * Basic constructor using default object prefix ("uploads/") and Java temp directory.
@@ -112,6 +111,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
             ? temporaryDirectory
             : java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"));
     this.minPartSize = minPartSize;
+    this.s3ComposeHelper = new S3ServerSideComposeHelper(this.minioClient);
   }
 
   public void setUploadStorageService(UploadStorageService uploadStorageService) {
@@ -162,7 +162,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
 
       if (canUseServerSideCopy) {
         // Fast path: Compose S3 objects on cluster server-side without downloading data
-        mergeUsingServerSideCopy(targetObjectKey, partialUploads);
+        mergeUsingServerSideCopy(targetObjectKey, partialUploads, totalLength);
       } else {
         // Fallback path: Sequential stream re-upload for sub-5MB parts
         mergeUsingStreamingReupload(targetObjectKey, partialUploads, totalLength);
@@ -246,21 +246,32 @@ public class S3ConcatenationService implements UploadConcatenationService {
     return output;
   }
 
-  private void mergeUsingServerSideCopy(String targetKey, List<UploadInfo> partialUploads)
-      throws IOException {
+  private void mergeUsingServerSideCopy(
+      String targetKey, List<UploadInfo> partialUploads, long totalLength) throws IOException {
     try {
-      List<SourceObject> sources = new ArrayList<>();
+      List<String> partKeys = new ArrayList<>();
       for (UploadInfo partial : partialUploads) {
-        String partKey = partial.getStorageUploadId();
-        sources.add(SourceObject.builder().bucket(bucket).object(partKey).build());
+        partKeys.add(partial.getStorageUploadId());
       }
 
-      // Execute S3 server-side object composition
-      minioClient.composeObject(
-          ComposeObjectArgs.builder().bucket(bucket).object(targetKey).sources(sources).build());
+      // Execute S3 server-side object composition via native S3 multipart copy helper.
+      // S3ServerSideComposeHelper executes an UploadPartCopy sequence without Content-MD5,
+      // avoiding MinIO SDK's internal EMPTY_BODY issue on Amazon AWS S3.
+      s3ComposeHelper.compose(bucket, targetKey, partKeys);
     } catch (Exception e) {
-      throw new IOException("Failed server-side S3 composeObject merge for key " + targetKey, e);
+      // If server-side composition fails for any reason (e.g. S3 permissions, regional policy,
+      // or unhandled multipart copy restriction), fall back to streaming re-upload as a safety net.
+      // This ensures concatenated uploads always succeed even if server-side copy is denied.
+      log.warn(
+          "Server-side S3 composition failed for target key {}; falling back to streaming re-upload: {}",
+          targetKey,
+          e.getMessage());
+      mergeUsingStreamingReupload(targetKey, partialUploads, totalLength);
     }
+  }
+
+  void setS3ServerSideComposeHelper(S3ServerSideComposeHelper s3ComposeHelper) {
+    this.s3ComposeHelper = s3ComposeHelper;
   }
 
   private void mergeUsingStreamingReupload(

@@ -46,8 +46,13 @@ MinioClient minioClient = MinioClient.builder()
     .build();
 
 // 2. Instantiate S3 Storage and Distributed Locking services
-S3StorageService s3StorageService = new S3StorageService(minioClient, bucketName);
-S3LockingService s3LockingService = new S3LockingService(minioClient, bucketName);
+// Option A: Direct connection parameters (recommended, builds internal client with server-side compose helper)
+S3StorageService s3StorageService = new S3StorageService(endpoint, "eu-central-1", accessKey, secretKey, bucketName);
+S3LockingService s3LockingService = new S3LockingService(endpoint, "eu-central-1", accessKey, secretKey, bucketName);
+
+// Option B: Using a pre-configured MinIO Client
+// S3StorageService s3StorageService = new S3StorageService(minioClient, endpoint, "eu-central-1", accessKey, secretKey, bucketName);
+// S3LockingService s3LockingService = new S3LockingService(minioClient, bucketName);
 
 // 3. Configure TusFileUploadService with S3 storage and locking
 // Note: Automatic JVM shutdown hooks are built-in by default to terminate watchdog threads on pod exit.

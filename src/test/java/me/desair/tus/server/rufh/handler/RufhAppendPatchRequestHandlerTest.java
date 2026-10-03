@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.IOException;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadId;
@@ -304,5 +305,83 @@ public class RufhAppendPatchRequestHandlerTest {
     assertThat(response.getStatus(), is(200));
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is(String.valueOf(content.length)));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+  }
+
+  @Test
+  public void testProcessInterruptedByLockingServiceContention() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/append-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    byte[] content = "partial-data".getBytes();
+    request.setContent(content);
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("append-id"));
+    info.setOffset(0L);
+    info.setLength(1000L);
+
+    UploadInfo refreshed = new UploadInfo();
+    refreshed.setId(new UploadId("append-id"));
+    refreshed.setOffset(500L);
+    refreshed.setLength(1000L);
+
+    when(storageService.getUploadInfo("/files/append-id", "owner"))
+        .thenReturn(info)
+        .thenReturn(refreshed);
+
+    when(storageService.append(any(UploadInfo.class), any()))
+        .thenAnswer(
+            invocation -> {
+              Object stream = invocation.getArgument(1);
+              if (stream instanceof InterruptibleInputStream) {
+                ((InterruptibleInputStream) stream).interrupt();
+              }
+              throw new IOException(
+                  "Stream was interrupted by the upload locking service watchdog");
+            });
+
+    handler.process(
+        HttpMethod.PATCH,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(204));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("500"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+  }
+
+  @Test(expected = IOException.class)
+  public void testProcessUninterruptedIoExceptionRethrown() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/append-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    byte[] content = "data".getBytes();
+    request.setContent(content);
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("append-id"));
+    info.setOffset(0L);
+    info.setLength(1000L);
+
+    when(storageService.getUploadInfo("/files/append-id", "owner")).thenReturn(info);
+    when(storageService.append(any(UploadInfo.class), any()))
+        .thenThrow(new IOException("Storage failure"));
+
+    handler.process(
+        HttpMethod.PATCH,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
   }
 }

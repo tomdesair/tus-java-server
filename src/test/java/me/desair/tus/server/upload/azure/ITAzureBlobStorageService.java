@@ -259,6 +259,40 @@ public class ITAzureBlobStorageService {
   }
 
   @Test
+  public void terminateUploadShouldHandleLeasedAndUnleasedLockBlobs() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    storageService.append(created, new ByteArrayInputStream("0123456789".getBytes()));
+    assertNotNull(storageService.getUploadInfo(created.getId()));
+
+    // 1. Verify unleased lock blob deletion: create an unleased lock blob and verify it is removed
+    BlobClient lockBlob = containerClient.getBlobClient("locks/" + created.getId() + ".lock");
+    lockBlob.upload(BinaryData.fromBytes("lock".getBytes(StandardCharsets.UTF_8)), true);
+    assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
+
+    storageService.terminateUpload(created);
+    assertNull(storageService.getUploadInfo(created.getId()));
+    assertFalse(Boolean.TRUE.equals(lockBlob.exists()));
+
+    // 2. Verify leased lock blob: create upload, hold active lease, and verify terminateUpload
+    // skips deletion so Azure HTTP 412 (LeaseIdMissing) error is never triggered or logged
+    UploadInfo info2 = new UploadInfo();
+    info2.setLength(10L);
+    UploadInfo created2 = storageService.create(info2, "owner1");
+
+    AzureBlobLockingService lockingService = new AzureBlobLockingService(containerClient);
+    UploadLock lock = lockingService.lockUploadByUri("/test/upload/" + created2.getId());
+    try {
+      storageService.terminateUpload(created2);
+      assertNull(storageService.getUploadInfo(created2.getId()));
+    } finally {
+      lock.release();
+    }
+  }
+
+  @Test
   public void removeLastNumberOfBytesPartBlobOnly() throws Exception {
     storageService.setPreferredBlockSize(4L * 1024 * 1024);
 

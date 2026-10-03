@@ -81,6 +81,56 @@ public class S3LockingService extends AbstractLeaseLockingService {
   }
 
   /**
+   * Constructor accepting explicit connection parameters without requiring a pre-existing
+   * MinioClient.
+   *
+   * @param endpoint S3 endpoint URL (e.g. "https://s3.amazonaws.com" or "http://localhost:9000")
+   * @param region S3 region name (e.g. "eu-central-1", "us-east-1")
+   * @param accessKey S3 access key / username
+   * @param secretKey S3 secret key / password
+   * @param bucket Target S3 bucket name
+   */
+  public S3LockingService(
+      String endpoint, String region, String accessKey, String secretKey, String bucket) {
+    this(
+        buildMinioClient(endpoint, region, accessKey, secretKey),
+        bucket,
+        DEFAULT_LOCKS_PREFIX,
+        DEFAULT_LEASE_DURATION_MS,
+        DEFAULT_POLL_INTERVAL_MS,
+        new UuidUploadIdFactory());
+  }
+
+  /**
+   * Constructor accepting a pre-configured {@link MinioClient} along with explicit connection
+   * parameters.
+   *
+   * @param minioClient Pre-configured MinIO Client
+   * @param endpoint S3 endpoint URL
+   * @param region S3 region name
+   * @param accessKey S3 access key / username
+   * @param secretKey S3 secret key / password
+   * @param bucket Target S3 bucket name
+   */
+  public S3LockingService(
+      MinioClient minioClient,
+      String endpoint,
+      String region,
+      String accessKey,
+      String secretKey,
+      String bucket) {
+    this(
+        minioClient != null
+            ? minioClient
+            : buildMinioClient(endpoint, region, accessKey, secretKey),
+        bucket,
+        DEFAULT_LOCKS_PREFIX,
+        DEFAULT_LEASE_DURATION_MS,
+        DEFAULT_POLL_INTERVAL_MS,
+        new UuidUploadIdFactory());
+  }
+
+  /**
    * Full constructor allowing custom configuration including a custom {@link UploadIdFactory}.
    *
    * @param minioClient Pre-configured MinIO Client
@@ -394,5 +444,15 @@ public class S3LockingService extends AbstractLeaseLockingService {
 
   private String buildStopKey(UploadId uploadId) {
     return locksPrefix + uploadId.toString() + ".stop";
+  }
+
+  private static MinioClient buildMinioClient(
+      String endpoint, String region, String accessKey, String secretKey) {
+    String effectiveRegion = (region != null && !region.isEmpty()) ? region : "eu-central-1";
+    return MinioClient.builder()
+        .endpoint(endpoint)
+        .credentials(accessKey, secretKey)
+        .region(effectiveRegion)
+        .build();
   }
 }

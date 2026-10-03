@@ -35,6 +35,8 @@ public class AsyncChunkUploader implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(AsyncChunkUploader.class);
 
+  public static final long DEFAULT_DRAIN_TIMEOUT_MS = 300_000L;
+
   @FunctionalInterface
   public interface ChunkUploadAction {
     /**
@@ -139,6 +141,17 @@ public class AsyncChunkUploader implements AutoCloseable {
       FileUtils.deleteQuietly(tempFile);
       throw e;
     }
+  }
+
+  /**
+   * Drains all remaining chunks in the pipeline (Slot 3 and Slot 2) using the default timeout
+   * ({@link #DEFAULT_DRAIN_TIMEOUT_MS}, 60 seconds).
+   *
+   * @return The total number of confirmed successfully uploaded chunks
+   * @throws IOException If any chunk upload fails or times out
+   */
+  public int drainAndComplete() throws IOException {
+    return drainAndComplete(DEFAULT_DRAIN_TIMEOUT_MS);
   }
 
   /**

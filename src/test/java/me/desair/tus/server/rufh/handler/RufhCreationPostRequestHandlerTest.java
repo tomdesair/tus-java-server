@@ -11,6 +11,7 @@ import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.IOException;
 import java.io.InputStream;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -566,5 +567,82 @@ public class RufhCreationPostRequestHandlerTest {
     assertThat(response.getStatus(), is(201));
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is(String.valueOf(content.length)));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+  }
+
+  @Test
+  public void testProcessCreationWithBodyInterrupted() throws Exception {
+    byte[] content = "partial-creation-data".getBytes();
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "1000");
+    request.setContent(content);
+
+    UploadInfo createdInfo = new UploadInfo();
+    createdInfo.setId(new UploadId("interrupted-create-id"));
+    createdInfo.setOffset(0L);
+    createdInfo.setLength(1000L);
+
+    UploadInfo refreshedInfo = new UploadInfo();
+    refreshedInfo.setId(new UploadId("interrupted-create-id"));
+    refreshedInfo.setOffset(500L);
+    refreshedInfo.setLength(1000L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class)))
+        .thenReturn(createdInfo);
+    when(storageService.getUploadInfo("/files/interrupted-create-id", "owner"))
+        .thenReturn(refreshedInfo);
+
+    when(storageService.append(any(UploadInfo.class), any()))
+        .thenAnswer(
+            invocation -> {
+              Object stream = invocation.getArgument(1);
+              if (stream instanceof InterruptibleInputStream) {
+                ((InterruptibleInputStream) stream).interrupt();
+              }
+              throw new IOException(
+                  "Stream was interrupted by the upload locking service watchdog");
+            });
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("500"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+  }
+
+  @Test(expected = IOException.class)
+  public void testProcessCreationWithBodyUninterruptedIoException() throws Exception {
+    byte[] content = "creation-data".getBytes();
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "1000");
+    request.setContent(content);
+
+    UploadInfo createdInfo = new UploadInfo();
+    createdInfo.setId(new UploadId("fail-create-id"));
+    createdInfo.setOffset(0L);
+    createdInfo.setLength(1000L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class)))
+        .thenReturn(createdInfo);
+
+    when(storageService.append(any(UploadInfo.class), any()))
+        .thenThrow(new IOException("Disk write failure"));
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
   }
 }

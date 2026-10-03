@@ -1150,6 +1150,64 @@ class TestConcurrencyAndWorkflow:
         assert head_final.get(UPLOAD_OFFSET) == "120"
         assert head_final.get(UPLOAD_LENGTH) == "120"
 
+    def test_paused_upload_head_offset_and_resume(self, target_url):
+        """
+        §6 PATCH: Upload Pause and Resume Workflow.
+        Quote: "If the connection is interrupted during a PATCH request, the Client SHOULD issue
+        a HEAD request to determine the current offset before resuming the upload."
+        Verifies that when an upload is paused midway, issuing a HEAD request accurately returns
+        the persisted offset without resetting to 0, and resuming with a subsequent PATCH from
+        that persisted offset successfully completes the upload.
+        """
+        total_data = b"0123456789abcdefghijklmnopqrstuvwxyz" * 4  # 144 bytes
+        part1 = total_data[:60]
+        part2 = total_data[60:]
+
+        upload_url, _ = create_upload(target_url, upload_length=str(len(total_data)))
+
+        # 1. Send first chunk (simulating upload progress before user clicks pause)
+        headers1 = {
+            TUS_RESUMABLE: TUS_API_VERSION,
+            UPLOAD_OFFSET: "0",
+            CONTENT_TYPE: APPLICATION_OFFSET_OCTET_STREAM,
+        }
+        st1, resp_headers1, _ = http_request("PATCH", upload_url, headers=headers1, body=part1)
+        assert st1 == 204, f"Expected 204 No Content for first chunk, got {st1}"
+        assert resp_headers1.get(UPLOAD_OFFSET) == "60"
+
+        # 2. Simulate client pause: query offset via HEAD to verify saved position
+        st_head1, head1, _ = http_request("HEAD", upload_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert st_head1 in (200, 204)
+        assert head1.get(UPLOAD_OFFSET) == "60", (
+            f"Expected Upload-Offset 60 after pause, got {head1.get(UPLOAD_OFFSET)}"
+        )
+
+        # 3. Simulate pause delay
+        time.sleep(0.5)
+
+        # 4. Verify offset remained persisted and did not reset to 0
+        st_head2, head2, _ = http_request("HEAD", upload_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert st_head2 in (200, 204)
+        assert head2.get(UPLOAD_OFFSET) == "60", (
+            f"Expected Upload-Offset to remain 60, got {head2.get(UPLOAD_OFFSET)}"
+        )
+
+        # 5. Resume upload from the persisted offset
+        headers2 = {
+            TUS_RESUMABLE: TUS_API_VERSION,
+            UPLOAD_OFFSET: "60",
+            CONTENT_TYPE: APPLICATION_OFFSET_OCTET_STREAM,
+        }
+        st2, resp_headers2, _ = http_request("PATCH", upload_url, headers=headers2, body=part2)
+        assert st2 == 204, f"Expected 204 No Content for resumed chunk, got {st2}"
+        assert resp_headers2.get(UPLOAD_OFFSET) == str(len(total_data))
+
+        # 6. Final verification
+        st_final, head_final, _ = http_request("HEAD", upload_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert st_final in (200, 204)
+        assert head_final.get(UPLOAD_OFFSET) == str(len(total_data))
+        assert head_final.get(UPLOAD_LENGTH) == str(len(total_data))
+
 
 # CLI Entry Point & Custom Formatted Summary Reporter
 if __name__ == "__main__":

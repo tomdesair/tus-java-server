@@ -263,8 +263,8 @@ public class S3ConcatenationServiceTest {
     Mockito.verify(minioClient).putObject(Mockito.any(PutObjectArgs.class));
   }
 
-  @Test(expected = IOException.class)
-  public void testMergeServerSideCopyFails() throws Exception {
+  @Test
+  public void testMergeServerSideCopyFailsFallsBackToStreaming() throws Exception {
     UploadInfo p1 = new UploadInfo();
     p1.setId(new UploadId("part-1"));
     p1.setOwnerKey("owner-1");
@@ -273,6 +273,8 @@ public class S3ConcatenationServiceTest {
     p1.setStorageUploadId("uploads/part-1");
 
     Mockito.when(storageService.getUploadInfo("/part-1", "owner-1")).thenReturn(p1);
+    Mockito.when(storageService.getUploadedBytes(new UploadId("part-1")))
+        .thenReturn(new ByteArrayInputStream(new byte[10]));
     Mockito.when(minioClient.composeObject(Mockito.any(ComposeObjectArgs.class)))
         .thenThrow(new RuntimeException("Compose error"));
 
@@ -282,6 +284,10 @@ public class S3ConcatenationServiceTest {
     finalUpload.setConcatenationPartIds(Arrays.asList("/part-1"));
 
     concatenationService.merge(finalUpload);
+
+    // Verify fallback to streaming putObject
+    Mockito.verify(minioClient).putObject(Mockito.any(PutObjectArgs.class));
+    assertEquals(Long.valueOf(10L * 1024 * 1024), finalUpload.getLength());
   }
 
   @Test(expected = IOException.class)

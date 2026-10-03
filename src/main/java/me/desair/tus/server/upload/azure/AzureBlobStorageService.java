@@ -4,6 +4,7 @@ import com.azure.core.util.BinaryData;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.models.BlobItem;
+import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.Block;
 import com.azure.storage.blob.models.BlockList;
@@ -47,6 +48,7 @@ import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.BoundedInputStream;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -233,6 +235,7 @@ public class AzureBlobStorageService implements UploadStorageService {
     int initialBlockCount = blockIds.size();
     long totalAppended = 0L;
     IOException streamException = null;
+    IOException drainException = null;
     TusException pendingTusException = null;
 
     List<String> plannedBlockIds = new ArrayList<>();
@@ -301,9 +304,18 @@ public class AzureBlobStorageService implements UploadStorageService {
         }
       }
 
-      int confirmedCount = uploader.drainAndComplete(4000);
-      for (int i = 0; i < confirmedCount; i++) {
-        blockIds.add(plannedBlockIds.get(i));
+      // Drain remaining staged chunks with 60s timeout.
+      // Catch drainException so any chunks confirmed uploaded before timeout or error
+      // are committed and the metadata offset is preserved without loss.
+      try {
+        uploader.drainAndComplete();
+      } catch (IOException e) {
+        drainException = e;
+      } finally {
+        int confirmed = Math.min(uploader.getConfirmedCount(), plannedBlockIds.size());
+        for (int i = 0; i < confirmed; i++) {
+          blockIds.add(plannedBlockIds.get(i));
+        }
       }
     }
 
@@ -317,7 +329,7 @@ public class AzureBlobStorageService implements UploadStorageService {
     // Batching block commits into a single call at the end eliminates redundant network
     // round-trips for every chunk, drastically improving performance. In addition, committing
     // here before throwing any pending stream or limit exception guarantees zero data loss
-    // if network drops or limits are hit midway.
+    // if client pauses, network drops, or limits are hit midway.
     if (blockIds.size() > initialBlockCount) {
       try {
         blockBlobClient.commitBlockList(blockIds, true);
@@ -341,6 +353,10 @@ public class AzureBlobStorageService implements UploadStorageService {
         }
         throw new IOException("Failed to commit staged blocks for upload ID " + upload.getId(), e);
       }
+    }
+
+    if (drainException != null) {
+      throw drainException;
     }
 
     if (streamException != null) {
@@ -492,16 +508,25 @@ public class AzureBlobStorageService implements UploadStorageService {
       containerClient.getBlobClient(checksumKey).deleteIfExists();
     }
 
-    // 4. Delete lock target and stop signal blobs (handling active lease exceptions gracefully)
+    // 4. Delete lock target and stop signal blobs
     try {
       containerClient.getBlobClient(locksPrefix + id + ".stop").deleteIfExists();
     } catch (Exception ignored) {
     }
 
     try {
-      containerClient.getBlobClient(locksPrefix + id + ".lock").deleteIfExists();
+      BlobClient lockBlob = containerClient.getBlobClient(locksPrefix + id + ".lock");
+      // Check if lock blob is actively leased by the current request before attempting deletion.
+      // Attempting deleteIfExists() on a leased blob without the lease ID causes Azure Blob
+      // Storage to reject the request with HTTP 412 (LeaseIdMissing) and logs an SDK error.
+      if (Boolean.TRUE.equals(lockBlob.exists())) {
+        BlobProperties props = lockBlob.getProperties();
+        if (props.getLeaseState() != null
+            && !Strings.CS.equals(props.getLeaseState().toString(), "leased")) {
+          lockBlob.deleteIfExists();
+        }
+      }
     } catch (Exception ignored) {
-      // Lock blob may be actively leased by current request lock (Azure 412 LeaseIdMissing)
     }
 
     log.debug("Terminated upload with ID {}", id);

@@ -1,13 +1,11 @@
 package me.desair.tus.server.upload.s3;
 
-import io.minio.ComposeObjectArgs;
 import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.Result;
-import io.minio.SourceObject;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
 import io.minio.errors.ErrorResponseException;
@@ -121,6 +119,8 @@ public class S3StorageService implements UploadStorageService {
 
   private UploadIdFactory idFactory = new UuidUploadIdFactory();
   private UploadConcatenationService concatenationService;
+  private volatile boolean s3ComposeObjectSupported = true;
+  private S3ServerSideComposeHelper s3ComposeHelper;
 
   /**
    * Basic constructor using default object key prefixes and standard system temp directory.
@@ -137,6 +137,64 @@ public class S3StorageService implements UploadStorageService {
         DEFAULT_CHECKSUMS_PREFIX,
         DEFAULT_LOCKS_PREFIX,
         Paths.get(System.getProperty("java.io.tmpdir")));
+  }
+
+  /**
+   * Constructor accepting explicit connection parameters without requiring a pre-existing
+   * MinioClient.
+   *
+   * <p>Builds both {@link MinioClient} and the native {@link S3ServerSideComposeHelper} directly
+   * using the provided connection properties, avoiding reflection.
+   *
+   * @param endpoint S3 endpoint URL (e.g. "https://s3.amazonaws.com" or "http://localhost:9000")
+   * @param region S3 region name (e.g. "us-east-1", "eu-central-1")
+   * @param accessKey S3 access key / username
+   * @param secretKey S3 secret key / password
+   * @param bucket S3 bucket name
+   */
+  public S3StorageService(
+      String endpoint, String region, String accessKey, String secretKey, String bucket) {
+    this(
+        buildMinioClient(endpoint, region, accessKey, secretKey),
+        bucket,
+        DEFAULT_OBJECT_PREFIX,
+        DEFAULT_METADATA_PREFIX,
+        DEFAULT_CHECKSUMS_PREFIX,
+        DEFAULT_LOCKS_PREFIX,
+        Paths.get(System.getProperty("java.io.tmpdir")),
+        new S3ServerSideComposeHelper(null, endpoint, region, accessKey, secretKey));
+  }
+
+  /**
+   * Constructor accepting a pre-configured {@link MinioClient} along with the explicit connection
+   * parameters required by {@link S3ServerSideComposeHelper}.
+   *
+   * <p>This provides full control over {@link MinioClient} configuration while cleanly initializing
+   * server-side multipart copy without reflection.
+   *
+   * @param minioClient Pre-configured MinIO Client
+   * @param endpoint S3 endpoint URL (e.g. "https://s3.amazonaws.com" or "http://localhost:9000")
+   * @param region S3 region name (e.g. "us-east-1", "eu-central-1")
+   * @param accessKey S3 access key / username
+   * @param secretKey S3 secret key / password
+   * @param bucket S3 bucket name
+   */
+  public S3StorageService(
+      MinioClient minioClient,
+      String endpoint,
+      String region,
+      String accessKey,
+      String secretKey,
+      String bucket) {
+    this(
+        minioClient,
+        bucket,
+        DEFAULT_OBJECT_PREFIX,
+        DEFAULT_METADATA_PREFIX,
+        DEFAULT_CHECKSUMS_PREFIX,
+        DEFAULT_LOCKS_PREFIX,
+        Paths.get(System.getProperty("java.io.tmpdir")),
+        new S3ServerSideComposeHelper(minioClient, endpoint, region, accessKey, secretKey));
   }
 
   /**
@@ -158,6 +216,27 @@ public class S3StorageService implements UploadStorageService {
       String checksumsPrefix,
       String locksPrefix,
       Path temporaryDirectory) {
+    this(
+        minioClient,
+        bucket,
+        objectPrefix,
+        metadataPrefix,
+        checksumsPrefix,
+        locksPrefix,
+        temporaryDirectory,
+        new S3ServerSideComposeHelper(minioClient));
+  }
+
+  /** Internal constructor accepting an initialized {@link S3ServerSideComposeHelper}. */
+  private S3StorageService(
+      MinioClient minioClient,
+      String bucket,
+      String objectPrefix,
+      String metadataPrefix,
+      String checksumsPrefix,
+      String locksPrefix,
+      Path temporaryDirectory,
+      S3ServerSideComposeHelper s3ComposeHelper) {
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
     this.objectPrefix = sanitizePrefix(objectPrefix);
@@ -195,6 +274,31 @@ public class S3StorageService implements UploadStorageService {
     this.concatenationService =
         new S3ConcatenationService(
             this.minioClient, this.bucket, this.objectPrefix, this, this.temporaryDirectory);
+    this.s3ComposeHelper =
+        s3ComposeHelper != null ? s3ComposeHelper : new S3ServerSideComposeHelper(this.minioClient);
+    if (this.concatenationService instanceof S3ConcatenationService) {
+      ((S3ConcatenationService) this.concatenationService)
+          .setS3ServerSideComposeHelper(this.s3ComposeHelper);
+    }
+  }
+
+  private static MinioClient buildMinioClient(
+      String endpoint, String region, String accessKey, String secretKey) {
+    String effectiveRegion = (region != null && !region.isEmpty()) ? region : "eu-central-1";
+    return MinioClient.builder()
+        .endpoint(endpoint)
+        .credentials(accessKey, secretKey)
+        .region(effectiveRegion)
+        .build();
+  }
+
+  /**
+   * Returns the underlying {@link MinioClient} configured for this storage service.
+   *
+   * @return The MinIO client instance
+   */
+  public MinioClient getMinioClient() {
+    return this.minioClient;
   }
 
   /**
@@ -724,6 +828,22 @@ public class S3StorageService implements UploadStorageService {
     return concatenationService;
   }
 
+  boolean isS3ComposeObjectSupported() {
+    return s3ComposeObjectSupported;
+  }
+
+  void setS3ComposeObjectSupported(boolean s3ComposeObjectSupported) {
+    this.s3ComposeObjectSupported = s3ComposeObjectSupported;
+  }
+
+  void setS3ServerSideComposeHelper(S3ServerSideComposeHelper s3ComposeHelper) {
+    this.s3ComposeHelper = s3ComposeHelper;
+  }
+
+  S3ServerSideComposeHelper getS3ServerSideComposeHelper() {
+    return s3ComposeHelper;
+  }
+
   @Override
   public void setIdFactory(UploadIdFactory idFactory) {
     if (idFactory != null) {
@@ -993,7 +1113,7 @@ public class S3StorageService implements UploadStorageService {
                         + MAX_PARTS_PER_UPLOAD
                         + " parts.");
             if (chunkBytesWritten > 0) {
-              int confirmedCount = uploader.drainAndComplete(4000);
+              int confirmedCount = uploader.drainAndComplete();
               allPartKeys.addAll(plannedPartKeys.subList(0, confirmedCount));
               storeIncompletePartToS3(partObjectKey, tempChunkFile, chunkBytesWritten);
               handedOff = true;
@@ -1020,7 +1140,7 @@ public class S3StorageService implements UploadStorageService {
           } else if (streamFinished && isUploadComplete) {
             // Sub-5MB final chunk that completes the overall upload:
             // First drain all preceding parts in the pipeline
-            int confirmedCount = uploader.drainAndComplete(4000);
+            int confirmedCount = uploader.drainAndComplete();
             allPartKeys.addAll(plannedPartKeys.subList(0, confirmedCount));
 
             String chunkKey = buildChunkPartKey(id, nextPartNumber++);
@@ -1031,7 +1151,7 @@ public class S3StorageService implements UploadStorageService {
           } else {
             // Sub-5MB incomplete chunk (e.g. upload paused midway or interrupted):
             // First drain all preceding parts in the pipeline
-            int confirmedCount = uploader.drainAndComplete(4000);
+            int confirmedCount = uploader.drainAndComplete();
             allPartKeys.addAll(plannedPartKeys.subList(0, confirmedCount));
 
             storeIncompletePartToS3(partObjectKey, tempChunkFile, chunkBytesWritten);
@@ -1045,13 +1165,20 @@ public class S3StorageService implements UploadStorageService {
         }
       }
 
-      // Drain any remaining in-flight chunks in the pipeline
-      int confirmedCount = uploader.drainAndComplete(4000);
-      int previouslyConfirmed = allPartKeys.size() - preparedStream.remainingPartKeys.size();
-      if (confirmedCount > previouslyConfirmed) {
-        allPartKeys.clear();
-        allPartKeys.addAll(preparedStream.remainingPartKeys);
-        allPartKeys.addAll(plannedPartKeys.subList(0, confirmedCount));
+      // Drain any remaining in-flight chunks in the pipeline with 60s timeout.
+      // Catch/finally ensures all confirmed parts are retained even if a subsequent chunk times
+      // out.
+      int confirmedCount = 0;
+      try {
+        confirmedCount = uploader.drainAndComplete();
+      } finally {
+        int confirmed = Math.max(confirmedCount, uploader.getConfirmedCount());
+        int previouslyConfirmed = allPartKeys.size() - preparedStream.remainingPartKeys.size();
+        if (confirmed > previouslyConfirmed) {
+          allPartKeys.clear();
+          allPartKeys.addAll(preparedStream.remainingPartKeys);
+          allPartKeys.addAll(plannedPartKeys.subList(0, confirmed));
+        }
       }
     }
 
@@ -1195,32 +1322,33 @@ public class S3StorageService implements UploadStorageService {
           }
         }
 
-        if (canUseServerSideCompose) {
+        if (canUseServerSideCompose && s3ComposeObjectSupported) {
           try {
-            List<SourceObject> sources = new ArrayList<>();
-            for (String pk : partKeys) {
-              sources.add(SourceObject.builder().bucket(bucket).object(pk).build());
-            }
-
-            // Perform S3 server-side object composition (composeObject)
-            minioClient.composeObject(
-                ComposeObjectArgs.builder()
-                    .bucket(bucket)
-                    .object(objectKey)
-                    .sources(sources)
-                    .build());
+            // Perform S3 server-side object composition via native S3 multipart copy
+            s3ComposeHelper.compose(bucket, objectKey, partKeys);
           } catch (Exception e) {
-            log.warn(
-                "S3 composeObject failed for object {}, falling back to streaming concatenation:"
-                    + " {}",
+            // MinIO Java SDK's composeObject implementation delegates to UploadPartCopy with an
+            // EMPTY_BODY, which automatically attaches Content-MD5 and Content-Type headers.
+            // AWS S3 strictly forbids Content-MD5 on UploadPartCopy and rejects it with 400
+            // InvalidArgument ("The specified header is not valid in this context").
+            // When server-side compose fails on this S3 endpoint, disable it dynamically
+            // to avoid redundant failing S3 API roundtrips on subsequent uploads, log at INFO,
+            // and seamlessly merge chunks via streaming part composition.
+            s3ComposeObjectSupported = false;
+            log.info(
+                "S3 server-side compose failed for object {}, falling back to streaming part"
+                    + " composition: {}",
                 objectKey,
                 e.getMessage());
             mergeUsingStreamingReupload(objectKey, partKeys, newOffset);
           }
         } else {
-          log.info(
-              "Detected sub-5MB non-final parts for ID {}. Using streaming concatenation fallback.",
-              id);
+          if (!canUseServerSideCompose) {
+            log.info(
+                "Detected sub-5MB non-final parts for ID {}. Using streaming part composition"
+                    + " fallback.",
+                id);
+          }
           mergeUsingStreamingReupload(objectKey, partKeys, newOffset);
         }
 

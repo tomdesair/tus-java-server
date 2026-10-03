@@ -138,6 +138,24 @@ public class S3LockingServiceTest {
   }
 
   @Test
+  public void testExplicitConnectionParametersConstructors() {
+    S3LockingService serviceWithParams =
+        new S3LockingService(
+            "https://s3.amazonaws.com", "eu-central-1", "accessKey", "secretKey", "test-bucket");
+    assertNotNull(serviceWithParams);
+
+    S3LockingService serviceWithClientAndParams =
+        new S3LockingService(
+            minioClient,
+            "https://s3.amazonaws.com",
+            "eu-central-1",
+            "accessKey",
+            "secretKey",
+            "test-bucket");
+    assertNotNull(serviceWithClientAndParams);
+  }
+
+  @Test
   public void testIsLocked() throws Exception {
     assertFalse(lockingService.isLocked((UploadId) null));
 

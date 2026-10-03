@@ -573,4 +573,18 @@ public class AsyncChunkUploaderTest {
         "Interrupted backpressure wait should throw IOException",
         gotBackpressureInterruptedException.get());
   }
+
+  @Test
+  public void testDrainAndCompleteDefaultTimeout() throws Exception {
+    File chunk = new File(tempDir, "chunk-default-drain.tmp");
+    Files.write(chunk.toPath(), "test-data".getBytes());
+
+    try (AsyncChunkUploader uploader = new AsyncChunkUploader(executor)) {
+      uploader.submitChunk(chunk, 9, "part-default", () -> {});
+      int confirmed = uploader.drainAndComplete();
+      assertEquals("One chunk confirmed uploaded using default timeout", 1, confirmed);
+    }
+
+    assertFalse("Chunk file should be cleaned up", chunk.exists());
+  }
 }

@@ -80,6 +80,26 @@ public class S3StorageServiceTest {
   }
 
   @Test
+  public void testExplicitConnectionParametersConstructors() {
+    // 1. Constructor taking connection parameters directly (Option A)
+    S3StorageService serviceWithParams =
+        new S3StorageService(
+            "https://s3.amazonaws.com", "us-east-1", "accessKey", "secretKey", "test-bucket");
+    assertNotNull(serviceWithParams);
+
+    // 2. Constructor taking MinioClient and connection parameters (Option B)
+    S3StorageService serviceWithClientAndParams =
+        new S3StorageService(
+            minioClient,
+            "https://s3.amazonaws.com",
+            "us-east-1",
+            "accessKey",
+            "secretKey",
+            "test-bucket");
+    assertNotNull(serviceWithClientAndParams);
+  }
+
+  @Test
   public void testGetS3ObjectKeyByUri() throws Exception {
     UploadInfo info = new UploadInfo();
     info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
@@ -1694,6 +1714,118 @@ public class S3StorageServiceTest {
     assertNotNull(result);
     org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.times(1))
         .composeObject(any(ComposeObjectArgs.class));
+  }
+
+  @Test
+  public void testFinalizeCompletedUploadComposeObjectFailsFallsBackToStreamingAndDisablesCompose()
+      throws Exception {
+    assertTrue(storageService.isS3ComposeObjectSupported());
+
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("compose-fail-test-123");
+    long fiveMb = 5L * 1024L * 1024L;
+    info.setId(id);
+    info.setLength(fiveMb + 100L);
+    info.setOffset(0L);
+
+    String json = UploadInfoJsonSerializer.serialize(info);
+
+    Item item1 = mock(Item.class);
+    when(item1.objectName()).thenReturn("uploads/compose-fail-test-123.part.00001");
+    when(item1.size()).thenReturn(fiveMb);
+
+    Item item2 = mock(Item.class);
+    when(item2.objectName()).thenReturn("uploads/compose-fail-test-123.part.00002");
+    when(item2.size()).thenReturn(100L);
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(Arrays.asList(new Result<>(item1), new Result<>(item2)));
+
+    StatObjectResponse stat1 = mock(StatObjectResponse.class);
+    when(stat1.size()).thenReturn(fiveMb);
+    StatObjectResponse stat2 = mock(StatObjectResponse.class);
+    when(stat2.size()).thenReturn(100L);
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".part.00001")) {
+                return stat1;
+              } else if (args.object().endsWith(".part.00002")) {
+                return stat2;
+              }
+              ErrorResponse err = mock(ErrorResponse.class);
+              when(err.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(err, null, null);
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json.getBytes());
+              }
+              return mockGetObjectResponse(new byte[100]);
+            });
+
+    when(minioClient.composeObject(any(ComposeObjectArgs.class)))
+        .thenThrow(new RuntimeException("The specified header is not valid in this context"));
+
+    UploadInfo result =
+        storageService.append(info, new ByteArrayInputStream(new byte[(int) (fiveMb + 100L)]));
+    assertNotNull(result);
+
+    // Verify composeObject was attempted and failed
+    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.times(1))
+        .composeObject(any(ComposeObjectArgs.class));
+    // Verify fallback to streaming putObject was executed
+    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.atLeastOnce())
+        .putObject(any(PutObjectArgs.class));
+    // Verify s3ComposeObjectSupported is now disabled
+    assertFalse(storageService.isS3ComposeObjectSupported());
+
+    // Subsequent upload should directly use streaming without calling composeObject
+    UploadInfo info2 = new UploadInfo();
+    UploadId id2 = new UploadId("compose-skip-test-456");
+    info2.setId(id2);
+    info2.setLength(fiveMb + 100L);
+    info2.setOffset(0L);
+
+    String json2 = UploadInfoJsonSerializer.serialize(info2);
+    Item item21 = mock(Item.class);
+    when(item21.objectName()).thenReturn("uploads/compose-skip-test-456.part.00001");
+    when(item21.size()).thenReturn(fiveMb);
+
+    Item item22 = mock(Item.class);
+    when(item22.objectName()).thenReturn("uploads/compose-skip-test-456.part.00002");
+    when(item22.size()).thenReturn(100L);
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(Arrays.asList(new Result<>(item21), new Result<>(item22)));
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json2.getBytes());
+              }
+              return mockGetObjectResponse(new byte[100]);
+            });
+
+    UploadInfo result2 =
+        storageService.append(info2, new ByteArrayInputStream(new byte[(int) (fiveMb + 100L)]));
+    assertNotNull(result2);
+
+    // composeObject count should still be 1 (never called for the second upload)
+    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.times(1))
+        .composeObject(any(ComposeObjectArgs.class));
+
+    // Reset flag for other tests
+    storageService.setS3ComposeObjectSupported(true);
+    assertTrue(storageService.isS3ComposeObjectSupported());
   }
 
   @Test
