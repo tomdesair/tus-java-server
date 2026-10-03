@@ -297,7 +297,7 @@ public class S3LockingService extends AbstractLeaseLockingService {
     } catch (ErrorResponseException e) {
       S3ErrorType errorType = S3Utils.parseErrorResponse(e);
       if (errorType == S3ErrorType.PRECONDITION_FAILED || errorType == S3ErrorType.CONFLICT) {
-        log.info("Lock contention for key {}: S3 conditional write precondition failed", lockKey);
+        log.debug("Lock contention for key {}: S3 conditional write precondition failed", lockKey);
         return null;
       }
       log.warn("Unexpected S3 error response acquiring lock for key {}", lockKey, e);

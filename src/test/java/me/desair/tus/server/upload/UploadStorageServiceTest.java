@@ -7,6 +7,7 @@ import static org.hamcrest.Matchers.nullValue;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.time.Duration;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
@@ -144,6 +145,9 @@ public class UploadStorageServiceTest {
 
     dummyStorageService.setCloudUploadThreadPoolSize(15);
     assertThat(dummyStorageService.getCloudUploadThreadPoolSize(), is(10));
+
+    dummyStorageService.setDrainTimeout(Duration.ofSeconds(20));
+    assertThat(dummyStorageService.getDrainTimeout(), is(Duration.ofSeconds(55)));
 
     // Default close is a no-op
     dummyStorageService.close();

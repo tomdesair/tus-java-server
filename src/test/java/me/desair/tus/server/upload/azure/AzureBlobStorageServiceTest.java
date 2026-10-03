@@ -11,6 +11,7 @@ import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
@@ -259,6 +260,27 @@ public class AzureBlobStorageServiceTest {
     } catch (IllegalArgumentException expected) {
       assertTrue(expected.getMessage().contains("greater than 0"));
     }
+  }
+
+  @Test
+  public void testDrainTimeoutConfiguration() {
+    assertEquals(
+        "Default drain timeout is 55 seconds",
+        Duration.ofSeconds(55),
+        storageService.getDrainTimeout());
+
+    storageService.setDrainTimeout(Duration.ofSeconds(25));
+    assertEquals(
+        "Updated drain timeout is 25 seconds",
+        Duration.ofSeconds(25),
+        storageService.getDrainTimeout());
+
+    // Null is ignored preserving current value
+    storageService.setDrainTimeout(null);
+    assertEquals(
+        "Null drain timeout preserves previous value",
+        Duration.ofSeconds(25),
+        storageService.getDrainTimeout());
   }
 
   @Test

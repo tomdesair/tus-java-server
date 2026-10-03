@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -1122,5 +1123,16 @@ public class DiskStorageServiceTest {
   @Test(expected = IllegalArgumentException.class)
   public void testSetCloudUploadThreadPoolSizeNegativeThrowsIllegalArgumentException() {
     storageService.setCloudUploadThreadPoolSize(-1);
+  }
+
+  @Test
+  public void testDefaultDrainTimeoutOnDiskStorageService() {
+    assertThat(storageService.getDrainTimeout(), is(Duration.ofSeconds(55)));
+    storageService.setDrainTimeout(Duration.ofSeconds(20));
+    assertThat(storageService.getDrainTimeout(), is(Duration.ofSeconds(20)));
+
+    // Null is ignored preserving current value
+    storageService.setDrainTimeout(null);
+    assertThat(storageService.getDrainTimeout(), is(Duration.ofSeconds(20)));
   }
 }

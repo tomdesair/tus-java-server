@@ -587,4 +587,19 @@ public class AsyncChunkUploaderTest {
 
     assertFalse("Chunk file should be cleaned up", chunk.exists());
   }
+
+  @Test
+  public void testCustomDrainTimeoutConstructorAndGetter() {
+    try (AsyncChunkUploader uploader = new AsyncChunkUploader(executor, 12_345L)) {
+      assertEquals(12_345L, uploader.getDrainTimeoutMs());
+    }
+  }
+
+  @Test
+  public void testDefaultDrainTimeoutConstant() {
+    assertEquals(55_000L, AsyncChunkUploader.DEFAULT_DRAIN_TIMEOUT_MS);
+    try (AsyncChunkUploader uploader = new AsyncChunkUploader(executor)) {
+      assertEquals(55_000L, uploader.getDrainTimeoutMs());
+    }
+  }
 }

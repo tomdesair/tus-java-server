@@ -12,6 +12,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.time.Duration;
 import java.util.UUID;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.upload.UploadId;
@@ -184,6 +185,12 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
 
     service.getCloudUploadThreadPoolSize();
     verify(mockStorage, times(1)).getCloudUploadThreadPoolSize();
+
+    service.setDrainTimeout(Duration.ofSeconds(25));
+    verify(mockStorage, times(1)).setDrainTimeout(Duration.ofSeconds(25));
+
+    service.getDrainTimeout();
+    verify(mockStorage, times(1)).getDrainTimeout();
 
     when(mockStorage.create(info, "owner")).thenReturn(info);
     assertEquals(info, service.create(info, "owner"));

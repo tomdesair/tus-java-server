@@ -204,6 +204,14 @@ S3StorageService s3Storage = new S3StorageService(
 - If lock contention occurs across replicas, `S3LockingService` writes a `.stop` signal object in S3, signaling the active request on another pod to interrupt its input stream cleanly.
 - No external database or Redis cache is required for distributed locking.
 
+### Lock Wait & Background Chunk Draining
+
+When a client resumes an interrupted transfer by sending a `HEAD` request (or cancels it with `DELETE`), the request enters a **lock wait** retry loop in `TusFileUploadService`:
+- **Lock Wait Timeout (`withLockWaitTimeout(Duration)`)**: Governs how long the incoming request waits (polling every 200ms; default 60 seconds / 300 retries).
+- **Contention Interruption**: The waiting pod writes a `.stop` object in S3. A background watchdog on the pod running the active `PATCH` detects this within 2 seconds and cleanly interrupts the stream.
+- **Background Chunk Draining (`drainTimeout`)**: The active upload is automatically allotted up to `lockWaitTimeout - 5 seconds` (default 55 seconds) to drain and persist any in-flight 5MB+ chunks to S3 via `AsyncChunkUploader` before committing the new offset.
+- **Lock Handover**: Because the drain timeout leaves a 5-second buffer before the lock wait budget expires, the active upload finishes persisting data and releases the lock well within the caller's wait window, enabling clean resumption without race conditions.
+
 ### Why Lease Renewal is Required (`S3Lock` vs `FileBasedLock`)
 
 Understanding the architectural distinction between disk/file locking and S3 distributed locking is essential:

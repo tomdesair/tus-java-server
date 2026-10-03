@@ -35,7 +35,7 @@ public class AsyncChunkUploader implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(AsyncChunkUploader.class);
 
-  public static final long DEFAULT_DRAIN_TIMEOUT_MS = 300_000L;
+  public static final long DEFAULT_DRAIN_TIMEOUT_MS = 55_000L;
 
   @FunctionalInterface
   public interface ChunkUploadAction {
@@ -48,6 +48,7 @@ public class AsyncChunkUploader implements AutoCloseable {
   }
 
   private final ExecutorService executor;
+  private final long drainTimeoutMs;
 
   // Slot 3: In-flight upload task and its associated local file and key
   private Future<?> inFlightUpload;
@@ -67,12 +68,23 @@ public class AsyncChunkUploader implements AutoCloseable {
   private boolean completed;
 
   /**
-   * Constructs an uploader using the given shared executor.
+   * Constructs an uploader using the given shared executor and default 55-second drain timeout.
    *
    * @param executor Shared thread pool executor for background chunk uploads
    */
   public AsyncChunkUploader(ExecutorService executor) {
+    this(executor, DEFAULT_DRAIN_TIMEOUT_MS);
+  }
+
+  /**
+   * Constructs an uploader using the given shared executor and explicit drain timeout.
+   *
+   * @param executor Shared thread pool executor for background chunk uploads
+   * @param drainTimeoutMs Maximum duration in milliseconds to drain in-flight chunks
+   */
+  public AsyncChunkUploader(ExecutorService executor, long drainTimeoutMs) {
     this.executor = Objects.requireNonNull(executor, "ExecutorService must not be null");
+    this.drainTimeoutMs = drainTimeoutMs;
   }
 
   /**
@@ -144,14 +156,23 @@ public class AsyncChunkUploader implements AutoCloseable {
   }
 
   /**
-   * Drains all remaining chunks in the pipeline (Slot 3 and Slot 2) using the default timeout
-   * ({@link #DEFAULT_DRAIN_TIMEOUT_MS}, 60 seconds).
+   * Drains all remaining chunks in the pipeline (Slot 3 and Slot 2) using the configured drain
+   * timeout (defaults to {@link #DEFAULT_DRAIN_TIMEOUT_MS}, 55 seconds).
    *
    * @return The total number of confirmed successfully uploaded chunks
    * @throws IOException If any chunk upload fails or times out
    */
   public int drainAndComplete() throws IOException {
-    return drainAndComplete(DEFAULT_DRAIN_TIMEOUT_MS);
+    return drainAndComplete(drainTimeoutMs);
+  }
+
+  /**
+   * Returns the configured drain timeout in milliseconds.
+   *
+   * @return Drain timeout in milliseconds
+   */
+  public long getDrainTimeoutMs() {
+    return drainTimeoutMs;
   }
 
   /**

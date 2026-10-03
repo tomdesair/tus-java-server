@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -52,6 +53,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   private Long minAppendSize = null;
   private Long minSize = null;
   private int cloudUploadThreadPoolSize = 10;
+  private Duration drainTimeout = Duration.ofSeconds(55);
   private Long uploadExpirationPeriod = null;
   private UploadIdFactory idFactory;
   private UploadConcatenationService uploadConcatenationService;
@@ -128,6 +130,18 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   @Override
   public int getCloudUploadThreadPoolSize() {
     return cloudUploadThreadPoolSize;
+  }
+
+  @Override
+  public void setDrainTimeout(Duration drainTimeout) {
+    if (drainTimeout != null) {
+      this.drainTimeout = drainTimeout;
+    }
+  }
+
+  @Override
+  public Duration getDrainTimeout() {
+    return drainTimeout;
   }
 
   @Override

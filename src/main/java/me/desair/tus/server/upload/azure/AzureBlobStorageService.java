@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -94,6 +95,7 @@ public class AzureBlobStorageService implements UploadStorageService {
   private long preferredBlockSize = DEFAULT_PREFERRED_BLOCK_SIZE;
 
   private int cloudUploadThreadPoolSize = 10;
+  private Duration drainTimeout = Duration.ofSeconds(55);
   private final ThreadPoolExecutor uploadExecutor;
 
   private Long maxUploadSize;
@@ -241,7 +243,8 @@ public class AzureBlobStorageService implements UploadStorageService {
     List<String> plannedBlockIds = new ArrayList<>();
     List<Long> plannedChunkSizes = new ArrayList<>();
 
-    try (AsyncChunkUploader uploader = new AsyncChunkUploader(uploadExecutor)) {
+    try (AsyncChunkUploader uploader =
+        new AsyncChunkUploader(uploadExecutor, drainTimeout.toMillis())) {
       // 4. Read incoming stream in chunks, staging blocks directly to Azure Block Blob
       while (true) {
         File chunkFile = null;
@@ -304,7 +307,7 @@ public class AzureBlobStorageService implements UploadStorageService {
         }
       }
 
-      // Drain remaining staged chunks with 60s timeout.
+      // Drain remaining staged chunks with configured timeout (defaults to 55s, lock wait - 5s).
       // Catch drainException so any chunks confirmed uploaded before timeout or error
       // are committed and the metadata offset is preserved without loss.
       try {
@@ -757,6 +760,18 @@ public class AzureBlobStorageService implements UploadStorageService {
   @Override
   public int getCloudUploadThreadPoolSize() {
     return cloudUploadThreadPoolSize;
+  }
+
+  @Override
+  public void setDrainTimeout(Duration drainTimeout) {
+    if (drainTimeout != null) {
+      this.drainTimeout = drainTimeout;
+    }
+  }
+
+  @Override
+  public Duration getDrainTimeout() {
+    return drainTimeout;
   }
 
   @Override

@@ -32,6 +32,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
@@ -2060,6 +2061,27 @@ public class S3StorageServiceTest {
     } catch (IllegalArgumentException expected) {
       assertTrue(expected.getMessage().contains("greater than 0"));
     }
+  }
+
+  @Test
+  public void testDrainTimeoutConfiguration() {
+    assertEquals(
+        "Default drain timeout is 55 seconds",
+        Duration.ofSeconds(55),
+        storageService.getDrainTimeout());
+
+    storageService.setDrainTimeout(Duration.ofSeconds(20));
+    assertEquals(
+        "Updated drain timeout is 20 seconds",
+        Duration.ofSeconds(20),
+        storageService.getDrainTimeout());
+
+    // Null is ignored preserving current value
+    storageService.setDrainTimeout(null);
+    assertEquals(
+        "Null drain timeout preserves previous value",
+        Duration.ofSeconds(20),
+        storageService.getDrainTimeout());
   }
 
   @Test

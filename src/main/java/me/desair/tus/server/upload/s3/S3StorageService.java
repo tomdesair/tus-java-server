@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Enumeration;
@@ -108,6 +109,7 @@ public class S3StorageService implements UploadStorageService {
   private long preferredPartSize = DEFAULT_PREFERRED_PART_SIZE;
 
   private int cloudUploadThreadPoolSize = 10;
+  private Duration drainTimeout = Duration.ofSeconds(55);
   private final ThreadPoolExecutor uploadExecutor;
 
   private Long maxUploadSize;
@@ -872,6 +874,18 @@ public class S3StorageService implements UploadStorageService {
     return cloudUploadThreadPoolSize;
   }
 
+  @Override
+  public void setDrainTimeout(Duration drainTimeout) {
+    if (drainTimeout != null) {
+      this.drainTimeout = drainTimeout;
+    }
+  }
+
+  @Override
+  public Duration getDrainTimeout() {
+    return drainTimeout;
+  }
+
   /**
    * Set the preferred chunk part size in bytes used when buffering and uploading parts to S3.
    *
@@ -1042,7 +1056,8 @@ public class S3StorageService implements UploadStorageService {
 
     List<String> plannedPartKeys = new ArrayList<>();
 
-    try (AsyncChunkUploader uploader = new AsyncChunkUploader(uploadExecutor)) {
+    try (AsyncChunkUploader uploader =
+        new AsyncChunkUploader(uploadExecutor, drainTimeout.toMillis())) {
       while (!streamFinished) {
         File tempChunkFile =
             Files.createTempFile(temporaryDirectory, "tus-s3-chunk-", ".tmp").toFile();
@@ -1165,7 +1180,8 @@ public class S3StorageService implements UploadStorageService {
         }
       }
 
-      // Drain any remaining in-flight chunks in the pipeline with 60s timeout.
+      // Drain any remaining in-flight chunks in the pipeline with configured drain timeout
+      // (defaults to 55s, lock wait - 5s).
       // Catch/finally ensures all confirmed parts are retained even if a subsequent chunk times
       // out.
       int confirmedCount = 0;

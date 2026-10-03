@@ -181,7 +181,7 @@ After creating the object, you can configure it using the following methods:
 | `withStoragePath(String)` | `${java.io.tmpdir}/tus` | Path on the filesystem or shared drive where uploaded bytes and metadata are stored when using `DiskStorageService`. |
 | `withSupportedProtocolVersions(ProtocolVersion)` | `ProtocolVersion.AUTO` | Configures protocol handling: `AUTO` (header-based auto-detection), `TUS_1_0_0` (Tus 1.0.0 only), or `RUFH` (IETF draft-12 only). |
 | `withMaxUploadSize(Long)` | `Long.MAX_VALUE` | Maximum allowed total upload size in bytes per upload resource. |
-| `withMaxLockRetries(int)` | `40` | Maximum lock acquisition retries during lock contention resolution (200ms sleep, resulting in an 8.0s timeout budget). |
+| `withLockWaitTimeout(Duration)` | `Duration.ofSeconds(60)` | Maximum duration a request waits to acquire an upload lock held by an in-flight transfer (retrying every 200ms, resulting in 300 retries). Automatically configures cloud background chunk drain timeout to 5s less than this value (default 55s). |
 | `withChunkedTransferDecoding(Boolean)` | `false` | Enables manual chunked HTTP decoding for servlet containers that do not decode chunked requests natively. |
 | `withThreadLocalCache(Boolean)` | `false` | Enables in-memory thread-local caching of upload request data to reduce storage backend I/O load. |
 | `withUploadExpirationPeriod(Long)` | `null` (disabled) | Expiration period in milliseconds after which incomplete/expired uploads become eligible for cleanup. |

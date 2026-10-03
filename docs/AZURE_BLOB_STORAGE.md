@@ -182,10 +182,15 @@ Block sizes auto-calibrate based on total upload size:
 ### Lease Renewal Rationale
 `AzureBlobLockingService` uses native Azure Blob Leases (30-second duration) for distributed locking. Because large file uploads can stream over several minutes or hours, `AzureBlobUploadLock` runs a background daemon thread that renews the lease every 10 seconds. If an application server crashes unexpectedly, the lease auto-expires after 30 seconds without requiring manual lock cleanup sweeps.
 
-### Lock Contention Resolution
+### Lock Wait & Contention Resolution
 Lock contention resolution operates on two levels:
 1. **JVM-local**: Active `InterruptibleInputStream` instances are registered in a concurrent map and interrupted directly if a concurrent lock request arrives in the same JVM.
 2. **Cross-replica**: A `.stop` signal blob (`locks/<uploadId>.stop`) is written to Azure Storage. A background watchdog thread polls for `.stop` blobs and interrupts active streams on other cluster nodes.
+
+When a client resumes an interrupted transfer by sending a `HEAD` request (or cancels it with `DELETE`), the request enters a **lock wait** retry loop in `TusFileUploadService`:
+- **Lock Wait Timeout (`withLockWaitTimeout(Duration)`)**: Governs how long the incoming request waits (polling every 200ms; default 60 seconds / 300 retries).
+- **Background Chunk Draining (`drainTimeout`)**: The interrupted upload is automatically allotted up to `lockWaitTimeout - 5 seconds` (default 55 seconds) to drain and stage in-flight blocks to Azure Blob Storage via `AsyncChunkUploader` before committing the block list and persisting the updated offset.
+- **Lock Handover**: Because the drain timeout leaves a 5-second buffer before the lock wait budget expires, the active upload cleanly finishes staging blocks and releases the Azure Blob Lease within the caller's wait window, enabling seamless resumption without `UploadAlreadyLockedException`.
 
 ---
 
