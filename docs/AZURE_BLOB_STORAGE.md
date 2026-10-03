@@ -157,15 +157,23 @@ BlobContainerClient containerClient = new BlobContainerClientBuilder()
 
 ---
 
-## 6. Local Disk Buffer & Block Size Auto-Calibration
+## 6. Local Disk Buffer & Asynchronous Chunk Pipelining
 
-`AzureBlobStorageService` streams incoming PATCH payloads in chunks of `optimalBlockSize` into temporary files, staging each block to Azure as it completes. Peak disk usage per upload is capped at `1 × optimalBlockSize` (e.g. 8 MB).
+`AzureBlobStorageService` streams incoming PATCH payloads in chunks of `optimalBlockSize` into temporary files, pipelining block staging to Azure Blob Storage asynchronously via `AsyncChunkUploader`:
+- **Asynchronous 3-Slot Pipeline**:
+  - **Slot 1 (Receiving)**: Streaming incoming bytes from the client into a local temporary file.
+  - **Slot 2 (Waiting)**: Holds one ready chunk on disk buffer.
+  - **Slot 3 (Uploading)**: Actively staging the block (`stageBlock`) to Azure Blob Storage on a background daemon worker thread.
+  - Falls back to synchronous caller execution (`CallerRunsPolicy` on a `SynchronousQueue`) when the thread pool is saturated, preventing worker queue latency and unbounded buffering.
+- **Thread Pool Sizing**: Worker threads are managed via a shared executor, default 10 threads, configurable on `TusFileUploadService` via `.withCloudUploadThreadPoolSize(int)` or directly on `AzureBlobStorageService.setCloudUploadThreadPoolSize(int)`.
+- **Bounded Disk Footprint**: Peak disk usage per active upload is bounded to at most $2 \times \text{optimalBlockSize}$ (one receiving slot + one waiting slot).
 
 Block sizes auto-calibrate based on total upload size:
-- **Baseline Preferred Size**: 8 MB (configurable via constructor)
+- **Baseline Preferred Size**: 8 MB (configurable via constructor or `setPreferredBlockSize(long)`)
 - **Minimum Block Size**: 4 MB
 - **Maximum Block Size**: 4000 MiB (Azure limit)
 - **Maximum Blocks per Blob**: 50,000 (Azure limit)
+- **Multi-TB Support & Auto-Calibration**: When upload length exceeds 400 GB ($50,000 \times 8\text{ MB}$), block size automatically scales up proportionally (e.g. ~22 MB for 1 TB, ~110 MB for 5 TB, supporting blobs up to 190 TB) to ensure the upload finishes within Azure's 50,000 blocks ceiling.
 
 ---
 
@@ -174,10 +182,15 @@ Block sizes auto-calibrate based on total upload size:
 ### Lease Renewal Rationale
 `AzureBlobLockingService` uses native Azure Blob Leases (30-second duration) for distributed locking. Because large file uploads can stream over several minutes or hours, `AzureBlobUploadLock` runs a background daemon thread that renews the lease every 10 seconds. If an application server crashes unexpectedly, the lease auto-expires after 30 seconds without requiring manual lock cleanup sweeps.
 
-### Lock Contention Resolution
+### Lock Wait & Contention Resolution
 Lock contention resolution operates on two levels:
 1. **JVM-local**: Active `InterruptibleInputStream` instances are registered in a concurrent map and interrupted directly if a concurrent lock request arrives in the same JVM.
 2. **Cross-replica**: A `.stop` signal blob (`locks/<uploadId>.stop`) is written to Azure Storage. A background watchdog thread polls for `.stop` blobs and interrupts active streams on other cluster nodes.
+
+When a client resumes an interrupted transfer by sending a `HEAD` request (or cancels it with `DELETE`), the request enters a **lock wait** retry loop in `TusFileUploadService`:
+- **Lock Wait Timeout (`withLockWaitTimeout(Duration)`)**: Governs how long the incoming request waits (polling every 200ms; default 60 seconds / 300 retries).
+- **Background Chunk Draining (`drainTimeout`)**: The interrupted upload is automatically allotted up to `lockWaitTimeout - 5 seconds` (default 55 seconds) to drain and stage in-flight blocks to Azure Blob Storage via `AsyncChunkUploader` before committing the block list and persisting the updated offset.
+- **Lock Handover**: Because the drain timeout leaves a 5-second buffer before the lock wait budget expires, the active upload cleanly finishes staging blocks and releases the Azure Blob Lease within the caller's wait window, enabling seamless resumption without `UploadAlreadyLockedException`.
 
 ---
 

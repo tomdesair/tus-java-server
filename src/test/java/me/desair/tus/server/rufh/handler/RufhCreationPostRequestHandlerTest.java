@@ -11,6 +11,8 @@ import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.IOException;
+import java.io.InputStream;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadId;
@@ -472,5 +474,175 @@ public class RufhCreationPostRequestHandlerTest {
         is("https://upload.example.com/files/completed-id"));
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("100"));
     assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+  }
+
+  /**
+   * §4.1.4: "This limit does not apply to upload creation requests with no content, or to requests
+   * completing the upload by including the Upload-Complete: ?1 header field."
+   *
+   * <p>§4.2.1: "If the upload length is not known when creating the upload resource, the
+   * Upload-Length header field is omitted, and the length is deferred... In subsequent requests,
+   * the upload length can be indicated by including the Upload-Length header field or by completing
+   * the upload using the Upload-Complete: ?1 header field."
+   */
+  @Test
+  public void testProcessCreationWithUploadCompleteAndContentLengthSetsAnnouncedLength()
+      throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    byte[] content = "hello world".getBytes();
+    request.setContent(content);
+
+    ArgumentCaptor<UploadInfo> captor = ArgumentCaptor.forClass(UploadInfo.class);
+    UploadInfo createdInfo = new UploadInfo();
+    createdInfo.setId(new UploadId("complete-no-length-id"));
+    createdInfo.setLength((long) content.length);
+    createdInfo.setOffset((long) content.length);
+
+    when(storageService.create(captor.capture(), nullable(String.class))).thenReturn(createdInfo);
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(createdInfo);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(captor.getValue().getLength(), is((long) content.length));
+    assertThat(response.getStatus(), is(200));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is(String.valueOf(content.length)));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?1"));
+  }
+
+  @Test
+  public void testProcessCreationWithChunkedTransferEncodingCallsAppend() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
+    byte[] content = "chunked stream data".getBytes();
+    // Do not set content via setContent to keep Content-Length at -1, provide via InputStream
+    request.setContent(content);
+
+    // Custom request to simulate chunked request without Content-Length header (cl < 0)
+    TusServletRequest tusRequest =
+        new TusServletRequest(request) {
+          @Override
+          public long getContentLengthLong() {
+            return -1L;
+          }
+
+          @Override
+          public InputStream getContentInputStream() {
+            return new java.io.ByteArrayInputStream(content);
+          }
+        };
+
+    UploadInfo createdInfo = new UploadInfo();
+    createdInfo.setId(new UploadId("chunked-id"));
+    createdInfo.setOffset(0L);
+
+    UploadInfo appendedInfo = new UploadInfo();
+    appendedInfo.setId(new UploadId("chunked-id"));
+    appendedInfo.setOffset((long) content.length);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class)))
+        .thenReturn(createdInfo);
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(appendedInfo);
+
+    handler.process(
+        HttpMethod.POST,
+        tusRequest,
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    verify(storageService).append(eq(createdInfo), any(InputStream.class));
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is(String.valueOf(content.length)));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+  }
+
+  @Test
+  public void testProcessCreationWithBodyInterrupted() throws Exception {
+    byte[] content = "partial-creation-data".getBytes();
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "1000");
+    request.setContent(content);
+
+    UploadInfo createdInfo = new UploadInfo();
+    createdInfo.setId(new UploadId("interrupted-create-id"));
+    createdInfo.setOffset(0L);
+    createdInfo.setLength(1000L);
+
+    UploadInfo refreshedInfo = new UploadInfo();
+    refreshedInfo.setId(new UploadId("interrupted-create-id"));
+    refreshedInfo.setOffset(500L);
+    refreshedInfo.setLength(1000L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class)))
+        .thenReturn(createdInfo);
+    when(storageService.getUploadInfo("/files/interrupted-create-id", "owner"))
+        .thenReturn(refreshedInfo);
+
+    when(storageService.append(any(UploadInfo.class), any()))
+        .thenAnswer(
+            invocation -> {
+              Object stream = invocation.getArgument(1);
+              if (stream instanceof InterruptibleInputStream) {
+                ((InterruptibleInputStream) stream).interrupt();
+              }
+              throw new IOException(
+                  "Stream was interrupted by the upload locking service watchdog");
+            });
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("500"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+  }
+
+  @Test(expected = IOException.class)
+  public void testProcessCreationWithBodyUninterruptedIoException() throws Exception {
+    byte[] content = "creation-data".getBytes();
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "1000");
+    request.setContent(content);
+
+    UploadInfo createdInfo = new UploadInfo();
+    createdInfo.setId(new UploadId("fail-create-id"));
+    createdInfo.setOffset(0L);
+    createdInfo.setLength(1000L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class)))
+        .thenReturn(createdInfo);
+
+    when(storageService.append(any(UploadInfo.class), any()))
+        .thenThrow(new IOException("Disk write failure"));
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
   }
 }

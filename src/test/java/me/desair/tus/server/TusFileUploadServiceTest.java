@@ -14,6 +14,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Duration;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
@@ -62,7 +63,7 @@ public class TusFileUploadServiceTest {
     TusFileUploadService service =
         new TusFileUploadService()
             .withUploadLockingService(mockLockingService)
-            .withMaxLockRetries(5);
+            .withLockWaitTimeout(Duration.ofSeconds(6));
 
     UploadLock lock = service.acquireUploadLock(HttpMethod.HEAD, "/files/test");
     assertNotNull(lock);
@@ -331,6 +332,7 @@ public class TusFileUploadServiceTest {
     service.withMaxAppendSize(1024L);
     service.withMinAppendSize(512L);
     service.withMinSize(2048L);
+    service.withCloudUploadThreadPoolSize(18);
     service.withUploadDeduplication(true);
 
     UploadStorageService newStorage = mock(UploadStorageService.class);
@@ -340,7 +342,9 @@ public class TusFileUploadServiceTest {
     verify(newStorage).setMaxAppendSize(1024L);
     verify(newStorage).setMinAppendSize(512L);
     verify(newStorage).setMinSize(2048L);
+    verify(newStorage).setCloudUploadThreadPoolSize(18);
     verify(newStorage).setUploadDeduplicationEnabled(true);
+    verify(newStorage).setDrainTimeout(Duration.ofSeconds(55));
   }
 
   @Test
@@ -349,11 +353,26 @@ public class TusFileUploadServiceTest {
     service.withMaxAppendSize(1024L);
     service.withMinAppendSize(512L);
     service.withMinSize(2048L);
+    service.withCloudUploadThreadPoolSize(16);
     service.withThreadLocalCache(true);
 
     assertThat(service.getUploadStorageService().getMaxAppendSize(), is(1024L));
     assertThat(service.getUploadStorageService().getMinAppendSize(), is(512L));
     assertThat(service.getUploadStorageService().getMinSize(), is(2048L));
+    assertThat(service.getUploadStorageService().getDrainTimeout(), is(Duration.ofSeconds(55)));
+    assertThat(service.getUploadStorageService().getCloudUploadThreadPoolSize(), is(16));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testWithCloudUploadThreadPoolSizeZeroThrowsException() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withCloudUploadThreadPoolSize(0);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testWithCloudUploadThreadPoolSizeNegativeThrowsException() {
+    TusFileUploadService service = new TusFileUploadService();
+    service.withCloudUploadThreadPoolSize(-5);
   }
 
   @Test
@@ -613,20 +632,53 @@ public class TusFileUploadServiceTest {
   }
 
   @Test
-  public void testWithMaxLockRetries() {
+  public void testWithLockWaitTimeout() {
     TusFileUploadService service = new TusFileUploadService();
-    assertEquals(40, service.getMaxLockRetries());
+    assertEquals(Duration.ofSeconds(60), service.getLockWaitTimeout());
+    assertEquals(300, service.getMaxLockRetries());
+    assertEquals(Duration.ofSeconds(55), service.getUploadStorageService().getDrainTimeout());
 
-    service.withMaxLockRetries(5);
-    assertEquals(5, service.getMaxLockRetries());
+    service.withLockWaitTimeout(Duration.ofSeconds(30));
+    assertEquals(Duration.ofSeconds(30), service.getLockWaitTimeout());
+    assertEquals(150, service.getMaxLockRetries());
+    assertEquals(Duration.ofSeconds(25), service.getUploadStorageService().getDrainTimeout());
 
-    service.withMaxLockRetries(0);
-    assertEquals(0, service.getMaxLockRetries());
+    service.withLockWaitTimeout(Duration.ofMillis(6000));
+    assertEquals(Duration.ofMillis(6000), service.getLockWaitTimeout());
+    assertEquals(30, service.getMaxLockRetries());
+    assertEquals(Duration.ofMillis(1000), service.getUploadStorageService().getDrainTimeout());
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void testWithLockWaitTimeoutNullThrows() {
+    new TusFileUploadService().withLockWaitTimeout(null);
   }
 
   @Test(expected = IllegalArgumentException.class)
-  public void testWithMaxLockRetriesNegativeThrows() {
-    new TusFileUploadService().withMaxLockRetries(-1);
+  public void testWithLockWaitTimeoutFiveSecondsOrLessThrows() {
+    new TusFileUploadService().withLockWaitTimeout(Duration.ofSeconds(5));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testWithLockWaitTimeoutZeroThrows() {
+    new TusFileUploadService().withLockWaitTimeout(Duration.ZERO);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testWithLockWaitTimeoutNegativeThrows() {
+    new TusFileUploadService().withLockWaitTimeout(Duration.ofSeconds(-1));
+  }
+
+  @Test
+  public void testWithUploadStorageServiceCopiesDrainTimeout() {
+    TusFileUploadService service =
+        new TusFileUploadService().withLockWaitTimeout(Duration.ofSeconds(20));
+
+    UploadStorageService newStorageService = mock(UploadStorageService.class);
+    when(newStorageService.isUploadDeduplicationEnabled()).thenReturn(false);
+
+    service.withUploadStorageService(newStorageService);
+    verify(newStorageService).setDrainTimeout(Duration.ofSeconds(15));
   }
 
   @Test
@@ -643,7 +695,7 @@ public class TusFileUploadServiceTest {
     TusFileUploadService service =
         new TusFileUploadService()
             .withUploadLockingService(mockLockingService)
-            .withMaxLockRetries(2);
+            .withLockWaitTimeout(Duration.ofMillis(5200));
 
     UploadLock lock = service.acquireUploadLock(HttpMethod.HEAD, "/files/test");
     assertNotNull(lock);

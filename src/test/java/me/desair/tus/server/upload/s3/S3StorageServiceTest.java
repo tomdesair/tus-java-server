@@ -32,8 +32,11 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Duration;
 import java.util.Arrays;
+import java.util.Collections;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
@@ -75,6 +78,26 @@ public class S3StorageServiceTest {
         new S3StorageService(
             minioClient, "test-bucket", "uploads/", "uploads/", "checksums/", "locks/", nullPath);
     assertNotNull(serviceWithNullTmp);
+  }
+
+  @Test
+  public void testExplicitConnectionParametersConstructors() {
+    // 1. Constructor taking connection parameters directly (Option A)
+    S3StorageService serviceWithParams =
+        new S3StorageService(
+            "https://s3.amazonaws.com", "us-east-1", "accessKey", "secretKey", "test-bucket");
+    assertNotNull(serviceWithParams);
+
+    // 2. Constructor taking MinioClient and connection parameters (Option B)
+    S3StorageService serviceWithClientAndParams =
+        new S3StorageService(
+            minioClient,
+            "https://s3.amazonaws.com",
+            "us-east-1",
+            "accessKey",
+            "secretKey",
+            "test-bucket");
+    assertNotNull(serviceWithClientAndParams);
   }
 
   @Test
@@ -782,6 +805,26 @@ public class S3StorageServiceTest {
     storageService.append(info, new ByteArrayInputStream(new byte[100]));
   }
 
+  /**
+   * §4.1.4: "This limit does not apply to upload creation requests with no content, or to requests
+   * completing the upload by including the Upload-Complete: ?1 header field."
+   */
+  @Test
+  public void testAppendCompletingUploadBypassesMinAppendSize() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
+    info.setLength(100L);
+
+    String json = UploadInfoJsonSerializer.serialize(info);
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
+
+    storageService.setMinAppendSize(500L);
+    UploadInfo result = storageService.append(info, new ByteArrayInputStream(new byte[100]));
+    assertEquals(Long.valueOf(100L), result.getOffset());
+    assertFalse(result.isUploadInProgress());
+  }
+
   @Test(expected = me.desair.tus.server.exception.MaxUploadLengthExceededException.class)
   public void testAppendThrowsMaxUploadLengthExceededException() throws Exception {
     UploadInfo info = new UploadInfo();
@@ -923,6 +966,91 @@ public class S3StorageServiceTest {
                 return mockGetObjectResponse(json.getBytes());
               }
               return mockGetObjectResponse(new byte[50]);
+            });
+
+    storageService.append(info, new ByteArrayInputStream(new byte[50]));
+  }
+
+  @Test
+  public void testFinalizeCompletedUploadWithInconsistentLeftoverPartPurged() throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("inconsistent-part-123");
+    info.setId(id);
+    info.setLength(100L);
+    info.setOffset(0L);
+
+    String json = UploadInfoJsonSerializer.serialize(info);
+
+    StatObjectResponse leftoverHead = mock(StatObjectResponse.class);
+    // Leftover is 30 bytes, but total length is 100 bytes (0 parts + 30 != 100) -> Case 3
+    when(leftoverHead.size()).thenReturn(30L);
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".part")) {
+                return leftoverHead;
+              }
+              ErrorResponse err = mock(ErrorResponse.class);
+              when(err.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(err, null, null);
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json.getBytes());
+              }
+              return mockGetObjectResponse(new byte[100]);
+            });
+
+    storageService.append(info, new ByteArrayInputStream(new byte[100]));
+
+    // Verify inconsistent .part buffer was deleted
+    verify(minioClient, atLeastOnce())
+        .removeObject(
+            argThat(
+                (RemoveObjectArgs args) ->
+                    args.object().equals("metadata/inconsistent-part-123.part")));
+  }
+
+  @Test(expected = IOException.class)
+  public void testFinalizeCompletedUploadLeftoverPartPromotionExceptionThrowsIOException()
+      throws Exception {
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("leftover-promo-err-123");
+    info.setId(id);
+    info.setLength(50L);
+    info.setOffset(0L);
+
+    String json = UploadInfoJsonSerializer.serialize(info);
+
+    StatObjectResponse leftoverHead = mock(StatObjectResponse.class);
+    when(leftoverHead.size()).thenReturn(50L);
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".part")) {
+                return leftoverHead;
+              }
+              ErrorResponse err = mock(ErrorResponse.class);
+              when(err.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(err, null, null);
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json.getBytes());
+              }
+              throw new IOException("Simulated network failure streaming leftover part");
             });
 
     storageService.append(info, new ByteArrayInputStream(new byte[50]));
@@ -1590,6 +1718,118 @@ public class S3StorageServiceTest {
   }
 
   @Test
+  public void testFinalizeCompletedUploadComposeObjectFailsFallsBackToStreamingAndDisablesCompose()
+      throws Exception {
+    assertTrue(storageService.isS3ComposeObjectSupported());
+
+    UploadInfo info = new UploadInfo();
+    UploadId id = new UploadId("compose-fail-test-123");
+    long fiveMb = 5L * 1024L * 1024L;
+    info.setId(id);
+    info.setLength(fiveMb + 100L);
+    info.setOffset(0L);
+
+    String json = UploadInfoJsonSerializer.serialize(info);
+
+    Item item1 = mock(Item.class);
+    when(item1.objectName()).thenReturn("uploads/compose-fail-test-123.part.00001");
+    when(item1.size()).thenReturn(fiveMb);
+
+    Item item2 = mock(Item.class);
+    when(item2.objectName()).thenReturn("uploads/compose-fail-test-123.part.00002");
+    when(item2.size()).thenReturn(100L);
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(Arrays.asList(new Result<>(item1), new Result<>(item2)));
+
+    StatObjectResponse stat1 = mock(StatObjectResponse.class);
+    when(stat1.size()).thenReturn(fiveMb);
+    StatObjectResponse stat2 = mock(StatObjectResponse.class);
+    when(stat2.size()).thenReturn(100L);
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".part.00001")) {
+                return stat1;
+              } else if (args.object().endsWith(".part.00002")) {
+                return stat2;
+              }
+              ErrorResponse err = mock(ErrorResponse.class);
+              when(err.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(err, null, null);
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json.getBytes());
+              }
+              return mockGetObjectResponse(new byte[100]);
+            });
+
+    when(minioClient.composeObject(any(ComposeObjectArgs.class)))
+        .thenThrow(new RuntimeException("The specified header is not valid in this context"));
+
+    UploadInfo result =
+        storageService.append(info, new ByteArrayInputStream(new byte[(int) (fiveMb + 100L)]));
+    assertNotNull(result);
+
+    // Verify composeObject was attempted and failed
+    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.times(1))
+        .composeObject(any(ComposeObjectArgs.class));
+    // Verify fallback to streaming putObject was executed
+    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.atLeastOnce())
+        .putObject(any(PutObjectArgs.class));
+    // Verify s3ComposeObjectSupported is now disabled
+    assertFalse(storageService.isS3ComposeObjectSupported());
+
+    // Subsequent upload should directly use streaming without calling composeObject
+    UploadInfo info2 = new UploadInfo();
+    UploadId id2 = new UploadId("compose-skip-test-456");
+    info2.setId(id2);
+    info2.setLength(fiveMb + 100L);
+    info2.setOffset(0L);
+
+    String json2 = UploadInfoJsonSerializer.serialize(info2);
+    Item item21 = mock(Item.class);
+    when(item21.objectName()).thenReturn("uploads/compose-skip-test-456.part.00001");
+    when(item21.size()).thenReturn(fiveMb);
+
+    Item item22 = mock(Item.class);
+    when(item22.objectName()).thenReturn("uploads/compose-skip-test-456.part.00002");
+    when(item22.size()).thenReturn(100L);
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(Arrays.asList(new Result<>(item21), new Result<>(item22)));
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json2.getBytes());
+              }
+              return mockGetObjectResponse(new byte[100]);
+            });
+
+    UploadInfo result2 =
+        storageService.append(info2, new ByteArrayInputStream(new byte[(int) (fiveMb + 100L)]));
+    assertNotNull(result2);
+
+    // composeObject count should still be 1 (never called for the second upload)
+    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.times(1))
+        .composeObject(any(ComposeObjectArgs.class));
+
+    // Reset flag for other tests
+    storageService.setS3ComposeObjectSupported(true);
+    assertTrue(storageService.isS3ComposeObjectSupported());
+  }
+
+  @Test
   public void testPrepareStreamRollsBackSub5MbNumberedPart() throws Exception {
     UploadInfo info = new UploadInfo();
     UploadId id = new UploadId("rollback-test-123");
@@ -1793,6 +2033,341 @@ public class S3StorageServiceTest {
       assertFalse(java.nio.file.Files.exists(stalePrep));
     } finally {
       org.apache.commons.io.FileUtils.deleteDirectory(tempDir.toFile());
+    }
+  }
+
+  @Test
+  public void testCloudUploadThreadPoolSizeConfiguration() {
+    assertEquals(
+        "Default thread pool size is 10", 10, storageService.getCloudUploadThreadPoolSize());
+
+    storageService.setCloudUploadThreadPoolSize(25);
+    assertEquals(
+        "Updated thread pool size is 25", 25, storageService.getCloudUploadThreadPoolSize());
+
+    storageService.setCloudUploadThreadPoolSize(4);
+    assertEquals("Reduced thread pool size is 4", 4, storageService.getCloudUploadThreadPoolSize());
+
+    try {
+      storageService.setCloudUploadThreadPoolSize(0);
+      fail("Should reject 0 pool size");
+    } catch (IllegalArgumentException expected) {
+      assertTrue(expected.getMessage().contains("greater than 0"));
+    }
+
+    try {
+      storageService.setCloudUploadThreadPoolSize(-5);
+      fail("Should reject negative pool size");
+    } catch (IllegalArgumentException expected) {
+      assertTrue(expected.getMessage().contains("greater than 0"));
+    }
+  }
+
+  @Test
+  public void testDrainTimeoutConfiguration() {
+    assertEquals(
+        "Default drain timeout is 55 seconds",
+        Duration.ofSeconds(55),
+        storageService.getDrainTimeout());
+
+    storageService.setDrainTimeout(Duration.ofSeconds(20));
+    assertEquals(
+        "Updated drain timeout is 20 seconds",
+        Duration.ofSeconds(20),
+        storageService.getDrainTimeout());
+
+    // Null is ignored preserving current value
+    storageService.setDrainTimeout(null);
+    assertEquals(
+        "Null drain timeout preserves previous value",
+        Duration.ofSeconds(20),
+        storageService.getDrainTimeout());
+  }
+
+  @Test
+  public void testCloseGracefulShutdown() throws Exception {
+    // Verify closing storage service cleanly terminates background upload executor without error
+    storageService.close();
+    // KISS: verifying method executes cleanly without throwing an exception
+
+    // Verify close handles thread interruption gracefully
+    Thread.currentThread().interrupt();
+    try {
+      storageService.close();
+    } finally {
+      Thread.interrupted(); // Clear interrupted status
+    }
+  }
+
+  @Test
+  public void testFinalizeUploadWithStaleIncompletePartIgnored() throws Exception {
+    UploadId uploadId = new UploadId("stale-part-test");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setOffset(0L);
+    info.setLength(3425070L); // 3.42 MB total upload length
+
+    String infoJson = UploadInfoJsonSerializer.serialize(info);
+    String partKey1 = "metadata/stale-part-test.part.00001";
+    String stalePartKey = "metadata/stale-part-test.part";
+
+    Item part1Item = mock(Item.class);
+    when(part1Item.objectName()).thenReturn(partKey1);
+
+    StatObjectResponse part1Stat = mock(StatObjectResponse.class);
+    when(part1Stat.size()).thenReturn(3425070L); // Numbered part already covers full 3.42 MB
+
+    StatObjectResponse stalePartStat = mock(StatObjectResponse.class);
+    when(stalePartStat.size()).thenReturn(1277952L); // Stale leftover from prior pause
+
+    StatObjectResponse objectNotExists = mock(StatObjectResponse.class);
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              ListObjectsArgs args = invocation.getArgument(0);
+              if (args.prefix().startsWith("metadata/stale-part-test.part.")) {
+                return Collections.singletonList(new Result<>(part1Item));
+              }
+              return Collections.emptyList();
+            });
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().equals(partKey1)) {
+                return part1Stat;
+              } else if (args.object().equals(stalePartKey)) {
+                return stalePartStat;
+              } else if (args.object().equals("uploads/stale-part-test")) {
+                ErrorResponse err = mock(ErrorResponse.class);
+                when(err.code()).thenReturn("NoSuchKey");
+                throw new ErrorResponseException(err, null, null);
+              }
+              return objectNotExists;
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(infoJson.getBytes());
+              }
+              return mockGetObjectResponse(new byte[0]);
+            });
+
+    // Append 0 bytes to trigger finalization check
+    ByteArrayInputStream emptyStream = new ByteArrayInputStream(new byte[0]);
+    UploadInfo result = storageService.append(info, emptyStream);
+
+    assertNotNull(result);
+    // Verify that the stale .part buffer was deleted via removeObject and NOT promoted to
+    // part.00002
+    verify(minioClient, atLeastOnce())
+        .removeObject(
+            argThat(
+                (RemoveObjectArgs args) -> args.object().equals("metadata/stale-part-test.part")));
+  }
+
+  @Test
+  public void testFinalizeUploadWithLegitimateNewIncompletePartPromoted() throws Exception {
+    UploadId uploadId = new UploadId("legit-part-test");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setOffset(0L);
+    info.setLength(10000000L); // 10 MB total length
+
+    String infoJson = UploadInfoJsonSerializer.serialize(info);
+    String partKey1 = "metadata/legit-part-test.part.00001";
+    String legitPartKey = "metadata/legit-part-test.part";
+
+    Item part1Item = mock(Item.class);
+    when(part1Item.objectName()).thenReturn(partKey1);
+
+    StatObjectResponse part1Stat = mock(StatObjectResponse.class);
+    when(part1Stat.size()).thenReturn(8000000L); // 8 MB numbered part
+
+    StatObjectResponse legitPartStat = mock(StatObjectResponse.class);
+    when(legitPartStat.size()).thenReturn(2000000L); // 2 MB tail; 8 MB + 2 MB == 10 MB exact match!
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              ListObjectsArgs args = invocation.getArgument(0);
+              if (args.prefix().startsWith("metadata/legit-part-test.part.")) {
+                return Collections.singletonList(new Result<>(part1Item));
+              }
+              return Collections.emptyList();
+            });
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().equals(partKey1)) {
+                return part1Stat;
+              } else if (args.object().equals(legitPartKey)) {
+                return legitPartStat;
+              } else if (args.object().equals("uploads/legit-part-test")) {
+                ErrorResponse err = mock(ErrorResponse.class);
+                when(err.code()).thenReturn("NoSuchKey");
+                throw new ErrorResponseException(err, null, null);
+              }
+              return mock(StatObjectResponse.class);
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(infoJson.getBytes());
+              } else if (args.object().equals(legitPartKey)) {
+                return mockGetObjectResponse(new byte[2000000]);
+              }
+              return mockGetObjectResponse(new byte[0]);
+            });
+
+    ByteArrayInputStream emptyStream = new ByteArrayInputStream(new byte[0]);
+    UploadInfo result = storageService.append(info, emptyStream);
+
+    assertNotNull(result);
+    // Verify that the legitimate 2 MB tail was promoted to part.00002
+    verify(minioClient)
+        .putObject(
+            argThat(
+                (PutObjectArgs args) ->
+                    args.object().equals("metadata/legit-part-test.part.00002")));
+  }
+
+  @Test
+  public void testCalculateCurrentOffsetDoesNotDoubleCountOrExceedLength() throws Exception {
+    UploadId uploadId = new UploadId("calc-offset-test");
+    String infoJson = "{\"id\":\"calc-offset-test\",\"length\":3425070,\"offset\":null}";
+
+    String partKey1 = "metadata/calc-offset-test.part.00001";
+    String stalePartKey = "metadata/calc-offset-test.part";
+
+    Item part1Item = mock(Item.class);
+    when(part1Item.objectName()).thenReturn(partKey1);
+
+    StatObjectResponse part1Stat = mock(StatObjectResponse.class);
+    when(part1Stat.size()).thenReturn(3425070L); // 3.42 MB numbered part
+
+    StatObjectResponse stalePartStat = mock(StatObjectResponse.class);
+    when(stalePartStat.size()).thenReturn(1277952L); // Stale 1.27 MB leftover
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(infoJson.getBytes());
+              }
+              return mockGetObjectResponse(new byte[0]);
+            });
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              ListObjectsArgs args = invocation.getArgument(0);
+              if (args.prefix().startsWith("metadata/calc-offset-test.part.")) {
+                return Collections.singletonList(new Result<>(part1Item));
+              }
+              return Collections.emptyList();
+            });
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().equals(partKey1)) {
+                return part1Stat;
+              } else if (args.object().equals(stalePartKey)) {
+                return stalePartStat;
+              } else if (args.object().equals("uploads/calc-offset-test")) {
+                ErrorResponse err = mock(ErrorResponse.class);
+                when(err.code()).thenReturn("NoSuchKey");
+                throw new ErrorResponseException(err, null, null);
+              }
+              return mock(StatObjectResponse.class);
+            });
+
+    UploadInfo fetched = storageService.getUploadInfo(uploadId);
+    assertNotNull(fetched);
+    // Must be exactly 3,425,070 bytes (not 4,703,022 bytes with double-counted stale part!)
+    assertEquals(Long.valueOf(3425070L), fetched.getOffset());
+
+    // Verify stale .part buffer was deleted on the fly
+    verify(minioClient, atLeastOnce())
+        .removeObject(
+            argThat(
+                (RemoveObjectArgs args) -> args.object().equals("metadata/calc-offset-test.part")));
+  }
+
+  @Test
+  public void testCalcOptimalPartSizeCalculations() {
+    assertEquals(8 * 1024 * 1024L, storageService.calcOptimalPartSize(null));
+    assertEquals(8 * 1024 * 1024L, storageService.calcOptimalPartSize(0L));
+    assertEquals(8 * 1024 * 1024L, storageService.calcOptimalPartSize(100L));
+    assertEquals(8 * 1024 * 1024L, storageService.calcOptimalPartSize(100L * 1024 * 1024));
+    assertEquals(
+        8 * 1024 * 1024L, storageService.calcOptimalPartSize(10_000L * 8 * 1024 * 1024L - 1));
+
+    long largeLength = 10_000L * 16 * 1024 * 1024L;
+    assertEquals((largeLength / 10_000L) + 1, storageService.calcOptimalPartSize(largeLength));
+
+    // For 1 TB, part size auto-scales up so upload fits within 10,000 parts
+    long oneTb = 1024L * 1024 * 1024 * 1024L;
+    assertEquals((oneTb / 10_000L) + 1, storageService.calcOptimalPartSize(oneTb));
+
+    // For 5 TB (S3 max limit), part size scales up to ~524.3 MB
+    long fiveTb = 5L * 1024 * 1024 * 1024 * 1024L;
+    assertEquals((fiveTb / 10_000L) + 1, storageService.calcOptimalPartSize(fiveTb));
+  }
+
+  @Test
+  public void testSetAndGetPreferredPartSize() {
+    assertEquals(8 * 1024 * 1024L, storageService.getPreferredPartSize());
+
+    storageService.setPreferredPartSize(16 * 1024 * 1024L);
+    assertEquals(16 * 1024 * 1024L, storageService.getPreferredPartSize());
+
+    try {
+      storageService.setPreferredPartSize(4 * 1024 * 1024L); // Below 5MB limit
+      fail("Should reject part size below 5MB");
+    } catch (IllegalArgumentException expected) {
+      assertTrue(expected.getMessage().contains("Preferred part size must be between"));
+    }
+
+    try {
+      storageService.setPreferredPartSize(6L * 1024 * 1024 * 1024L); // Above 5GB limit
+      fail("Should reject part size above 5GB");
+    } catch (IllegalArgumentException expected) {
+      assertTrue(expected.getMessage().contains("Preferred part size must be between"));
+    }
+  }
+
+  @Test
+  public void testValidateRemainingPartBudget() throws Exception {
+    UploadInfo info = new UploadInfo();
+    storageService.validateRemainingPartBudget(info, 9999);
+    // KISS: 9999 parts is within budget, verifies method completes cleanly
+
+    try {
+      storageService.validateRemainingPartBudget(info, 10000);
+      fail("Should throw MaxAppendSizeExceededException at 10000 parts");
+    } catch (MaxAppendSizeExceededException expected) {
+      assertTrue(expected.getMessage().contains("maximum allowed S3 limit of 10000 parts"));
+    }
+
+    try {
+      storageService.validateRemainingPartBudget(info, 10005);
+      fail("Should throw MaxAppendSizeExceededException above 10000 parts");
+    } catch (MaxAppendSizeExceededException expected) {
+      assertTrue(expected.getMessage().contains("maximum allowed S3 limit of 10000 parts"));
     }
   }
 

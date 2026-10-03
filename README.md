@@ -181,7 +181,7 @@ After creating the object, you can configure it using the following methods:
 | `withStoragePath(String)` | `${java.io.tmpdir}/tus` | Path on the filesystem or shared drive where uploaded bytes and metadata are stored when using `DiskStorageService`. |
 | `withSupportedProtocolVersions(ProtocolVersion)` | `ProtocolVersion.AUTO` | Configures protocol handling: `AUTO` (header-based auto-detection), `TUS_1_0_0` (Tus 1.0.0 only), or `RUFH` (IETF draft-12 only). |
 | `withMaxUploadSize(Long)` | `Long.MAX_VALUE` | Maximum allowed total upload size in bytes per upload resource. |
-| `withMaxLockRetries(int)` | `40` | Maximum lock acquisition retries during lock contention resolution (200ms sleep, resulting in an 8.0s timeout budget). |
+| `withLockWaitTimeout(Duration)` | `Duration.ofSeconds(60)` | Maximum duration a request waits to acquire an upload lock held by an in-flight transfer (retrying every 200ms, resulting in 300 retries). Automatically configures cloud background chunk drain timeout to 5s less than this value (default 55s). |
 | `withChunkedTransferDecoding(Boolean)` | `false` | Enables manual chunked HTTP decoding for servlet containers that do not decode chunked requests natively. |
 | `withThreadLocalCache(Boolean)` | `false` | Enables in-memory thread-local caching of upload request data to reduce storage backend I/O load. |
 | `withUploadExpirationPeriod(Long)` | `null` (disabled) | Expiration period in milliseconds after which incomplete/expired uploads become eligible for cleanup. |
@@ -191,11 +191,12 @@ After creating the object, you can configure it using the following methods:
 | `disableTusExtension(String)` | None | Disables a built-in extension (`creation`, `checksum`, `expiration`, `concatenation`, `termination`, `download`, `cors`). |
 | `withUploadIdFactory(UploadIdFactory)` | `UuidUploadIdFactory` | Custom ID generator for upload resources (e.g., `UuidUploadIdFactory` or `TimeBasedUploadIdFactory`). |
 | `withUploadCompletionListener(UploadCompletionListener)` | None | Registers a callback invoked immediately when an upload finishes transferring all bytes and is completed. |
+| `withCloudUploadThreadPoolSize(int)` | `10` | Maximum number of worker threads used for asynchronous background chunk uploading in cloud storage backends (S3, Azure). |
 | `withJsonSerialization()` | Java serialization | Enables JSON serialization for upload metadata (`UploadInfo`). Jackson is bundled by default. |
 | `withUploadStorageService(UploadStorageService)` | `DiskStorageService` | Configures custom or cloud storage backend (`DiskStorageService`, `S3StorageService`, `AzureBlobStorageService`). |
 | `withUploadLockingService(UploadLockingService)` | `LeaseFileLockingService` | Configures custom or cloud locking backend (`LeaseFileLockingService`, `S3LockingService`, `AzureBlobLockingService`). |
 
-The library provides filesystem-based storage (`DiskStorageService` / `LeaseFileLockingService`), S3-compatible object storage (`S3StorageService` / `S3LockingService`), and Azure Blob Storage (`AzureBlobStorageService` / `AzureBlobLockingService`). See the **[Disk & Network Storage Locking Guide](docs/DISK_BASED_LOCKING.md)**, **[S3 Storage Guide](docs/S3_STORAGE.md)**, and **[Azure Blob Storage Guide](docs/AZURE_BLOB_STORAGE.md)** for detailed instructions on multi-replica container deployments in Kubernetes, post-upload processing, and legacy locking opt-out.
+The library provides filesystem-based storage (`DiskStorageService` / `LeaseFileLockingService`), S3-compatible object storage (`S3StorageService` / `S3LockingService`), and Azure Blob Storage (`AzureBlobStorageService` / `AzureBlobLockingService`). Cloud backends feature an asynchronous 3-slot chunk pipeline (`AsyncChunkUploader`) that overlaps client payload streaming with cloud staging in the background. See the **[Disk & Network Storage Locking Guide](docs/DISK_BASED_LOCKING.md)**, **[S3 Storage Guide](docs/S3_STORAGE.md)**, and **[Azure Blob Storage Guide](docs/AZURE_BLOB_STORAGE.md)** for detailed instructions on multi-replica container deployments in Kubernetes, post-upload processing, and legacy locking opt-out.
 
 ### 2. Receiving a Resumable Upload
 To process an upload request you have to pass the current `jakarta.servlet.http.HttpServletRequest` and `jakarta.servlet.http.HttpServletResponse` objects to the `me.desair.tus.server.TusFileUploadService.process()` method. Typical places were you can do this are inside Servlets, Filters or REST API Controllers.
@@ -409,10 +410,10 @@ public TomcatServletWebServerFactory tomcatFactory(TusFileUploadService tusFileU
 
 ## Compatible Client Implementations & Conformity Testing
 This server implementation has been tested with:
-- **Tus 1.0.0 Clients**: Tested with [Uppy](https://uppy.io/) and `tus-js-client`.
-- **IETF Resumable Uploads Clients & Conformity Tests**: The implementation has been thoroughly tested with our own built-in RUFH conformity test suite (`scripts/rufh_conformity_test.py`) validating compliance with draft-12 of the RUFH protocol specification and RFC 9530 HTTP Digests, as well as the community [RUFH conformity tests from the IETF hackathon](https://github.com/tus/ietf-hackathon).
+- **Tus 1.0.0 Clients & Conformity Tests**: Tested with [Uppy](https://uppy.io/), `tus-js-client`, and our built-in Tus v1.0.0 conformity test suite (`scripts/tus_conformity_test.py`) validating all core protocol mechanisms and protocol extensions (creation, creation-with-upload, checksum, termination, concatenation, and expiration) across Disk, S3, and Azure Blob backends.
+- **IETF Resumable Uploads Clients & Conformity Tests**: The implementation has been thoroughly tested with our built-in RUFH conformity test suite (`scripts/rufh_conformity_test.py`) validating compliance with draft-12 of the RUFH protocol specification and RFC 9530 HTTP Digests, as well as the community [RUFH conformity tests from the IETF hackathon](https://github.com/tus/ietf-hackathon).
 
-For detailed instructions on running our native conformity test suite and interpreting results, see the **[Conformity Testing Guide (docs/CONFORMITY_TESTING.md)](docs/CONFORMITY_TESTING.md)**.
+For detailed instructions on running our native conformity test suites across all storage backends (Disk, S3, Azure Blob) and interpreting results, see the **[Conformity Testing Guide (docs/CONFORMITY_TESTING.md)](docs/CONFORMITY_TESTING.md)**.
 
 This repository also contains comprehensive automated integration test suites (`ITTusFileUploadService`, `RufhProtocolCreationTest`, `RufhProtocolAppendTest`, `RufhProtocolHeadTest`, `RufhProtocolCancellationTest`) validating both protocol specifications.
 

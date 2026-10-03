@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -94,5 +95,68 @@ public class CreationWithUploadPostRequestHandlerTest {
     handler.process(HttpMethod.POST, request, response, storageService, null, "owner", null);
 
     verify(response).setHeader(HttpHeader.UPLOAD_OFFSET, "5");
+  }
+
+  @Test
+  public void testProcessInterruptedByLockingServiceContention() throws Exception {
+    TusServletRequest request = mock(TusServletRequest.class);
+    TusServletResponse response = mock(TusServletResponse.class);
+    UploadStorageService storageService = mock(UploadStorageService.class);
+    UploadLockingService lockingService = mock(UploadLockingService.class);
+
+    when(request.getHeader(HttpHeader.CONTENT_LENGTH)).thenReturn("100");
+    when(response.getHeader(HttpHeader.LOCATION)).thenReturn("/files/interrupted-cwu");
+    when(request.getContentInputStream()).thenReturn(new ByteArrayInputStream("data".getBytes()));
+
+    UploadInfo uploadInfo = new UploadInfo();
+    uploadInfo.setLength(100L);
+    uploadInfo.setOffset(0L);
+
+    UploadInfo refreshed = new UploadInfo();
+    refreshed.setLength(100L);
+    refreshed.setOffset(50L);
+
+    when(storageService.getUploadInfo("/files/interrupted-cwu", "owner"))
+        .thenReturn(uploadInfo)
+        .thenReturn(refreshed);
+
+    when(storageService.append(eq(uploadInfo), any(InputStream.class)))
+        .thenAnswer(
+            invocation -> {
+              Object stream = invocation.getArgument(1);
+              if (stream instanceof InterruptibleInputStream) {
+                ((InterruptibleInputStream) stream).interrupt();
+              }
+              throw new IOException(
+                  "Stream was interrupted by the upload locking service watchdog");
+            });
+
+    handler.process(
+        HttpMethod.POST, request, response, storageService, lockingService, "owner", null);
+
+    verify(response).setHeader(HttpHeader.UPLOAD_OFFSET, "50");
+  }
+
+  @Test(expected = IOException.class)
+  public void testProcessUninterruptedIoExceptionRethrown() throws Exception {
+    TusServletRequest request = mock(TusServletRequest.class);
+    TusServletResponse response = mock(TusServletResponse.class);
+    UploadStorageService storageService = mock(UploadStorageService.class);
+    UploadLockingService lockingService = mock(UploadLockingService.class);
+
+    when(request.getHeader(HttpHeader.CONTENT_LENGTH)).thenReturn("100");
+    when(response.getHeader(HttpHeader.LOCATION)).thenReturn("/files/cwu-error");
+    when(request.getContentInputStream()).thenReturn(new ByteArrayInputStream("data".getBytes()));
+
+    UploadInfo uploadInfo = new UploadInfo();
+    uploadInfo.setLength(100L);
+    uploadInfo.setOffset(0L);
+
+    when(storageService.getUploadInfo("/files/cwu-error", "owner")).thenReturn(uploadInfo);
+    when(storageService.append(eq(uploadInfo), any(InputStream.class)))
+        .thenThrow(new IOException("S3 network error"));
+
+    handler.process(
+        HttpMethod.POST, request, response, storageService, lockingService, "owner", null);
   }
 }

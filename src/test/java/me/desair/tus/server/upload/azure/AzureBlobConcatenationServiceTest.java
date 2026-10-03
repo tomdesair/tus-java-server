@@ -250,4 +250,31 @@ public class AzureBlobConcatenationServiceTest {
     // final upload's ownerKey, preventing unauthorized partial stitching.
     concatenationService.getPartialUploads(finalInfo);
   }
+
+  @Test
+  public void getAuthorizedBlobUrlShouldReturnNullOnNullBlobClient() {
+    org.junit.Assert.assertNull(concatenationService.getAuthorizedBlobUrl(null));
+  }
+
+  @Test
+  public void getAuthorizedBlobUrlShouldAppendSasWhenGenerationSucceeds() {
+    com.azure.storage.blob.BlobClient mockBlob = mock(com.azure.storage.blob.BlobClient.class);
+    when(mockBlob.getBlobUrl()).thenReturn("https://account.blob.core.windows.net/container/blob");
+    when(mockBlob.generateSas(any())).thenReturn("sig=mocked-token&sp=r");
+
+    String result = concatenationService.getAuthorizedBlobUrl(mockBlob);
+    assertEquals(
+        "https://account.blob.core.windows.net/container/blob?sig=mocked-token&sp=r", result);
+  }
+
+  @Test
+  public void getAuthorizedBlobUrlShouldFallbackToRawUrlWhenSasGenerationThrows() {
+    com.azure.storage.blob.BlobClient mockBlob = mock(com.azure.storage.blob.BlobClient.class);
+    when(mockBlob.getBlobUrl()).thenReturn("https://account.blob.core.windows.net/container/blob");
+    when(mockBlob.generateSas(any()))
+        .thenThrow(new IllegalStateException("No shared key credentials"));
+
+    String result = concatenationService.getAuthorizedBlobUrl(mockBlob);
+    assertEquals("https://account.blob.core.windows.net/container/blob", result);
+  }
 }

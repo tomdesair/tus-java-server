@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Duration;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -58,7 +59,10 @@ public class TusFileUploadService implements Closeable {
 
   private static final Logger log = LoggerFactory.getLogger(TusFileUploadService.class);
 
-  public static final int DEFAULT_MAX_LOCK_RETRIES = 40;
+  public static final Duration DEFAULT_LOCK_WAIT_TIMEOUT = Duration.ofSeconds(60);
+  public static final long LOCK_RETRY_INTERVAL_MS = 200L;
+  public static final int DEFAULT_MAX_LOCK_RETRIES =
+      (int) (DEFAULT_LOCK_WAIT_TIMEOUT.toMillis() / LOCK_RETRY_INTERVAL_MS);
 
   private UploadStorageService uploadStorageService;
   private UploadLockingService uploadLockingService;
@@ -68,6 +72,7 @@ public class TusFileUploadService implements Closeable {
   private boolean isThreadLocalCacheEnabled = false;
   private boolean isChunkedTransferDecodingEnabled = false;
   private ProtocolVersion supportedProtocolVersion = ProtocolVersion.AUTO;
+  private Duration lockWaitTimeout = DEFAULT_LOCK_WAIT_TIMEOUT;
   private int maxLockRetries = DEFAULT_MAX_LOCK_RETRIES;
   private final List<UploadCompletionListener> uploadCompletionListeners =
       new CopyOnWriteArrayList<>();
@@ -77,7 +82,16 @@ public class TusFileUploadService implements Closeable {
     String storagePath = FileUtils.getTempDirectoryPath() + File.separator + "tus";
     this.uploadStorageService = new DiskStorageService(idFactory, storagePath);
     this.uploadLockingService = new LeaseFileLockingService(idFactory, storagePath);
+    this.uploadStorageService.setDrainTimeout(calculateDrainTimeout(DEFAULT_LOCK_WAIT_TIMEOUT));
     initFeatures();
+  }
+
+  private static Duration calculateDrainTimeout(Duration timeout) {
+    return timeout.minus(Duration.ofSeconds(5));
+  }
+
+  private static int calculateMaxLockRetries(Duration timeout) {
+    return (int) (timeout.toMillis() / LOCK_RETRY_INTERVAL_MS);
   }
 
   protected void initFeatures() {
@@ -236,6 +250,20 @@ public class TusFileUploadService implements Closeable {
   }
 
   /**
+   * Set the maximum number of worker threads used for asynchronous background chunk uploading in
+   * cloud storage backends (S3, Azure). Defaults to 10.
+   *
+   * @param cloudUploadThreadPoolSize Number of worker threads (must be > 0)
+   * @return The current service
+   */
+  public TusFileUploadService withCloudUploadThreadPoolSize(int cloudUploadThreadPoolSize) {
+    Validate.isTrue(
+        cloudUploadThreadPoolSize > 0, "The cloud upload thread pool size must be greater than 0");
+    this.uploadStorageService.setCloudUploadThreadPoolSize(cloudUploadThreadPoolSize);
+    return this;
+  }
+
+  /**
    * Provide a custom {@link UploadIdFactory} implementation that should be used to generate
    * identifiers for the different uploads. Example implementation are {@link
    * me.desair.tus.server.upload.UuidUploadIdFactory} and {@link
@@ -268,12 +296,15 @@ public class TusFileUploadService implements Closeable {
     uploadStorageService.setMaxAppendSize(this.uploadStorageService.getMaxAppendSize());
     uploadStorageService.setMinAppendSize(this.uploadStorageService.getMinAppendSize());
     uploadStorageService.setMinSize(this.uploadStorageService.getMinSize());
+    uploadStorageService.setCloudUploadThreadPoolSize(
+        this.uploadStorageService.getCloudUploadThreadPoolSize());
     uploadStorageService.setUploadExpirationPeriod(
         this.uploadStorageService.getUploadExpirationPeriod());
     uploadStorageService.setUploadDeduplicationEnabled(
         this.uploadStorageService.isUploadDeduplicationEnabled());
     uploadStorageService.setJsonSerializationEnabled(
         this.uploadStorageService.isJsonSerializationEnabled());
+    uploadStorageService.setDrainTimeout(this.uploadStorageService.getDrainTimeout());
     uploadStorageService.setIdFactory(this.idFactory);
     // Update the upload storage service
     this.uploadStorageService = uploadStorageService;
@@ -329,21 +360,47 @@ public class TusFileUploadService implements Closeable {
   }
 
   /**
-   * Specify the maximum number of retries the service will attempt to acquire an upload lock before
-   * failing with an {@link UploadAlreadyLockedException} during lock contention resolution (e.g.
-   * for HEAD or DELETE requests). Default is {@value #DEFAULT_MAX_LOCK_RETRIES} retries.
+   * Specify the maximum duration a request will wait to acquire an upload lock held by another
+   * in-flight request before failing with an {@link
+   * me.desair.tus.server.exception.UploadAlreadyLockedException} during lock wait and contention
+   * resolution (e.g. for HEAD or DELETE requests).
    *
-   * @param maxLockRetries The maximum number of lock acquisition retries (must be 0 or greater)
+   * <p>Configuring this setting automatically derives:
+   *
+   * <ul>
+   *   <li>The background cloud upload chunk drain timeout for cloud storage backends (S3, Azure),
+   *       set to {@code lockWaitTimeout - 5 seconds}.
+   *   <li>The maximum number of lock acquisition retries (polling every {@value
+   *       #LOCK_RETRY_INTERVAL_MS}ms).
+   * </ul>
+   *
+   * <p>The timeout must be greater than 5 seconds to provide a positive drain window for in-flight
+   * chunks. Default is 60 seconds (yielding a 55-second drain timeout and 300 retries).
+   *
+   * @param lockWaitTimeout The maximum duration to wait for an upload lock (must be &gt; 5 seconds)
    * @return The current service
    */
-  public TusFileUploadService withMaxLockRetries(int maxLockRetries) {
-    Validate.isTrue(maxLockRetries >= 0, "The max lock retries must be 0 or greater");
-    this.maxLockRetries = maxLockRetries;
+  public TusFileUploadService withLockWaitTimeout(Duration lockWaitTimeout) {
+    Validate.notNull(lockWaitTimeout, "The lock wait timeout cannot be null");
+    Validate.isTrue(
+        lockWaitTimeout.toMillis() > 5000L, "The lock wait timeout must be greater than 5 seconds");
+    this.lockWaitTimeout = lockWaitTimeout;
+    this.maxLockRetries = calculateMaxLockRetries(lockWaitTimeout);
+    this.uploadStorageService.setDrainTimeout(calculateDrainTimeout(lockWaitTimeout));
     return this;
   }
 
   /**
-   * Get the maximum number of lock acquisition retries.
+   * Get the maximum duration a request will wait to acquire an upload lock.
+   *
+   * @return The current lock wait timeout
+   */
+  public Duration getLockWaitTimeout() {
+    return lockWaitTimeout;
+  }
+
+  /**
+   * Get the maximum number of lock acquisition retries, derived from {@link #getLockWaitTimeout()}.
    *
    * @return The maximum number of lock acquisition retries
    */
@@ -555,9 +612,9 @@ public class TusFileUploadService implements Closeable {
       throws TusException, IOException {
     UploadLock lock = null;
     int retries = 0;
-    // Retry budget calibrated by default to 40 retries x 200ms = 8.0 seconds to accommodate
-    // NFS/network storage attribute cache propagation (actimeo=3s), watchdog polling
-    // interval (1.5s), and socket stream interruption and cleanup overhead.
+    // Lock wait loop: retries every LOCK_RETRY_INTERVAL_MS ms up to the configured lockWaitTimeout
+    // budget (default 60s / 300 retries). When an in-flight upload is active, requestLockRelease
+    // signals it to interrupt and cleanly drain in-flight chunks before releasing the lock.
     while (retries < maxLockRetries) {
       try {
         lock = uploadLockingService.lockUploadByUri(requestUri);
@@ -567,7 +624,7 @@ public class TusFileUploadService implements Closeable {
           uploadLockingService.requestLockRelease(requestUri);
           retries++;
           try {
-            Thread.sleep(200L);
+            Thread.sleep(LOCK_RETRY_INTERVAL_MS);
           } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             throw new IOException("Lock acquisition retry interrupted", ie);
@@ -1085,6 +1142,13 @@ public class TusFileUploadService implements Closeable {
       response.setStatus(status);
       if (problemDetails != null) {
         problemDetails.writeTo(response);
+      } else if (status == 460) {
+        // Non-standard HTTP status 460 (Checksum Mismatch) is not recognized by standard
+        // servlet container error controllers (such as Spring Boot's BasicErrorController),
+        // which would cause sendError() to fail with an unhandled IllegalArgumentException
+        // and degrade to HTTP 500. We explicitly set the status and omit sendError().
+        response.setHeader(HttpHeader.CONTENT_LENGTH, null);
+        response.setStatus(status);
       } else {
         response.setHeader(HttpHeader.CONTENT_LENGTH, null);
         response.sendError(status, message);

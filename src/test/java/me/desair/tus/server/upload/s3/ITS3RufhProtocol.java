@@ -14,27 +14,27 @@ import org.junit.BeforeClass;
  */
 public class ITS3RufhProtocol extends AbstractITRufhProtocol {
 
-  private static org.testcontainers.containers.GenericContainer<?> minio;
+  private static org.testcontainers.containers.GenericContainer<?> rustfsContainer;
   private static MinioClient minioClient;
   private static final String BUCKET = "test-rufh-s3-bucket";
 
   @BeforeClass
   public static void setUpClass() {
     org.junit.Assume.assumeTrue(
-        "Container runtime is not available; skipping Testcontainers MinIO test",
+        "Container runtime is not available; skipping Testcontainers S3 (RustFS) test",
         TestUtils.isContainerRuntimeAvailable());
 
-    minio = TestUtils.createMinioContainer();
-    minio.start();
+    rustfsContainer = TestUtils.createRustFsContainer();
+    rustfsContainer.start();
 
-    minioClient = TestUtils.createMinioClient(minio);
+    minioClient = TestUtils.createMinioClient(rustfsContainer);
     TestUtils.createBucket(minioClient, BUCKET);
   }
 
   @AfterClass
   public static void tearDownClass() {
-    if (minio != null) {
-      minio.stop();
+    if (rustfsContainer != null) {
+      rustfsContainer.stop();
     }
   }
 
