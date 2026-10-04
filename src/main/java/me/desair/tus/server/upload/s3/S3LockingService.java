@@ -64,25 +64,21 @@ public class S3LockingService extends AbstractLeaseLockingService {
   private volatile boolean s3ConditionalWritesSupported = true;
 
   /**
-   * Basic constructor using default lock prefix ("locks/"), 30s lease duration, and 2s polling
-   * interval.
+   * Convenience constructor for local S3-compatible backends where region is omitted. Defaults the
+   * region to "local".
    *
-   * @param minioClient Pre-configured MinIO Client
+   * @param endpoint S3 endpoint URL (e.g. "http://localhost:9000")
+   * @param accessKey S3 access key / username
+   * @param secretKey S3 secret key / password
    * @param bucket Target S3 bucket name
    */
-  public S3LockingService(MinioClient minioClient, String bucket) {
-    this(
-        minioClient,
-        bucket,
-        DEFAULT_LOCKS_PREFIX,
-        DEFAULT_LEASE_DURATION_MS,
-        DEFAULT_POLL_INTERVAL_MS,
-        new UuidUploadIdFactory());
+  public S3LockingService(String endpoint, String accessKey, String secretKey, String bucket) {
+    this(endpoint, "local", accessKey, secretKey, bucket);
   }
 
   /**
-   * Constructor accepting explicit connection parameters without requiring a pre-existing
-   * MinioClient.
+   * Basic constructor accepting explicit connection parameters without exposing underlying client
+   * libraries.
    *
    * @param endpoint S3 endpoint URL (e.g. "https://s3.amazonaws.com" or "http://localhost:9000")
    * @param region S3 region name (e.g. "eu-central-1", "us-east-1")
@@ -93,36 +89,10 @@ public class S3LockingService extends AbstractLeaseLockingService {
   public S3LockingService(
       String endpoint, String region, String accessKey, String secretKey, String bucket) {
     this(
-        buildMinioClient(endpoint, region, accessKey, secretKey),
-        bucket,
-        DEFAULT_LOCKS_PREFIX,
-        DEFAULT_LEASE_DURATION_MS,
-        DEFAULT_POLL_INTERVAL_MS,
-        new UuidUploadIdFactory());
-  }
-
-  /**
-   * Constructor accepting a pre-configured {@link MinioClient} along with explicit connection
-   * parameters.
-   *
-   * @param minioClient Pre-configured MinIO Client
-   * @param endpoint S3 endpoint URL
-   * @param region S3 region name
-   * @param accessKey S3 access key / username
-   * @param secretKey S3 secret key / password
-   * @param bucket Target S3 bucket name
-   */
-  public S3LockingService(
-      MinioClient minioClient,
-      String endpoint,
-      String region,
-      String accessKey,
-      String secretKey,
-      String bucket) {
-    this(
-        minioClient != null
-            ? minioClient
-            : buildMinioClient(endpoint, region, accessKey, secretKey),
+        endpoint,
+        region,
+        accessKey,
+        secretKey,
         bucket,
         DEFAULT_LOCKS_PREFIX,
         DEFAULT_LEASE_DURATION_MS,
@@ -133,7 +103,12 @@ public class S3LockingService extends AbstractLeaseLockingService {
   /**
    * Full constructor allowing custom configuration including a custom {@link UploadIdFactory}.
    *
-   * @param minioClient Pre-configured MinIO Client
+   * <p>Delegates to the internal package-private constructor that accepts {@link MinioClient}.
+   *
+   * @param endpoint S3 endpoint URL
+   * @param region S3 region name
+   * @param accessKey S3 access key / username
+   * @param secretKey S3 secret key / password
    * @param bucket Target S3 bucket name
    * @param locksPrefix Object key prefix for locks and stop signals
    * @param leaseDurationMs Lock lease duration in milliseconds
@@ -141,6 +116,29 @@ public class S3LockingService extends AbstractLeaseLockingService {
    * @param idFactory Custom {@link UploadIdFactory}
    */
   public S3LockingService(
+      String endpoint,
+      String region,
+      String accessKey,
+      String secretKey,
+      String bucket,
+      String locksPrefix,
+      long leaseDurationMs,
+      long pollIntervalMs,
+      UploadIdFactory idFactory) {
+    this(
+        buildMinioClient(endpoint, region, accessKey, secretKey),
+        bucket,
+        locksPrefix,
+        leaseDurationMs,
+        pollIntervalMs,
+        idFactory);
+  }
+
+  /**
+   * Package-private constructor accepting {@link MinioClient} where all parameter configuration is
+   * concentrated.
+   */
+  S3LockingService(
       MinioClient minioClient,
       String bucket,
       String locksPrefix,
@@ -448,7 +446,7 @@ public class S3LockingService extends AbstractLeaseLockingService {
 
   private static MinioClient buildMinioClient(
       String endpoint, String region, String accessKey, String secretKey) {
-    String effectiveRegion = (region != null && !region.isEmpty()) ? region : "eu-central-1";
+    String effectiveRegion = (region != null && !region.isEmpty()) ? region : "local";
     return MinioClient.builder()
         .endpoint(endpoint)
         .credentials(accessKey, secretKey)

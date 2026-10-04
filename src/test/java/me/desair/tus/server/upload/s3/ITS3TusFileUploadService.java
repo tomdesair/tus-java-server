@@ -49,9 +49,13 @@ public class ITS3TusFileUploadService extends AbstractITTusFileUploadService {
   protected TusFileUploadService createTusFileUploadService(String uploadUri) {
     org.junit.Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable());
 
-    S3StorageService s3Storage = new S3StorageService(minioClient, BUCKET);
-    S3LockingService s3Locking = new S3LockingService(minioClient, BUCKET);
-    S3ConcatenationService s3Concat = new S3ConcatenationService(minioClient, BUCKET, s3Storage);
+    String endpoint = TestUtils.getS3Endpoint(rustfsContainer);
+    S3StorageService s3Storage =
+        new S3StorageService(endpoint, "rustfsadmin", "rustfsadmin", BUCKET);
+    S3LockingService s3Locking =
+        new S3LockingService(endpoint, "rustfsadmin", "rustfsadmin", BUCKET);
+    S3ConcatenationService s3Concat =
+        new S3ConcatenationService(endpoint, "rustfsadmin", "rustfsadmin", BUCKET, s3Storage);
     s3Storage.setUploadConcatenationService(s3Concat);
 
     return new TusFileUploadService()

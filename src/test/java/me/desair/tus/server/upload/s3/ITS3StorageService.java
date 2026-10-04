@@ -50,7 +50,8 @@ public class ITS3StorageService {
   @Before
   public void setUp() {
     org.junit.Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable());
-    storageService = new S3StorageService(minioClient, BUCKET);
+    String endpoint = TestUtils.getS3Endpoint(rustfsContainer);
+    storageService = new S3StorageService(endpoint, "rustfsadmin", "rustfsadmin", BUCKET);
   }
 
   @Test

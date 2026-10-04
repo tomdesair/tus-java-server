@@ -32,6 +32,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
@@ -53,7 +54,16 @@ public class S3StorageServiceTest {
   @Before
   public void setUp() {
     minioClient = mock(MinioClient.class);
-    storageService = new S3StorageService(minioClient, "test-bucket");
+    storageService =
+        new S3StorageService(
+            minioClient,
+            "test-bucket",
+            S3StorageService.DEFAULT_OBJECT_PREFIX,
+            S3StorageService.DEFAULT_METADATA_PREFIX,
+            S3StorageService.DEFAULT_CHECKSUMS_PREFIX,
+            S3StorageService.DEFAULT_LOCKS_PREFIX,
+            Paths.get(System.getProperty("java.io.tmpdir")),
+            null);
   }
 
   @Test
@@ -76,28 +86,51 @@ public class S3StorageServiceTest {
     java.nio.file.Path nullPath = null;
     S3StorageService serviceWithNullTmp =
         new S3StorageService(
-            minioClient, "test-bucket", "uploads/", "uploads/", "checksums/", "locks/", nullPath);
+            minioClient,
+            "test-bucket",
+            "uploads/",
+            "uploads/",
+            "checksums/",
+            "locks/",
+            nullPath,
+            null);
     assertNotNull(serviceWithNullTmp);
   }
 
   @Test
   public void testExplicitConnectionParametersConstructors() {
-    // 1. Constructor taking connection parameters directly (Option A)
+    // 1. Constructor taking connection parameters directly without region (defaults to "local")
+    S3StorageService serviceWithoutRegion =
+        new S3StorageService("https://s3.amazonaws.com", "accessKey", "secretKey", "test-bucket");
+    assertNotNull(serviceWithoutRegion);
+
+    // 2. Constructor taking connection parameters directly with region
     S3StorageService serviceWithParams =
         new S3StorageService(
             "https://s3.amazonaws.com", "us-east-1", "accessKey", "secretKey", "test-bucket");
     assertNotNull(serviceWithParams);
 
-    // 2. Constructor taking MinioClient and connection parameters (Option B)
-    S3StorageService serviceWithClientAndParams =
+    // 3. Full constructor taking connection parameters with prefix and temporary directory
+    // configuration
+    S3StorageService fullServiceWithParams =
         new S3StorageService(
-            minioClient,
             "https://s3.amazonaws.com",
             "us-east-1",
             "accessKey",
             "secretKey",
-            "test-bucket");
-    assertNotNull(serviceWithClientAndParams);
+            "test-bucket",
+            "uploads/",
+            "metadata/",
+            "checksums/",
+            "locks/",
+            java.nio.file.Paths.get(System.getProperty("java.io.tmpdir")));
+    assertNotNull(fullServiceWithParams);
+
+    // 4. Null/empty region defaults cleanly
+    S3StorageService defaultRegionService =
+        new S3StorageService(
+            "https://s3.amazonaws.com", null, "accessKey", "secretKey", "test-bucket");
+    assertNotNull(defaultRegionService);
   }
 
   @Test
@@ -769,7 +802,15 @@ public class S3StorageServiceTest {
 
     storageService.setIdFactory(new me.desair.tus.server.upload.UuidUploadIdFactory());
 
-    S3ConcatenationService concat = new S3ConcatenationService(minioClient, "test-bucket");
+    S3ConcatenationService concat =
+        new S3ConcatenationService(
+            minioClient,
+            "test-bucket",
+            "uploads/",
+            storageService,
+            Paths.get(System.getProperty("java.io.tmpdir")),
+            5242880L,
+            null);
     storageService.setUploadConcatenationService(concat);
     assertEquals(concat, storageService.getUploadConcatenationService());
 
@@ -1591,11 +1632,11 @@ public class S3StorageServiceTest {
   public void testSanitizePrefixNullOrEmptyInS3StorageService() throws Exception {
     java.nio.file.Path tmpDir = java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"));
 
-    S3StorageService s1 = new S3StorageService(minioClient, "bucket", "", "", "", "", tmpDir);
+    S3StorageService s1 = new S3StorageService(minioClient, "bucket", "", "", "", "", tmpDir, null);
     assertNotNull(s1);
 
     S3StorageService s2 =
-        new S3StorageService(minioClient, "bucket", null, null, null, null, tmpDir);
+        new S3StorageService(minioClient, "bucket", null, null, null, null, tmpDir, null);
     assertNotNull(s2);
   }
 
@@ -1998,7 +2039,14 @@ public class S3StorageServiceTest {
 
       S3StorageService customService =
           new S3StorageService(
-              minioClient, "test-bucket", "uploads/", "metadata/", "checksums/", "locks/", tempDir);
+              minioClient,
+              "test-bucket",
+              "uploads/",
+              "metadata/",
+              "checksums/",
+              "locks/",
+              tempDir,
+              null);
       customService.setUploadDeduplicationEnabled(true);
 
       Item checksumItem = mock(Item.class);

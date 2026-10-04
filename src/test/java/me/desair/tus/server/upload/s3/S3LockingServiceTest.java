@@ -45,7 +45,14 @@ public class S3LockingServiceTest {
   @Before
   public void setUp() throws Exception {
     minioClient = Mockito.mock(MinioClient.class);
-    lockingService = new S3LockingService(minioClient, "test-bucket");
+    lockingService =
+        new S3LockingService(
+            minioClient,
+            "test-bucket",
+            S3LockingService.DEFAULT_LOCKS_PREFIX,
+            S3LockingService.DEFAULT_LEASE_DURATION_MS,
+            S3LockingService.DEFAULT_POLL_INTERVAL_MS,
+            new UuidUploadIdFactory());
     s3StorageMap.clear();
 
     Mockito.when(minioClient.putObject(Mockito.any(PutObjectArgs.class)))
@@ -139,20 +146,32 @@ public class S3LockingServiceTest {
 
   @Test
   public void testExplicitConnectionParametersConstructors() {
+    S3LockingService serviceWithoutRegion =
+        new S3LockingService("https://s3.amazonaws.com", "accessKey", "secretKey", "test-bucket");
+    assertNotNull(serviceWithoutRegion);
+
     S3LockingService serviceWithParams =
         new S3LockingService(
             "https://s3.amazonaws.com", "eu-central-1", "accessKey", "secretKey", "test-bucket");
     assertNotNull(serviceWithParams);
 
-    S3LockingService serviceWithClientAndParams =
+    S3LockingService fullServiceWithParams =
         new S3LockingService(
-            minioClient,
             "https://s3.amazonaws.com",
             "eu-central-1",
             "accessKey",
             "secretKey",
-            "test-bucket");
-    assertNotNull(serviceWithClientAndParams);
+            "test-bucket",
+            "locks/",
+            30000L,
+            2000L,
+            new me.desair.tus.server.upload.UuidUploadIdFactory());
+    assertNotNull(fullServiceWithParams);
+
+    S3LockingService defaultRegionService =
+        new S3LockingService(
+            "https://s3.amazonaws.com", null, "accessKey", "secretKey", "test-bucket");
+    assertNotNull(defaultRegionService);
   }
 
   @Test
@@ -368,6 +387,16 @@ public class S3LockingServiceTest {
     lockingService.close();
   }
 
+  private S3LockingService createLockingService(MinioClient client, String bucket) {
+    return new S3LockingService(
+        client,
+        bucket,
+        S3LockingService.DEFAULT_LOCKS_PREFIX,
+        S3LockingService.DEFAULT_LEASE_DURATION_MS,
+        S3LockingService.DEFAULT_POLL_INTERVAL_MS,
+        new UuidUploadIdFactory());
+  }
+
   @Test
   public void testCheckStopSignalForEntryExceptionAndNullId() throws Exception {
     lockingService.setIdFactory(new me.desair.tus.server.upload.TimeBasedUploadIdFactory());
@@ -378,7 +407,7 @@ public class S3LockingServiceTest {
         .when(mockClient)
         .removeObject(Mockito.any(io.minio.RemoveObjectArgs.class));
 
-    S3LockingService service = new S3LockingService(mockClient, "test-bucket");
+    S3LockingService service = createLockingService(mockClient, "test-bucket");
     me.desair.tus.server.upload.TimeBasedUploadIdFactory idFactory =
         new me.desair.tus.server.upload.TimeBasedUploadIdFactory();
     idFactory.setUploadUri("/files/upload");
@@ -512,7 +541,7 @@ public class S3LockingServiceTest {
         .thenReturn(expiredStream)
         .thenReturn(validStream);
 
-    S3LockingService service = new S3LockingService(mockClient, "test-bucket");
+    S3LockingService service = createLockingService(mockClient, "test-bucket");
     service.cleanupStaleLocks();
 
     // Expired lock object is deleted
@@ -531,7 +560,7 @@ public class S3LockingServiceTest {
     Mockito.when(mockClient.putObject(Mockito.any(PutObjectArgs.class)))
         .thenThrow(new RuntimeException("S3 Put error"));
 
-    S3LockingService service = new S3LockingService(mockClient, "test-bucket");
+    S3LockingService service = createLockingService(mockClient, "test-bucket");
     me.desair.tus.server.upload.TimeBasedUploadIdFactory idFactory =
         new me.desair.tus.server.upload.TimeBasedUploadIdFactory();
     idFactory.setUploadUri("/files/upload");
@@ -544,7 +573,7 @@ public class S3LockingServiceTest {
   @Test
   public void testCloseInterruptsActiveStreams() throws Exception {
     MinioClient mockClient = Mockito.mock(MinioClient.class);
-    S3LockingService service = new S3LockingService(mockClient, "test-bucket");
+    S3LockingService service = createLockingService(mockClient, "test-bucket");
     ByteArrayInputStream bis = new ByteArrayInputStream(new byte[] {1, 2, 3});
     InterruptibleInputStream iis = new InterruptibleInputStream(bis);
 

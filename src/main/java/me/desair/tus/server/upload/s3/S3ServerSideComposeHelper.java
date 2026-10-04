@@ -63,38 +63,35 @@ public class S3ServerSideComposeHelper {
   private final String explicitRegion;
 
   /**
-   * Constructs an instance wrapping the given {@link MinioClient} without reflection.
+   * Constructs an instance with explicit connection parameters without requiring a {@link
+   * MinioClient}.
    *
-   * <p>If explicit connection parameters are not provided, this helper falls back to calling {@link
-   * MinioClient#composeObject(ComposeObjectArgs)} directly.
-   *
-   * @param minioClient The MinIO client instance
-   */
-  public S3ServerSideComposeHelper(MinioClient minioClient) {
-    this.minioClient = minioClient;
-    this.asyncClient = null;
-    this.baseUrl = null;
-    this.provider = null;
-    this.httpClient = null;
-    this.explicitRegion = null;
-  }
-
-  /**
-   * Constructs an instance with an existing {@link MinioClient} and explicit connection parameters.
-   *
-   * <p>This allows native S3 multipart copy without using reflection on {@link MinioClient}.
-   *
-   * @param minioClient The existing MinIO client instance
    * @param endpoint The S3 endpoint URL (e.g. "https://s3.amazonaws.com" or
    *     "http://localhost:9000")
-   * @param region S3 region name (optional, defaults to "eu-central-1" if null or empty)
+   * @param region S3 region name (optional, defaults to "local" if null or empty)
    * @param accessKey S3 access key / username
    * @param secretKey S3 secret key / password
    */
   public S3ServerSideComposeHelper(
+      String endpoint, String region, String accessKey, String secretKey) {
+    this(null, endpoint, region, accessKey, secretKey);
+  }
+
+  /**
+   * Constructs an instance wrapping the given {@link MinioClient} without reflection.
+   *
+   * <p>Package-private constructor for internal testing.
+   *
+   * @param minioClient The MinIO client instance
+   */
+  S3ServerSideComposeHelper(MinioClient minioClient) {
+    this(minioClient, null, null, null, null);
+  }
+
+  private S3ServerSideComposeHelper(
       MinioClient minioClient, String endpoint, String region, String accessKey, String secretKey) {
     this.minioClient = minioClient;
-    this.explicitRegion = (region != null && !region.isEmpty()) ? region : "eu-central-1";
+    this.explicitRegion = (region != null && !region.isEmpty()) ? region : "local";
 
     Http.BaseUrl base = null;
     Provider prov = null;
@@ -164,7 +161,7 @@ public class S3ServerSideComposeHelper {
       region = explicitRegion;
     }
     if (region == null || region.isEmpty()) {
-      region = "eu-central-1";
+      region = "local";
     }
 
     Credentials credentials = (provider != null) ? provider.fetch() : null;

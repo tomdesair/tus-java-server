@@ -39,18 +39,63 @@ public class S3ConcatenationServiceTest {
             "test-bucket",
             "uploads/",
             storageService,
-            Paths.get(System.getProperty("java.io.tmpdir")));
+            Paths.get(System.getProperty("java.io.tmpdir")),
+            5242880L,
+            null);
   }
 
   @Test
-  public void testConstructorsAndSetters() {
-    S3ConcatenationService service1 = new S3ConcatenationService(minioClient, "test-bucket");
-    S3ConcatenationService service2 =
-        new S3ConcatenationService(minioClient, "test-bucket", storageService);
-    service1.setUploadStorageService(storageService);
+  public void testConstructors() {
+    S3ConcatenationService service =
+        new S3ConcatenationService(
+            minioClient,
+            "test-bucket",
+            "uploads/",
+            storageService,
+            Paths.get(System.getProperty("java.io.tmpdir")),
+            5242880L,
+            null);
+    assertNotNull(service);
 
-    assertNotNull(service1);
-    assertNotNull(service2);
+    // Public connection parameter constructors without region (defaults to "local")
+    S3ConcatenationService serviceParamsNoRegionWithStorage =
+        new S3ConcatenationService(
+            "https://s3.amazonaws.com", "accessKey", "secretKey", "test-bucket", storageService);
+    assertNotNull(serviceParamsNoRegionWithStorage);
+
+    // Public connection parameter constructors with region
+    S3ConcatenationService serviceParamsWithRegion =
+        new S3ConcatenationService(
+            "https://s3.amazonaws.com",
+            "us-east-1",
+            "accessKey",
+            "secretKey",
+            "test-bucket",
+            storageService);
+    assertNotNull(serviceParamsWithRegion);
+
+    S3ConcatenationService serviceParamsFull =
+        new S3ConcatenationService(
+            "https://s3.amazonaws.com",
+            "us-east-1",
+            "accessKey",
+            "secretKey",
+            "test-bucket",
+            "uploads/",
+            storageService,
+            Paths.get(System.getProperty("java.io.tmpdir")),
+            5242880L);
+    assertNotNull(serviceParamsFull);
+
+    S3ConcatenationService defaultRegionService =
+        new S3ConcatenationService(
+            "https://s3.amazonaws.com",
+            null,
+            "accessKey",
+            "secretKey",
+            "test-bucket",
+            storageService);
+    assertNotNull(defaultRegionService);
   }
 
   @Test
@@ -354,14 +399,16 @@ public class S3ConcatenationServiceTest {
     assertNotNull(result);
   }
 
-  @Test(expected = IOException.class)
-  public void testGetConcatenatedBytesWithoutStorageService() throws Exception {
-    S3ConcatenationService standalone = new S3ConcatenationService(minioClient, "test-bucket");
-    UploadInfo info = new UploadInfo();
-    info.setId(new UploadId("concat-1"));
-    info.setStorageUploadId("uploads/concat-1");
-
-    standalone.getConcatenatedBytes(info);
+  @Test(expected = NullPointerException.class)
+  public void testConstructorNullStorageServiceThrowsException() {
+    new S3ConcatenationService(
+        minioClient,
+        "test-bucket",
+        "uploads/",
+        null,
+        Paths.get(System.getProperty("java.io.tmpdir")),
+        5242880L,
+        null);
   }
 
   @Test

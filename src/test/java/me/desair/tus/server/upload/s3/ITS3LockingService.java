@@ -46,7 +46,8 @@ public class ITS3LockingService {
   @Before
   public void setUp() {
     org.junit.Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable());
-    lockingService = new S3LockingService(minioClient, BUCKET);
+    String endpoint = TestUtils.getS3Endpoint(rustfsContainer);
+    lockingService = new S3LockingService(endpoint, "rustfsadmin", "rustfsadmin", BUCKET);
   }
 
   @Test

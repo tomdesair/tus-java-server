@@ -78,13 +78,23 @@ public final class TestUtils {
   }
 
   /**
+   * Returns the S3 endpoint URL for the active S3 Testcontainer (RustFS).
+   *
+   * @param s3Container The active S3 Testcontainer (RustFS)
+   * @return S3 endpoint URL
+   */
+  public static String getS3Endpoint(GenericContainer<?> s3Container) {
+    return "http://" + s3Container.getHost() + ":" + s3Container.getMappedPort(9000);
+  }
+
+  /**
    * Create a {@link MinioClient} configured to connect to the given S3/RustFS container.
    *
    * @param s3Container The active S3 Testcontainer (RustFS)
    * @return Pre-configured MinioClient
    */
   public static MinioClient createMinioClient(GenericContainer<?> s3Container) {
-    String s3Url = "http://" + s3Container.getHost() + ":" + s3Container.getMappedPort(9000);
+    String s3Url = getS3Endpoint(s3Container);
     return MinioClient.builder().endpoint(s3Url).credentials("rustfsadmin", "rustfsadmin").build();
   }
 

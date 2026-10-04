@@ -125,28 +125,21 @@ public class S3StorageService implements UploadStorageService {
   private S3ServerSideComposeHelper s3ComposeHelper;
 
   /**
-   * Basic constructor using default object key prefixes and standard system temp directory.
+   * Convenience constructor for local S3-compatible backends (e.g., MinIO, RustFS, Ceph) where
+   * region is omitted. Defaults the region to "local".
    *
-   * @param minioClient Pre-configured MinIO Client
+   * @param endpoint S3 endpoint URL (e.g. "http://localhost:9000")
+   * @param accessKey S3 access key / username
+   * @param secretKey S3 secret key / password
    * @param bucket S3 bucket name
    */
-  public S3StorageService(MinioClient minioClient, String bucket) {
-    this(
-        minioClient,
-        bucket,
-        DEFAULT_OBJECT_PREFIX,
-        DEFAULT_METADATA_PREFIX,
-        DEFAULT_CHECKSUMS_PREFIX,
-        DEFAULT_LOCKS_PREFIX,
-        Paths.get(System.getProperty("java.io.tmpdir")));
+  public S3StorageService(String endpoint, String accessKey, String secretKey, String bucket) {
+    this(endpoint, "local", accessKey, secretKey, bucket);
   }
 
   /**
-   * Constructor accepting explicit connection parameters without requiring a pre-existing
-   * MinioClient.
-   *
-   * <p>Builds both {@link MinioClient} and the native {@link S3ServerSideComposeHelper} directly
-   * using the provided connection properties, avoiding reflection.
+   * Basic constructor accepting explicit connection parameters without exposing underlying client
+   * libraries.
    *
    * @param endpoint S3 endpoint URL (e.g. "https://s3.amazonaws.com" or "http://localhost:9000")
    * @param region S3 region name (e.g. "us-east-1", "eu-central-1")
@@ -157,52 +150,27 @@ public class S3StorageService implements UploadStorageService {
   public S3StorageService(
       String endpoint, String region, String accessKey, String secretKey, String bucket) {
     this(
-        buildMinioClient(endpoint, region, accessKey, secretKey),
+        endpoint,
+        region,
+        accessKey,
+        secretKey,
         bucket,
         DEFAULT_OBJECT_PREFIX,
         DEFAULT_METADATA_PREFIX,
         DEFAULT_CHECKSUMS_PREFIX,
         DEFAULT_LOCKS_PREFIX,
-        Paths.get(System.getProperty("java.io.tmpdir")),
-        new S3ServerSideComposeHelper(null, endpoint, region, accessKey, secretKey));
+        Paths.get(System.getProperty("java.io.tmpdir")));
   }
 
   /**
-   * Constructor accepting a pre-configured {@link MinioClient} along with the explicit connection
-   * parameters required by {@link S3ServerSideComposeHelper}.
+   * Full constructor accepting explicit connection parameters and prefix/buffer customization.
    *
-   * <p>This provides full control over {@link MinioClient} configuration while cleanly initializing
-   * server-side multipart copy without reflection.
+   * <p>Delegates to the internal package-private constructor accepting {@link MinioClient}.
    *
-   * @param minioClient Pre-configured MinIO Client
    * @param endpoint S3 endpoint URL (e.g. "https://s3.amazonaws.com" or "http://localhost:9000")
    * @param region S3 region name (e.g. "us-east-1", "eu-central-1")
    * @param accessKey S3 access key / username
    * @param secretKey S3 secret key / password
-   * @param bucket S3 bucket name
-   */
-  public S3StorageService(
-      MinioClient minioClient,
-      String endpoint,
-      String region,
-      String accessKey,
-      String secretKey,
-      String bucket) {
-    this(
-        minioClient,
-        bucket,
-        DEFAULT_OBJECT_PREFIX,
-        DEFAULT_METADATA_PREFIX,
-        DEFAULT_CHECKSUMS_PREFIX,
-        DEFAULT_LOCKS_PREFIX,
-        Paths.get(System.getProperty("java.io.tmpdir")),
-        new S3ServerSideComposeHelper(minioClient, endpoint, region, accessKey, secretKey));
-  }
-
-  /**
-   * Full constructor allowing full customization of object prefixes and local disk buffer path.
-   *
-   * @param minioClient Pre-configured MinIO Client
    * @param bucket S3 bucket name
    * @param objectPrefix Key prefix for final completed file objects
    * @param metadataPrefix Key prefix for metadata (.info JSON and .part buffer) objects
@@ -211,7 +179,10 @@ public class S3StorageService implements UploadStorageService {
    * @param temporaryDirectory Local directory path for staging chunks before S3 upload
    */
   public S3StorageService(
-      MinioClient minioClient,
+      String endpoint,
+      String region,
+      String accessKey,
+      String secretKey,
       String bucket,
       String objectPrefix,
       String metadataPrefix,
@@ -219,18 +190,21 @@ public class S3StorageService implements UploadStorageService {
       String locksPrefix,
       Path temporaryDirectory) {
     this(
-        minioClient,
+        buildMinioClient(endpoint, region, accessKey, secretKey),
         bucket,
         objectPrefix,
         metadataPrefix,
         checksumsPrefix,
         locksPrefix,
         temporaryDirectory,
-        new S3ServerSideComposeHelper(minioClient));
+        new S3ServerSideComposeHelper(endpoint, region, accessKey, secretKey));
   }
 
-  /** Internal constructor accepting an initialized {@link S3ServerSideComposeHelper}. */
-  private S3StorageService(
+  /**
+   * Internal package-private constructor accepting {@link MinioClient} where all parameter
+   * configuration and initialization logic is concentrated.
+   */
+  S3StorageService(
       MinioClient minioClient,
       String bucket,
       String objectPrefix,
@@ -273,34 +247,27 @@ public class S3StorageService implements UploadStorageService {
             },
             new ThreadPoolExecutor.CallerRunsPolicy());
 
-    this.concatenationService =
-        new S3ConcatenationService(
-            this.minioClient, this.bucket, this.objectPrefix, this, this.temporaryDirectory);
     this.s3ComposeHelper =
         s3ComposeHelper != null ? s3ComposeHelper : new S3ServerSideComposeHelper(this.minioClient);
-    if (this.concatenationService instanceof S3ConcatenationService) {
-      ((S3ConcatenationService) this.concatenationService)
-          .setS3ServerSideComposeHelper(this.s3ComposeHelper);
-    }
+    this.concatenationService =
+        new S3ConcatenationService(
+            this.minioClient,
+            this.bucket,
+            this.objectPrefix,
+            this,
+            this.temporaryDirectory,
+            DEFAULT_MIN_PART_SIZE,
+            this.s3ComposeHelper);
   }
 
   private static MinioClient buildMinioClient(
       String endpoint, String region, String accessKey, String secretKey) {
-    String effectiveRegion = (region != null && !region.isEmpty()) ? region : "eu-central-1";
+    String effectiveRegion = (region != null && !region.isEmpty()) ? region : "local";
     return MinioClient.builder()
         .endpoint(endpoint)
         .credentials(accessKey, secretKey)
         .region(effectiveRegion)
         .build();
-  }
-
-  /**
-   * Returns the underlying {@link MinioClient} configured for this storage service.
-   *
-   * @return The MinIO client instance
-   */
-  public MinioClient getMinioClient() {
-    return this.minioClient;
   }
 
   /**

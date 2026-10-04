@@ -29,38 +29,35 @@ Jackson dependencies (`jackson-databind`, `jackson-annotations`, `jackson-core`)
 ### Step 2: Configure `TusFileUploadService`
 
 ```java
-import io.minio.MinioClient;
 import me.desair.tus.server.TusFileUploadService;
 import me.desair.tus.server.upload.s3.S3StorageService;
 import me.desair.tus.server.upload.s3.S3LockingService;
 
-// 1. Production Configuration: Load S3 parameters securely from environment variables
+// Option A: Local S3-compatible backend (e.g. MinIO, RustFS, Ceph)
+// The region parameter can be omitted (defaults to "local"); local backends ignore region in SigV4 validation.
+S3StorageService localS3Storage = new S3StorageService(
+    "http://localhost:9000", "minioadmin", "minioadmin", "my-upload-bucket");
+S3LockingService localS3Locking = new S3LockingService(
+    "http://localhost:9000", "minioadmin", "minioadmin", "my-upload-bucket");
+
+// Option B: AWS S3 with explicit region
+// AWS strictly enforces region validation for bucket routing and SigV4 authentication.
 String endpoint = System.getenv().getOrDefault("S3_ENDPOINT", "https://s3.eu-central-1.amazonaws.com");
 String bucketName = System.getenv().getOrDefault("S3_BUCKET_NAME", "my-upload-bucket");
 String accessKey = System.getenv("AWS_ACCESS_KEY_ID");
 String secretKey = System.getenv("AWS_SECRET_ACCESS_KEY");
 
-MinioClient minioClient = MinioClient.builder()
-    .endpoint(endpoint)
-    .credentials(accessKey, secretKey)
-    .build();
+S3StorageService awsS3Storage = new S3StorageService(
+    endpoint, "eu-central-1", accessKey, secretKey, bucketName);
+S3LockingService awsS3Locking = new S3LockingService(
+    endpoint, "eu-central-1", accessKey, secretKey, bucketName);
 
-// 2. Instantiate S3 Storage and Distributed Locking services
-// Option A: Direct connection parameters (recommended, builds internal client with server-side compose helper)
-S3StorageService s3StorageService = new S3StorageService(endpoint, "eu-central-1", accessKey, secretKey, bucketName);
-S3LockingService s3LockingService = new S3LockingService(endpoint, "eu-central-1", accessKey, secretKey, bucketName);
-
-// Option B: Using a pre-configured MinIO Client
-// S3StorageService s3StorageService = new S3StorageService(minioClient, endpoint, "eu-central-1", accessKey, secretKey, bucketName);
-// S3LockingService s3LockingService = new S3LockingService(minioClient, bucketName);
-
-// 3. Configure TusFileUploadService with S3 storage and locking
+// Configure TusFileUploadService with S3 storage and locking
 // Note: Automatic JVM shutdown hooks are built-in by default to terminate watchdog threads on pod exit.
-// Manual call to tusService.close() or s3LockingService.close() is optional for custom container lifecycles.
 TusFileUploadService tusService = new TusFileUploadService()
     .withUploadUri("/files/upload")
-    .withUploadStorageService(s3StorageService)
-    .withUploadLockingService(s3LockingService);
+    .withUploadStorageService(awsS3Storage)
+    .withUploadLockingService(awsS3Locking);
 ```
 
 ---
@@ -144,19 +141,41 @@ try (InputStream stream = minioClient.getObject(
 
 ---
 
-## 5. Configuring Custom S3 Endpoints (MinIO, RustFS, R2, Ceph, GCS)
+## 5. Configuring Custom S3 Endpoints & Regions (AWS vs. Local S3 Backends)
 
-`S3StorageService` accepts any pre-configured `MinioClient`. To connect to an S3-compatible backend (such as local MinIO, RustFS, or Cloudflare R2), override the endpoint when building the `MinioClient`:
+`S3StorageService`, `S3LockingService`, and `S3ConcatenationService` accept any S3 endpoint and handle regional authentication flexibly:
+
+- **Local S3-Compatible Backends (MinIO, RustFS, Ceph, SeaweedFS)**:
+  Self-hosted and local S3-compatible storage engines do not strictly validate AWS regions during Signature Version 4 (SigV4) authentication. You can omit the `region` parameter completely; it automatically defaults to `"local"`.
+- **AWS S3 & Cloud Providers (AWS S3, Cloudflare R2, Google Cloud Storage)**:
+  AWS strictly validates the region parameter against bucket locations during SigV4 authentication and request routing. Always supply the target region (e.g., `"eu-central-1"`, `"us-east-1"`, or `"auto"` for Cloudflare R2).
+
+### Example 1: Local S3-Compatible Backend (Without Region)
 
 ```java
-import io.minio.MinioClient;
+// Omit region parameter; defaults to "local"
+S3StorageService localS3Storage =
+    new S3StorageService("http://minio.local:9000", "minioadmin", "minioadmin", "my-bucket");
 
-MinioClient minioClient = MinioClient.builder()
-    .endpoint("http://minio.local:9000")
-    .credentials("minioadmin", "minioadmin")
-    .build();
+S3LockingService localS3Locking =
+    new S3LockingService("http://minio.local:9000", "minioadmin", "minioadmin", "my-bucket");
 
-S3StorageService s3Storage = new S3StorageService(minioClient, "my-bucket");
+S3ConcatenationService localS3Concat =
+    new S3ConcatenationService("http://minio.local:9000", "minioadmin", "minioadmin", "my-bucket", localS3Storage);
+```
+
+### Example 2: AWS S3 (With Explicit Region)
+
+```java
+// Provide explicit AWS region (e.g. "eu-central-1", "us-east-1")
+S3StorageService awsS3Storage =
+    new S3StorageService("https://s3.eu-central-1.amazonaws.com", "eu-central-1", accessKey, secretKey, "my-bucket");
+
+S3LockingService awsS3Locking =
+    new S3LockingService("https://s3.eu-central-1.amazonaws.com", "eu-central-1", accessKey, secretKey, "my-bucket");
+
+S3ConcatenationService awsS3Concat =
+    new S3ConcatenationService("https://s3.eu-central-1.amazonaws.com", "eu-central-1", accessKey, secretKey, "my-bucket", awsS3Storage);
 ```
 
 ---
@@ -184,7 +203,10 @@ S3 requires every part chunk of a multipart upload to be at least 5 MB (except t
 Path customTempDir = Paths.get("/var/tmp/tus-buffer");
 
 S3StorageService s3Storage = new S3StorageService(
-    minioClient,
+    endpoint,
+    "eu-central-1",
+    accessKey,
+    secretKey,
     "my-bucket",
     "uploads/",
     "metadata/",
@@ -259,19 +281,19 @@ The jitter window can be customized via `.withJitter(minMs, maxMs)` on `S3Lockin
 // On backends with atomic conditional writes, jitter is not needed.
 // Passing (0L, 0L) completely bypasses Thread.sleep for fastest lock acquisition:
 S3LockingService s3LockingService =
-    new S3LockingService(minioClient, bucketName)
+    new S3LockingService(endpoint, "eu-central-1", accessKey, secretKey, bucketName)
         .withJitter(0L, 0L);
 
 // Option B: High-Latency or Distributed Backends (Ceph, multi-datacenter MinIO)
 // High-latency backends or geo-replicated clusters may need a wider window to settle writes:
 S3LockingService s3LockingService =
-    new S3LockingService(minioClient, bucketName)
+    new S3LockingService(endpoint, "eu-central-1", accessKey, secretKey, bucketName)
         .withJitter(50L, 200L);
 
 // Option C: Explicit Non-CAS Mode (e.g. Wasabi)
 // Pre-checks existing locks before writing unconditionally:
 S3LockingService s3LockingService =
-    new S3LockingService(minioClient, bucketName)
+    new S3LockingService(endpoint, "eu-central-1", accessKey, secretKey, bucketName)
         .withS3ConditionalWritesSupported(false);
 ```
 

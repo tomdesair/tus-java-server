@@ -259,10 +259,14 @@ public class S3ServerSideComposeHelperTest {
             .region("us-east-1")
             .build();
 
-    S3ServerSideComposeHelper helper =
+    S3ServerSideComposeHelper helperWithoutClient =
         new S3ServerSideComposeHelper(
-            realClient, "https://s3.amazonaws.com", "us-east-1", "testKey", "testSecret");
-    assertTrue(helper.isAvailable());
+            "https://s3.amazonaws.com", "us-east-1", "testKey", "testSecret");
+    assertTrue(helperWithoutClient.isAvailable());
+
+    S3ServerSideComposeHelper helperWithNullRegion =
+        new S3ServerSideComposeHelper("https://s3.amazonaws.com", null, "testKey", "testSecret");
+    assertTrue(helperWithNullRegion.isAvailable());
 
     S3ServerSideComposeHelper minioOnlyHelper = new S3ServerSideComposeHelper(realClient);
     assertFalse(minioOnlyHelper.isAvailable());

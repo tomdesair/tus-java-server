@@ -51,7 +51,7 @@ public class S3UploadLock extends AbstractLeaseLock {
    * @param stopKey The S3 object key for the interrupt stop signal
    * @param inputStreamMap Map of active request input streams
    */
-  public S3UploadLock(
+  S3UploadLock(
       LeaseData leaseData,
       MinioClient minioClient,
       String bucket,
