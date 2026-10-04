@@ -55,7 +55,7 @@ jobs:
         name: Update dependency graph
         uses: advanced-security/maven-dependency-submission-action@b275d12641ac2d2108b2cbb7598b154ad2f2cee8 # v5.0.0
 
-      - if: ${{ matrix.run-sonarcloud }}
+      - if: ${{ matrix.run-sonarcloud && github.actor != 'dependabot[bot]' && github.event_name != 'pull_request' }}
         name: SonarCloud
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
