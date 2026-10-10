@@ -543,4 +543,11 @@ public class S3ConcatenationServiceTest {
     assertEquals(Long.valueOf(10L * 1024 * 1024), parent.getLength());
     assertEquals(Long.valueOf(10L * 1024 * 1024), parent.getOffset());
   }
+
+  @Test
+  public void testSetS3ServerSideComposeHelper() {
+    S3ServerSideComposeHelper mockHelper = Mockito.mock(S3ServerSideComposeHelper.class);
+    concatenationService.setS3ServerSideComposeHelper(mockHelper);
+    assertNotNull(concatenationService);
+  }
 }

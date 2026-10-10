@@ -203,4 +203,30 @@ public class ITAzureBlobLockingService {
 
     service.lockUploadByUri("/test/upload/12345");
   }
+
+  @Test
+  public void testCreateAndDeleteStopSignalBlob() {
+    lockingService.createStopSignalBlob("test-stop-id");
+    com.azure.storage.blob.BlobClient stopBlob =
+        containerClient.getBlobClient("locks/test-stop-id.stop");
+    assertTrue(Boolean.TRUE.equals(stopBlob.exists()));
+
+    lockingService.deleteStopSignalBlob("test-stop-id");
+    assertFalse(Boolean.TRUE.equals(stopBlob.exists()));
+  }
+
+  @Test
+  public void testStopSignalBlobCatchBlocksHandledGracefully() {
+    com.azure.storage.blob.BlobServiceClient serviceClient = containerClient.getServiceClient();
+    BlobContainerClient nonExistentContainer =
+        serviceClient.getBlobContainerClient("non-existent-" + System.nanoTime());
+    AzureBlobLockingService failingService = new AzureBlobLockingService(nonExistentContainer);
+
+    // Verified against Azurite that non-existent container calls fail fast and are handled quietly
+    failingService.createStopSignalBlob("fail-stop");
+    failingService.deleteStopSignalBlob("fail-stop");
+    failingService.ensureLockBlobExists(nonExistentContainer.getBlobClient("fail.lock"));
+    // KISS: verifying methods execute cleanly without throwing uncaught exceptions
+    assertTrue(true);
+  }
 }

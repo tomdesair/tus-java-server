@@ -358,6 +358,69 @@ public class S3ServerSideComposeHelperTest {
     }
   }
 
+  @Test
+  public void testExplicitConnectionParametersInitializationFailureHandledGracefully() {
+    // When endpoint contains invalid syntax that triggers an exception during MinioAsyncClient
+    // creation, the constructor catches the exception and logs a warning gracefully without
+    // throwing.
+    S3ServerSideComposeHelper helper =
+        new S3ServerSideComposeHelper(
+            "http://:::invalid:::", "us-east-1", "accessKey", "secretKey");
+    assertFalse(helper.isAvailable());
+  }
+
+  @Test
+  public void testNativeComposeRegionFallbackToLocal() throws Exception {
+    MinioClient minioClient = mock(MinioClient.class);
+    MinioAsyncClient asyncClient = mock(MinioAsyncClient.class);
+    OkHttpClient httpClient = mock(OkHttpClient.class);
+    Provider provider = mock(Provider.class);
+
+    Credentials creds = new Credentials("testAccessKey", "testSecretKey", null, null);
+    when(provider.fetch()).thenReturn(creds);
+
+    // Endpoint without AWS region domain (e.g. localhost) so baseUrl.region() is empty
+    Http.BaseUrl baseUrl = new Http.BaseUrl(HttpUrl.parse("http://localhost:9000"));
+
+    InitiateMultipartUploadResult initResult = mock(InitiateMultipartUploadResult.class);
+    when(initResult.uploadId()).thenReturn("mock-upload-id");
+    CreateMultipartUploadResponse createResponse =
+        new CreateMultipartUploadResponse(null, "my-bucket", "", "upload/target", initResult);
+    when(asyncClient.createMultipartUpload(any(CreateMultipartUploadArgs.class)))
+        .thenReturn(CompletableFuture.completedFuture(createResponse));
+
+    ObjectWriteResponse completeResponse =
+        new ObjectWriteResponse(null, "my-bucket", "", "upload/target", "etag-final", "v1");
+    when(asyncClient.completeMultipartUpload(any(CompleteMultipartUploadArgs.class)))
+        .thenReturn(CompletableFuture.completedFuture(completeResponse));
+
+    Call call = mock(Call.class);
+    when(httpClient.newCall(any(Request.class))).thenReturn(call);
+
+    String partXml = "<CopyPartResult><ETag>\"part-etag-1\"</ETag></CopyPartResult>";
+    ResponseBody body = ResponseBody.create(partXml, MediaType.parse("application/xml"));
+    Response response =
+        new Response.Builder()
+            .request(new Request.Builder().url("http://localhost:9000").build())
+            .protocol(Protocol.HTTP_1_1)
+            .code(200)
+            .message("OK")
+            .body(body)
+            .build();
+    when(call.execute()).thenReturn(response);
+
+    S3ServerSideComposeHelper helper = new S3ServerSideComposeHelper(minioClient);
+    setField(helper, "asyncClient", asyncClient);
+    setField(helper, "baseUrl", baseUrl);
+    setField(helper, "httpClient", httpClient);
+    setField(helper, "provider", provider);
+    setField(helper, "explicitRegion", null);
+
+    // Verify composition executes with fallback region "local" without errors
+    helper.compose("my-bucket", "upload/target", Collections.singletonList("upload/part-1"));
+    verify(asyncClient).completeMultipartUpload(any(CompleteMultipartUploadArgs.class));
+  }
+
   private static void setField(Object target, String fieldName, Object value) throws Exception {
     Field field = S3ServerSideComposeHelper.class.getDeclaredField(fieldName);
     field.setAccessible(true);

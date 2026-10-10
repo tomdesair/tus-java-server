@@ -42,6 +42,7 @@ import java.util.List;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
+import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -2617,6 +2618,269 @@ public class S3StorageServiceTest {
             argThat(
                 (RemoveObjectArgs a) ->
                     a != null && "metadata/orphan-test-id.part.99999".equals(a.object())));
+  }
+
+  @Test
+  public void testConstructorUnableToEnsureTempDirLogsDebug() throws Exception {
+    java.nio.file.Path tempFile = java.nio.file.Files.createTempFile("tus-existing-file", ".tmp");
+    try {
+      S3StorageService service =
+          new S3StorageService(
+              minioClient,
+              "test-bucket",
+              "uploads/",
+              "metadata/",
+              "checksums/",
+              "locks/",
+              tempFile,
+              null);
+      assertNotNull(service);
+    } finally {
+      java.nio.file.Files.deleteIfExists(tempFile);
+    }
+  }
+
+  @Test
+  public void testAppendSetsLengthWhenInfoLengthIsNull() throws Exception {
+    UploadId uploadId = new UploadId("deferred-len-id");
+    UploadInfo infoInS3 = new UploadInfo();
+    infoInS3.setId(uploadId);
+    infoInS3.setLength(null);
+    infoInS3.setOffset(0L);
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && "metadata/deferred-len-id.info".equals(a.object()))))
+        .thenReturn(mockGetObjectResponse(UploadInfoJsonSerializer.serialize(infoInS3).getBytes()));
+
+    UploadInfo appendUpload = new UploadInfo();
+    appendUpload.setId(uploadId);
+    appendUpload.setLength(500L);
+
+    UploadInfo result = storageService.append(appendUpload, new ByteArrayInputStream(new byte[0]));
+    assertNotNull(result);
+    assertEquals(Long.valueOf(500L), result.getLength());
+  }
+
+  @Test
+  public void testGetUploadInfoByChecksumNoSuchKeyReturnsNull() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    ErrorResponse notFound =
+        new ErrorResponse("NoSuchKey", "Not found", null, null, null, null, null);
+    when(minioClient.getObject(
+            argThat((GetObjectArgs a) -> a != null && a.object().startsWith("checksums/"))))
+        .thenThrow(new ErrorResponseException(notFound, null, null));
+
+    UploadInfo info = storageService.getUploadInfoByChecksum("hash-123", ChecksumAlgorithm.SHA1);
+    assertNull(info);
+  }
+
+  @Test
+  public void testPruneOrphanedChecksumIndicesListObjectsExceptionHandled() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    when(minioClient.listObjects(
+            argThat((ListObjectsArgs a) -> a != null && a.prefix().startsWith("checksums/"))))
+        .thenThrow(new RuntimeException("Simulated S3 listing error"));
+
+    storageService.cleanupExpiredUploads(null);
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
+  }
+
+  @Test
+  public void testIsJsonSerializationEnabled() {
+    assertTrue(storageService.isJsonSerializationEnabled());
+  }
+
+  @Test
+  public void testSetAndGetS3ServerSideComposeHelper() {
+    S3ServerSideComposeHelper mockHelper = mock(S3ServerSideComposeHelper.class);
+    storageService.setS3ServerSideComposeHelper(mockHelper);
+    assertEquals(mockHelper, storageService.getS3ServerSideComposeHelper());
+  }
+
+  @Test
+  public void testCloseInterruptedHandledGracefully() throws Exception {
+    Thread.currentThread().interrupt();
+    try {
+      storageService.close();
+    } finally {
+      Thread.interrupted(); // Clear interrupted status
+    }
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
+  }
+
+  @Test
+  public void testPrepareStreamWithExistingIncompletePartInspectionExceptionHandled()
+      throws Exception {
+    UploadId uploadId = new UploadId("part-inspect-err-id");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setLength(1000L);
+    info.setOffset(50L);
+    String partKey = "metadata/part-inspect-err-id.part.00001";
+    info.setUploadPartKeys(new ArrayList<>(Collections.singletonList(partKey)));
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && "metadata/part-inspect-err-id.info".equals(a.object()))))
+        .thenReturn(mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes()));
+
+    // StatObject on last part throws Exception to test lines 1033-1034 catch block
+    when(minioClient.statObject(
+            argThat((StatObjectArgs a) -> a != null && partKey.equals(a.object()))))
+        .thenThrow(new RuntimeException("Part inspection failed"));
+
+    UploadInfo result = storageService.append(info, new ByteArrayInputStream(new byte[0]));
+    assertNotNull(result);
+  }
+
+  @Test
+  public void testCalculateAndSetOffsetNullAndStatObjectException() throws Exception {
+    // Null info / null ID does nothing
+    storageService.calculateAndSetOffset(null);
+    UploadInfo nullIdInfo = new UploadInfo();
+    storageService.calculateAndSetOffset(nullIdInfo);
+
+    // Object exists but statObject throws Exception
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("stat-fail-id"));
+    when(minioClient.statObject(
+            argThat((StatObjectArgs a) -> a != null && "uploads/stat-fail-id".equals(a.object()))))
+        .thenThrow(new RuntimeException("StatObject failed"));
+
+    storageService.calculateAndSetOffset(info);
+    assertEquals(Long.valueOf(0L), info.getOffset());
+  }
+
+  @Test
+  public void testDeleteObjectsBatchEmptyListAndErrorReported() throws Exception {
+    // Empty list returns immediately
+    storageService.deleteS3ObjectsQuietly(Collections.emptyList());
+
+    // Batch delete reports error, falling back to individual delete
+    @SuppressWarnings("unchecked")
+    Result<io.minio.messages.DeleteResult.Error> mockRes = mock(Result.class);
+    io.minio.messages.DeleteResult.Error mockError =
+        mock(io.minio.messages.DeleteResult.Error.class);
+    when(mockError.objectName()).thenReturn("key-1");
+    when(mockError.message()).thenReturn("Access Denied");
+    when(mockRes.get()).thenReturn(mockError);
+
+    when(minioClient.removeObjects(any(RemoveObjectsArgs.class)))
+        .thenReturn(Collections.singletonList(mockRes));
+
+    storageService.deleteS3ObjectsQuietly(Arrays.asList("key-1", "key-2"));
+    verify(minioClient)
+        .removeObject(argThat((RemoveObjectArgs a) -> a != null && "key-1".equals(a.object())));
+    verify(minioClient)
+        .removeObject(argThat((RemoveObjectArgs a) -> a != null && "key-2".equals(a.object())));
+  }
+
+  @Test
+  public void testPreparedStreamInterruptDelegation() {
+    me.desair.tus.server.util.InterruptibleInputStream origStream =
+        new me.desair.tus.server.util.InterruptibleInputStream(
+            new ByteArrayInputStream(new byte[10]));
+    S3StorageService.PreparedStream prepStream =
+        new S3StorageService.PreparedStream(
+            new ByteArrayInputStream(new byte[10]),
+            origStream,
+            0L,
+            0L,
+            Collections.emptyList(),
+            Collections.emptyList());
+
+    assertFalse(prepStream.isInterrupted());
+    prepStream.interrupt();
+    assertTrue(prepStream.isInterrupted());
+    assertTrue(origStream.isInterrupted());
+  }
+
+  @Test(expected = java.util.NoSuchElementException.class)
+  public void testS3PartInputStreamEnumerationThrowsNoSuchElementException() {
+    S3StorageService.S3PartInputStreamEnumeration enumeration =
+        new S3StorageService.S3PartInputStreamEnumeration(
+            minioClient, "test-bucket", Collections.emptyList());
+    assertFalse(enumeration.hasMoreElements());
+    enumeration.nextElement();
+  }
+
+  @Test(expected = UploadNotFoundException.class)
+  public void testGetUploadedBytesStreamFailureThrowsUploadNotFoundException() throws Exception {
+    UploadId uploadId = new UploadId("err-bytes-id");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setOffset(100L);
+    info.setUploadPartKeys(Collections.singletonList("metadata/err-bytes-id.part.00001"));
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) -> a != null && "metadata/err-bytes-id.info".equals(a.object()))))
+        .thenReturn(mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes()));
+
+    ErrorResponse notFound =
+        new ErrorResponse("NoSuchKey", "Not found", null, null, null, null, null);
+    when(minioClient.getObject(
+            argThat((GetObjectArgs a) -> a != null && "uploads/err-bytes-id".equals(a.object()))))
+        .thenThrow(new ErrorResponseException(notFound, null, null));
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && "metadata/err-bytes-id.part.00001".equals(a.object()))))
+        .thenThrow(new RuntimeException("S3 read part error"));
+
+    InputStream is = storageService.getUploadedBytes(uploadId);
+    if (is != null) {
+      is.read();
+    }
+  }
+
+  @Test(expected = MaxAppendSizeExceededException.class)
+  public void testAppendWithMaxPartsReachedFlushesChunkAndThrows() throws Exception {
+    UploadId uploadId = new UploadId("max-parts-id");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setLength(1000000L);
+    info.setOffset(50000L);
+    List<String> tenThousandKeys = new ArrayList<>(Collections.nCopies(10000, "metadata/part.key"));
+    info.setUploadPartKeys(tenThousandKeys);
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) -> a != null && "metadata/max-parts-id.info".equals(a.object()))))
+        .thenReturn(mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes()));
+
+    storageService.append(info, new ByteArrayInputStream(new byte[50]));
+  }
+
+  @Test
+  public void testAppendDrainExceptionRecordedAndThrowsIOException() throws Exception {
+    UploadId uploadId = new UploadId("drain-err-id");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setLength(1000L);
+    info.setOffset(0L);
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) -> a != null && "metadata/drain-err-id.info".equals(a.object()))))
+        .thenReturn(mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes()));
+
+    doThrow(new RuntimeException(new IOException("S3 chunk put failed")))
+        .when(minioClient)
+        .putObject(argThat((PutObjectArgs a) -> a != null && a.object().contains(".part.")));
+
+    try {
+      storageService.append(info, new ByteArrayInputStream(new byte[100]));
+      fail("Expected IOException from drain failure");
+    } catch (IOException e) {
+      assertTrue(e.getMessage().contains("S3 chunk put failed") || e.getCause() != null);
+    }
   }
 
   private GetObjectResponse mockGetObjectResponse(byte[] bytes) {

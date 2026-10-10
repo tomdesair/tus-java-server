@@ -1542,7 +1542,7 @@ public class S3StorageService implements UploadStorageService {
     deleteObjectQuietly(objectKey);
   }
 
-  private void calculateAndSetOffset(UploadInfo info) {
+  void calculateAndSetOffset(UploadInfo info) {
     if (info == null || info.getId() == null) {
       return;
     }
@@ -1794,7 +1794,7 @@ public class S3StorageService implements UploadStorageService {
    * Helper stream wrapper encapsulating an input stream prepended with prior incomplete chunk
    * bytes, delegating interruption state to the original incoming stream.
    */
-  private static class PreparedStream extends InterruptibleInputStream {
+  static class PreparedStream extends InterruptibleInputStream {
     private final InterruptibleInputStream originalStream;
     final long prependedBytes;
     final long existingPartsTotalSize;
@@ -1834,7 +1834,7 @@ public class S3StorageService implements UploadStorageService {
    * Enumeration that lazily queries and opens S3 input streams for a list of part keys, enabling
    * streaming re-upload concatenation without holding all parts in memory.
    */
-  private static class S3PartInputStreamEnumeration implements Enumeration<InputStream> {
+  static class S3PartInputStreamEnumeration implements Enumeration<InputStream> {
     private final MinioClient minioClient;
     private final String bucket;
     private final List<String> partKeys;

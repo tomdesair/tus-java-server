@@ -277,4 +277,24 @@ public class AzureBlobConcatenationServiceTest {
     String result = concatenationService.getAuthorizedBlobUrl(mockBlob);
     assertEquals("https://account.blob.core.windows.net/container/blob", result);
   }
+
+  @Test
+  public void getAuthorizedBlobUrlShouldFallbackToRawUrlWhenSasIsEmpty() {
+    com.azure.storage.blob.BlobClient mockBlob = mock(com.azure.storage.blob.BlobClient.class);
+    when(mockBlob.getBlobUrl()).thenReturn("https://account.blob.core.windows.net/container/blob");
+    when(mockBlob.generateSas(any())).thenReturn("");
+
+    String result = concatenationService.getAuthorizedBlobUrl(mockBlob);
+    assertEquals("https://account.blob.core.windows.net/container/blob", result);
+  }
+
+  @Test
+  public void getAuthorizedBlobUrlShouldFallbackToRawUrlWhenSasIsNull() {
+    com.azure.storage.blob.BlobClient mockBlob = mock(com.azure.storage.blob.BlobClient.class);
+    when(mockBlob.getBlobUrl()).thenReturn("https://account.blob.core.windows.net/container/blob");
+    when(mockBlob.generateSas(any())).thenReturn(null);
+
+    String result = concatenationService.getAuthorizedBlobUrl(mockBlob);
+    assertEquals("https://account.blob.core.windows.net/container/blob", result);
+  }
 }

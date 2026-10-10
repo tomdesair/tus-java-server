@@ -1,6 +1,7 @@
 package me.desair.tus.server.upload.azure;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -8,6 +9,7 @@ import static org.junit.Assert.assertTrue;
 import com.azure.storage.blob.BlobContainerClientBuilder;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -287,12 +289,12 @@ public class AzureBlobStorageServiceTest {
   public void testCloseGracefulShutdown() throws Exception {
     // Verify closing storage service cleanly terminates background upload executor without error
     storageService.close();
-    // KISS: verifying method executes cleanly without throwing an exception
 
-    // Verify close handles thread interruption gracefully
+    // Verify close handles thread interruption gracefully on an active executor
+    AzureBlobStorageService interruptedService = new AzureBlobStorageService(containerClient);
     Thread.currentThread().interrupt();
     try {
-      storageService.close();
+      interruptedService.close();
     } finally {
       Thread.interrupted(); // Clear interrupted status
     }
@@ -312,5 +314,59 @@ public class AzureBlobStorageServiceTest {
     String text0 = new String(decoded0, java.nio.charset.StandardCharsets.UTF_8);
     assertTrue(text0.startsWith("blk-000000-"));
     assertEquals(19, text0.length()); // "blk-000000-" (11) + 8 hex chars = 19
+  }
+
+  @Test(expected = me.desair.tus.server.exception.MaxAppendSizeExceededException.class)
+  public void testValidateMaxAppendSizeThrowsWhenExceeded() throws Exception {
+    storageService.validateMaxAppendSize(100L, 50L);
+  }
+
+  @Test
+  public void testValidateMaxAppendSizePassesWhenWithinLimit() throws Exception {
+    storageService.validateMaxAppendSize(50L, 100L);
+    storageService.validateMaxAppendSize(50L, null);
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
+  }
+
+  @Test(expected = me.desair.tus.server.exception.MinAppendSizeNotMetException.class)
+  public void testValidateMinAppendSizeThrowsWhenNotMet() throws Exception {
+    storageService.setMinAppendSize(100L);
+    storageService.validateMinAppendSize(50L);
+  }
+
+  @Test
+  public void testValidateMinAppendSizePassesWhenMet() throws Exception {
+    storageService.setMinAppendSize(100L);
+    storageService.validateMinAppendSize(150L);
+    storageService.setMinAppendSize(null);
+    storageService.validateMinAppendSize(10L);
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
+  }
+
+  @Test
+  public void testDeleteFileQuietly() throws Exception {
+    // Null and non-existent file are no-ops
+    storageService.deleteFileQuietly(null);
+    storageService.deleteFileQuietly(new File("/path/to/non/existent/file/tus.tmp"));
+
+    // Normal file deletion
+    Path tempFile = Files.createTempFile("tus-delete-quietly", ".tmp");
+    assertTrue(Files.exists(tempFile));
+    storageService.deleteFileQuietly(tempFile.toFile());
+    assertFalse(Files.exists(tempFile));
+
+    // Non-empty directory causes Files.delete to throw DirectoryNotEmptyException, caught quietly
+    Path tempDir = Files.createTempDirectory("tus-delete-quietly-dir");
+    Path childFile = Files.createTempFile(tempDir, "child", ".tmp");
+    try {
+      storageService.deleteFileQuietly(tempDir.toFile());
+      assertTrue(
+          "Directory should still exist because deletion failed quietly", Files.exists(tempDir));
+    } finally {
+      Files.deleteIfExists(childFile);
+      Files.deleteIfExists(tempDir);
+    }
   }
 }

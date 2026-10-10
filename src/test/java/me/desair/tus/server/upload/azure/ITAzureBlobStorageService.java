@@ -898,4 +898,51 @@ public class ITAzureBlobStorageService {
     UploadInfo reloaded = storageService.getUploadInfo(created.getId());
     assertNotNull(reloaded);
   }
+
+  @Test
+  public void testAppendTruncatesCommittedBlocksWhenExceedingAuthoritativeMetadata()
+      throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(500L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    // Upload first 100 bytes
+    storageService.append(created, new ByteArrayInputStream(new byte[100]));
+    // Upload second 100 bytes
+    storageService.append(created, new ByteArrayInputStream(new byte[100]));
+
+    UploadInfo reloaded = storageService.getUploadInfo(created.getId());
+    assertNotNull(reloaded.getUploadPartKeys());
+    assertEquals(2, reloaded.getUploadPartKeys().size());
+    assertEquals(Long.valueOf(200L), reloaded.getOffset());
+
+    // Simulate scenario where authoritative metadata records only 1 committed block
+    reloaded.getUploadPartKeys().remove(1);
+    reloaded.setOffset(100L);
+    storageService.update(reloaded);
+
+    // Now call append again: blockIds in Azure blob (2) > uploadPartKeys in metadata (1)
+    // This exercises reconciliation logic where committed blocks are aligned with authoritative
+    // metadata
+    UploadInfo appended = storageService.append(reloaded, new ByteArrayInputStream(new byte[50]));
+
+    assertEquals(Long.valueOf(150L), appended.getOffset());
+    assertEquals(2, appended.getUploadPartKeys().size());
+  }
+
+  @Test
+  public void testTerminateUploadWithUnleasedLockBlob() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(100L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    // Create an unleased lock blob to verify safe cleanup of unleased lock blobs
+    BlobClient lockBlob = containerClient.getBlobClient("locks/" + created.getId() + ".lock");
+    lockBlob.upload(BinaryData.fromString("lock-content"), true);
+    assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
+
+    storageService.terminateUpload(created);
+
+    assertFalse(Boolean.TRUE.equals(lockBlob.exists()));
+  }
 }

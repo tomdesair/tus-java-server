@@ -293,7 +293,7 @@ public class AsyncChunkUploader implements AutoCloseable {
             });
   }
 
-  private void checkAndConfirmInFlight() throws IOException {
+  void checkAndConfirmInFlight() throws IOException {
     try {
       inFlightUpload.get();
       confirmedCount++;

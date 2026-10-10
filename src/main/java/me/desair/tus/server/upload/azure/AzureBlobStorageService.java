@@ -893,7 +893,7 @@ public class AzureBlobStorageService implements UploadStorageService {
   }
 
   /** Validates effective max append size limit. */
-  private void validateMaxAppendSize(long totalAppended, Long effectiveMaxAppendSize)
+  void validateMaxAppendSize(long totalAppended, Long effectiveMaxAppendSize)
       throws MaxAppendSizeExceededException {
     if (effectiveMaxAppendSize != null && totalAppended > effectiveMaxAppendSize) {
       throw new MaxAppendSizeExceededException(
@@ -905,7 +905,7 @@ public class AzureBlobStorageService implements UploadStorageService {
   }
 
   /** Validates min append size limit. */
-  private void validateMinAppendSize(long totalAppended) throws MinAppendSizeNotMetException {
+  void validateMinAppendSize(long totalAppended) throws MinAppendSizeNotMetException {
     if (minAppendSize != null && totalAppended < minAppendSize) {
       throw new MinAppendSizeNotMetException(
           "Append size " + totalAppended + " is less than minimum allowed of " + minAppendSize);
@@ -1037,7 +1037,7 @@ public class AzureBlobStorageService implements UploadStorageService {
   }
 
   /** Deletes local file suppressing exceptions. */
-  private void deleteFileQuietly(File file) {
+  void deleteFileQuietly(File file) {
     if (file != null && file.exists()) {
       try {
         Files.delete(file.toPath());

@@ -781,4 +781,40 @@ public class AsyncChunkUploaderTest {
       uploader.drainAndComplete(3000);
     }
   }
+
+  @Test
+  public void testCheckAndConfirmInFlightInterruptedThrowsIOException() throws Exception {
+    File f1 = new File(tempDir, "interrupt-f1.tmp");
+    Files.write(f1.toPath(), new byte[] {1});
+
+    CountDownLatch uploadStarted = new CountDownLatch(1);
+    CountDownLatch holdUpload = new CountDownLatch(1);
+
+    try (AsyncChunkUploader uploader = new AsyncChunkUploader(executor)) {
+      uploader.submitChunk(
+          f1,
+          1,
+          "k-int-1",
+          () -> {
+            uploadStarted.countDown();
+            try {
+              holdUpload.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+            }
+          });
+
+      assertTrue(uploadStarted.await(3, TimeUnit.SECONDS));
+
+      Thread.currentThread().interrupt();
+      try {
+        uploader.checkAndConfirmInFlight();
+        fail("Expected IOException");
+      } catch (IOException e) {
+        assertTrue(e.getMessage().contains("Interrupted while checking in-flight chunk upload"));
+      } finally {
+        Thread.interrupted(); // clear
+        holdUpload.countDown();
+      }
+    }
+  }
 }

@@ -93,4 +93,12 @@ public class AzureUtilsTest {
     BlobStorageException exLeaseMissing = createException(409, BlobErrorCode.LEASE_ID_MISSING);
     assertEquals(AzureErrorType.LEASE_NOT_PRESENT, AzureUtils.parseErrorResponse(exLeaseMissing));
   }
+
+  @Test
+  public void testParseErrorResponseErrorCodeThrowsExceptionHandled() {
+    HttpResponse response = mock(HttpResponse.class);
+    when(response.getHeaders()).thenThrow(new RuntimeException("Simulated error code failure"));
+    BlobStorageException ex = new BlobStorageException("Test exception", response, null);
+    assertEquals(AzureErrorType.UNKNOWN, AzureUtils.parseErrorResponse(ex));
+  }
 }
