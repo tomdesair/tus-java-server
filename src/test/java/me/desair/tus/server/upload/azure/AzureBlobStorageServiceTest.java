@@ -1,6 +1,7 @@
 package me.desair.tus.server.upload.azure;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -8,9 +9,11 @@ import static org.junit.Assert.assertTrue;
 import com.azure.storage.blob.BlobContainerClientBuilder;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
@@ -232,5 +235,138 @@ public class AzureBlobStorageServiceTest {
     // When 50000 * 8MB is exceeded, optimal block size scales up
     long largeLength = 50_000L * 16 * 1024 * 1024L;
     assertEquals((largeLength / 50_000L) + 1, storageService.calcOptimalBlockSize(largeLength));
+  }
+
+  @Test
+  public void testCloudUploadThreadPoolSizeConfiguration() {
+    assertEquals(
+        "Default thread pool size is 10", 10, storageService.getCloudUploadThreadPoolSize());
+
+    storageService.setCloudUploadThreadPoolSize(30);
+    assertEquals(
+        "Updated thread pool size is 30", 30, storageService.getCloudUploadThreadPoolSize());
+
+    storageService.setCloudUploadThreadPoolSize(4);
+    assertEquals("Reduced thread pool size is 4", 4, storageService.getCloudUploadThreadPoolSize());
+
+    try {
+      storageService.setCloudUploadThreadPoolSize(0);
+      org.junit.Assert.fail("Should reject 0 pool size");
+    } catch (IllegalArgumentException expected) {
+      assertTrue(expected.getMessage().contains("greater than 0"));
+    }
+
+    try {
+      storageService.setCloudUploadThreadPoolSize(-1);
+      org.junit.Assert.fail("Should reject negative pool size");
+    } catch (IllegalArgumentException expected) {
+      assertTrue(expected.getMessage().contains("greater than 0"));
+    }
+  }
+
+  @Test
+  public void testDrainTimeoutConfiguration() {
+    assertEquals(
+        "Default drain timeout is 55 seconds",
+        Duration.ofSeconds(55),
+        storageService.getDrainTimeout());
+
+    storageService.setDrainTimeout(Duration.ofSeconds(25));
+    assertEquals(
+        "Updated drain timeout is 25 seconds",
+        Duration.ofSeconds(25),
+        storageService.getDrainTimeout());
+
+    // Null is ignored preserving current value
+    storageService.setDrainTimeout(null);
+    assertEquals(
+        "Null drain timeout preserves previous value",
+        Duration.ofSeconds(25),
+        storageService.getDrainTimeout());
+  }
+
+  @Test
+  public void testCloseGracefulShutdown() throws Exception {
+    // Verify closing storage service cleanly terminates background upload executor without error
+    storageService.close();
+
+    // Verify close handles thread interruption gracefully on an active executor
+    AzureBlobStorageService interruptedService = new AzureBlobStorageService(containerClient);
+    Thread.currentThread().interrupt();
+    try {
+      interruptedService.close();
+    } finally {
+      Thread.interrupted(); // Clear interrupted status
+    }
+  }
+
+  @Test
+  public void testGenerateBlockIdEntropyAndFormat() {
+    String blockId0 = storageService.generateBlockId(0);
+    String blockId1 = storageService.generateBlockId(0);
+
+    assertNotNull(blockId0);
+    assertNotNull(blockId1);
+    // Two block IDs generated for the same index must have different UUID entropy
+    org.junit.Assert.assertNotEquals(blockId0, blockId1);
+
+    byte[] decoded0 = java.util.Base64.getDecoder().decode(blockId0);
+    String text0 = new String(decoded0, java.nio.charset.StandardCharsets.UTF_8);
+    assertTrue(text0.startsWith("blk-000000-"));
+    assertEquals(19, text0.length()); // "blk-000000-" (11) + 8 hex chars = 19
+  }
+
+  @Test(expected = me.desair.tus.server.exception.MaxAppendSizeExceededException.class)
+  public void testValidateMaxAppendSizeThrowsWhenExceeded() throws Exception {
+    storageService.validateMaxAppendSize(100L, 50L);
+  }
+
+  @Test
+  public void testValidateMaxAppendSizePassesWhenWithinLimit() throws Exception {
+    storageService.validateMaxAppendSize(50L, 100L);
+    storageService.validateMaxAppendSize(50L, null);
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
+  }
+
+  @Test(expected = me.desair.tus.server.exception.MinAppendSizeNotMetException.class)
+  public void testValidateMinAppendSizeThrowsWhenNotMet() throws Exception {
+    storageService.setMinAppendSize(100L);
+    storageService.validateMinAppendSize(50L);
+  }
+
+  @Test
+  public void testValidateMinAppendSizePassesWhenMet() throws Exception {
+    storageService.setMinAppendSize(100L);
+    storageService.validateMinAppendSize(150L);
+    storageService.setMinAppendSize(null);
+    storageService.validateMinAppendSize(10L);
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
+  }
+
+  @Test
+  public void testDeleteFileQuietly() throws Exception {
+    // Null and non-existent file are no-ops
+    storageService.deleteFileQuietly(null);
+    storageService.deleteFileQuietly(new File("/path/to/non/existent/file/tus.tmp"));
+
+    // Normal file deletion
+    Path tempFile = Files.createTempFile("tus-delete-quietly", ".tmp");
+    assertTrue(Files.exists(tempFile));
+    storageService.deleteFileQuietly(tempFile.toFile());
+    assertFalse(Files.exists(tempFile));
+
+    // Non-empty directory causes Files.delete to throw DirectoryNotEmptyException, caught quietly
+    Path tempDir = Files.createTempDirectory("tus-delete-quietly-dir");
+    Path childFile = Files.createTempFile(tempDir, "child", ".tmp");
+    try {
+      storageService.deleteFileQuietly(tempDir.toFile());
+      assertTrue(
+          "Directory should still exist because deletion failed quietly", Files.exists(tempDir));
+    } finally {
+      Files.deleteIfExists(childFile);
+      Files.deleteIfExists(tempDir);
+    }
   }
 }

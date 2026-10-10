@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
+import java.time.Duration;
 import java.util.Objects;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.TusException;
@@ -231,6 +232,26 @@ public class ThreadLocalCachedStorageAndLockingService
   public UploadInfo getUploadInfoByChecksum(String checksum, ChecksumAlgorithm algorithm)
       throws IOException {
     return storageServiceDelegate.getUploadInfoByChecksum(checksum, algorithm);
+  }
+
+  @Override
+  public void setCloudUploadThreadPoolSize(int size) {
+    storageServiceDelegate.setCloudUploadThreadPoolSize(size);
+  }
+
+  @Override
+  public int getCloudUploadThreadPoolSize() {
+    return storageServiceDelegate.getCloudUploadThreadPoolSize();
+  }
+
+  @Override
+  public void setDrainTimeout(Duration drainTimeout) {
+    storageServiceDelegate.setDrainTimeout(drainTimeout);
+  }
+
+  @Override
+  public Duration getDrainTimeout() {
+    return storageServiceDelegate.getDrainTimeout();
   }
 
   @Override

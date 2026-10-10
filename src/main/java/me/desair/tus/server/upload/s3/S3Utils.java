@@ -43,7 +43,9 @@ public final class S3Utils {
       return S3ErrorType.ACCESS_DENIED;
     }
 
-    if ("APINotImplemented".equalsIgnoreCase(code) || "NotImplemented".equalsIgnoreCase(code)) {
+    if ("APINotImplemented".equalsIgnoreCase(code)
+        || "NotImplemented".equalsIgnoreCase(code)
+        || (exception.response() != null && exception.response().code() == 501)) {
       return S3ErrorType.API_NOT_IMPLEMENTED;
     }
 

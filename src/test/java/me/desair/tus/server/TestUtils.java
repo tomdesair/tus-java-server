@@ -7,8 +7,8 @@ import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
 
 /**
- * Helper utility class for S3 integration tests running against Testcontainers MinIO using the
- * MinIO Java SDK. Supports both Docker and Podman container engines automatically.
+ * Helper utility class for integration tests running against Testcontainers RustFS (S3) and Azurite
+ * (Azure Blob). Supports both Docker and Podman container engines automatically.
  */
 public final class TestUtils {
 
@@ -78,12 +78,13 @@ public final class TestUtils {
   }
 
   /**
-   * Alias for {@link #createRustFsContainer()} for compatibility.
+   * Returns the S3 endpoint URL for the active S3 Testcontainer (RustFS).
    *
-   * @return A configured GenericContainer instance (not started yet)
+   * @param s3Container The active S3 Testcontainer (RustFS)
+   * @return S3 endpoint URL
    */
-  public static GenericContainer<?> createMinioContainer() {
-    return createRustFsContainer();
+  public static String getS3Endpoint(GenericContainer<?> s3Container) {
+    return "http://" + s3Container.getHost() + ":" + s3Container.getMappedPort(9000);
   }
 
   /**
@@ -93,7 +94,7 @@ public final class TestUtils {
    * @return Pre-configured MinioClient
    */
   public static MinioClient createMinioClient(GenericContainer<?> s3Container) {
-    String s3Url = "http://" + s3Container.getHost() + ":" + s3Container.getMappedPort(9000);
+    String s3Url = getS3Endpoint(s3Container);
     return MinioClient.builder().endpoint(s3Url).credentials("rustfsadmin", "rustfsadmin").build();
   }
 

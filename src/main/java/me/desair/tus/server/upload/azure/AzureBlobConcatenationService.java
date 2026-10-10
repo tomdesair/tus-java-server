@@ -3,11 +3,14 @@ package me.desair.tus.server.upload.azure;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.blob.sas.BlobSasPermission;
+import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
 import com.azure.storage.blob.specialized.BlockBlobClient;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -109,16 +112,20 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
         BlobClient partialBlob = containerClient.getBlobClient(uploadPrefix + partialInfo.getId());
 
         try {
-          // 1. Attempt zero-copy server-side block copying on Azure Storage cluster
-          stageBlockFromUrl(finalBlockBlob, blockId, partialBlob.getBlobUrl());
+          // 1. Attempt zero-copy server-side block copying on Azure Storage cluster using an
+          // authorized blob URL (with read SAS token when shared key credentials are present)
+          String sourceUrl = getAuthorizedBlobUrl(partialBlob);
+          stageBlockFromUrl(finalBlockBlob, blockId, sourceUrl);
         } catch (BlobStorageException e) {
           // 2. In private Azure containers without SAS tokens or in emulators, stageBlockFromUrl
-          // fails with 403 (ACCESS_DENIED) or 400/501 (API_NOT_IMPLEMENTED). Fall back
+          // fails with 401/403 (ACCESS_DENIED / CannotVerifyCopySource) or 400/501
+          // (API_NOT_IMPLEMENTED). Fall back
           // gracefully to streaming block staging via getUploadedBytes().
           AzureErrorType errorType = AzureUtils.parseErrorResponse(e);
           if (errorType == AzureErrorType.API_NOT_IMPLEMENTED
               || errorType == AzureErrorType.ACCESS_DENIED
               || e.getStatusCode() == 400
+              || e.getStatusCode() == 401
               || e.getStatusCode() == 403) {
             try (InputStream partIs = storageService.getUploadedBytes(partialInfo.getId())) {
               finalBlockBlob.stageBlock(blockId, partIs, partialInfo.getOffset());
@@ -229,5 +236,33 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
 
   void stageBlockFromUrl(BlockBlobClient finalBlockBlob, String blockId, String sourceUrl) {
     finalBlockBlob.stageBlockFromUrl(blockId, sourceUrl, null);
+  }
+
+  /**
+   * Resolves an authorized source URL for server-side block copying. If the client possesses shared
+   * key credentials, generates a short-lived read SAS token so that private Azure containers can be
+   * accessed directly by the storage service via stageBlockFromUrl.
+   *
+   * @param blobClient The BlobClient of the source partial upload
+   * @return The authorized blob URL (with SAS token if available) or raw blob URL
+   */
+  String getAuthorizedBlobUrl(BlobClient blobClient) {
+    if (blobClient == null) {
+      return null;
+    }
+    try {
+      BlobServiceSasSignatureValues sasValues =
+          new BlobServiceSasSignatureValues(
+              OffsetDateTime.now().plusMinutes(15),
+              new BlobSasPermission().setReadPermission(true));
+      String sasToken = blobClient.generateSas(sasValues);
+      if (sasToken != null && !sasToken.isEmpty()) {
+        return blobClient.getBlobUrl() + "?" + sasToken;
+      }
+    } catch (Exception ignored) {
+      // Client lacks shared key credentials (e.g. TokenCredential without user delegation key)
+      // or SAS generation is unsupported; fall back to raw blob URL.
+    }
+    return blobClient.getBlobUrl();
   }
 }

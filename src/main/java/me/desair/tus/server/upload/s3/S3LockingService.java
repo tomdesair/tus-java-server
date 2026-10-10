@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collections;
 import java.util.Objects;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import me.desair.tus.server.upload.AbstractLeaseLockingService;
 import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.upload.UploadId;
@@ -61,51 +63,55 @@ public class S3LockingService extends AbstractLeaseLockingService {
   private final MinioClient minioClient;
   private final String bucket;
   private final String locksPrefix;
+  private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
+  private boolean s3ConditionalWritesSupported = true;
 
   /**
-   * Basic constructor using default lock prefix ("locks/"), 30s lease duration, and 2s polling
-   * interval.
+   * Convenience constructor for local S3-compatible backends where region is omitted. Defaults the
+   * region to "local".
    *
-   * @param minioClient Pre-configured MinIO Client
+   * @param endpoint S3 endpoint URL (e.g. "http://localhost:9000")
+   * @param accessKey S3 access key / username
+   * @param secretKey S3 secret key / password
    * @param bucket Target S3 bucket name
    */
-  public S3LockingService(MinioClient minioClient, String bucket) {
-    this(
-        minioClient,
-        bucket,
-        DEFAULT_LOCKS_PREFIX,
-        DEFAULT_LEASE_DURATION_MS,
-        DEFAULT_POLL_INTERVAL_MS);
+  public S3LockingService(String endpoint, String accessKey, String secretKey, String bucket) {
+    this(endpoint, "local", accessKey, secretKey, bucket);
   }
 
   /**
-   * Full constructor allowing custom configuration for all locking parameters.
+   * Basic constructor accepting explicit connection parameters without exposing underlying client
+   * libraries.
    *
-   * @param minioClient Pre-configured MinIO Client
+   * @param endpoint S3 endpoint URL (e.g. "https://s3.amazonaws.com" or "http://localhost:9000")
+   * @param region S3 region name (e.g. "eu-central-1", "us-east-1")
+   * @param accessKey S3 access key / username
+   * @param secretKey S3 secret key / password
    * @param bucket Target S3 bucket name
-   * @param locksPrefix Object key prefix for locks and stop signals
-   * @param leaseDurationMs Lock lease duration in milliseconds
-   * @param pollIntervalMs Watchdog poll interval for lock contention interrupt signals
    */
   public S3LockingService(
-      MinioClient minioClient,
-      String bucket,
-      String locksPrefix,
-      long leaseDurationMs,
-      long pollIntervalMs) {
+      String endpoint, String region, String accessKey, String secretKey, String bucket) {
     this(
-        minioClient,
+        endpoint,
+        region,
+        accessKey,
+        secretKey,
         bucket,
-        locksPrefix,
-        leaseDurationMs,
-        pollIntervalMs,
+        DEFAULT_LOCKS_PREFIX,
+        DEFAULT_LEASE_DURATION_MS,
+        DEFAULT_POLL_INTERVAL_MS,
         new UuidUploadIdFactory());
   }
 
   /**
    * Full constructor allowing custom configuration including a custom {@link UploadIdFactory}.
    *
-   * @param minioClient Pre-configured MinIO Client
+   * <p>Delegates to the internal package-private constructor that accepts {@link MinioClient}.
+   *
+   * @param endpoint S3 endpoint URL
+   * @param region S3 region name
+   * @param accessKey S3 access key / username
+   * @param secretKey S3 secret key / password
    * @param bucket Target S3 bucket name
    * @param locksPrefix Object key prefix for locks and stop signals
    * @param leaseDurationMs Lock lease duration in milliseconds
@@ -113,6 +119,29 @@ public class S3LockingService extends AbstractLeaseLockingService {
    * @param idFactory Custom {@link UploadIdFactory}
    */
   public S3LockingService(
+      String endpoint,
+      String region,
+      String accessKey,
+      String secretKey,
+      String bucket,
+      String locksPrefix,
+      long leaseDurationMs,
+      long pollIntervalMs,
+      UploadIdFactory idFactory) {
+    this(
+        buildMinioClient(endpoint, region, accessKey, secretKey),
+        bucket,
+        locksPrefix,
+        leaseDurationMs,
+        pollIntervalMs,
+        idFactory);
+  }
+
+  /**
+   * Package-private constructor accepting {@link MinioClient} where all parameter configuration is
+   * concentrated.
+   */
+  S3LockingService(
       MinioClient minioClient,
       String bucket,
       String locksPrefix,
@@ -123,6 +152,61 @@ public class S3LockingService extends AbstractLeaseLockingService {
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
     this.locksPrefix = sanitizePrefix(locksPrefix);
+  }
+
+  /**
+   * Configures custom jitter bounds used during lock acquisition read-after-write verification.
+   *
+   * <p>On S3-compatible backends lacking atomic conditional writes (e.g., Wasabi, SeaweedFS, Ceph,
+   * Backblaze B2, older MinIO), randomized jitter backoff resolves last-write-wins races. For
+   * high-latency or cross-region backends, configure higher bounds (e.g. 50–200 ms). For pure AWS
+   * S3 or Cloudflare R2 deployments with strong conditional write enforcement, jitter can be
+   * disabled by passing {@code 0, 0} to maximize throughput.
+   *
+   * @param minMs Minimum jitter duration in milliseconds (must be &gt;= 0)
+   * @param maxMs Maximum jitter duration in milliseconds (must be &gt;= minMs)
+   * @return This service instance for fluent chaining
+   */
+  public S3LockingService withJitter(long minMs, long maxMs) {
+    setJitter(minMs, maxMs);
+    return this;
+  }
+
+  /**
+   * Configures whether the underlying S3 endpoint supports atomic conditional writes via {@code
+   * If-None-Match: *}.
+   *
+   * <p>Defaults to {@code true} (optimistic). If the endpoint returns HTTP 501 Not Implemented,
+   * this is automatically downgraded to {@code false}. For endpoints known to silently ignore
+   * {@code If-None-Match: *} (such as Wasabi), setting this to {@code false} ensures the service
+   * pre-checks existing lock status before writing.
+   *
+   * @param supported Whether conditional writes are supported
+   * @return This service instance for fluent chaining
+   */
+  public S3LockingService withS3ConditionalWritesSupported(boolean supported) {
+    thisObjectLock.writeLock().lock();
+    try {
+      this.s3ConditionalWritesSupported = supported;
+    } finally {
+      thisObjectLock.writeLock().unlock();
+    }
+    return this;
+  }
+
+  /**
+   * Returns whether the underlying S3 endpoint currently supports atomic conditional writes.
+   *
+   * @return true if conditional writes are supported or assumed supported; false if downgraded or
+   *     disabled
+   */
+  public boolean isS3ConditionalWritesSupported() {
+    thisObjectLock.readLock().lock();
+    try {
+      return s3ConditionalWritesSupported;
+    } finally {
+      thisObjectLock.readLock().unlock();
+    }
   }
 
   @Override
@@ -153,9 +237,13 @@ public class S3LockingService extends AbstractLeaseLockingService {
     String lockKey = buildLockKey(uploadId);
     String stopKey = buildStopKey(uploadId);
 
-    if (!isLockExpired(lockKey)) {
-      return null;
-    }
+    // Optimistic conditional write:
+    // Skip redundant isLockExpired() pre-check. In >99.9% of requests, no lock exists,
+    // so an initial isLockExpired() issues an expensive S3 GET that 404s (~320ms penalty).
+    // By issuing putObject with "If-None-Match: *" directly, happy-path acquisition
+    // takes only 1 network call. If a lock already exists, S3 atomically returns 412
+    // Precondition Failed, causing this method to return null. The caller
+    // (acquireOrEvictExpiredLock) will then inspect isLockExpired() and evict if expired.
 
     try {
       leaseData.setLockPath(lockKey);
@@ -163,21 +251,67 @@ public class S3LockingService extends AbstractLeaseLockingService {
 
       byte[] lockContentBytes = LeaseDataJsonSerializer.serializeToBytes(leaseData);
 
-      // Layer 1: Conditional PutObject with "If-None-Match: *"
-      // AWS S3 and compliant servers reject this with 412 Precondition Failed if the object already
-      // exists
-      minioClient.putObject(
-          PutObjectArgs.builder()
-              .bucket(bucket)
-              .object(lockKey)
-              .extraHeaders(Collections.singletonMap("If-None-Match", "*"))
-              .stream(
-                  new ByteArrayInputStream(lockContentBytes), (long) lockContentBytes.length, -1L)
-              .build());
+      boolean conditionalSupported;
+      thisObjectLock.readLock().lock();
+      try {
+        conditionalSupported = s3ConditionalWritesSupported;
+      } finally {
+        thisObjectLock.readLock().unlock();
+      }
+
+      if (conditionalSupported) {
+        // Layer 1: Optimistic Conditional PutObject with "If-None-Match: *"
+        // AWS S3 and compliant servers reject this with 412 Precondition Failed if the object
+        // already
+        // exists
+        try {
+          minioClient.putObject(
+              PutObjectArgs.builder()
+                  .bucket(bucket)
+                  .object(lockKey)
+                  .extraHeaders(Collections.singletonMap("If-None-Match", "*"))
+                  .stream(
+                      new ByteArrayInputStream(lockContentBytes),
+                      (long) lockContentBytes.length,
+                      -1L)
+                  .build());
+        } catch (ErrorResponseException e) {
+          S3ErrorType errorType = S3Utils.parseErrorResponse(e);
+          if (errorType == S3ErrorType.API_NOT_IMPLEMENTED) {
+            // Backend (e.g. Backblaze B2, Ceph RGW) does not support conditional writes.
+            // Downgrade to non-CAS arbitration mode and proceed with safe pre-check + unconditional
+            // write.
+            log.info(
+                "S3 endpoint does not support conditional writes (If-None-Match: *). "
+                    + "Downgrading to non-CAS lock arbitration for key {}",
+                lockKey);
+            thisObjectLock.writeLock().lock();
+            try {
+              s3ConditionalWritesSupported = false;
+            } finally {
+              thisObjectLock.writeLock().unlock();
+            }
+            if (!isLockExpired(lockKey)) {
+              return null;
+            }
+            writeUnconditionalLockObject(lockKey, lockContentBytes);
+          } else {
+            throw e;
+          }
+        }
+      } else {
+        // Non-CAS mode (e.g., Wasabi, Ceph RGW, Backblaze B2):
+        // Verify no active unexpired lock exists before performing unconditional write
+        if (!isLockExpired(lockKey)) {
+          return null;
+        }
+        writeUnconditionalLockObject(lockKey, lockContentBytes);
+      }
 
       // Layer 2: Jittered Read-After-Write Verification
-      // For emulators or S3 backends where If-None-Match is not strictly enforced,
-      // pause for a small randomized jitter (20-60ms) and verify our holderId is still the owner
+      // For non-CAS backends or backends where If-None-Match is not strictly enforced,
+      // pause for a randomized jitter duration to allow competing writes to settle,
+      // then verify our holderId is still the owner
       applyJitter();
       if (!verifyLockOwnership(lockKey, leaseData.getHolderId())) {
         return null;
@@ -187,7 +321,7 @@ public class S3LockingService extends AbstractLeaseLockingService {
     } catch (ErrorResponseException e) {
       S3ErrorType errorType = S3Utils.parseErrorResponse(e);
       if (errorType == S3ErrorType.PRECONDITION_FAILED || errorType == S3ErrorType.CONFLICT) {
-        log.info("Lock contention for key {}: S3 conditional write precondition failed", lockKey);
+        log.debug("Lock contention for key {}: S3 conditional write precondition failed", lockKey);
         return null;
       }
       log.warn("Unexpected S3 error response acquiring lock for key {}", lockKey, e);
@@ -196,6 +330,14 @@ public class S3LockingService extends AbstractLeaseLockingService {
       log.warn("Unexpected error acquiring S3 lock for key {}", lockKey, e);
       return null;
     }
+  }
+
+  private void writeUnconditionalLockObject(String lockKey, byte[] lockContentBytes)
+      throws Exception {
+    minioClient.putObject(
+        PutObjectArgs.builder().bucket(bucket).object(lockKey).stream(
+                new ByteArrayInputStream(lockContentBytes), (long) lockContentBytes.length, -1L)
+            .build());
   }
 
   @Override
@@ -212,15 +354,24 @@ public class S3LockingService extends AbstractLeaseLockingService {
       return false;
     }
     String lockKey = buildLockKey(uploadId);
-    if (!isLockExpired(lockKey)) {
-      return false;
-    }
-    // Delete the expired .lock object from S3 so the subsequent tryAcquireLock() conditional
-    // write with "If-None-Match: *" can succeed and take over the abandoned lock.
-    try {
+    try (InputStream stream =
+        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
+      LeaseData lock = LeaseDataJsonSerializer.deserialize(stream);
+      if (!isLeaseExpired(lock, System.currentTimeMillis())) {
+        return false;
+      }
+      // Actual expired lock found in S3: delete it so next tryAcquireLock() can succeed
       minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(lockKey).build());
       log.info("Evicted expired S3 lock for key {}", lockKey);
       return true;
+    } catch (ErrorResponseException e) {
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
+        // Lock key was already released normally and removed from S3.
+        // Return true to indicate the resource is clear without emitting false eviction logs.
+        return true;
+      }
+      log.warn("Failed checking S3 lock expiration for key {}", lockKey, e);
+      return false;
     } catch (Exception e) {
       log.warn("Failed to evict expired S3 lock for key {}", lockKey, e);
       return false;
@@ -307,8 +458,9 @@ public class S3LockingService extends AbstractLeaseLockingService {
     }
   }
 
-  void applyJitter() {
-    applyJitter(20L, 60L);
+  @Override
+  protected void applyJitter() {
+    super.applyJitter();
   }
 
   private String sanitizePrefix(String prefix) {
@@ -325,5 +477,15 @@ public class S3LockingService extends AbstractLeaseLockingService {
 
   private String buildStopKey(UploadId uploadId) {
     return locksPrefix + uploadId.toString() + ".stop";
+  }
+
+  private static MinioClient buildMinioClient(
+      String endpoint, String region, String accessKey, String secretKey) {
+    String effectiveRegion = (region != null && !region.isEmpty()) ? region : "local";
+    return MinioClient.builder()
+        .endpoint(endpoint)
+        .credentials(accessKey, secretKey)
+        .region(effectiveRegion)
+        .build();
   }
 }

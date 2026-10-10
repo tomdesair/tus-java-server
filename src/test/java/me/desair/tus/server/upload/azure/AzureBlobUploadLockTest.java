@@ -5,9 +5,13 @@ import static org.junit.Assert.assertNotNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import com.azure.core.http.HttpHeaders;
+import com.azure.core.http.HttpResponse;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
+import com.azure.storage.blob.models.BlobErrorCode;
+import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.specialized.BlobLeaseClient;
 import com.azure.storage.blob.specialized.BlobLeaseClientBuilder;
 import java.util.concurrent.ScheduledExecutorService;
@@ -139,11 +143,166 @@ public class AzureBlobUploadLockTest {
           }
         };
 
-    // Verify that failed renewal immediately aborts the active stream
+    // When the lease has already expired, renewal failure immediately aborts
+    lock.setLeaseExpiresAt(System.currentTimeMillis() - 1000L);
     lock.renewLease();
 
     org.junit.Assert.assertTrue(stream.isInterrupted());
     org.junit.Assert.assertFalse(activeStreams.containsKey("upload-failing"));
     verify(mockExecutor).shutdownNow();
+  }
+
+  @Test
+  public void testRenewLeaseTransientFailureTolerated() {
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    java.util.Map<
+            String, java.lang.ref.WeakReference<me.desair.tus.server.util.InterruptibleInputStream>>
+        activeStreams = new java.util.concurrent.ConcurrentHashMap<>();
+
+    me.desair.tus.server.util.InterruptibleInputStream stream =
+        new me.desair.tus.server.util.InterruptibleInputStream(
+            new java.io.ByteArrayInputStream("test".getBytes()));
+    activeStreams.put("upload-transient", new java.lang.ref.WeakReference<>(stream));
+
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            null,
+            null,
+            "/test/upload/upload-transient",
+            mockExecutor,
+            "upload-transient",
+            activeStreams) {
+          @Override
+          void executeRenew() {
+            throw new RuntimeException("Simulated transient network glitch");
+          }
+        };
+
+    // Lease valid for another 30 seconds: transient blip must NOT abort
+    lock.setLeaseExpiresAt(System.currentTimeMillis() + 30000L);
+    lock.renewLease();
+
+    org.junit.Assert.assertFalse(stream.isInterrupted());
+    org.junit.Assert.assertTrue(activeStreams.containsKey("upload-transient"));
+    org.mockito.Mockito.verify(mockExecutor, org.mockito.Mockito.never()).shutdownNow();
+  }
+
+  @Test
+  public void testRenewLeaseLostInterruptsActiveStream() {
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    java.util.Map<
+            String, java.lang.ref.WeakReference<me.desair.tus.server.util.InterruptibleInputStream>>
+        activeStreams = new java.util.concurrent.ConcurrentHashMap<>();
+
+    me.desair.tus.server.util.InterruptibleInputStream stream =
+        new me.desair.tus.server.util.InterruptibleInputStream(
+            new java.io.ByteArrayInputStream("test".getBytes()));
+    activeStreams.put("upload-lost", new java.lang.ref.WeakReference<>(stream));
+
+    HttpResponse response = mock(HttpResponse.class);
+    org.mockito.Mockito.when(response.getStatusCode()).thenReturn(409);
+    HttpHeaders headers = new HttpHeaders();
+    headers.set("x-ms-error-code", BlobErrorCode.LEASE_NOT_PRESENT_WITH_LEASE_OPERATION.toString());
+    org.mockito.Mockito.when(response.getHeaders()).thenReturn(headers);
+
+    BlobStorageException leaseLostException =
+        new BlobStorageException(
+            "Lease lost", response, BlobErrorCode.LEASE_NOT_PRESENT_WITH_LEASE_OPERATION);
+
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            null, null, "/test/upload/upload-lost", mockExecutor, "upload-lost", activeStreams) {
+          @Override
+          void executeRenew() {
+            throw leaseLostException;
+          }
+        };
+
+    // Even if lease was theoretically valid, leaseLost aborts immediately
+    lock.setLeaseExpiresAt(System.currentTimeMillis() + 30000L);
+    lock.renewLease();
+
+    org.junit.Assert.assertTrue(stream.isInterrupted());
+    org.junit.Assert.assertFalse(activeStreams.containsKey("upload-lost"));
+    verify(mockExecutor).shutdownNow();
+  }
+
+  @Test
+  public void testRenewLeaseConflictErrorInterruptsStream() {
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    java.util.Map<
+            String, java.lang.ref.WeakReference<me.desair.tus.server.util.InterruptibleInputStream>>
+        activeStreams = new java.util.concurrent.ConcurrentHashMap<>();
+
+    me.desair.tus.server.util.InterruptibleInputStream stream =
+        new me.desair.tus.server.util.InterruptibleInputStream(
+            new java.io.ByteArrayInputStream("test".getBytes()));
+    activeStreams.put("upload-conflict", new java.lang.ref.WeakReference<>(stream));
+
+    HttpResponse response = mock(HttpResponse.class);
+    org.mockito.Mockito.when(response.getStatusCode()).thenReturn(409);
+    HttpHeaders headers = new HttpHeaders();
+    headers.set("x-ms-error-code", "Conflict");
+    org.mockito.Mockito.when(response.getHeaders()).thenReturn(headers);
+
+    BlobStorageException conflictException = new BlobStorageException("Conflict", response, null);
+
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            null,
+            null,
+            "/test/upload/upload-conflict",
+            mockExecutor,
+            "upload-conflict",
+            activeStreams) {
+          @Override
+          void executeRenew() {
+            throw conflictException;
+          }
+        };
+
+    lock.setLeaseExpiresAt(System.currentTimeMillis() + 30000L);
+    lock.renewLease();
+
+    org.junit.Assert.assertTrue(stream.isInterrupted());
+    org.junit.Assert.assertFalse(activeStreams.containsKey("upload-conflict"));
+    verify(mockExecutor).shutdownNow();
+  }
+
+  @Test
+  public void testRenewLeaseLostWithoutActiveStreamHandlesCleanly() {
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+
+    // activeStreams and uploadId both null
+    AzureBlobUploadLock lockWithoutStreams =
+        new AzureBlobUploadLock(null, null, "/test/upload/upload-null", mockExecutor, null, null) {
+          @Override
+          void executeRenew() {
+            throw new RuntimeException("Renewal failed");
+          }
+        };
+
+    lockWithoutStreams.setLeaseExpiresAt(System.currentTimeMillis() - 1000L);
+    lockWithoutStreams.renewLease();
+    verify(mockExecutor).shutdownNow();
+
+    // activeStreams present but no stream registered for uploadId
+    java.util.Map<
+            String, java.lang.ref.WeakReference<me.desair.tus.server.util.InterruptibleInputStream>>
+        activeStreams = new java.util.concurrent.ConcurrentHashMap<>();
+    ScheduledExecutorService mockExecutor2 = mock(ScheduledExecutorService.class);
+
+    AzureBlobUploadLock lockWithEmptyStreams =
+        new AzureBlobUploadLock(
+            null, null, "/test/upload/upload-empty", mockExecutor2, "upload-empty", activeStreams) {
+          @Override
+          void executeRenew() {
+            throw new RuntimeException("Renewal failed");
+          }
+        };
+
+    lockWithEmptyStreams.setLeaseExpiresAt(System.currentTimeMillis() - 1000L);
+    lockWithEmptyStreams.renewLease();
+    verify(mockExecutor2).shutdownNow();
   }
 }

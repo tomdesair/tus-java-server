@@ -14,6 +14,8 @@ import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.StructuredHeaderUtil;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Request handler for data append requests via HTTP PATCH.
@@ -26,6 +28,8 @@ import me.desair.tus.server.util.TusServletResponse;
  * draft-ietf-httpbis-resumable-upload-12.
  */
 public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
+
+  private static final Logger log = LoggerFactory.getLogger(RufhAppendPatchRequestHandler.class);
 
   @Override
   public boolean supports(HttpMethod method) {
@@ -55,16 +59,49 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
     String uploadCompleteHeader = servletRequest.getHeader(HttpHeader.UPLOAD_COMPLETE);
     Boolean uploadComplete = StructuredHeaderUtil.parseBoolean(uploadCompleteHeader);
 
+    // Per RUFH §4.2.1: If upload length was deferred and the client completes the upload
+    // via Upload-Complete: ?1, derive and set the total length from current offset +
+    // Content-Length.
+    long contentLength = servletRequest.getContentLengthLong();
+    if (Boolean.TRUE.equals(uploadComplete) && !uploadInfo.hasLength() && contentLength >= 0) {
+      long currentOffset = uploadInfo.getOffset() != null ? uploadInfo.getOffset() : 0L;
+      uploadInfo.setLength(currentOffset + contentLength);
+      uploadStorageService.update(uploadInfo);
+    }
+
     InputStream is = servletRequest.getContentInputStream();
+    InterruptibleInputStream interruptibleStream = null;
     if (is != null) {
       if (uploadLockingService != null) {
-        InterruptibleInputStream interruptibleStream = new InterruptibleInputStream(is);
+        interruptibleStream = new InterruptibleInputStream(is);
         uploadLockingService.registerInputStream(requestUri, interruptibleStream);
         is = interruptibleStream;
       }
-      UploadInfo appended = uploadStorageService.append(uploadInfo, is);
-      if (appended != null) {
-        uploadInfo = appended;
+      try {
+        UploadInfo appended = uploadStorageService.append(uploadInfo, is);
+        if (appended != null) {
+          uploadInfo = appended;
+        }
+      } catch (IOException e) {
+        // When an append stream is interrupted by the locking service watchdog or a concurrent
+        // release request, the storage backend commits all bytes received so far and updates
+        // the offset in storage. We reload the updated UploadInfo and acknowledge the partial
+        // append rather than propagating an unhandled error.
+        if (interruptibleStream != null && interruptibleStream.isInterrupted()) {
+          // Refresh UploadInfo first so the log statement and response reflect the true committed
+          // byte offset persisted by the storage backend up to the interruption point.
+          UploadInfo refreshed = uploadStorageService.getUploadInfo(requestUri, ownerKey);
+          if (refreshed != null) {
+            uploadInfo = refreshed;
+          }
+          log.info(
+              "RUFH append request for URI {} was interrupted by locking service contention; "
+                  + "saved partial upload up to offset {}",
+              requestUri,
+              uploadInfo != null ? uploadInfo.getOffset() : "unknown");
+        } else {
+          throw e;
+        }
       }
     }
 

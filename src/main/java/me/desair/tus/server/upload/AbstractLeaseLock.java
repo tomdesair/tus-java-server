@@ -126,23 +126,49 @@ public abstract class AbstractLeaseLock implements UploadLock {
    * Renew the lock lease by advancing the expiration timestamp and persisting the updated metadata.
    */
   public void renewLease() {
+    long oldExpiresAt = leaseData.getExpiresAt();
+    long candidateExpiresAt = System.currentTimeMillis() + leaseData.getLeaseDurationMs();
     try {
-      leaseData.setExpiresAt(System.currentTimeMillis() + leaseData.getLeaseDurationMs());
+      leaseData.setExpiresAt(candidateExpiresAt);
       doRenewLease();
+    } catch (IllegalStateException e) {
+      leaseData.setExpiresAt(oldExpiresAt);
+      // Ownership lost (e.g. lease taken over by another node): abort immediately
+      log.info(
+          "Aborting active input stream for upload URI {} as lock was taken over: {}",
+          getRequestUri(),
+          e.getMessage());
+      abortActiveStreamAndHeartbeat();
     } catch (Exception e) {
-      // If lease renewal fails, abort any active input stream immediately
-      // to prevent the upload thread from continuing to write un-locked bytes.
-      if (activeInputStreams != null && getRequestUri() != null) {
-        InputStream stream = activeInputStreams.get(getRequestUri());
-        if (stream != null) {
-          log.info(
-              "Aborting active input stream for upload URI {} due to lease renewal failure",
-              getRequestUri());
-          Utils.interruptStream(stream);
-        }
+      leaseData.setExpiresAt(oldExpiresAt);
+      // Transient failure (e.g. network timeout). Only abort if the previous lease actually
+      // expired.
+      if (System.currentTimeMillis() >= oldExpiresAt) {
+        log.warn(
+            "Lease for upload URI {} expired after renewal failure; aborting active stream",
+            getRequestUri(),
+            e);
+        abortActiveStreamAndHeartbeat();
+      } else {
+        log.warn(
+            "Transient failure renewing lease for upload URI {} (will retry on next tick): {}",
+            getRequestUri(),
+            e.getMessage());
       }
-      Utils.shutdownExecutor(heartbeatExecutor);
     }
+  }
+
+  private void abortActiveStreamAndHeartbeat() {
+    if (activeInputStreams != null && getRequestUri() != null) {
+      InputStream stream = activeInputStreams.get(getRequestUri());
+      if (stream != null) {
+        log.info(
+            "Aborting active input stream for upload URI {} due to lease renewal failure",
+            getRequestUri());
+        Utils.interruptStream(stream);
+      }
+    }
+    Utils.shutdownExecutor(heartbeatExecutor);
   }
 
   /**

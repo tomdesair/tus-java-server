@@ -66,13 +66,14 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
     if (uploadInfo == null) {
       found = false;
     } else if (uploadInfo.isUploadInProgress()) {
+      InterruptibleInputStream interruptibleStream = null;
       try {
         InputStream stream = servletRequest.getContentInputStream();
 
         // If a locking service is provided, wrap the input stream in an InterruptibleInputStream
         // and register it with the locking service to allow for interruption of the upload.
         if (lockingService != null) {
-          InterruptibleInputStream interruptibleStream = new InterruptibleInputStream(stream);
+          interruptibleStream = new InterruptibleInputStream(stream);
           lockingService.registerInputStream(servletRequest.getRequestURI(), interruptibleStream);
           stream = interruptibleStream;
         }
@@ -94,6 +95,28 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
         }
       } catch (UploadNotFoundException e) {
         found = false;
+      } catch (IOException e) {
+        // When an upload stream is interrupted by the locking service watchdog or a concurrent
+        // lock contention release request (e.g. from a concurrent HEAD or DELETE), the storage
+        // backend (Disk, S3, Azure) commits all bytes received up to the interruption and updates
+        // the offset in storage. We reload the updated UploadInfo and acknowledge the partial
+        // PATCH with 204 No Content and the new Upload-Offset rather than throwing a 500 error.
+        if (interruptibleStream != null && interruptibleStream.isInterrupted()) {
+          // Refresh UploadInfo first so the log statement and response reflect the true committed
+          // byte offset persisted by the storage backend up to the interruption point.
+          UploadInfo refreshed =
+              uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
+          if (refreshed != null) {
+            uploadInfo = refreshed;
+          }
+          log.info(
+              "Upload PATCH request for URI {} was interrupted by locking service contention; "
+                  + "saved partial upload up to offset {}",
+              servletRequest.getRequestURI(),
+              uploadInfo != null ? uploadInfo.getOffset() : "unknown");
+        } else {
+          throw e;
+        }
       }
     }
 

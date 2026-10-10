@@ -4,6 +4,7 @@ import com.azure.core.util.BinaryData;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.models.BlobItem;
+import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.Block;
 import com.azure.storage.blob.models.BlockList;
@@ -21,10 +22,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.exception.MinAppendSizeNotMetException;
@@ -37,11 +44,14 @@ import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
+import me.desair.tus.server.upload.util.AsyncChunkUploader;
+import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.BoundedInputStream;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -85,6 +95,10 @@ public class AzureBlobStorageService implements UploadStorageService {
   private final Path tempBufferDir;
 
   private long preferredBlockSize = DEFAULT_PREFERRED_BLOCK_SIZE;
+
+  private int cloudUploadThreadPoolSize = 10;
+  private Duration drainTimeout = Duration.ofSeconds(55);
+  private final ThreadPoolExecutor uploadExecutor;
 
   private Long maxUploadSize;
   private Long maxAppendSize;
@@ -144,6 +158,21 @@ public class AzureBlobStorageService implements UploadStorageService {
     }
     Utils.cleanupTempFiles(this.tempBufferDir, "tus-azure-chunk-*.tmp", 24L * 3600_000L);
 
+    AtomicInteger threadNum = new AtomicInteger(1);
+    this.uploadExecutor =
+        new ThreadPoolExecutor(
+            cloudUploadThreadPoolSize,
+            cloudUploadThreadPoolSize,
+            60L,
+            TimeUnit.SECONDS,
+            new SynchronousQueue<>(),
+            r -> {
+              Thread t = new Thread(r, "tus-azure-upload-" + threadNum.getAndIncrement());
+              t.setDaemon(true);
+              return t;
+            },
+            new ThreadPoolExecutor.CallerRunsPolicy());
+
     this.concatenationService =
         new AzureBlobConcatenationService(containerClient, this.uploadPrefix, this);
   }
@@ -199,6 +228,14 @@ public class AzureBlobStorageService implements UploadStorageService {
         containerClient.getBlobClient(getAzureBlobName(upload)).getBlockBlobClient();
     List<String> blockIds = getCommittedBlockIds(blockBlobClient);
 
+    // If metadata records committed uploadPartKeys, ensure the blob's committed blocks do not
+    // exceed the authoritative metadata offset (e.g. if a prior commitBlockList succeeded
+    // but updating UploadInfo metadata failed or was interrupted).
+    if (upload.getUploadPartKeys() != null && blockIds.size() > upload.getUploadPartKeys().size()) {
+      blockIds = new ArrayList<>(upload.getUploadPartKeys());
+      blockBlobClient.commitBlockList(blockIds, true);
+    }
+
     // 2. Validate block budget: Azure Block Blobs support up to 50,000 blocks
     validateRemainingBlockBudget(upload, blockIds.size());
 
@@ -210,67 +247,108 @@ public class AzureBlobStorageService implements UploadStorageService {
     int initialBlockCount = blockIds.size();
     long totalAppended = 0L;
     IOException streamException = null;
+    IOException drainException = null;
     TusException pendingTusException = null;
 
-    // 4. Read incoming stream in chunks, staging blocks directly to Azure Block Blob
-    while (true) {
-      File chunkFile = null;
-      try {
-        chunkFile = Files.createTempFile(tempBufferDir, "tus-azure-chunk-", ".tmp").toFile();
-        ReadChunkResult chunkResult = readChunk(inputStream, chunkFile, optimalBlockSize);
-        long chunkSize = chunkResult.bytesRead;
-        if (chunkResult.exception != null) {
-          streamException = chunkResult.exception;
-        }
+    List<String> plannedBlockIds = new ArrayList<>();
+    List<Long> plannedChunkSizes = new ArrayList<>();
 
-        if (chunkSize <= 0) {
+    InterruptibleInputStream interruptibleStream = Utils.toInterruptibleStream(inputStream);
+    try (AsyncChunkUploader uploader =
+        new AsyncChunkUploader(uploadExecutor, drainTimeout.toMillis(), interruptibleStream)) {
+      // 4. Read incoming stream in chunks, staging blocks directly to Azure Block Blob
+      while (true) {
+        File chunkFile = null;
+        boolean handedOff = false;
+        try {
+          chunkFile = Files.createTempFile(tempBufferDir, "tus-azure-chunk-", ".tmp").toFile();
+          ReadChunkResult chunkResult = readChunk(inputStream, chunkFile, optimalBlockSize);
+          long chunkSize = chunkResult.bytesRead;
+          if (chunkResult.exception != null) {
+            streamException = chunkResult.exception;
+          }
+
+          if (chunkSize <= 0) {
+            break;
+          }
+
+          if (effectiveMaxAppendSize != null
+              && (totalAppended + chunkSize) > effectiveMaxAppendSize) {
+            // If maxAppendSize is exceeded, stop reading from the stream but commit
+            // previously staged blocks so no uploaded data or offset is corrupted.
+            pendingTusException =
+                new MaxAppendSizeExceededException(
+                    "Append payload size "
+                        + (totalAppended + chunkSize)
+                        + " exceeded limit of "
+                        + effectiveMaxAppendSize);
+            break;
+          }
+
+          int plannedIndex = blockIds.size() + plannedBlockIds.size();
+          // Validate chunk against remaining block budget
+          validateRemainingBlockBudget(upload, plannedIndex);
+
+          String blockId = generateBlockId(plannedIndex);
+          plannedBlockIds.add(blockId);
+          plannedChunkSizes.add(chunkSize);
+          totalAppended += chunkSize;
+
+          File fileToUpload = chunkFile;
+          uploader.submitChunk(
+              chunkFile,
+              chunkSize,
+              blockId,
+              () -> stageBlock(blockBlobClient, blockId, fileToUpload, chunkSize));
+          handedOff = true;
+
+          if (streamException != null) {
+            break;
+          }
+        } catch (IOException e) {
+          streamException = e;
           break;
-        }
-
-        if (effectiveMaxAppendSize != null
-            && (totalAppended + chunkSize) > effectiveMaxAppendSize) {
-          // If maxAppendSize is exceeded, stop reading from the stream but commit
-          // previously staged blocks so no uploaded data or offset is corrupted.
-          pendingTusException =
-              new MaxAppendSizeExceededException(
-                  "Append payload size "
-                      + (totalAppended + chunkSize)
-                      + " exceeded limit of "
-                      + effectiveMaxAppendSize);
+        } catch (TusException te) {
+          pendingTusException = te;
           break;
+        } finally {
+          if (!handedOff) {
+            deleteFileQuietly(chunkFile);
+          }
         }
-
-        totalAppended += chunkSize;
-
-        // Validate chunk against remaining block budget
-        validateRemainingBlockBudget(upload, blockIds.size());
-
-        // Stage block directly to Azure Block Blob
-        stageChunkFile(chunkFile, chunkSize, blockBlobClient, blockIds);
-
-        if (streamException != null) {
-          break;
-        }
-      } catch (IOException e) {
-        streamException = e;
-        break;
-      } catch (TusException te) {
-        pendingTusException = te;
-        break;
-      } finally {
-        deleteFileQuietly(chunkFile);
       }
+
+      // Drain remaining staged chunks with configured timeout (defaults to 55s, lock wait - 5s).
+      // Catch drainException so any chunks confirmed uploaded before timeout or error
+      // are committed and the metadata offset is preserved without loss.
+      try {
+        uploader.drainAndComplete();
+      } catch (IOException e) {
+        drainException = e;
+      } finally {
+        int confirmed = Math.min(uploader.getConfirmedCount(), plannedBlockIds.size());
+        for (int i = 0; i < confirmed; i++) {
+          blockIds.add(plannedBlockIds.get(i));
+        }
+      }
+    }
+
+    // Calculate actual confirmed bytes appended
+    long confirmedAppended = 0L;
+    for (int i = 0; i < blockIds.size() - initialBlockCount; i++) {
+      confirmedAppended += plannedChunkSizes.get(i);
     }
 
     // 5. Commit any newly staged blocks in batch (1 single commit call for entire request)
     // Batching block commits into a single call at the end eliminates redundant network
     // round-trips for every chunk, drastically improving performance. In addition, committing
     // here before throwing any pending stream or limit exception guarantees zero data loss
-    // if network drops or limits are hit midway.
+    // if client pauses, network drops, or limits are hit midway.
     if (blockIds.size() > initialBlockCount) {
       try {
         blockBlobClient.commitBlockList(blockIds, true);
-        upload.setOffset(initialOffset + totalAppended);
+        upload.setOffset(initialOffset + confirmedAppended);
+        upload.setUploadPartKeys(new ArrayList<>(blockIds));
         if (uploadExpirationPeriod != null && uploadExpirationPeriod > 0) {
           upload.setExpirationTimestamp(System.currentTimeMillis() + uploadExpirationPeriod);
         }
@@ -292,6 +370,10 @@ public class AzureBlobStorageService implements UploadStorageService {
       }
     }
 
+    if (drainException != null) {
+      throw drainException;
+    }
+
     if (streamException != null) {
       throw streamException;
     }
@@ -301,7 +383,16 @@ public class AzureBlobStorageService implements UploadStorageService {
     }
 
     // 6. Validate minimum append size constraints if configured
-    validateMinAppendSize(totalAppended);
+    // Per RUFH §4.1.4: "This limit does not apply to upload creation requests with no content,
+    // or to requests completing the upload by including the Upload-Complete: ?1 header field."
+    boolean isCompletingOrEmpty =
+        !upload.isUploadInProgress()
+            || (upload.getLength() != null
+                && upload.getOffset() != null
+                && upload.getOffset() >= upload.getLength());
+    if (!isCompletingOrEmpty) {
+      validateMinAppendSize(confirmedAppended);
+    }
 
     return upload;
   }
@@ -432,16 +523,25 @@ public class AzureBlobStorageService implements UploadStorageService {
       containerClient.getBlobClient(checksumKey).deleteIfExists();
     }
 
-    // 4. Delete lock target and stop signal blobs (handling active lease exceptions gracefully)
+    // 4. Delete lock target and stop signal blobs
     try {
       containerClient.getBlobClient(locksPrefix + id + ".stop").deleteIfExists();
     } catch (Exception ignored) {
     }
 
     try {
-      containerClient.getBlobClient(locksPrefix + id + ".lock").deleteIfExists();
+      BlobClient lockBlob = containerClient.getBlobClient(locksPrefix + id + ".lock");
+      // Check if lock blob is actively leased by the current request before attempting deletion.
+      // Attempting deleteIfExists() on a leased blob without the lease ID causes Azure Blob
+      // Storage to reject the request with HTTP 412 (LeaseIdMissing) and logs an SDK error.
+      if (Boolean.TRUE.equals(lockBlob.exists())) {
+        BlobProperties props = lockBlob.getProperties();
+        if (props.getLeaseState() != null
+            && !Strings.CS.equals(props.getLeaseState().toString(), "leased")) {
+          lockBlob.deleteIfExists();
+        }
+      }
     } catch (Exception ignored) {
-      // Lock blob may be actively leased by current request lock (Azure 412 LeaseIdMissing)
     }
 
     log.debug("Terminated upload with ID {}", id);
@@ -653,6 +753,52 @@ public class AzureBlobStorageService implements UploadStorageService {
     return preferredBlockSize;
   }
 
+  @Override
+  public void setCloudUploadThreadPoolSize(int size) {
+    if (size <= 0) {
+      throw new IllegalArgumentException(
+          "The cloud upload thread pool size must be greater than 0");
+    }
+    this.cloudUploadThreadPoolSize = size;
+    if (size > uploadExecutor.getMaximumPoolSize()) {
+      uploadExecutor.setMaximumPoolSize(size);
+      uploadExecutor.setCorePoolSize(size);
+    } else {
+      uploadExecutor.setCorePoolSize(size);
+      uploadExecutor.setMaximumPoolSize(size);
+    }
+  }
+
+  @Override
+  public int getCloudUploadThreadPoolSize() {
+    return cloudUploadThreadPoolSize;
+  }
+
+  @Override
+  public void setDrainTimeout(Duration drainTimeout) {
+    if (drainTimeout != null) {
+      this.drainTimeout = drainTimeout;
+    }
+  }
+
+  @Override
+  public Duration getDrainTimeout() {
+    return drainTimeout;
+  }
+
+  @Override
+  public void close() throws IOException {
+    uploadExecutor.shutdown();
+    try {
+      if (!uploadExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+        uploadExecutor.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      uploadExecutor.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
+  }
+
   // --- Helper Methods ---
 
   /** Calculates auto-calibrated optimal block size based on total upload length. */
@@ -747,7 +893,7 @@ public class AzureBlobStorageService implements UploadStorageService {
   }
 
   /** Validates effective max append size limit. */
-  private void validateMaxAppendSize(long totalAppended, Long effectiveMaxAppendSize)
+  void validateMaxAppendSize(long totalAppended, Long effectiveMaxAppendSize)
       throws MaxAppendSizeExceededException {
     if (effectiveMaxAppendSize != null && totalAppended > effectiveMaxAppendSize) {
       throw new MaxAppendSizeExceededException(
@@ -759,23 +905,24 @@ public class AzureBlobStorageService implements UploadStorageService {
   }
 
   /** Validates min append size limit. */
-  private void validateMinAppendSize(long totalAppended) throws MinAppendSizeNotMetException {
+  void validateMinAppendSize(long totalAppended) throws MinAppendSizeNotMetException {
     if (minAppendSize != null && totalAppended < minAppendSize) {
       throw new MinAppendSizeNotMetException(
           "Append size " + totalAppended + " is less than minimum allowed of " + minAppendSize);
     }
   }
 
-  /** Stages local chunk temp file as a Block Blob block. */
-  private void stageChunkFile(
-      File chunkFile, long chunkSize, BlockBlobClient blockBlobClient, List<String> blockIds)
+  /**
+   * Stages local chunk temp file as a Block Blob block without mutating blockIds on the worker
+   * thread.
+   */
+  private void stageBlock(
+      BlockBlobClient blockBlobClient, String blockId, File chunkFile, long chunkSize)
       throws IOException {
     if (chunkSize > 0) {
-      String chunkBlockId = generateBlockId(blockIds.size());
       try (InputStream chunkIs = new java.io.BufferedInputStream(new FileInputStream(chunkFile))) {
-        blockBlobClient.stageBlock(chunkBlockId, chunkIs, chunkSize);
+        blockBlobClient.stageBlock(blockId, chunkIs, chunkSize);
       }
-      blockIds.add(chunkBlockId);
     }
   }
 
@@ -830,9 +977,18 @@ public class AzureBlobStorageService implements UploadStorageService {
     blockBlobClient.commitBlockList(new ArrayList<>(), true);
   }
 
-  /** Generates Base64 encoded block ID matching Azure Block Blob standards. */
-  private String generateBlockId(int index) {
-    String idString = String.format("block-%06d", index);
+  /**
+   * Generates a Base64-encoded block ID matching Azure Block Blob standards.
+   *
+   * <p>Incorporates an 8-character random UUID suffix to guarantee that late-landing blocks from
+   * previous aborted or timed-out worker threads never collide with or overwrite blocks in
+   *
+   * @param index The block index
+   * @return The Base64-encoded block ID
+   */
+  String generateBlockId(int index) {
+    String idString =
+        String.format("blk-%06d-%s", index, UUID.randomUUID().toString().substring(0, 8));
     return Base64.getEncoder().encodeToString(idString.getBytes(StandardCharsets.UTF_8));
   }
 
@@ -881,7 +1037,7 @@ public class AzureBlobStorageService implements UploadStorageService {
   }
 
   /** Deletes local file suppressing exceptions. */
-  private void deleteFileQuietly(File file) {
+  void deleteFileQuietly(File file) {
     if (file != null && file.exists()) {
       try {
         Files.delete(file.toPath());

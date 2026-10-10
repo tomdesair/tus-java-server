@@ -150,7 +150,8 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
       AzureErrorType errorType = AzureUtils.parseErrorResponse(e);
       if (errorType == AzureErrorType.LEASE_ALREADY_PRESENT
           || errorType == AzureErrorType.CONFLICT) {
-        log.info("Lock contention for upload URI {}: Azure blob lease is already held", requestUri);
+        log.debug(
+            "Lock contention for upload URI {}: Azure blob lease is already held", requestUri);
         throw new UploadAlreadyLockedException(
             "Upload with URI " + requestUri + " is currently locked");
       }
@@ -210,7 +211,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
   }
 
   /** Creates a .stop signal blob to request remote pods to halt active streaming appends. */
-  private void createStopSignalBlob(String idStr) {
+  void createStopSignalBlob(String idStr) {
     try {
       BlobClient stopBlob = containerClient.getBlobClient(locksPrefix + idStr + ".stop");
       stopBlob.upload(BinaryData.fromString("stop"), true);
@@ -220,7 +221,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
   }
 
   /** Deletes the .stop signal blob after lock acquisition. */
-  private void deleteStopSignalBlob(String idStr) {
+  void deleteStopSignalBlob(String idStr) {
     try {
       BlobClient stopBlob = containerClient.getBlobClient(locksPrefix + idStr + ".stop");
       stopBlob.deleteIfExists();

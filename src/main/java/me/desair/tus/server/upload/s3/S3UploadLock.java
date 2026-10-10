@@ -4,11 +4,19 @@ import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.RemoveObjectsArgs;
+import io.minio.Result;
 import io.minio.errors.ErrorResponseException;
+import io.minio.messages.DeleteRequest;
+import io.minio.messages.DeleteResult;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import me.desair.tus.server.upload.AbstractLeaseLock;
 import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.upload.UploadLock;
@@ -44,7 +52,7 @@ public class S3UploadLock extends AbstractLeaseLock {
    * @param stopKey The S3 object key for the interrupt stop signal
    * @param inputStreamMap Map of active request input streams
    */
-  public S3UploadLock(
+  S3UploadLock(
       LeaseData leaseData,
       MinioClient minioClient,
       String bucket,
@@ -104,24 +112,93 @@ public class S3UploadLock extends AbstractLeaseLock {
 
   @Override
   protected void releaseLockResource() {
-    // Owner-Safe Lock Release: only delete .lock lease if it is still owned by this holder
-    deleteS3LockObjectIfOwner(lockKey);
-    deleteS3ObjectQuietly(stopKey);
+    // Owner-Safe Lock Release: only delete .lock lease if it is still owned by this holder.
+    // If ownership was stolen by another node (e.g. heartbeat lost or execution ran too long),
+    // skip deletion entirely so we do not delete another node's lock or any stop signal
+    // potentially intended for that new holder.
+    if (lockKey != null && !doesLockOwnershipMatch(lockKey)) {
+      log.info(
+          "Skipping deletion of S3 lock key {}: lock is currently held by another node", lockKey);
+      return;
+    }
+
+    // Batch deletion of .lock and .stop keys via S3 Multi-Object Delete.
+    // AWS S3 and MinIO execute multi-object delete in a single network round trip (POST /?delete),
+    // eliminating an extra round trip on every lock release.
+    deleteS3Objects(lockKey, stopKey);
   }
 
-  void deleteS3LockObjectIfOwner(String key) {
-    if (key == null || minioClient == null || bucket == null) {
+  void deleteS3Objects(String firstKey, String secondKey) {
+    if (minioClient == null || bucket == null) {
+      return;
+    }
+    List<String> keysToDelete =
+        Stream.of(firstKey, secondKey).filter(Objects::nonNull).collect(Collectors.toList());
+    if (keysToDelete.isEmpty()) {
+      return;
+    }
+
+    boolean batchFailed = false;
+    List<DeleteRequest.Object> objects =
+        keysToDelete.stream().map(DeleteRequest.Object::new).collect(Collectors.toList());
+
+    try {
+      // First attempt fast S3 Multi-Object Delete (POST /?delete) in a single round trip.
+      // Supported by MinIO and compliant S3 endpoints where bucket policies permit multi-delete.
+      Iterable<Result<DeleteResult.Error>> results =
+          minioClient.removeObjects(
+              RemoveObjectsArgs.builder().bucket(bucket).objects(objects).build());
+      if (results != null) {
+        for (Result<DeleteResult.Error> result : results) {
+          try {
+            if (result != null) {
+              DeleteResult.Error error = result.get();
+              if (error != null) {
+                // S3 returned an error for an object (e.g. AccessDenied on multi-delete POST
+                // /?delete)
+                log.debug(
+                    "Batch delete reported error for S3 object {}: {}; falling back to individual"
+                        + " delete",
+                    error.objectName(),
+                    error.message());
+                batchFailed = true;
+                break;
+              }
+            }
+          } catch (Exception e) {
+            log.debug(
+                "Exception iterating batch delete results; falling back to individual delete", e);
+            batchFailed = true;
+            break;
+          }
+        }
+      }
+    } catch (Exception e) {
+      log.debug(
+          "Batch multi-delete failed for keys {}; falling back to individual single-object DELETE",
+          keysToDelete,
+          e);
+      batchFailed = true;
+    }
+
+    // Fall back to resilient individual single-object DELETE calls (DELETE /bucket/key).
+    // Standard AWS IAM policies often grant s3:DeleteObject exclusively on arn:aws:s3:::bucket/*,
+    // which allows individual object deletions while rejecting bucket-level multi-object delete.
+    if (batchFailed) {
+      for (String key : keysToDelete) {
+        deleteSingleObject(key);
+      }
+    }
+  }
+
+  void deleteSingleObject(String key) {
+    if (minioClient == null || bucket == null || key == null) {
       return;
     }
     try {
-      if (!doesLockOwnershipMatch(key)) {
-        log.info(
-            "Skipping deletion of S3 lock key {}: lock is currently held by another node", key);
-        return;
-      }
       minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
     } catch (Exception e) {
-      log.debug("Failed to delete S3 lock object {}", key, e);
+      log.warn("Failed to delete S3 lock object key {} in bucket {}", key, bucket, e);
     }
   }
 
@@ -148,16 +225,5 @@ public class S3UploadLock extends AbstractLeaseLock {
       log.debug("Error checking lock ownership for S3 key {}", key, e);
     }
     return true;
-  }
-
-  private void deleteS3ObjectQuietly(String key) {
-    if (key == null || minioClient == null || bucket == null) {
-      return;
-    }
-    try {
-      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
-    } catch (Exception e) {
-      log.debug("Failed to delete S3 object {}", key, e);
-    }
   }
 }

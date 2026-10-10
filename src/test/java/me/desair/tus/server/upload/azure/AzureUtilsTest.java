@@ -69,6 +69,9 @@ public class AzureUtilsTest {
   public void testParseErrorResponseAccessDenied() {
     BlobStorageException ex = createException(403, BlobErrorCode.AUTHORIZATION_FAILURE);
     assertEquals(AzureErrorType.ACCESS_DENIED, AzureUtils.parseErrorResponse(ex));
+
+    BlobStorageException ex401 = createException(401, null);
+    assertEquals(AzureErrorType.ACCESS_DENIED, AzureUtils.parseErrorResponse(ex401));
   }
 
   @Test
@@ -89,5 +92,13 @@ public class AzureUtilsTest {
 
     BlobStorageException exLeaseMissing = createException(409, BlobErrorCode.LEASE_ID_MISSING);
     assertEquals(AzureErrorType.LEASE_NOT_PRESENT, AzureUtils.parseErrorResponse(exLeaseMissing));
+  }
+
+  @Test
+  public void testParseErrorResponseErrorCodeThrowsExceptionHandled() {
+    HttpResponse response = mock(HttpResponse.class);
+    when(response.getHeaders()).thenThrow(new RuntimeException("Simulated error code failure"));
+    BlobStorageException ex = new BlobStorageException("Test exception", response, null);
+    assertEquals(AzureErrorType.UNKNOWN, AzureUtils.parseErrorResponse(ex));
   }
 }

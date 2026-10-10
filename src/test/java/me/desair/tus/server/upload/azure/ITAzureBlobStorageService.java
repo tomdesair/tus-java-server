@@ -73,6 +73,25 @@ public class ITAzureBlobStorageService {
     storageService.append(created, new ByteArrayInputStream("0123456789".getBytes()));
   }
 
+  /**
+   * §4.1.4: "This limit does not apply to upload creation requests with no content, or to requests
+   * completing the upload by including the Upload-Complete: ?1 header field."
+   */
+  @Test
+  public void completingUploadBypassesMinAppendSize() throws Exception {
+    storageService.setMinAppendSize(100L);
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    UploadInfo completed =
+        storageService.append(created, new ByteArrayInputStream("0123456789".getBytes()));
+    assertNotNull(completed);
+    assertEquals(Long.valueOf(10L), completed.getOffset());
+    assertFalse(completed.isUploadInProgress());
+  }
+
   @Test(expected = MaxAppendSizeExceededException.class)
   public void appendExceedsMaxAppendSizeShouldThrow() throws Exception {
     storageService.setMaxAppendSize(5L);
@@ -237,6 +256,40 @@ public class ITAzureBlobStorageService {
 
     storageService.terminateUpload(created);
     assertNull(storageService.getUploadInfo(created.getId()));
+  }
+
+  @Test
+  public void terminateUploadShouldHandleLeasedAndUnleasedLockBlobs() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    storageService.append(created, new ByteArrayInputStream("0123456789".getBytes()));
+    assertNotNull(storageService.getUploadInfo(created.getId()));
+
+    // 1. Verify unleased lock blob deletion: create an unleased lock blob and verify it is removed
+    BlobClient lockBlob = containerClient.getBlobClient("locks/" + created.getId() + ".lock");
+    lockBlob.upload(BinaryData.fromBytes("lock".getBytes(StandardCharsets.UTF_8)), true);
+    assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
+
+    storageService.terminateUpload(created);
+    assertNull(storageService.getUploadInfo(created.getId()));
+    assertFalse(Boolean.TRUE.equals(lockBlob.exists()));
+
+    // 2. Verify leased lock blob: create upload, hold active lease, and verify terminateUpload
+    // skips deletion so Azure HTTP 412 (LeaseIdMissing) error is never triggered or logged
+    UploadInfo info2 = new UploadInfo();
+    info2.setLength(10L);
+    UploadInfo created2 = storageService.create(info2, "owner1");
+
+    AzureBlobLockingService lockingService = new AzureBlobLockingService(containerClient);
+    UploadLock lock = lockingService.lockUploadByUri("/test/upload/" + created2.getId());
+    try {
+      storageService.terminateUpload(created2);
+      assertNull(storageService.getUploadInfo(created2.getId()));
+    } finally {
+      lock.release();
+    }
   }
 
   @Test
@@ -844,5 +897,52 @@ public class ITAzureBlobStorageService {
     // committed and upload info offset matches committed bytes.
     UploadInfo reloaded = storageService.getUploadInfo(created.getId());
     assertNotNull(reloaded);
+  }
+
+  @Test
+  public void testAppendTruncatesCommittedBlocksWhenExceedingAuthoritativeMetadata()
+      throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(500L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    // Upload first 100 bytes
+    storageService.append(created, new ByteArrayInputStream(new byte[100]));
+    // Upload second 100 bytes
+    storageService.append(created, new ByteArrayInputStream(new byte[100]));
+
+    UploadInfo reloaded = storageService.getUploadInfo(created.getId());
+    assertNotNull(reloaded.getUploadPartKeys());
+    assertEquals(2, reloaded.getUploadPartKeys().size());
+    assertEquals(Long.valueOf(200L), reloaded.getOffset());
+
+    // Simulate scenario where authoritative metadata records only 1 committed block
+    reloaded.getUploadPartKeys().remove(1);
+    reloaded.setOffset(100L);
+    storageService.update(reloaded);
+
+    // Now call append again: blockIds in Azure blob (2) > uploadPartKeys in metadata (1)
+    // This exercises reconciliation logic where committed blocks are aligned with authoritative
+    // metadata
+    UploadInfo appended = storageService.append(reloaded, new ByteArrayInputStream(new byte[50]));
+
+    assertEquals(Long.valueOf(150L), appended.getOffset());
+    assertEquals(2, appended.getUploadPartKeys().size());
+  }
+
+  @Test
+  public void testTerminateUploadWithUnleasedLockBlob() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(100L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    // Create an unleased lock blob to verify safe cleanup of unleased lock blobs
+    BlobClient lockBlob = containerClient.getBlobClient("locks/" + created.getId() + ".lock");
+    lockBlob.upload(BinaryData.fromString("lock-content"), true);
+    assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
+
+    storageService.terminateUpload(created);
+
+    assertFalse(Boolean.TRUE.equals(lockBlob.exists()));
   }
 }

@@ -1,6 +1,7 @@
 package me.desair.tus.server.upload.azure;
 
 import com.azure.storage.blob.BlobClient;
+import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.specialized.BlobLeaseClient;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
@@ -8,6 +9,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.Utils;
@@ -25,7 +28,6 @@ import org.slf4j.LoggerFactory;
 public class AzureBlobUploadLock implements UploadLock {
 
   private static final Logger log = LoggerFactory.getLogger(AzureBlobUploadLock.class);
-
   private static final long RENEWAL_INTERVAL_SECONDS = 10L;
 
   private final BlobLeaseClient leaseClient;
@@ -34,7 +36,8 @@ public class AzureBlobUploadLock implements UploadLock {
   private final String uploadId;
   private final Map<String, WeakReference<InterruptibleInputStream>> activeStreams;
   private final ScheduledExecutorService renewalExecutor;
-  private volatile boolean released = false;
+  private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
+  private boolean released = false;
 
   /**
    * Constructs an {@link AzureBlobUploadLock} wrapping an acquired Azure Blob lease.
@@ -114,31 +117,88 @@ public class AzureBlobUploadLock implements UploadLock {
     }
   }
 
+  private static final long LEASE_DURATION_MS = 60000L;
+  private long leaseExpiresAt = System.currentTimeMillis() + LEASE_DURATION_MS;
+
   BlobLeaseClient getLeaseClient() {
     return leaseClient;
   }
 
+  void setLeaseExpiresAt(long leaseExpiresAt) {
+    thisObjectLock.writeLock().lock();
+    try {
+      this.leaseExpiresAt = leaseExpiresAt;
+    } finally {
+      thisObjectLock.writeLock().unlock();
+    }
+  }
+
   /** Attempts to renew the lease with Azure Blob Storage. */
   void renewLease() {
-    if (released) {
-      return;
+    thisObjectLock.readLock().lock();
+    try {
+      if (released) {
+        return;
+      }
+    } finally {
+      thisObjectLock.readLock().unlock();
     }
     try {
       executeRenew();
+      thisObjectLock.writeLock().lock();
+      try {
+        leaseExpiresAt = System.currentTimeMillis() + LEASE_DURATION_MS;
+      } finally {
+        thisObjectLock.writeLock().unlock();
+      }
       log.trace("Successfully renewed Azure blob lease for upload URI {}", uploadUri);
     } catch (Exception e) {
-      log.warn("Failed to renew Azure blob lease for upload URI {}: {}", uploadUri, e.getMessage());
-      released = true;
-      shutdownExecutor();
-      // If lease renewal fails, abort any active input stream immediately
-      // so the upload thread does not continue writing un-locked data to Azure.
-      if (activeStreams != null && uploadId != null) {
-        WeakReference<InterruptibleInputStream> streamRef = activeStreams.remove(uploadId);
-        if (streamRef != null) {
-          log.info(
-              "Aborting active stream for upload ID {} due to lease renewal failure", uploadId);
-          Utils.interruptStream(streamRef.get());
+      boolean leaseLost = false;
+      if (e instanceof BlobStorageException) {
+        AzureErrorType errorType = AzureUtils.parseErrorResponse((BlobStorageException) e);
+        if (errorType == AzureErrorType.LEASE_ALREADY_PRESENT
+            || errorType == AzureErrorType.LEASE_NOT_PRESENT
+            || errorType == AzureErrorType.CONFLICT) {
+          leaseLost = true;
         }
+      }
+
+      boolean expired;
+      thisObjectLock.readLock().lock();
+      try {
+        expired = System.currentTimeMillis() >= leaseExpiresAt;
+      } finally {
+        thisObjectLock.readLock().unlock();
+      }
+
+      if (leaseLost || expired) {
+        log.warn(
+            "Azure blob lease definitively lost/expired for upload URI {}: {}",
+            uploadUri,
+            e.getMessage());
+        thisObjectLock.writeLock().lock();
+        try {
+          released = true;
+        } finally {
+          thisObjectLock.writeLock().unlock();
+        }
+        shutdownExecutor();
+        // If lease renewal fails definitively, abort any active input stream immediately
+        // so the upload thread does not continue writing un-locked data to Azure.
+        if (activeStreams != null && uploadId != null) {
+          WeakReference<InterruptibleInputStream> streamRef = activeStreams.remove(uploadId);
+          if (streamRef != null) {
+            log.info(
+                "Aborting active stream for upload ID {} due to lease renewal failure", uploadId);
+            Utils.interruptStream(streamRef.get());
+          }
+        }
+      } else {
+        log.warn(
+            "Transient failure renewing Azure blob lease for upload URI {} (will retry on next tick):"
+                + " {}",
+            uploadUri,
+            e.getMessage());
       }
     }
   }
@@ -152,24 +212,30 @@ public class AzureBlobUploadLock implements UploadLock {
 
   @Override
   public void release() {
-    if (!released) {
-      released = true;
-      shutdownExecutor();
-      // Remove active stream registration from JVM map upon release
-      // to avoid stale references lingering in heap.
-      if (activeStreams != null && uploadId != null) {
-        activeStreams.remove(uploadId);
+    thisObjectLock.writeLock().lock();
+    try {
+      if (released) {
+        return;
       }
-      if (leaseClient != null) {
-        try {
-          leaseClient.releaseLease();
-          log.trace("Released Azure blob lease for upload URI {}", uploadUri);
-        } catch (Exception e) {
-          log.debug(
-              "Azure blob lease release failed (may have already expired/broken) for URI {}: {}",
-              uploadUri,
-              e.getMessage());
-        }
+      released = true;
+    } finally {
+      thisObjectLock.writeLock().unlock();
+    }
+    shutdownExecutor();
+    // Remove active stream registration from JVM map upon release
+    // to avoid stale references lingering in heap.
+    if (activeStreams != null && uploadId != null) {
+      activeStreams.remove(uploadId);
+    }
+    if (leaseClient != null) {
+      try {
+        leaseClient.releaseLease();
+        log.trace("Released Azure blob lease for upload URI {}", uploadUri);
+      } catch (Exception e) {
+        log.debug(
+            "Azure blob lease release failed (may have already expired/broken) for URI {}: {}",
+            uploadUri,
+            e.getMessage());
       }
     }
   }

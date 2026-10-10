@@ -1,9 +1,7 @@
 package me.desair.tus.server.upload.s3;
 
-import io.minio.ComposeObjectArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import io.minio.SourceObject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.SequenceInputStream;
@@ -47,75 +45,126 @@ public class S3ConcatenationService implements UploadConcatenationService {
   private final String objectPrefix;
   private final long minPartSize;
   private final Path temporaryDirectory;
-  private UploadStorageService uploadStorageService;
+  private final UploadStorageService uploadStorageService;
+  private S3ServerSideComposeHelper s3ComposeHelper;
 
   /**
-   * Basic constructor using default object prefix ("uploads/") and Java temp directory.
+   * Convenience constructor for local S3-compatible backends taking backing {@link
+   * UploadStorageService}. Defaults the region to "local".
    *
-   * @param minioClient The MinIO client
-   * @param bucket The S3 bucket name
-   */
-  public S3ConcatenationService(MinioClient minioClient, String bucket) {
-    this(minioClient, bucket, "uploads/", null, null);
-  }
-
-  /**
-   * Convenient constructor taking MinioClient, bucket, and UploadStorageService.
-   *
-   * @param minioClient The MinIO client
-   * @param bucket The S3 bucket name
+   * @param endpoint S3 endpoint URL (e.g. "http://localhost:9000")
+   * @param accessKey S3 access key / username
+   * @param secretKey S3 secret key / password
+   * @param bucket S3 bucket name
    * @param uploadStorageService Underlying storage service
    */
   public S3ConcatenationService(
-      MinioClient minioClient, String bucket, UploadStorageService uploadStorageService) {
-    this(minioClient, bucket, "uploads/", uploadStorageService, null);
-  }
-
-  /**
-   * Constructs an S3ConcatenationService.
-   *
-   * @param minioClient The MinIO client
-   * @param bucket The S3 bucket name
-   * @param objectPrefix Key prefix for data objects
-   * @param uploadStorageService Underlying storage service
-   * @param temporaryDirectory Directory for temporary buffer files
-   */
-  public S3ConcatenationService(
-      MinioClient minioClient,
+      String endpoint,
+      String accessKey,
+      String secretKey,
       String bucket,
-      String objectPrefix,
-      UploadStorageService uploadStorageService,
-      Path temporaryDirectory) {
+      UploadStorageService uploadStorageService) {
+    this(endpoint, "local", accessKey, secretKey, bucket, uploadStorageService);
+  }
+
+  /**
+   * Convenient constructor taking connection parameters and backing {@link UploadStorageService}.
+   *
+   * @param endpoint S3 endpoint URL (e.g. "https://s3.amazonaws.com" or "http://localhost:9000")
+   * @param region S3 region name (e.g. "us-east-1", "eu-central-1")
+   * @param accessKey S3 access key / username
+   * @param secretKey S3 secret key / password
+   * @param bucket S3 bucket name
+   * @param uploadStorageService Underlying storage service
+   */
+  public S3ConcatenationService(
+      String endpoint,
+      String region,
+      String accessKey,
+      String secretKey,
+      String bucket,
+      UploadStorageService uploadStorageService) {
     this(
-        minioClient,
+        endpoint,
+        region,
+        accessKey,
+        secretKey,
         bucket,
-        objectPrefix,
+        "uploads/",
         uploadStorageService,
-        temporaryDirectory,
+        null,
         DEFAULT_MIN_PART_SIZE);
   }
 
-  /** Full constructor allowing custom minimum part size. */
+  /**
+   * Full constructor allowing custom object prefix, temporary directory, and minimum part size.
+   *
+   * <p>Delegates to the internal package-private constructor accepting {@link MinioClient}.
+   *
+   * @param endpoint S3 endpoint URL
+   * @param region S3 region name
+   * @param accessKey S3 access key / username
+   * @param secretKey S3 secret key / password
+   * @param bucket S3 bucket name
+   * @param objectPrefix Key prefix for data objects
+   * @param uploadStorageService Underlying storage service
+   * @param temporaryDirectory Directory for temporary buffer files
+   * @param minPartSize Minimum part chunk size for server-side composition
+   */
   public S3ConcatenationService(
-      MinioClient minioClient,
+      String endpoint,
+      String region,
+      String accessKey,
+      String secretKey,
       String bucket,
       String objectPrefix,
       UploadStorageService uploadStorageService,
       Path temporaryDirectory,
       long minPartSize) {
+    this(
+        buildMinioClient(endpoint, region, accessKey, secretKey),
+        bucket,
+        objectPrefix,
+        uploadStorageService,
+        temporaryDirectory,
+        minPartSize,
+        new S3ServerSideComposeHelper(endpoint, region, accessKey, secretKey));
+  }
+
+  /**
+   * Internal package-private constructor accepting {@link MinioClient} where all parameter
+   * configuration is concentrated.
+   */
+  S3ConcatenationService(
+      MinioClient minioClient,
+      String bucket,
+      String objectPrefix,
+      UploadStorageService uploadStorageService,
+      Path temporaryDirectory,
+      long minPartSize,
+      S3ServerSideComposeHelper s3ComposeHelper) {
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
     this.objectPrefix = objectPrefix != null ? objectPrefix : "";
-    this.uploadStorageService = uploadStorageService;
+    this.uploadStorageService =
+        Objects.requireNonNull(uploadStorageService, "UploadStorageService must not be null");
     this.temporaryDirectory =
         temporaryDirectory != null
             ? temporaryDirectory
             : java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"));
     this.minPartSize = minPartSize;
+    this.s3ComposeHelper =
+        s3ComposeHelper != null ? s3ComposeHelper : new S3ServerSideComposeHelper(this.minioClient);
   }
 
-  public void setUploadStorageService(UploadStorageService uploadStorageService) {
-    this.uploadStorageService = uploadStorageService;
+  private static MinioClient buildMinioClient(
+      String endpoint, String region, String accessKey, String secretKey) {
+    String effectiveRegion = (region != null && !region.isEmpty()) ? region : "local";
+    return MinioClient.builder()
+        .endpoint(endpoint)
+        .credentials(accessKey, secretKey)
+        .region(effectiveRegion)
+        .build();
   }
 
   @Override
@@ -126,8 +175,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
       return;
     }
 
-    Long expirationPeriod =
-        uploadStorageService != null ? uploadStorageService.getUploadExpirationPeriod() : null;
+    Long expirationPeriod = uploadStorageService.getUploadExpirationPeriod();
     List<UploadInfo> partialUploads = getPartialUploads(uploadInfo);
 
     Long totalLength = calculateTotalLength(partialUploads);
@@ -162,7 +210,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
 
       if (canUseServerSideCopy) {
         // Fast path: Compose S3 objects on cluster server-side without downloading data
-        mergeUsingServerSideCopy(targetObjectKey, partialUploads);
+        mergeUsingServerSideCopy(targetObjectKey, partialUploads, totalLength);
       } else {
         // Fallback path: Sequential stream re-upload for sub-5MB parts
         mergeUsingStreamingReupload(targetObjectKey, partialUploads, totalLength);
@@ -175,12 +223,10 @@ public class S3ConcatenationService implements UploadConcatenationService {
       }
       uploadInfo.setStorageUploadId(targetObjectKey);
 
-      if (uploadStorageService != null) {
-        try {
-          uploadStorageService.update(uploadInfo);
-        } catch (UploadNotFoundException e) {
-          log.warn("Failed to update concatenated upload info for " + uploadInfo.getId(), e);
-        }
+      try {
+        uploadStorageService.update(uploadInfo);
+      } catch (UploadNotFoundException e) {
+        log.warn("Failed to update concatenated upload info for " + uploadInfo.getId(), e);
       }
     }
   }
@@ -190,11 +236,6 @@ public class S3ConcatenationService implements UploadConcatenationService {
       throws IOException, UploadNotFoundException {
     if (uploadInfo == null) {
       return null;
-    }
-
-    if (uploadStorageService == null) {
-      throw new IOException(
-          "UploadStorageService must be configured to retrieve concatenated upload bytes");
     }
 
     if (uploadInfo.isUploadInProgress()) {
@@ -219,10 +260,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
 
     List<UploadInfo> output = new ArrayList<>(concatenationParts.size());
     for (String childUri : concatenationParts) {
-      UploadInfo childInfo =
-          uploadStorageService != null
-              ? uploadStorageService.getUploadInfo(childUri, info.getOwnerKey())
-              : null;
+      UploadInfo childInfo = uploadStorageService.getUploadInfo(childUri, info.getOwnerKey());
       if (childInfo == null) {
         throw new UploadNotFoundException(
             "Upload with URI " + childUri + " was not found for owner " + info.getOwnerKey());
@@ -246,21 +284,32 @@ public class S3ConcatenationService implements UploadConcatenationService {
     return output;
   }
 
-  private void mergeUsingServerSideCopy(String targetKey, List<UploadInfo> partialUploads)
-      throws IOException {
+  private void mergeUsingServerSideCopy(
+      String targetKey, List<UploadInfo> partialUploads, long totalLength) throws IOException {
     try {
-      List<SourceObject> sources = new ArrayList<>();
+      List<String> partKeys = new ArrayList<>();
       for (UploadInfo partial : partialUploads) {
-        String partKey = partial.getStorageUploadId();
-        sources.add(SourceObject.builder().bucket(bucket).object(partKey).build());
+        partKeys.add(partial.getStorageUploadId());
       }
 
-      // Execute S3 server-side object composition
-      minioClient.composeObject(
-          ComposeObjectArgs.builder().bucket(bucket).object(targetKey).sources(sources).build());
+      // Execute S3 server-side object composition via native S3 multipart copy helper.
+      // S3ServerSideComposeHelper executes an UploadPartCopy sequence without Content-MD5,
+      // avoiding MinIO SDK's internal EMPTY_BODY issue on Amazon AWS S3.
+      s3ComposeHelper.compose(bucket, targetKey, partKeys);
     } catch (Exception e) {
-      throw new IOException("Failed server-side S3 composeObject merge for key " + targetKey, e);
+      // If server-side composition fails for any reason (e.g. S3 permissions, regional policy,
+      // or unhandled multipart copy restriction), fall back to streaming re-upload as a safety net.
+      // This ensures concatenated uploads always succeed even if server-side copy is denied.
+      log.warn(
+          "Server-side S3 composition failed for target key {}; falling back to streaming re-upload: {}",
+          targetKey,
+          e.getMessage());
+      mergeUsingStreamingReupload(targetKey, partialUploads, totalLength);
     }
+  }
+
+  void setS3ServerSideComposeHelper(S3ServerSideComposeHelper s3ComposeHelper) {
+    this.s3ComposeHelper = s3ComposeHelper;
   }
 
   private void mergeUsingStreamingReupload(
@@ -297,12 +346,10 @@ public class S3ConcatenationService implements UploadConcatenationService {
         completed = false;
       } else if (expirationPeriod != null) {
         childInfo.updateExpiration(expirationPeriod);
-        if (uploadStorageService != null) {
-          try {
-            uploadStorageService.update(childInfo);
-          } catch (UploadNotFoundException e) {
-            log.debug("Failed to update child upload expiration for " + childInfo.getId(), e);
-          }
+        try {
+          uploadStorageService.update(childInfo);
+        } catch (UploadNotFoundException e) {
+          log.debug("Failed to update child upload expiration for " + childInfo.getId(), e);
         }
       }
     }

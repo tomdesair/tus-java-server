@@ -4,6 +4,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -75,6 +76,10 @@ public class AbstractLeaseLockingServiceTest {
 
     public void testJitter(long min, long max) {
       applyJitter(min, max);
+    }
+
+    public void testJitterDefault() {
+      applyJitter();
     }
 
     public void testCheckStopSignals() {
@@ -228,8 +233,60 @@ public class AbstractLeaseLockingServiceTest {
   }
 
   @Test
-  public void testApplyJitter() {
-    service.testJitter(1L, 5L);
+  public void testDefaultJitterBounds() {
+    assertEquals(20L, service.getJitterMinMs());
+    assertEquals(60L, service.getJitterMaxMs());
+  }
+
+  @Test
+  public void testSetJitterValidBounds() {
+    service.setJitter(10L, 50L);
+    assertEquals(10L, service.getJitterMinMs());
+    assertEquals(50L, service.getJitterMaxMs());
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testSetJitterNegativeMinThrows() {
+    service.setJitter(-1L, 50L);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testSetJitterMaxLessThanMinThrows() {
+    service.setJitter(50L, 10L);
+  }
+
+  @Test
+  public void testApplyJitterWithZeroOrNegativeMaxMsReturnsImmediately() {
+    long start = System.currentTimeMillis();
+    service.testJitter(0L, 0L);
+    service.testJitter(0L, -5L);
+    long elapsed = System.currentTimeMillis() - start;
+    // KISS: zero/negative maxMs returns immediately without sleep
+    assertTrue(elapsed < 100L);
+  }
+
+  @Test
+  public void testApplyJitterWhenMinGreaterThanOrEqualMax() {
+    long start = System.currentTimeMillis();
+    service.testJitter(2L, 2L);
+    service.testJitter(3L, 2L);
+    long elapsed = System.currentTimeMillis() - start;
+    assertTrue(elapsed >= 2L);
+  }
+
+  @Test
+  public void testApplyJitterDefault() {
+    service.setJitter(1L, 3L);
+    service.testJitterDefault();
+    assertEquals(1L, service.getJitterMinMs());
+    assertEquals(3L, service.getJitterMaxMs());
+  }
+
+  @Test
+  public void testApplyJitterPreservesInterrupt() {
+    Thread.currentThread().interrupt();
+    service.testJitter(10L, 20L);
+    assertTrue(Thread.interrupted());
   }
 
   @Test

@@ -29,33 +29,35 @@ Jackson dependencies (`jackson-databind`, `jackson-annotations`, `jackson-core`)
 ### Step 2: Configure `TusFileUploadService`
 
 ```java
-import io.minio.MinioClient;
 import me.desair.tus.server.TusFileUploadService;
 import me.desair.tus.server.upload.s3.S3StorageService;
 import me.desair.tus.server.upload.s3.S3LockingService;
 
-// 1. Production Configuration: Load S3 parameters securely from environment variables
+// Option A: Local S3-compatible backend (e.g. MinIO, RustFS, Ceph)
+// The region parameter can be omitted (defaults to "local"); local backends ignore region in SigV4 validation.
+S3StorageService localS3Storage = new S3StorageService(
+    "http://localhost:9000", "minioadmin", "minioadmin", "my-upload-bucket");
+S3LockingService localS3Locking = new S3LockingService(
+    "http://localhost:9000", "minioadmin", "minioadmin", "my-upload-bucket");
+
+// Option B: AWS S3 with explicit region
+// AWS strictly enforces region validation for bucket routing and SigV4 authentication.
 String endpoint = System.getenv().getOrDefault("S3_ENDPOINT", "https://s3.eu-central-1.amazonaws.com");
 String bucketName = System.getenv().getOrDefault("S3_BUCKET_NAME", "my-upload-bucket");
 String accessKey = System.getenv("AWS_ACCESS_KEY_ID");
 String secretKey = System.getenv("AWS_SECRET_ACCESS_KEY");
 
-MinioClient minioClient = MinioClient.builder()
-    .endpoint(endpoint)
-    .credentials(accessKey, secretKey)
-    .build();
+S3StorageService awsS3Storage = new S3StorageService(
+    endpoint, "eu-central-1", accessKey, secretKey, bucketName);
+S3LockingService awsS3Locking = new S3LockingService(
+    endpoint, "eu-central-1", accessKey, secretKey, bucketName);
 
-// 2. Instantiate S3 Storage and Distributed Locking services
-S3StorageService s3StorageService = new S3StorageService(minioClient, bucketName);
-S3LockingService s3LockingService = new S3LockingService(minioClient, bucketName);
-
-// 3. Configure TusFileUploadService with S3 storage and locking
+// Configure TusFileUploadService with S3 storage and locking
 // Note: Automatic JVM shutdown hooks are built-in by default to terminate watchdog threads on pod exit.
-// Manual call to tusService.close() or s3LockingService.close() is optional for custom container lifecycles.
 TusFileUploadService tusService = new TusFileUploadService()
     .withUploadUri("/files/upload")
-    .withUploadStorageService(s3StorageService)
-    .withUploadLockingService(s3LockingService);
+    .withUploadStorageService(awsS3Storage)
+    .withUploadLockingService(awsS3Locking);
 ```
 
 ---
@@ -139,19 +141,41 @@ try (InputStream stream = minioClient.getObject(
 
 ---
 
-## 5. Configuring Custom S3 Endpoints (MinIO, RustFS, R2, Ceph, GCS)
+## 5. Configuring Custom S3 Endpoints & Regions (AWS vs. Local S3 Backends)
 
-`S3StorageService` accepts any pre-configured `MinioClient`. To connect to an S3-compatible backend (such as local MinIO, RustFS, or Cloudflare R2), override the endpoint when building the `MinioClient`:
+`S3StorageService`, `S3LockingService`, and `S3ConcatenationService` accept any S3 endpoint and handle regional authentication flexibly:
+
+- **Local S3-Compatible Backends (MinIO, RustFS, Ceph, SeaweedFS)**:
+  Self-hosted and local S3-compatible storage engines do not strictly validate AWS regions during Signature Version 4 (SigV4) authentication. You can omit the `region` parameter completely; it automatically defaults to `"local"`.
+- **AWS S3 & Cloud Providers (AWS S3, Cloudflare R2, Google Cloud Storage)**:
+  AWS strictly validates the region parameter against bucket locations during SigV4 authentication and request routing. Always supply the target region (e.g., `"eu-central-1"`, `"us-east-1"`, or `"auto"` for Cloudflare R2).
+
+### Example 1: Local S3-Compatible Backend (Without Region)
 
 ```java
-import io.minio.MinioClient;
+// Omit region parameter; defaults to "local"
+S3StorageService localS3Storage =
+    new S3StorageService("http://minio.local:9000", "minioadmin", "minioadmin", "my-bucket");
 
-MinioClient minioClient = MinioClient.builder()
-    .endpoint("http://minio.local:9000")
-    .credentials("minioadmin", "minioadmin")
-    .build();
+S3LockingService localS3Locking =
+    new S3LockingService("http://minio.local:9000", "minioadmin", "minioadmin", "my-bucket");
 
-S3StorageService s3Storage = new S3StorageService(minioClient, "my-bucket");
+S3ConcatenationService localS3Concat =
+    new S3ConcatenationService("http://minio.local:9000", "minioadmin", "minioadmin", "my-bucket", localS3Storage);
+```
+
+### Example 2: AWS S3 (With Explicit Region)
+
+```java
+// Provide explicit AWS region (e.g. "eu-central-1", "us-east-1")
+S3StorageService awsS3Storage =
+    new S3StorageService("https://s3.eu-central-1.amazonaws.com", "eu-central-1", accessKey, secretKey, "my-bucket");
+
+S3LockingService awsS3Locking =
+    new S3LockingService("https://s3.eu-central-1.amazonaws.com", "eu-central-1", accessKey, secretKey, "my-bucket");
+
+S3ConcatenationService awsS3Concat =
+    new S3ConcatenationService("https://s3.eu-central-1.amazonaws.com", "eu-central-1", accessKey, secretKey, "my-bucket", awsS3Storage);
 ```
 
 ---
@@ -160,15 +184,29 @@ S3StorageService s3Storage = new S3StorageService(minioClient, "my-bucket");
 
 S3 requires every part chunk of a multipart upload to be at least 5 MB (except the final part).
 
-- **Disk Buffering**: `S3StorageService` buffers incoming bytes to local disk in chunks (default 50 MB) before uploading them to S3.
-- **Incomplete Parts**: If a client upload stream ends before reaching 5 MB and the upload is not complete, the sub-5MB chunk is saved as a `<metadataPrefix>/<UploadId>.part` object in S3. On the next `PATCH` request, this chunk is downloaded, prepended to the incoming stream, and upload proceeds seamlessly.
+- **Disk Buffering & Preferred Part Size**: `S3StorageService` buffers incoming bytes to local disk in chunks of **8 MB** (`DEFAULT_PREFERRED_PART_SIZE`), matching Azure Blob Storage's block size. Preferred part size is configurable via `setPreferredPartSize(long)` (between 5 MB and 5 GB).
+- **Multi-TB Support & Dynamic Part Size Auto-Calibration**: AWS S3 enforces a maximum ceiling of 10,000 parts per multipart upload. When an upload length exceeds 80 GB ($10,000 \times 8\text{ MB}$), `S3StorageService` automatically scales the part size up proportionally:
+  - **1 TB upload**: auto-calibrated to ~105 MB per part.
+  - **5 TB upload** (S3 maximum limit): auto-calibrated to ~525 MB per part.
+  - Guarantees the entire upload completes within 10,000 parts without exceeding S3's 5 GB maximum part limit.
+  - Peak local disk buffer usage remains bounded to at most $2 \times \text{optimalPartSize}$ (one receiving slot + one waiting slot).
+- **Asynchronous Chunk Pipelining (`AsyncChunkUploader`)**: Instead of blocking the HTTP client thread while uploading chunks to S3, `S3StorageService` pipelines chunks using a bounded 3-slot model:
+  - **Slot 1 (Receiving)**: Streaming incoming bytes from the client into a local temporary file.
+  - **Slot 2 (Waiting)**: Holds one ready chunk on local disk buffer.
+  - **Slot 3 (Uploading)**: Actively uploading a chunk to S3 on a background daemon worker thread.
+  - When the background thread pool is fully utilized, work seamlessly falls back to the client thread without blocking (`ThreadPoolExecutor.CallerRunsPolicy` on a `SynchronousQueue`), ensuring zero queuing overhead and immediate backpressure.
+- **Thread Pool Sizing**: Worker threads are managed via a shared executor, default 10 threads, configurable on `TusFileUploadService` via `.withCloudUploadThreadPoolSize(int)` or directly on `S3StorageService.setCloudUploadThreadPoolSize(int)`.
+- **Incomplete Parts & Stale Buffer Protection**: If a client upload stream ends before reaching 5 MB and the upload is not complete, the sub-5MB chunk is saved as a `<metadataPrefix>/<UploadId>.part` object in S3. On subsequent requests, an arithmetic budget guard ($\text{existingPartsTotalSize} + \text{size}(.part) == \text{length}$) verifies whether the `.part` represents a legitimate final part or an obsolete buffer from a previous attempt, preventing file corruption and size inflation.
 - **Configurable Temp Directory**: The temporary buffer directory can be configured in the constructor or builder:
 
 ```java
 Path customTempDir = Paths.get("/var/tmp/tus-buffer");
 
 S3StorageService s3Storage = new S3StorageService(
-    minioClient,
+    endpoint,
+    "eu-central-1",
+    accessKey,
+    secretKey,
     "my-bucket",
     "uploads/",
     "metadata/",
@@ -188,6 +226,14 @@ S3StorageService s3Storage = new S3StorageService(
 - If lock contention occurs across replicas, `S3LockingService` writes a `.stop` signal object in S3, signaling the active request on another pod to interrupt its input stream cleanly.
 - No external database or Redis cache is required for distributed locking.
 
+### Lock Wait & Background Chunk Draining
+
+When a client resumes an interrupted transfer by sending a `HEAD` request (or cancels it with `DELETE`), the request enters a **lock wait** retry loop in `TusFileUploadService`:
+- **Lock Wait Timeout (`withLockWaitTimeout(Duration)`)**: Governs how long the incoming request waits (polling every 200ms; default 60 seconds / 300 retries).
+- **Contention Interruption**: The waiting pod writes a `.stop` object in S3. A background watchdog on the pod running the active `PATCH` detects this within 2 seconds and cleanly interrupts the stream.
+- **Background Chunk Draining (`drainTimeout`)**: The active upload is automatically allotted up to `lockWaitTimeout - 5 seconds` (default 55 seconds) to drain and persist any in-flight 5MB+ chunks to S3 via `AsyncChunkUploader` before committing the new offset.
+- **Lock Handover**: Because the drain timeout leaves a 5-second buffer before the lock wait budget expires, the active upload finishes persisting data and releases the lock well within the caller's wait window, enabling clean resumption without race conditions.
+
 ### Why Lease Renewal is Required (`S3Lock` vs `FileBasedLock`)
 
 Understanding the architectural distinction between disk/file locking and S3 distributed locking is essential:
@@ -200,7 +246,7 @@ Understanding the architectural distinction between disk/file locking and S3 dis
     - Removing renewal with a short TTL would cause locks to expire mid-upload during long transfers, leading to race conditions and data corruption.
     - Removing renewal with an infinite/static lock would mean a single pod crash (`kill -9`, node OOM) leaves behind an orphaned `.lock` object in S3, permanently deadlocking that upload ID.
 
-### TOCTOU (Time-of-Check to Time-of-Use) Mitigation in S3
+### Lock Arbitration & TOCTOU Mitigation in S3
 
 In stateless distributed object storage, acquiring a lock via standard `GetObject` followed by `PutObject` is vulnerable to a classic **Time-of-Check to Time-of-Use (TOCTOU)** race condition:
 1. **Time of Check (TOC)**: Two contender nodes (Node A and Node B) concurrently check if a `.lock` object exists or is expired. Both observe it as available.
@@ -211,14 +257,45 @@ To guarantee waterproof single-winner lock exclusivity across cloud providers an
 
 1. **Conditional Writes (`If-None-Match: *`)**:
    - `PutObject` requests include the `If-None-Match: *` header.
-   - On Amazon S3 and compliant object storage engines, S3 atomically rejects the second write with `HTTP 412 Precondition Failed` (`PreconditionFailed`), immediately preventing concurrent overwrites.
-2. **Jittered Read-After-Write Verification**:
-   - For S3-compatible emulators or endpoints that do not strictly enforce conditional writes on `PutObject`, the acquiring node sleeps for a brief randomized jitter (20–60ms) to allow in-flight writes to settle, then re-reads `GetObject`.
+   - On Amazon S3 and compliant object storage engines, S3 atomically rejects the second write with `HTTP 412 Precondition Failed` (`PreconditionFailed`), immediately preventing concurrent overwrites in a single network round-trip.
+2. **Lock Arbitration on Backends Without Atomic Conditional Writes (Jittered Read-After-Write Verification)**:
+   - Several major S3-compatible engines do not support atomic conditional writes:
+     | Backend | Conditional Write (`If-None-Match: *`) Behavior | `S3LockingService` Handling |
+     | :--- | :--- | :--- |
+     | **AWS S3, Cloudflare R2, LocalStack, RustFS** | Returns `HTTP 412 Precondition Failed` | Optimistic CAS (1 network call) |
+     | **Backblaze B2, Ceph RGW** | Returns `HTTP 501 Not Implemented` | Auto-downgrades to non-CAS arbitration |
+     | **Wasabi** | Silently ignored (last-write-wins overwrite) | Layer 2 jitter arbitration or `withS3ConditionalWritesSupported(false)` |
+   - On backends without conditional write support, contender nodes sleep for a brief randomized jitter (default: 20–60ms) to allow competing writes to settle, then re-read `GetObject`.
    - If the remote `holderId` does not match its own, the node detects that it was overtaken, rejects the acquisition, and leaves the winner's lock intact.
 3. **Safe Expired Lock Eviction**:
    - When evicting an expired lock, the lock object's expiration is verified again immediately before deletion to prevent evicting a fresh lock created by a winning peer.
 4. **Owner-Safe Lock Release**:
    - In `S3UploadLock.close()`, the node verifies that the remote lock is still owned by its own `holderId` before deleting it. If its lease expired while the process was paused and another node took over ownership, the previous node will never delete the new owner's active lock.
+
+### Jitter Configuration & Zero-Jitter Performance Tuning
+
+The jitter window can be customized via `.withJitter(minMs, maxMs)` on `S3LockingService`:
+
+```java
+// Option A: Zero-Jitter for AWS S3 & Cloudflare R2 (Maximum Throughput)
+// On backends with atomic conditional writes, jitter is not needed.
+// Passing (0L, 0L) completely bypasses Thread.sleep for fastest lock acquisition:
+S3LockingService s3LockingService =
+    new S3LockingService(endpoint, "eu-central-1", accessKey, secretKey, bucketName)
+        .withJitter(0L, 0L);
+
+// Option B: High-Latency or Distributed Backends (Ceph, multi-datacenter MinIO)
+// High-latency backends or geo-replicated clusters may need a wider window to settle writes:
+S3LockingService s3LockingService =
+    new S3LockingService(endpoint, "eu-central-1", accessKey, secretKey, bucketName)
+        .withJitter(50L, 200L);
+
+// Option C: Explicit Non-CAS Mode (e.g. Wasabi)
+// Pre-checks existing locks before writing unconditionally:
+S3LockingService s3LockingService =
+    new S3LockingService(endpoint, "eu-central-1", accessKey, secretKey, bucketName)
+        .withS3ConditionalWritesSupported(false);
+```
 
 ### Clock Synchronization & NTP Requirement
 
@@ -261,6 +338,9 @@ The following minimal AWS IAM policy permissions are required for `S3StorageServ
 
 > [!IMPORTANT]
 > Make sure to change "my-upload-bucket" to the correct bucket name that you created for your uploads.
+
+> [!NOTE]
+> `S3UploadLock` and `S3StorageService` attempt batch Multi-Object Delete (`POST /?delete`) first to delete temporary chunk parts, `.lock`, and `.stop` files in a single round-trip. If batch deletion is not permitted by your IAM policy or unsupported by an S3-compatible backend, the service automatically falls back to individual single-object `DELETE` (`s3:DeleteObject`) requests.
 
 ---
 

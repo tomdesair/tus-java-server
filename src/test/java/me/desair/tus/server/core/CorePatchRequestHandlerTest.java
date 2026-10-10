@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.UUID;
 import me.desair.tus.server.HttpHeader;
@@ -223,6 +224,79 @@ public class CorePatchRequestHandlerTest {
         new TusServletResponse(servletResponse),
         uploadStorageService,
         null,
+        "owner",
+        null);
+  }
+
+  @Test
+  public void testProcessInterruptedByLockingServiceContentionReturns204WithUpdatedOffset()
+      throws Exception {
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+
+    servletRequest.setRequestURI("/test/upload/123");
+    servletRequest.setContent("partial data".getBytes());
+
+    UploadInfo initialInfo = new UploadInfo();
+    initialInfo.setId(new UploadId("123"));
+    initialInfo.setOffset(0L);
+    initialInfo.setLength(100L);
+
+    UploadInfo refreshedInfo = new UploadInfo();
+    refreshedInfo.setId(new UploadId("123"));
+    refreshedInfo.setOffset(50L);
+    refreshedInfo.setLength(100L);
+
+    when(uploadStorageService.getUploadInfo("/test/upload/123", "owner"))
+        .thenReturn(initialInfo)
+        .thenReturn(refreshedInfo);
+
+    when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class)))
+        .thenAnswer(
+            invocation -> {
+              InputStream stream = invocation.getArgument(1);
+              if (stream instanceof InterruptibleInputStream) {
+                ((InterruptibleInputStream) stream).interrupt();
+              }
+              throw new IOException(
+                  "Stream was interrupted by the upload locking service watchdog");
+            });
+
+    handler.process(
+        HttpMethod.PATCH,
+        new TusServletRequest(servletRequest),
+        new TusServletResponse(servletResponse),
+        uploadStorageService,
+        mockLocking,
+        "owner",
+        null);
+
+    assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_NO_CONTENT));
+    assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("50"));
+  }
+
+  @Test(expected = IOException.class)
+  public void testProcessUninterruptedIoExceptionRethrown() throws Exception {
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+
+    servletRequest.setRequestURI("/test/upload/123");
+    servletRequest.setContent("data".getBytes());
+
+    UploadInfo initialInfo = new UploadInfo();
+    initialInfo.setId(new UploadId("123"));
+    initialInfo.setOffset(0L);
+    initialInfo.setLength(100L);
+
+    when(uploadStorageService.getUploadInfo("/test/upload/123", "owner")).thenReturn(initialInfo);
+
+    when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class)))
+        .thenThrow(new IOException("Disk failure"));
+
+    handler.process(
+        HttpMethod.PATCH,
+        new TusServletRequest(servletRequest),
+        new TusServletResponse(servletResponse),
+        uploadStorageService,
+        mockLocking,
         "owner",
         null);
   }
