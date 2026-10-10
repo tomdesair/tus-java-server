@@ -919,4 +919,73 @@ public class LeaseFileLockingServiceTest {
     lease.setAcquiredAt(expiresAt - 30_000L);
     return lease;
   }
+
+  @Test
+  public void testCleanupLockNullAndInvalid() throws Exception {
+    lockingService.cleanupLock((UploadId) null);
+    lockingService.cleanupLock((String) null);
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
+  }
+
+  @Test
+  public void testCleanupLockDeletesExpiredLockDirAndStopFile() throws Exception {
+    String uploadIdStr = UUID.randomUUID().toString();
+    UploadId id = new UploadId(uploadIdStr);
+    Path lockDir = storagePath.resolve("locks").resolve(uploadIdStr + ".lock");
+    Path stopFile = storagePath.resolve("locks").resolve(uploadIdStr + ".stop");
+    Files.createDirectories(lockDir);
+    Files.write(stopFile, new byte[0]);
+
+    long now = System.currentTimeMillis();
+    LeaseData expiredLease =
+        createExpiredLease(
+            "old-node", UPLOAD_URL + "/" + uploadIdStr, lockDir.toString(), now - 5000L);
+    LeaseDataJsonSerializer.serializeToPath(expiredLease, lockDir.resolve("lease.json"));
+
+    assertTrue(Files.exists(lockDir));
+    assertTrue(Files.exists(stopFile));
+
+    lockingService.cleanupLock(id);
+
+    assertFalse(Files.exists(lockDir));
+    assertFalse(Files.exists(stopFile));
+  }
+
+  @Test
+  public void testCleanupLockByUri() throws Exception {
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = UPLOAD_URL + "/" + uploadIdStr;
+    Path lockDir = storagePath.resolve("locks").resolve(uploadIdStr + ".lock");
+    Files.createDirectories(lockDir);
+
+    long now = System.currentTimeMillis();
+    LeaseData expiredLease = createExpiredLease("old-node", uri, lockDir.toString(), now - 5000L);
+    LeaseDataJsonSerializer.serializeToPath(expiredLease, lockDir.resolve("lease.json"));
+    assertTrue(Files.exists(lockDir));
+
+    lockingService.cleanupLock(uri);
+
+    assertFalse(Files.exists(lockDir));
+  }
+
+  @Test
+  public void testCleanupLockPreservesActivelyHeldLease() throws Exception {
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = UPLOAD_URL + "/" + uploadIdStr;
+    UploadId id = new UploadId(uploadIdStr);
+
+    UploadLock lock = lockingService.lockUploadByUri(uri);
+    assertNotNull(lock);
+
+    Path lockDir = storagePath.resolve("locks").resolve(uploadIdStr + ".lock");
+    assertTrue(Files.exists(lockDir));
+
+    // Actively held lock must not be deleted by cleanupLock
+    lockingService.cleanupLock(id);
+    assertTrue(Files.exists(lockDir));
+
+    lock.release();
+    assertFalse(Files.exists(lockDir));
+  }
 }

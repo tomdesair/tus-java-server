@@ -15,7 +15,10 @@ import java.util.Locale;
 import java.util.TimeZone;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
@@ -207,6 +210,37 @@ public class ExpirationRequestHandlerTest {
 
     verify(uploadStorageService, never()).update(any(UploadInfo.class));
     assertThat(tusResponse.getHeader(HttpHeader.UPLOAD_EXPIRES), is(nullValue()));
+  }
+
+  @Test(expected = UploadNotFoundException.class)
+  public void testExpiredUploadTerminatesUploadAndCleansUpLock() throws Exception {
+    UploadInfo info = createUploadInfo();
+    info.setId(new UploadId("expired-upload-id"));
+    info.setOffset(2L);
+    info.setLength(10L);
+    // Set expiration in the past relative to mock time (2018-01-20 10:43:11)
+    info.setExpirationTimestamp(1000L);
+
+    when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class)))
+        .thenReturn(info);
+    when(uploadStorageService.getUploadExpirationPeriod()).thenReturn(172800000L);
+
+    UploadLockingService mockLocking = org.mockito.Mockito.mock(UploadLockingService.class);
+    TusServletResponse tusResponse = new TusServletResponse(this.servletResponse);
+
+    try {
+      handler.process(
+          HttpMethod.PATCH,
+          new TusServletRequest(servletRequest),
+          tusResponse,
+          uploadStorageService,
+          mockLocking,
+          null,
+          null);
+    } finally {
+      verify(uploadStorageService, times(1)).terminateUpload(info);
+      verify(mockLocking, times(1)).cleanupLock(info.getId());
+    }
   }
 
   private UploadInfo createUploadInfo() {

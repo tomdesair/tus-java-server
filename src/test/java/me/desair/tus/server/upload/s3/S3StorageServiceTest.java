@@ -935,7 +935,7 @@ public class S3StorageServiceTest {
     String json = UploadInfoJsonSerializer.serialize(expiredInfo);
 
     Item item = mock(Item.class);
-    when(item.objectName()).thenReturn("uploads/expired-123.info");
+    when(item.objectName()).thenReturn("metadata/expired-123.info");
     Result<Item> result = new Result<>(item);
     when(minioClient.listObjects(any(ListObjectsArgs.class)))
         .thenReturn(java.util.Collections.singletonList(result));
@@ -947,6 +947,7 @@ public class S3StorageServiceTest {
     when(mockLocking.isLocked(expiredId)).thenReturn(false);
 
     storageService.cleanupExpiredUploads(mockLocking);
+    verify(mockLocking).cleanupLock(expiredId);
   }
 
   @Test(expected = IOException.class)

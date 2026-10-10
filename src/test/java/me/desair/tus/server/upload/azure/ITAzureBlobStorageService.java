@@ -373,12 +373,17 @@ public class ITAzureBlobStorageService {
     info.setLength(20L); // In-progress upload: 10 bytes uploaded out of 20
     UploadInfo created = storageService.create(info, "owner1");
 
-    storageService.append(created, new ByteArrayInputStream("0123456789".getBytes()));
+    // Create lock blob for this upload to verify lock is cleaned up too
+    com.azure.storage.blob.BlobClient lockBlob =
+        containerClient.getBlobClient("locks/" + created.getId() + ".lock");
+    lockBlob.upload(com.azure.core.util.BinaryData.fromString(""), true);
+    assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
 
     Thread.sleep(50L);
     // Cleanup with expiration period 0 (all uploads expired)
     storageService.cleanupExpiredUploads(new AzureBlobLockingService(containerClient));
     assertNull(storageService.getUploadInfo(created.getId()));
+    assertFalse(Boolean.TRUE.equals(lockBlob.exists()));
   }
 
   @Test

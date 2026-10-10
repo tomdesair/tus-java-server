@@ -43,7 +43,7 @@ The Javadoc of this library can be found at https://tus.desair.me/. As of versio
    - **Multi-Replica Support**: Uses distributed S3 object locking and TTL leases, enabling multi-replica container deployments without requiring Redis or external databases. See [S3 Storage Guide](docs/S3_STORAGE.md).
 3. **Azure Blob Storage** (`AzureBlobStorageService`, `AzureBlobLockingService`, & `AzureBlobConcatenationService`):
    - **Microsoft Azure Cloud**: Native Azure Blob Storage using the `azure-storage-blob` SDK.
-   - **Multi-Replica Support**: Uses native Azure Blob Leases (30s renewable leases) for distributed locking across cluster replicas. See [Azure Blob Storage Guide](docs/AZURE_BLOB_STORAGE.md).
+   - **Multi-Replica Support**: Uses native Azure Blob Leases (30s renewable leases) for distributed locking across cluster replicas with automatic lock cleanup on upload completion, termination, and expiration. See [Azure Blob Storage Guide](docs/AZURE_BLOB_STORAGE.md).
 
 ## How Resumable Uploads Work
 

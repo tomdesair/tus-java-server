@@ -103,6 +103,15 @@ TusFileUploadService tusService = new TusFileUploadService()
 | `checksumsPrefix` | `"checksums/"` | Blob name prefix for deduplication index objects |
 | `locksPrefix` | `"locks/"` | Blob name prefix for distributed lock lease objects |
 
+### Lock Blob Lifecycle & Automatic Cleanup
+
+During an in-progress upload, `AzureBlobLockingService` creates a target lock blob (`locks/<uploadId>.lock`) and holds a 30-second native Azure Blob Lease with automatic background renewal.
+
+1. **Automatic Cleanup on Completion**: Once an upload completes (`offset == length`), `TusFileUploadService` calls `cleanupLock(UploadId)` after releasing the lease, deleting the `.lock` blob and any `.stop` signal blob.
+2. **Automatic Cleanup on Termination & Expiration**: When an upload is canceled (`DELETE`) or purged via `cleanupExpiredUploads()`, the corresponding `.lock` and `.stop` blobs are deleted.
+3. **Lease Safety Guard**: Deleting an actively leased blob without providing the lease ID triggers HTTP 412 (`LeaseIdMissing`). `AzureBlobLockingService` inspects the blob's lease status and skips deleting blobs that are actively leased by concurrent requests.
+4. **Fallback Stale Lock Sweeper (`cleanupStaleLocks`)**: To prevent abandoned lock blobs after ungraceful pod termination or network partitions, `cleanupStaleLocks()` runs as a scheduled fallback. It sweeps unleased `.lock` blobs older than 120 seconds and `.stop` signal blobs older than 30 seconds. Actively leased blobs are never deleted.
+
 ---
 
 ## 4. Post-Upload Processing (`getAzureBlobName`)

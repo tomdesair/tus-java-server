@@ -15,6 +15,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Duration;
+import java.util.UUID;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
@@ -930,5 +931,124 @@ public class TusFileUploadServiceTest {
         service.processLockedRequest(HttpMethod.POST, tusRequest, tusResponse, "owner");
     assertThat(result, is(nullValue()));
     verify(mockResp, atLeastOnce()).setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+  }
+
+  @Test
+  public void testProcessCleansUpLockOnUploadCompletion() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+
+    UploadStorageService mockStorage = mock(UploadStorageService.class);
+    UUID uuid = UUID.randomUUID();
+    UploadId testId = new UploadId(uuid);
+    String uploadUri = "/files/upload/" + uuid;
+
+    UploadInfo inProgressInfo = new UploadInfo();
+    inProgressInfo.setId(testId);
+    inProgressInfo.setOffset(5L);
+    inProgressInfo.setLength(10L);
+
+    UploadInfo completedInfo = new UploadInfo();
+    completedInfo.setId(testId);
+    completedInfo.setOffset(10L);
+    completedInfo.setLength(10L);
+
+    when(mockStorage.getUploadInfo(uploadUri, "owner"))
+        .thenReturn(inProgressInfo)
+        .thenReturn(inProgressInfo)
+        .thenReturn(inProgressInfo)
+        .thenReturn(completedInfo);
+    when(mockStorage.append(any(), any())).thenReturn(completedInfo);
+
+    jakarta.servlet.http.HttpServletRequest mockReq =
+        mock(jakarta.servlet.http.HttpServletRequest.class);
+    jakarta.servlet.http.HttpServletResponse mockResp =
+        mock(jakarta.servlet.http.HttpServletResponse.class);
+    when(mockReq.getMethod()).thenReturn("PATCH");
+    when(mockReq.getRequestURI()).thenReturn(uploadUri);
+    when(mockReq.getHeader(anyString())).thenReturn(null);
+    when(mockReq.getHeader(HttpHeader.TUS_RESUMABLE)).thenReturn("1.0.0");
+    when(mockReq.getHeader(HttpHeader.CONTENT_TYPE)).thenReturn("application/offset+octet-stream");
+    when(mockReq.getHeader(HttpHeader.UPLOAD_OFFSET)).thenReturn("5");
+    when(mockReq.getInputStream())
+        .thenReturn(
+            new me.desair.tus.server.util.MockServletInputStream(
+                new ByteArrayInputStream(new byte[5])));
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadUri("/files/upload")
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorage);
+
+    service.process(mockReq, mockResp, "owner");
+
+    verify(mockLockingService).cleanupLock(testId);
+  }
+
+  @Test
+  public void testProcessCleansUpLockOnDeleteTermination() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+
+    UploadStorageService mockStorage = mock(UploadStorageService.class);
+    UUID uuid = UUID.randomUUID();
+    UploadId testId = new UploadId(uuid);
+    String uploadUri = "/files/upload/" + uuid;
+
+    UploadInfo info = new UploadInfo();
+    info.setId(testId);
+    info.setOffset(5L);
+    info.setLength(10L);
+
+    when(mockStorage.getUploadInfo(uploadUri, "owner")).thenReturn(info);
+
+    jakarta.servlet.http.HttpServletRequest mockReq =
+        mock(jakarta.servlet.http.HttpServletRequest.class);
+    org.springframework.mock.web.MockHttpServletResponse mockResp =
+        new org.springframework.mock.web.MockHttpServletResponse();
+    when(mockReq.getMethod()).thenReturn("DELETE");
+    when(mockReq.getRequestURI()).thenReturn(uploadUri);
+    when(mockReq.getHeader(anyString())).thenReturn(null);
+    when(mockReq.getHeader(HttpHeader.TUS_RESUMABLE)).thenReturn("1.0.0");
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadUri("/files/upload")
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorage);
+
+    service.process(mockReq, mockResp, "owner");
+
+    verify(mockLockingService).cleanupLock(testId);
+  }
+
+  @Test
+  public void testDeleteUploadCleansUpLock() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+
+    UploadStorageService mockStorage = mock(UploadStorageService.class);
+    UUID uuid = UUID.randomUUID();
+    UploadId testId = new UploadId(uuid);
+    String uploadUri = "/files/upload/" + uuid;
+
+    UploadInfo info = new UploadInfo();
+    info.setId(testId);
+    when(mockStorage.getUploadInfo(uploadUri, "owner")).thenReturn(info);
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadUri("/files/upload")
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorage);
+
+    service.deleteUpload(uploadUri, "owner");
+
+    verify(mockStorage).terminateUpload(info);
+    verify(mockLockingService).cleanupLock(testId);
   }
 }

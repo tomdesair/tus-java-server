@@ -230,6 +230,21 @@ public class S3LockingService extends AbstractLeaseLockingService {
   }
 
   @Override
+  public void cleanupLock(UploadId id) throws IOException {
+    if (id == null) {
+      return;
+    }
+    String lockKey = buildLockKey(id);
+    String stopKey = buildStopKey(id);
+
+    // Only delete the lock object if it is expired or already absent
+    if (isLockExpired(lockKey)) {
+      deleteObjectQuietly(lockKey);
+    }
+    deleteObjectQuietly(stopKey);
+  }
+
+  @Override
   protected UploadLock tryAcquireLock(UploadId uploadId, LeaseData leaseData) {
     if (leaseData == null) {
       return null;

@@ -35,9 +35,11 @@ public class AzureBlobUploadLock implements UploadLock {
   private final String uploadUri;
   private final String uploadId;
   private final Map<String, WeakReference<InterruptibleInputStream>> activeStreams;
+  private final Map<String, AzureBlobUploadLock> activeLocks;
   private final ScheduledExecutorService renewalExecutor;
   private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
   private boolean released = false;
+  private boolean blobDeleted = false;
 
   /**
    * Constructs an {@link AzureBlobUploadLock} wrapping an acquired Azure Blob lease.
@@ -51,6 +53,7 @@ public class AzureBlobUploadLock implements UploadLock {
         Objects.requireNonNull(leaseClient, "leaseClient must not be null"),
         Objects.requireNonNull(lockBlob, "lockBlob must not be null"),
         uploadUri,
+        null,
         null,
         null,
         null);
@@ -77,7 +80,35 @@ public class AzureBlobUploadLock implements UploadLock {
         uploadUri,
         null,
         uploadId,
-        activeStreams);
+        activeStreams,
+        null);
+  }
+
+  /**
+   * Full constructor for active lock with stream registration, lease tracking, and active lock map.
+   *
+   * @param leaseClient The pre-acquired {@link BlobLeaseClient} holding the lease
+   * @param lockBlob The target lock {@link BlobClient}
+   * @param uploadUri The upload URI associated with this lock
+   * @param uploadId The upload ID associated with this lock
+   * @param activeStreams JVM-wide map of active input streams
+   * @param activeLocks Map of currently active locks in the locking service
+   */
+  public AzureBlobUploadLock(
+      BlobLeaseClient leaseClient,
+      BlobClient lockBlob,
+      String uploadUri,
+      String uploadId,
+      Map<String, WeakReference<InterruptibleInputStream>> activeStreams,
+      Map<String, AzureBlobUploadLock> activeLocks) {
+    this(
+        Objects.requireNonNull(leaseClient, "leaseClient must not be null"),
+        Objects.requireNonNull(lockBlob, "lockBlob must not be null"),
+        uploadUri,
+        null,
+        uploadId,
+        activeStreams,
+        activeLocks);
   }
 
   AzureBlobUploadLock(
@@ -85,7 +116,7 @@ public class AzureBlobUploadLock implements UploadLock {
       BlobClient lockBlob,
       String uploadUri,
       ScheduledExecutorService renewalExecutor) {
-    this(leaseClient, lockBlob, uploadUri, renewalExecutor, null, null);
+    this(leaseClient, lockBlob, uploadUri, renewalExecutor, null, null, null);
   }
 
   AzureBlobUploadLock(
@@ -95,11 +126,23 @@ public class AzureBlobUploadLock implements UploadLock {
       ScheduledExecutorService renewalExecutor,
       String uploadId,
       Map<String, WeakReference<InterruptibleInputStream>> activeStreams) {
+    this(leaseClient, lockBlob, uploadUri, renewalExecutor, uploadId, activeStreams, null);
+  }
+
+  AzureBlobUploadLock(
+      BlobLeaseClient leaseClient,
+      BlobClient lockBlob,
+      String uploadUri,
+      ScheduledExecutorService renewalExecutor,
+      String uploadId,
+      Map<String, WeakReference<InterruptibleInputStream>> activeStreams,
+      Map<String, AzureBlobUploadLock> activeLocks) {
     this.leaseClient = leaseClient;
     this.lockBlob = lockBlob;
     this.uploadUri = Objects.requireNonNull(uploadUri, "uploadUri must not be null");
     this.uploadId = uploadId;
     this.activeStreams = activeStreams;
+    this.activeLocks = activeLocks;
 
     if (renewalExecutor != null) {
       this.renewalExecutor = renewalExecutor;
@@ -122,6 +165,24 @@ public class AzureBlobUploadLock implements UploadLock {
 
   BlobLeaseClient getLeaseClient() {
     return leaseClient;
+  }
+
+  void markBlobDeleted() {
+    thisObjectLock.writeLock().lock();
+    try {
+      this.blobDeleted = true;
+    } finally {
+      thisObjectLock.writeLock().unlock();
+    }
+  }
+
+  boolean isBlobDeleted() {
+    thisObjectLock.readLock().lock();
+    try {
+      return blobDeleted;
+    } finally {
+      thisObjectLock.readLock().unlock();
+    }
   }
 
   void setLeaseExpiresAt(long leaseExpiresAt) {
@@ -222,12 +283,22 @@ public class AzureBlobUploadLock implements UploadLock {
       thisObjectLock.writeLock().unlock();
     }
     shutdownExecutor();
-    // Remove active stream registration from JVM map upon release
+    // Remove active stream and lock registrations from service maps upon release
     // to avoid stale references lingering in heap.
     if (activeStreams != null && uploadId != null) {
       activeStreams.remove(uploadId);
     }
-    if (leaseClient != null) {
+    if (activeLocks != null && uploadId != null) {
+      activeLocks.remove(uploadId);
+    }
+    boolean alreadyDeleted;
+    thisObjectLock.readLock().lock();
+    try {
+      alreadyDeleted = blobDeleted;
+    } finally {
+      thisObjectLock.readLock().unlock();
+    }
+    if (leaseClient != null && !alreadyDeleted) {
       try {
         leaseClient.releaseLease();
         log.trace("Released Azure blob lease for upload URI {}", uploadUri);

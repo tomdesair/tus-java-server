@@ -652,6 +652,9 @@ public class AzureBlobStorageService implements UploadStorageService {
           } catch (UploadNotFoundException ignored) {
             // Upload was already terminated or deleted concurrently
           }
+          if (lockingService != null) {
+            lockingService.cleanupLock(id);
+          }
         }
       }
     }

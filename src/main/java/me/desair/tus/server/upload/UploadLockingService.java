@@ -72,4 +72,30 @@ public interface UploadLockingService {
   default void close() throws IOException {
     // No-op by default for backwards compatibility
   }
+
+  /**
+   * Cleans up the lock file or resources associated with a specific completed, terminated, or
+   * expired upload identifier.
+   *
+   * <p>This method is invoked automatically when an upload completes successfully, is terminated
+   * via DELETE, or is cleaned up during expiration sweeps, freeing underlying lock storage (such as
+   * Azure Blob Lease lock blobs or on-disk lock files).
+   *
+   * @param id The upload identifier of the completed, terminated, or expired upload
+   * @throws IOException If cleaning up lock resources fails
+   */
+  default void cleanupLock(UploadId id) throws IOException {
+    // No-op by default for backwards compatibility
+  }
+
+  /**
+   * Cleans up the lock file or resources associated with a specific completed, terminated, or
+   * expired upload URI.
+   *
+   * @param uploadUri The request URI of the completed, terminated, or expired upload
+   * @throws IOException If cleaning up lock resources fails
+   */
+  default void cleanupLock(String uploadUri) throws IOException {
+    // No-op by default for backwards compatibility
+  }
 }

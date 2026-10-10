@@ -1057,4 +1057,82 @@ public class S3LockingServiceTest {
 
     lock1.close();
   }
+
+  @Test
+  public void testCleanupLockNullAndInvalid() throws Exception {
+    lockingService.cleanupLock((UploadId) null);
+    lockingService.cleanupLock((String) null);
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
+  }
+
+  @Test
+  public void testCleanupLockDeletesExpiredLockAndStopObjects() throws Exception {
+    UploadId id = new UploadId(UUID.randomUUID());
+    String lockKey = "locks/" + id + ".lock";
+    String stopKey = "locks/" + id + ".stop";
+
+    LeaseData expiredLock =
+        new LeaseData(
+            "old-holder",
+            "/files/upload/" + id,
+            30000L,
+            System.currentTimeMillis() - 5000L,
+            System.currentTimeMillis() - 35000L,
+            lockKey,
+            stopKey);
+    s3StorageMap.put(
+        lockKey, me.desair.tus.server.util.LeaseDataJsonSerializer.serializeToBytes(expiredLock));
+    s3StorageMap.put(stopKey, new byte[0]);
+
+    assertTrue(s3StorageMap.containsKey(lockKey));
+    assertTrue(s3StorageMap.containsKey(stopKey));
+
+    lockingService.cleanupLock(id);
+
+    assertFalse(s3StorageMap.containsKey(lockKey));
+    assertFalse(s3StorageMap.containsKey(stopKey));
+  }
+
+  @Test
+  public void testCleanupLockByUri() throws Exception {
+    UploadId id = new UploadId(UUID.randomUUID());
+    String uri = "/files/upload/" + id;
+    String lockKey = "locks/" + id + ".lock";
+
+    LeaseData expiredLock =
+        new LeaseData(
+            "old-holder",
+            uri,
+            30000L,
+            System.currentTimeMillis() - 5000L,
+            System.currentTimeMillis() - 35000L,
+            lockKey,
+            null);
+    s3StorageMap.put(
+        lockKey, me.desair.tus.server.util.LeaseDataJsonSerializer.serializeToBytes(expiredLock));
+    assertTrue(s3StorageMap.containsKey(lockKey));
+
+    lockingService.cleanupLock(uri);
+
+    assertFalse(s3StorageMap.containsKey(lockKey));
+  }
+
+  @Test
+  public void testCleanupLockPreservesActivelyHeldLock() throws Exception {
+    UploadId id = new UploadId(UUID.randomUUID());
+    String uri = "/files/upload/" + id;
+    String lockKey = "locks/" + id + ".lock";
+
+    UploadLock lock = lockingService.lockUploadByUri(uri);
+    assertNotNull(lock);
+    assertTrue(s3StorageMap.containsKey(lockKey));
+
+    // Actively held unexpired lock must not be deleted by cleanupLock
+    lockingService.cleanupLock(id);
+    assertTrue(s3StorageMap.containsKey(lockKey));
+
+    lock.close();
+    assertFalse(s3StorageMap.containsKey(lockKey));
+  }
 }

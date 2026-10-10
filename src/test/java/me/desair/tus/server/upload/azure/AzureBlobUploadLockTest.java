@@ -73,7 +73,8 @@ public class AzureBlobUploadLockTest {
   @Test
   public void testNullRenewalExecutorAndNullLeaseClient() {
     AzureBlobUploadLock lock =
-        new AzureBlobUploadLock(null, null, "/test/upload/null-exec", null, null, null);
+        new AzureBlobUploadLock(
+            null, null, "/test/upload/null-exec", (ScheduledExecutorService) null, null, null);
     org.junit.Assert.assertNull(lock.getLeaseClient());
     assertEquals("/test/upload/null-exec", lock.getUploadUri());
     lock.executeRenew();
@@ -304,5 +305,37 @@ public class AzureBlobUploadLockTest {
     lockWithEmptyStreams.setLeaseExpiresAt(System.currentTimeMillis() - 1000L);
     lockWithEmptyStreams.renewLease();
     verify(mockExecutor2).shutdownNow();
+  }
+
+  @Test
+  public void testReleaseRemovesActiveLockAndSkipsReleaseWhenBlobDeleted() {
+    BlobLeaseClient realLease =
+        new BlobLeaseClientBuilder().blobClient(lockBlob).leaseId("mock-lease-123").buildClient();
+    java.util.Map<String, AzureBlobUploadLock> activeLocks =
+        new java.util.concurrent.ConcurrentHashMap<>();
+
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            realLease,
+            lockBlob,
+            "/test/upload/lock-deleted-test",
+            mockExecutor,
+            "lock-deleted-test",
+            null,
+            activeLocks);
+
+    activeLocks.put("lock-deleted-test", lock);
+    org.junit.Assert.assertFalse(lock.isBlobDeleted());
+
+    lock.markBlobDeleted();
+    org.junit.Assert.assertTrue(lock.isBlobDeleted());
+
+    // Release skips leaseClient.releaseLease() because blob is marked deleted,
+    // so no network call is attempted against the unmocked endpoint.
+    lock.release();
+
+    // Verify activeLocks is cleared
+    org.junit.Assert.assertFalse(activeLocks.containsKey("lock-deleted-test"));
   }
 }

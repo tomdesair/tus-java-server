@@ -229,4 +229,100 @@ public class ITAzureBlobLockingService {
     // KISS: verifying methods execute cleanly without throwing uncaught exceptions
     assertTrue(true);
   }
+
+  @Test
+  public void testCleanupLockDeletesLockAndStopBlobs() throws Exception {
+    UploadId id = new UploadId(111222L);
+    UploadLock lock = lockingService.lockUploadByUri("/test/upload/111222");
+    assertNotNull(lock);
+    lockingService.createStopSignalBlob("111222");
+    lock.release();
+
+    com.azure.storage.blob.BlobClient lockBlob = containerClient.getBlobClient("locks/111222.lock");
+    com.azure.storage.blob.BlobClient stopBlob = containerClient.getBlobClient("locks/111222.stop");
+
+    assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
+    assertTrue(Boolean.TRUE.equals(stopBlob.exists()));
+
+    lockingService.cleanupLock(id);
+
+    assertFalse(Boolean.TRUE.equals(lockBlob.exists()));
+    assertFalse(Boolean.TRUE.equals(stopBlob.exists()));
+  }
+
+  @Test
+  public void testCleanupLockByUri() throws Exception {
+    UploadLock lock = lockingService.lockUploadByUri("/test/upload/333444");
+    assertNotNull(lock);
+    lock.release();
+
+    com.azure.storage.blob.BlobClient lockBlob = containerClient.getBlobClient("locks/333444.lock");
+    assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
+
+    lockingService.cleanupLock("/test/upload/333444");
+
+    assertFalse(Boolean.TRUE.equals(lockBlob.exists()));
+  }
+
+  @Test
+  public void testCleanupLockActivelyLeasedBlobByExternalClientIsPreserved() throws Exception {
+    UploadId id = new UploadId(555666L);
+    com.azure.storage.blob.BlobClient lockBlob = containerClient.getBlobClient("locks/555666.lock");
+    lockBlob.upload(new ByteArrayInputStream(new byte[0]), 0);
+
+    // External lease client simulates another replica / pod holding the lease
+    com.azure.storage.blob.specialized.BlobLeaseClient externalLease =
+        new com.azure.storage.blob.specialized.BlobLeaseClientBuilder()
+            .blobClient(lockBlob)
+            .buildClient();
+    externalLease.acquireLease(30);
+
+    assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
+
+    // When actively leased by another node, cleanupLock must NOT delete the lock blob
+    lockingService.cleanupLock(id);
+    assertTrue(
+        "Actively leased blob by another client must not be deleted",
+        Boolean.TRUE.equals(lockBlob.exists()));
+
+    // After the other client releases the lease, cleanupLock should delete it
+    externalLease.releaseLease();
+    lockingService.cleanupLock(id);
+    assertFalse("Unleased blob should be deleted", Boolean.TRUE.equals(lockBlob.exists()));
+  }
+
+  @Test
+  public void testCleanupLockActivelyLeasedBlobByCurrentServiceIsDeleted() throws Exception {
+    UploadId id = new UploadId(666777L);
+    UploadLock lock = lockingService.lockUploadByUri("/test/upload/666777");
+    assertNotNull(lock);
+
+    com.azure.storage.blob.BlobClient lockBlob = containerClient.getBlobClient("locks/666777.lock");
+    assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
+
+    // When actively leased by the current service (e.g. during DELETE termination),
+    // cleanupLock deletes the blob using the active lease ID
+    lockingService.cleanupLock(id);
+    assertFalse(
+        "Actively leased blob by current service should be deleted",
+        Boolean.TRUE.equals(lockBlob.exists()));
+
+    // Release after cleanup should execute cleanly without error
+    lock.release();
+  }
+
+  @Test
+  public void testCleanupStaleLocksPreservesFreshBlobs() throws Exception {
+    UploadLock lock = lockingService.lockUploadByUri("/test/upload/777888");
+    assertNotNull(lock);
+    lock.release();
+
+    com.azure.storage.blob.BlobClient lockBlob = containerClient.getBlobClient("locks/777888.lock");
+    assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
+
+    lockingService.cleanupStaleLocks();
+
+    // Fresh blob (created just now, < 120s old) must NOT be deleted by cleanupStaleLocks
+    assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
+  }
 }

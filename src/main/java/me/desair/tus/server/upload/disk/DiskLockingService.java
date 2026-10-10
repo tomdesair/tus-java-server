@@ -114,6 +114,32 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     }
   }
 
+  @Override
+  public void cleanupLock(UploadId id) throws IOException {
+    if (id == null) {
+      return;
+    }
+    // Only delete lock file if it exists and is not actively locked by another process/request.
+    // Notice we check Files.exists first because calling isLocked on a non-existent lock path
+    // would open a FileChannel with CREATE and instantiate a lock file on disk unnecessarily.
+    Path lockPath = getLockPath(id);
+    if (lockPath != null && Files.exists(lockPath)) {
+      if (!isLocked(id)) {
+        Files.deleteIfExists(lockPath);
+      }
+    }
+    Path stopPath = getStopPath(id);
+    if (stopPath != null) {
+      Files.deleteIfExists(stopPath);
+    }
+  }
+
+  @Override
+  public void cleanupLock(String uploadUri) throws IOException {
+    UploadId id = idFactory != null ? idFactory.readUploadId(uploadUri) : null;
+    cleanupLock(id);
+  }
+
   /** Checks whether the upload is locked by attempting to obtain a short-lived file lock. */
   @Override
   public boolean isLocked(UploadId id) {

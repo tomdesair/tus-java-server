@@ -602,6 +602,7 @@ public class TusFileUploadService implements Closeable {
     }
 
     if (wasInProgress && processedUploadInfo != null && !processedUploadInfo.isUploadInProgress()) {
+      cleanupLock(processedUploadInfo.getId());
       notifyUploadCompletionListeners(processedUploadInfo);
     }
 
@@ -946,6 +947,7 @@ public class TusFileUploadService implements Closeable {
       UploadInfo uploadInfo = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
       if (uploadInfo != null) {
         uploadStorageService.terminateUpload(uploadInfo);
+        cleanupLock(uploadInfo.getId());
       }
     }
   }
@@ -1037,6 +1039,16 @@ public class TusFileUploadService implements Closeable {
             uploadInfo.getId(),
             t.getMessage(),
             t);
+      }
+    }
+  }
+
+  private void cleanupLock(UploadId id) {
+    if (id != null && uploadLockingService != null) {
+      try {
+        uploadLockingService.cleanupLock(id);
+      } catch (Exception e) {
+        log.debug("Error cleaning up lock for upload ID {}: {}", id, e.getMessage());
       }
     }
   }

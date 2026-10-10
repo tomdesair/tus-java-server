@@ -3,8 +3,11 @@ package me.desair.tus.server.expiration;
 import java.io.IOException;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
@@ -27,12 +30,14 @@ public class ExpirationRequestHandler extends AbstractRequestHandler {
   }
 
   @Override
-  public void process(
+  public HttpProblemDetails process(
       HttpMethod method,
       TusServletRequest servletRequest,
       TusServletResponse servletResponse,
       UploadStorageService uploadStorageService,
-      String ownerKey)
+      UploadLockingService uploadLockingService,
+      String ownerKey,
+      TusException exception)
       throws IOException, TusException {
 
     // For post requests, the upload URI is part of the response
@@ -50,13 +55,31 @@ public class ExpirationRequestHandler extends AbstractRequestHandler {
     // If the expiration is known at the creation, the Upload-Expires header MUST be included in
     // the response to the initial POST request. Its value MAY change over time.
 
-    if (expirationPeriod != null
-        && expirationPeriod > 0
-        && uploadInfo != null
-        && !uploadInfo.isExpired()) {
-      uploadInfo.updateExpiration(expirationPeriod);
-      uploadStorageService.update(uploadInfo);
+    if (expirationPeriod != null && expirationPeriod > 0 && uploadInfo != null) {
+      if (uploadInfo.isExpired()) {
+        uploadStorageService.terminateUpload(uploadInfo);
+        if (uploadLockingService != null) {
+          uploadLockingService.cleanupLock(uploadInfo.getId());
+        }
+        throw new UploadNotFoundException(
+            "The upload for path " + uploadUri + " has expired and was removed.");
+      } else {
+        uploadInfo.updateExpiration(expirationPeriod);
+        uploadStorageService.update(uploadInfo);
+      }
     }
+    return null;
+  }
+
+  @Override
+  public void process(
+      HttpMethod method,
+      TusServletRequest servletRequest,
+      TusServletResponse servletResponse,
+      UploadStorageService uploadStorageService,
+      String ownerKey)
+      throws IOException, TusException {
+    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey, null);
   }
 
   @Override

@@ -33,9 +33,15 @@ public class AbstractLeaseLockingServiceTest {
     private final List<UploadId> stopSignalsWritten = new ArrayList<>();
     private final List<String> stopSignalsChecked = new ArrayList<>();
     private final AtomicBoolean cleanedUp = new AtomicBoolean(false);
+    private final List<UploadId> cleanedUpLocks = new ArrayList<>();
 
     public TestLeaseLockingService() {
       super(new UuidUploadIdFactory(), 30000L, 1000L, null, "test-lease-locking-service-watchdog");
+    }
+
+    @Override
+    public void cleanupLock(UploadId id) throws IOException {
+      cleanedUpLocks.add(id);
     }
 
     @Override
@@ -300,5 +306,20 @@ public class AbstractLeaseLockingServiceTest {
 
     assertTrue(service.cleanedUp.get());
     assertTrue(service.isClosed());
+  }
+
+  @Test
+  public void testCleanupLockByUriDelegatesToUploadId() throws Exception {
+    UUID uuid = UUID.randomUUID();
+    UploadId id = new UploadId(uuid);
+    String uri = "/files/" + uuid;
+    service.cleanupLock(uri);
+
+    assertEquals(1, service.cleanedUpLocks.size());
+    assertEquals(id, service.cleanedUpLocks.get(0));
+
+    service.cleanupLock((String) null);
+    assertEquals(2, service.cleanedUpLocks.size());
+    assertThat(service.cleanedUpLocks.get(1), is(nullValue()));
   }
 }

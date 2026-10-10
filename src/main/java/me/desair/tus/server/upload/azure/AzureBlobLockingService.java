@@ -3,14 +3,21 @@ package me.desair.tus.server.upload.azure;
 import com.azure.core.util.BinaryData;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
+import com.azure.storage.blob.models.BlobItem;
+import com.azure.storage.blob.models.BlobItemProperties;
 import com.azure.storage.blob.models.BlobProperties;
+import com.azure.storage.blob.models.BlobRequestConditions;
 import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.blob.models.DeleteSnapshotsOptionType;
+import com.azure.storage.blob.models.LeaseStateType;
+import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.blob.specialized.BlobLeaseClient;
 import com.azure.storage.blob.specialized.BlobLeaseClientBuilder;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -59,11 +66,14 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
 
   public static final String DEFAULT_LOCKS_PREFIX = "locks/";
   private static final int LEASE_DURATION_SECONDS = 30;
+  private static final long DEFAULT_STALE_LOCK_THRESHOLD_SECONDS = 120L;
+  private static final long STOP_SIGNAL_EXPIRATION_SECONDS = 30L;
 
   private final BlobContainerClient containerClient;
   private final String locksPrefix;
   final Map<String, WeakReference<InterruptibleInputStream>> activeStreams =
       new ConcurrentHashMap<>();
+  final Map<String, AzureBlobUploadLock> activeLocks = new ConcurrentHashMap<>();
 
   private UploadIdFactory idFactory = new UuidUploadIdFactory();
 
@@ -105,6 +115,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
       }
     }
     activeStreams.clear();
+    activeLocks.clear();
   }
 
   @Override
@@ -145,7 +156,11 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
       // Lock successfully acquired: clear any lingering .stop signal blob
       deleteStopSignalBlob(idStr);
 
-      return new AzureBlobUploadLock(leaseClient, lockBlob, requestUri, idStr, activeStreams);
+      AzureBlobUploadLock lock =
+          new AzureBlobUploadLock(
+              leaseClient, lockBlob, requestUri, idStr, activeStreams, activeLocks);
+      activeLocks.put(idStr, lock);
+      return lock;
     } catch (BlobStorageException e) {
       AzureErrorType errorType = AzureUtils.parseErrorResponse(e);
       if (errorType == AzureErrorType.LEASE_ALREADY_PRESENT
@@ -160,8 +175,148 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
   }
 
   @Override
+  public void cleanupLock(UploadId id) throws IOException {
+    if (id == null) {
+      return;
+    }
+    String idStr = id.toString();
+    try {
+      // 1. Delete any lingering cross-pod .stop signal blob from prior lock contention
+      deleteStopSignalBlob(idStr);
+
+      // 2. Delete the target .lock blob in the locks prefix
+      BlobClient lockBlob = getBlobClient(locksPrefix + idStr + ".lock");
+      AzureBlobUploadLock activeLock = activeLocks.get(idStr);
+      if (activeLock != null && activeLock.getLeaseClient() != null) {
+        // The lock is actively held by this instance (e.g. during DELETE termination).
+        // Safely delete the blob specifying the active lease ID condition.
+        deleteLockBlobWithLease(lockBlob, activeLock.getLeaseClient().getLeaseId());
+        activeLock.markBlobDeleted();
+      } else {
+        deleteLockBlobIfUnleased(lockBlob);
+      }
+    } catch (Exception e) {
+      log.debug("Failed to clean up Azure lock blob for upload ID {}: {}", idStr, e.getMessage());
+    }
+  }
+
+  @Override
+  public void cleanupLock(String uploadUri) throws IOException {
+    cleanupLock(uploadUri != null && idFactory != null ? idFactory.readUploadId(uploadUri) : null);
+  }
+
+  /**
+   * Safely deletes an actively leased lock blob using its active lease ID.
+   *
+   * <p>When an upload is terminated (e.g. via {@code DELETE}) while holding the request lock,
+   * standard unleased deletion cannot be used because Azure returns HTTP 412 (LeaseIdMissing).
+   * Providing the active lease ID in {@link BlobRequestConditions} allows Azure to delete the
+   * actively leased lock blob immediately.
+   *
+   * @param lockBlob The blob client for the lock blob
+   * @param leaseId The active lease ID
+   * @return true if successfully deleted, false otherwise
+   */
+  boolean deleteLockBlobWithLease(BlobClient lockBlob, String leaseId) {
+    if (lockBlob == null || leaseId == null) {
+      return false;
+    }
+    try {
+      lockBlob.deleteWithResponse(
+          DeleteSnapshotsOptionType.INCLUDE,
+          new BlobRequestConditions().setLeaseId(leaseId),
+          null,
+          null);
+      log.debug("Cleaned up actively leased Azure lock blob {}", lockBlob.getBlobName());
+      return true;
+    } catch (Exception e) {
+      log.debug("Failed to delete leased lock blob {}: {}", lockBlob.getBlobName(), e.getMessage());
+      return false;
+    }
+  }
+
+  /**
+   * Safely deletes an unleased lock blob. Attempting deleteIfExists() on an actively leased blob
+   * without the lease ID causes Azure Blob Storage to reject the request with HTTP 412
+   * (LeaseIdMissing). This helper verifies lease state before deletion.
+   */
+  boolean deleteLockBlobIfUnleased(BlobClient lockBlob) {
+    if (lockBlob == null) {
+      return false;
+    }
+    try {
+      if (Boolean.TRUE.equals(lockBlob.exists())) {
+        BlobProperties props = lockBlob.getProperties();
+        // Check lease state before deletion: if actively held by another thread or node,
+        // do not attempt deletion to avoid lease conflict errors.
+        if (props.getLeaseState() != null
+            && !Strings.CS.equals(props.getLeaseState().toString(), "leased")) {
+          lockBlob.deleteIfExists();
+          log.debug("Cleaned up Azure lock blob {}", lockBlob.getBlobName());
+          return true;
+        }
+      }
+    } catch (Exception e) {
+      log.debug(
+          "Failed to delete unleased lock blob {}: {}", lockBlob.getBlobName(), e.getMessage());
+    }
+    return false;
+  }
+
+  @Override
   public void cleanupStaleLocks() throws IOException {
-    // Azure Blob Leases auto-expire after 30s on holder failure; no manual sweeps needed
+    try {
+      ListBlobsOptions options = new ListBlobsOptions().setPrefix(locksPrefix);
+      OffsetDateTime now = OffsetDateTime.now();
+
+      for (BlobItem item : listBlobs(options)) {
+        if (item == null || item.getName() == null) {
+          continue;
+        }
+        String blobName = item.getName();
+        BlobItemProperties props = item.getProperties();
+        if (props == null) {
+          continue;
+        }
+        // Defensively retrieve properties; uninitialized BlobItem instances in Azure SDK v12
+        // throw NullPointerException on property access if internalProperties is null.
+        OffsetDateTime lastModified = null;
+        LeaseStateType leaseState = null;
+        try {
+          lastModified = props.getLastModified();
+          leaseState = props.getLeaseState();
+        } catch (NullPointerException ignored) {
+          continue;
+        }
+
+        // 1. Clean up stale .stop signal blobs older than 30s
+        if (blobName.endsWith(".stop")) {
+          if (lastModified != null
+              && lastModified.isBefore(now.minusSeconds(STOP_SIGNAL_EXPIRATION_SECONDS))) {
+            getBlobClient(blobName).deleteIfExists();
+            log.info("Cleaned up stale Azure stop signal blob: {}", blobName);
+          }
+        }
+        // 2. Clean up un-leased .lock blobs older than 120s
+        else if (blobName.endsWith(".lock")) {
+          // Never delete actively leased blobs to prevent interrupting active upload threads
+          if (leaseState != null && leaseState == LeaseStateType.LEASED) {
+            continue;
+          }
+          // The 120s grace period ensures we do not delete lock blobs for uploads actively
+          // between chunk requests, while cleaning up abandoned or pre-existing lock blobs.
+          if (lastModified != null
+              && lastModified.isBefore(now.minusSeconds(DEFAULT_STALE_LOCK_THRESHOLD_SECONDS))) {
+            BlobClient lockBlob = getBlobClient(blobName);
+            if (deleteLockBlobIfUnleased(lockBlob)) {
+              log.info("Cleaned up stale unleased Azure lock blob: {}", blobName);
+            }
+          }
+        }
+      }
+    } catch (Exception e) {
+      throw new IOException("Failed to cleanup stale Azure locks in container", e);
+    }
   }
 
   @Override
@@ -250,6 +405,14 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
 
   BlobLeaseClient createBlobLeaseClient(BlobClient lockBlob) {
     return new BlobLeaseClientBuilder().blobClient(lockBlob).buildClient();
+  }
+
+  Iterable<BlobItem> listBlobs(ListBlobsOptions options) {
+    return containerClient.listBlobs(options, null);
+  }
+
+  BlobClient getBlobClient(String blobName) {
+    return containerClient.getBlobClient(blobName);
   }
 
   /**

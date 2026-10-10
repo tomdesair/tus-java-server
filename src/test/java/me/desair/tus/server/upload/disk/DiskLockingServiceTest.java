@@ -685,4 +685,62 @@ public class DiskLockingServiceTest {
     lockingService.close();
     assertTrue(iis.isInterrupted());
   }
+
+  @Test
+  public void testCleanupLockNullAndInvalid() throws Exception {
+    lockingService.cleanupLock((UploadId) null);
+    lockingService.cleanupLock((String) null);
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
+  }
+
+  @Test
+  public void testCleanupLockDeletesLockAndStopFiles() throws Exception {
+    UploadId id = new UploadId(UUID.randomUUID().toString());
+    Path lockPath = storagePath.resolve("locks").resolve(id.toString());
+    Path stopPath = storagePath.resolve("locks").resolve(id.toString() + ".stop");
+    Files.createFile(lockPath);
+    Files.createFile(stopPath);
+
+    assertTrue(Files.exists(lockPath));
+    assertTrue(Files.exists(stopPath));
+
+    lockingService.cleanupLock(id);
+
+    assertFalse(Files.exists(lockPath));
+    assertFalse(Files.exists(stopPath));
+  }
+
+  @Test
+  public void testCleanupLockByUri() throws Exception {
+    UploadId id = new UploadId(UUID.randomUUID().toString());
+    when(idFactory.readUploadId(UPLOAD_URL + "/" + id)).thenReturn(id);
+
+    Path lockPath = storagePath.resolve("locks").resolve(id.toString());
+    Files.createFile(lockPath);
+    assertTrue(Files.exists(lockPath));
+
+    lockingService.cleanupLock(UPLOAD_URL + "/" + id);
+
+    assertFalse(Files.exists(lockPath));
+  }
+
+  @Test
+  public void testCleanupLockWhenActivelyLockedDoesNotDeleteLockFile() throws Exception {
+    UploadId id = new UploadId(UUID.randomUUID().toString());
+    when(idFactory.readUploadId(UPLOAD_URL + "/" + id)).thenReturn(id);
+
+    UploadLock lock = lockingService.lockUploadByUri(UPLOAD_URL + "/" + id);
+    assertThat(lock, is(not(nullValue())));
+
+    Path lockPath = storagePath.resolve("locks").resolve(id.toString());
+    assertTrue(Files.exists(lockPath));
+
+    // When actively locked, cleanupLock must preserve the lock file
+    lockingService.cleanupLock(id);
+    assertTrue(Files.exists(lockPath));
+
+    lock.release();
+    assertFalse(Files.exists(lockPath));
+  }
 }

@@ -555,6 +555,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
       for (Path path : expiredUploadsStream) {
         FileUtils.deleteDirectory(path.toFile());
+        if (uploadLockingService != null) {
+          uploadLockingService.cleanupLock(new UploadId(path.getFileName().toString()));
+        }
       }
     }
   }

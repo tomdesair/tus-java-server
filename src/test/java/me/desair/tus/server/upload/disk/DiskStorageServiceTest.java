@@ -538,6 +538,7 @@ public class DiskStorageServiceTest {
 
     assertFalse(Files.exists(getUploadInfoPath(info.getId())));
     assertFalse(Files.exists(getStoragePath(info.getId())));
+    org.mockito.Mockito.verify(uploadLockingService).cleanupLock(info.getId());
   }
 
   @Test

@@ -323,4 +323,9 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
     this.jitterMinMs = minMs;
     this.jitterMaxMs = maxMs;
   }
+
+  @Override
+  public void cleanupLock(String uploadUri) throws IOException {
+    cleanupLock(uploadUri != null && idFactory != null ? idFactory.readUploadId(uploadUri) : null);
+  }
 }

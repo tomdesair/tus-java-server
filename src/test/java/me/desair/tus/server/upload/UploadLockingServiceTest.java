@@ -33,6 +33,8 @@ public class UploadLockingServiceTest {
     // Test default methods for coverage
     dummyService.registerInputStream("/test/upload/123", new ByteArrayInputStream(new byte[0]));
     dummyService.requestLockRelease("/test/upload/123");
+    dummyService.cleanupLock(new UploadId("123"));
+    dummyService.cleanupLock("/test/upload/123");
     dummyService.close();
 
     assertFalse(dummyService.isLocked(new UploadId("123")));

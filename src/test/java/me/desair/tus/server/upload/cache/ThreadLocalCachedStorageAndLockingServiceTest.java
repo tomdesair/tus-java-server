@@ -252,6 +252,12 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
     service.requestLockRelease("/files/1");
     verify(mockLocking, times(1)).requestLockRelease("/files/1");
 
+    service.cleanupLock(id);
+    verify(mockLocking, times(1)).cleanupLock(id);
+
+    service.cleanupLock("/files/1");
+    verify(mockLocking, times(1)).cleanupLock("/files/1");
+
     service.close();
     verify(mockLocking, times(1)).close();
   }

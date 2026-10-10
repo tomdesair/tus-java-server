@@ -605,6 +605,10 @@ public class S3StorageService implements UploadStorageService {
               && info.isExpired()
               && (uploadLockingService == null || !uploadLockingService.isLocked(id))) {
             terminateUpload(info);
+            if (uploadLockingService != null) {
+              // Clean up any remaining lock files now that the expired upload is terminated
+              uploadLockingService.cleanupLock(id);
+            }
           }
         }
       }
