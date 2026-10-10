@@ -43,6 +43,7 @@ public class UploadInfo implements Serializable {
   private String representationDigest;
   private String requestedRepresentationDigests;
   private String storageUploadId;
+  private List<String> uploadPartKeys;
 
   /** Default constructor to use if an upload is created without HTTP request. */
   public UploadInfo() {
@@ -460,6 +461,24 @@ public class UploadInfo implements Serializable {
     this.storageUploadId = storageUploadId;
   }
 
+  /**
+   * Get the ordered list of storage part keys or block IDs committed for this upload.
+   *
+   * @return The list of part keys or block IDs, or null if uninitialized/unsupported
+   */
+  public List<String> getUploadPartKeys() {
+    return uploadPartKeys;
+  }
+
+  /**
+   * Set the ordered list of storage part keys or block IDs committed for this upload.
+   *
+   * @param uploadPartKeys The list of part keys or block IDs
+   */
+  public void setUploadPartKeys(List<String> uploadPartKeys) {
+    this.uploadPartKeys = uploadPartKeys;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -489,6 +508,7 @@ public class UploadInfo implements Serializable {
         .append(getRepresentationDigest(), that.getRepresentationDigest())
         .append(getRequestedRepresentationDigests(), that.getRequestedRepresentationDigests())
         .append(getStorageUploadId(), that.getStorageUploadId())
+        .append(getUploadPartKeys(), that.getUploadPartKeys())
         .isEquals();
   }
 
@@ -511,6 +531,7 @@ public class UploadInfo implements Serializable {
         .append(getRepresentationDigest())
         .append(getRequestedRepresentationDigests())
         .append(getStorageUploadId())
+        .append(getUploadPartKeys())
         .toHashCode();
   }
 

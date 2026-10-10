@@ -8,6 +8,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import me.desair.tus.server.util.InterruptibleInputStream;
 import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,6 +65,8 @@ public class AsyncChunkUploader implements AutoCloseable {
   // Number of chunks confirmed uploaded to the cloud
   private int confirmedCount;
 
+  private final InterruptibleInputStream inputStream;
+
   // Set to true once drainAndComplete() has successfully finished
   private boolean completed;
 
@@ -73,7 +76,7 @@ public class AsyncChunkUploader implements AutoCloseable {
    * @param executor Shared thread pool executor for background chunk uploads
    */
   public AsyncChunkUploader(ExecutorService executor) {
-    this(executor, DEFAULT_DRAIN_TIMEOUT_MS);
+    this(executor, DEFAULT_DRAIN_TIMEOUT_MS, null);
   }
 
   /**
@@ -83,8 +86,22 @@ public class AsyncChunkUploader implements AutoCloseable {
    * @param drainTimeoutMs Maximum duration in milliseconds to drain in-flight chunks
    */
   public AsyncChunkUploader(ExecutorService executor, long drainTimeoutMs) {
+    this(executor, drainTimeoutMs, null);
+  }
+
+  /**
+   * Constructs an uploader using the given shared executor, drain timeout, and interruptible input
+   * stream.
+   *
+   * @param executor Shared thread pool executor for background chunk uploads
+   * @param drainTimeoutMs Maximum duration in milliseconds to drain in-flight chunks
+   * @param inputStream The interruptible upload stream to monitor for contention signals
+   */
+  public AsyncChunkUploader(
+      ExecutorService executor, long drainTimeoutMs, InterruptibleInputStream inputStream) {
     this.executor = Objects.requireNonNull(executor, "ExecutorService must not be null");
     this.drainTimeoutMs = drainTimeoutMs;
+    this.inputStream = inputStream;
   }
 
   /**
@@ -222,6 +239,11 @@ public class AsyncChunkUploader implements AutoCloseable {
   public void abort() {
     if (inFlightUpload != null && !inFlightUpload.isDone()) {
       inFlightUpload.cancel(true);
+      try {
+        // Wait briefly for worker thread to exit so no background thread outlives the lock
+        inFlightUpload.get(500, TimeUnit.MILLISECONDS);
+      } catch (Exception ignored) {
+      }
     }
     if (inFlightFile != null) {
       FileUtils.deleteQuietly(inFlightFile);
@@ -290,7 +312,35 @@ public class AsyncChunkUploader implements AutoCloseable {
   }
 
   private void waitForInFlight() throws IOException {
-    checkAndConfirmInFlight();
+    // When waiting under backpressure, poll with contention checks so that if another
+    // thread signals lock contention (e.g. HEAD or DELETE request), the servlet thread wakes up
+    // quickly rather than remaining blocked indefinitely on in-flight chunk upload.
+    while (inFlightUpload != null && !inFlightUpload.isDone()) {
+      if (isContentionRequested()) {
+        throw new IOException("Upload was interrupted by locking service contention");
+      }
+      try {
+        inFlightUpload.get(50, TimeUnit.MILLISECONDS);
+        break;
+      } catch (TimeoutException e) {
+        // Poll tick: loop and re-evaluate contention
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        abort();
+        throw new IOException(
+            "Interrupted waiting for in-flight chunk upload for " + inFlightKey, e);
+      } catch (ExecutionException e) {
+        abort();
+        throw translateExecutionException(e, inFlightKey);
+      }
+    }
+    if (inFlightUpload != null && inFlightUpload.isDone()) {
+      checkAndConfirmInFlight();
+    }
+  }
+
+  private boolean isContentionRequested() {
+    return inputStream != null && inputStream.isInterrupted();
   }
 
   private void awaitFuture(Future<?> future, long timeoutMs, String key) throws IOException {

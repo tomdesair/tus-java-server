@@ -88,15 +88,17 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
         // the offset in storage. We reload the updated UploadInfo and acknowledge the partial
         // append rather than propagating an unhandled error.
         if (interruptibleStream != null && interruptibleStream.isInterrupted()) {
+          // Refresh UploadInfo first so the log statement and response reflect the true committed
+          // byte offset persisted by the storage backend up to the interruption point.
+          UploadInfo refreshed = uploadStorageService.getUploadInfo(requestUri, ownerKey);
+          if (refreshed != null) {
+            uploadInfo = refreshed;
+          }
           log.info(
               "RUFH append request for URI {} was interrupted by locking service contention; "
                   + "saved partial upload up to offset {}",
               requestUri,
               uploadInfo != null ? uploadInfo.getOffset() : "unknown");
-          UploadInfo refreshed = uploadStorageService.getUploadInfo(requestUri, ownerKey);
-          if (refreshed != null) {
-            uploadInfo = refreshed;
-          }
         } else {
           throw e;
         }

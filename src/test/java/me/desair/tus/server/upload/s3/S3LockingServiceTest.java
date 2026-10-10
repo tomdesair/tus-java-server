@@ -915,6 +915,34 @@ public class S3LockingServiceTest {
   }
 
   @Test
+  public void testEvictExpiredLockHandlesErrorResponseExceptionNonNoSuchKey() throws Exception {
+    UploadId uploadId = new UploadId("test-access-denied");
+    ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
+    Mockito.when(errorResponse.code()).thenReturn("AccessDenied");
+    ErrorResponseException accessDeniedEx =
+        new ErrorResponseException(errorResponse, null, "AccessDenied");
+
+    Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenThrow(accessDeniedEx);
+
+    boolean evicted = lockingService.evictExpiredLock(uploadId);
+    assertFalse(evicted);
+  }
+
+  @Test
+  public void testEvictExpiredLockHandlesNoSuchKeyReturnsTrue() throws Exception {
+    UploadId uploadId = new UploadId("test-no-such-key");
+    ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
+    Mockito.when(errorResponse.code()).thenReturn("NoSuchKey");
+    ErrorResponseException noSuchKeyEx =
+        new ErrorResponseException(errorResponse, null, "NoSuchKey");
+
+    Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenThrow(noSuchKeyEx);
+
+    boolean evicted = lockingService.evictExpiredLock(uploadId);
+    assertTrue(evicted);
+  }
+
+  @Test
   public void testWithJitterConfiguresBoundsAndReturnsSelf() {
     S3LockingService returned = lockingService.withJitter(15L, 75L);
     assertSame(lockingService, returned);

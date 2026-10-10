@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
+import java.io.InputStream;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadId;
@@ -383,5 +384,51 @@ public class RufhAppendPatchRequestHandlerTest {
         lockingService,
         "owner",
         null);
+  }
+
+  @Test
+  public void testProcessInterruptedByLockContention() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/append-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.setContent("hello world".getBytes());
+
+    UploadInfo initial = new UploadInfo();
+    initial.setId(new UploadId("append-id"));
+    initial.setOffset(1000L);
+    initial.setLength(2000L);
+
+    UploadInfo refreshed = new UploadInfo();
+    refreshed.setId(new UploadId("append-id"));
+    refreshed.setOffset(1005L);
+    refreshed.setLength(2000L);
+
+    when(storageService.getUploadInfo("/files/append-id", "owner"))
+        .thenReturn(initial)
+        .thenReturn(refreshed);
+
+    when(storageService.append(eq(initial), any(InputStream.class)))
+        .thenAnswer(
+            inv -> {
+              Object s = inv.getArgument(1);
+              if (s instanceof InterruptibleInputStream) {
+                ((InterruptibleInputStream) s).interrupt();
+              }
+              throw new IOException("Stream interrupted by locking service contention");
+            });
+
+    handler.process(
+        HttpMethod.PATCH,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(204));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("1005"));
   }
 }

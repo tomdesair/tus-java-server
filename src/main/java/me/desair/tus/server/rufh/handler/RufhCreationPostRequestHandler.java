@@ -132,15 +132,17 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
         // the offset in storage. We reload the updated UploadInfo and acknowledge the partial
         // upload rather than propagating an unhandled error to the servlet container.
         if (interruptibleStream != null && interruptibleStream.isInterrupted()) {
+          // Refresh UploadInfo first so the log statement and response reflect the true committed
+          // byte offset persisted by the storage backend up to the interruption point.
+          UploadInfo refreshed = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
+          if (refreshed != null) {
+            uploadInfo = refreshed;
+          }
           log.info(
               "RUFH creation request with body for URI {} was interrupted by locking service"
                   + " contention; saved partial upload up to offset {}",
               uploadUri,
               uploadInfo != null ? uploadInfo.getOffset() : "unknown");
-          UploadInfo refreshed = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
-          if (refreshed != null) {
-            uploadInfo = refreshed;
-          }
         } else {
           throw e;
         }

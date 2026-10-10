@@ -1583,7 +1583,7 @@ public abstract class AbstractITTusFileUploadService {
 
     InputStream blockingStream =
         new InputStream() {
-          private volatile boolean closed = false;
+          private boolean closed = false;
 
           @Override
           public int read() throws IOException {
@@ -1727,7 +1727,7 @@ public abstract class AbstractITTusFileUploadService {
     InputStream partialBlockingStream =
         new InputStream() {
           private final InputStream byteStream = new ByteArrayInputStream(payload);
-          private volatile boolean closed = false;
+          private boolean closed = false;
 
           @Override
           public int read() throws IOException {

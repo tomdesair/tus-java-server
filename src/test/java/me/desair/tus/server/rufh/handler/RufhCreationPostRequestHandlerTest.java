@@ -645,4 +645,48 @@ public class RufhCreationPostRequestHandlerTest {
         "owner",
         null);
   }
+
+  @Test
+  public void testProcessCreationInterruptedByLockContention() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "1000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.setContent("creation body".getBytes());
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("creation-id"));
+    info.setLength(1000L);
+    info.setOffset(0L);
+
+    UploadInfo refreshed = new UploadInfo();
+    refreshed.setId(new UploadId("creation-id"));
+    refreshed.setLength(1000L);
+    refreshed.setOffset(13L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+    when(storageService.getUploadInfo("/files/creation-id", "owner")).thenReturn(refreshed);
+
+    when(storageService.append(eq(info), any(InputStream.class)))
+        .thenAnswer(
+            inv -> {
+              Object s = inv.getArgument(1);
+              if (s instanceof InterruptibleInputStream) {
+                ((InterruptibleInputStream) s).interrupt();
+              }
+              throw new IOException("Stream interrupted by locking service contention");
+            });
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("13"));
+  }
 }

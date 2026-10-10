@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -44,6 +45,7 @@ import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.util.AsyncChunkUploader;
+import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
@@ -226,6 +228,14 @@ public class AzureBlobStorageService implements UploadStorageService {
         containerClient.getBlobClient(getAzureBlobName(upload)).getBlockBlobClient();
     List<String> blockIds = getCommittedBlockIds(blockBlobClient);
 
+    // If metadata records committed uploadPartKeys, ensure the blob's committed blocks do not
+    // exceed the authoritative metadata offset (e.g. if a prior commitBlockList succeeded
+    // but updating UploadInfo metadata failed or was interrupted).
+    if (upload.getUploadPartKeys() != null && blockIds.size() > upload.getUploadPartKeys().size()) {
+      blockIds = new ArrayList<>(upload.getUploadPartKeys());
+      blockBlobClient.commitBlockList(blockIds, true);
+    }
+
     // 2. Validate block budget: Azure Block Blobs support up to 50,000 blocks
     validateRemainingBlockBudget(upload, blockIds.size());
 
@@ -243,8 +253,9 @@ public class AzureBlobStorageService implements UploadStorageService {
     List<String> plannedBlockIds = new ArrayList<>();
     List<Long> plannedChunkSizes = new ArrayList<>();
 
+    InterruptibleInputStream interruptibleStream = Utils.toInterruptibleStream(inputStream);
     try (AsyncChunkUploader uploader =
-        new AsyncChunkUploader(uploadExecutor, drainTimeout.toMillis())) {
+        new AsyncChunkUploader(uploadExecutor, drainTimeout.toMillis(), interruptibleStream)) {
       // 4. Read incoming stream in chunks, staging blocks directly to Azure Block Blob
       while (true) {
         File chunkFile = null;
@@ -337,6 +348,7 @@ public class AzureBlobStorageService implements UploadStorageService {
       try {
         blockBlobClient.commitBlockList(blockIds, true);
         upload.setOffset(initialOffset + confirmedAppended);
+        upload.setUploadPartKeys(new ArrayList<>(blockIds));
         if (uploadExpirationPeriod != null && uploadExpirationPeriod > 0) {
           upload.setExpirationTimestamp(System.currentTimeMillis() + uploadExpirationPeriod);
         }
@@ -965,9 +977,18 @@ public class AzureBlobStorageService implements UploadStorageService {
     blockBlobClient.commitBlockList(new ArrayList<>(), true);
   }
 
-  /** Generates Base64 encoded block ID matching Azure Block Blob standards. */
-  private String generateBlockId(int index) {
-    String idString = String.format("block-%06d", index);
+  /**
+   * Generates a Base64-encoded block ID matching Azure Block Blob standards.
+   *
+   * <p>Incorporates an 8-character random UUID suffix to guarantee that late-landing blocks from
+   * previous aborted or timed-out worker threads never collide with or overwrite blocks in
+   *
+   * @param index The block index
+   * @return The Base64-encoded block ID
+   */
+  String generateBlockId(int index) {
+    String idString =
+        String.format("blk-%06d-%s", index, UUID.randomUUID().toString().substring(0, 8));
     return Base64.getEncoder().encodeToString(idString.getBytes(StandardCharsets.UTF_8));
   }
 

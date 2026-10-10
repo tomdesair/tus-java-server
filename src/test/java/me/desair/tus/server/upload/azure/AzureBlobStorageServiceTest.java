@@ -297,4 +297,20 @@ public class AzureBlobStorageServiceTest {
       Thread.interrupted(); // Clear interrupted status
     }
   }
+
+  @Test
+  public void testGenerateBlockIdEntropyAndFormat() {
+    String blockId0 = storageService.generateBlockId(0);
+    String blockId1 = storageService.generateBlockId(0);
+
+    assertNotNull(blockId0);
+    assertNotNull(blockId1);
+    // Two block IDs generated for the same index must have different UUID entropy
+    org.junit.Assert.assertNotEquals(blockId0, blockId1);
+
+    byte[] decoded0 = java.util.Base64.getDecoder().decode(blockId0);
+    String text0 = new String(decoded0, java.nio.charset.StandardCharsets.UTF_8);
+    assertTrue(text0.startsWith("blk-000000-"));
+    assertEquals(19, text0.length()); // "blk-000000-" (11) + 8 hex chars = 19
+  }
 }

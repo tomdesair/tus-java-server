@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -19,6 +20,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import me.desair.tus.server.util.InterruptibleInputStream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -551,7 +553,8 @@ public class AsyncChunkUploaderTest {
                 // Third chunk triggers waitForInFlight() backpressure
                 uploader.submitChunk(f3, 1, "k3", () -> {});
               } catch (IOException e) {
-                if (e.getMessage().contains("Interrupted while checking in-flight chunk upload")) {
+                if (e.getMessage().contains("Interrupted")
+                    && e.getMessage().contains("in-flight chunk upload")) {
                   gotBackpressureInterruptedException.set(true);
                 }
               } catch (Exception ignored) {
@@ -600,6 +603,182 @@ public class AsyncChunkUploaderTest {
     assertEquals(55_000L, AsyncChunkUploader.DEFAULT_DRAIN_TIMEOUT_MS);
     try (AsyncChunkUploader uploader = new AsyncChunkUploader(executor)) {
       assertEquals(55_000L, uploader.getDrainTimeoutMs());
+    }
+  }
+
+  @Test
+  public void testSubmitChunkBackpressureContentionSignalThrowsIOException() throws Exception {
+    File f1 = new File(tempDir, "contention-c1.tmp");
+    File f2 = new File(tempDir, "contention-c2.tmp");
+    File f3 = new File(tempDir, "contention-c3.tmp");
+    Files.write(f1.toPath(), "data-1".getBytes());
+    Files.write(f2.toPath(), "data-2".getBytes());
+    Files.write(f3.toPath(), "data-3".getBytes());
+
+    CountDownLatch f1Started = new CountDownLatch(1);
+    CountDownLatch unblock = new CountDownLatch(1);
+    ByteArrayInputStream bais = new ByteArrayInputStream("test".getBytes());
+    InterruptibleInputStream interruptibleStream = new InterruptibleInputStream(bais);
+
+    try (AsyncChunkUploader uploader =
+        new AsyncChunkUploader(executor, 5000L, interruptibleStream)) {
+      uploader.submitChunk(
+          f1,
+          6,
+          "k1",
+          () -> {
+            f1Started.countDown();
+            try {
+              unblock.await(3, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+            }
+          });
+      uploader.submitChunk(f2, 6, "k2", () -> {});
+      assertTrue(f1Started.await(3, TimeUnit.SECONDS));
+
+      // Signal contention before 3rd submitChunk which requires waiting
+      interruptibleStream.interrupt();
+
+      try {
+        uploader.submitChunk(f3, 6, "k3", () -> {});
+        fail("Expected IOException due to lock contention");
+      } catch (IOException e) {
+        assertTrue(e.getMessage().contains("contention"));
+      }
+    } finally {
+      unblock.countDown();
+    }
+  }
+
+  @Test
+  public void testAbortWithActiveInFlightUpload() throws Exception {
+    File chunk1 = new File(tempDir, "abort-active-c1.tmp");
+    Files.write(chunk1.toPath(), "data-abort".getBytes());
+
+    CountDownLatch uploadStarted = new CountDownLatch(1);
+    CountDownLatch unblock = new CountDownLatch(1);
+
+    AsyncChunkUploader uploader = new AsyncChunkUploader(executor);
+    uploader.submitChunk(
+        chunk1,
+        10,
+        "k-abort",
+        () -> {
+          uploadStarted.countDown();
+          try {
+            unblock.await(5, TimeUnit.SECONDS);
+          } catch (InterruptedException ignored) {
+          }
+        });
+
+    assertTrue(uploadStarted.await(3, TimeUnit.SECONDS));
+    // Calling abort while worker is running cancels inFlightUpload and waits up to 500ms
+    uploader.abort();
+    unblock.countDown();
+    uploader.close();
+  }
+
+  @Test
+  public void testWaitForInFlightExecutionExceptionPropagated() throws Exception {
+    File f1 = new File(tempDir, "exec-err-1.tmp");
+    File f2 = new File(tempDir, "exec-err-2.tmp");
+    File f3 = new File(tempDir, "exec-err-3.tmp");
+    Files.write(f1.toPath(), "err1".getBytes());
+    Files.write(f2.toPath(), "err2".getBytes());
+    Files.write(f3.toPath(), "err3".getBytes());
+
+    CountDownLatch f1Started = new CountDownLatch(1);
+    CountDownLatch triggerFailure = new CountDownLatch(1);
+
+    try (AsyncChunkUploader uploader = new AsyncChunkUploader(executor)) {
+      uploader.submitChunk(
+          f1,
+          4,
+          "k-fail-1",
+          () -> {
+            f1Started.countDown();
+            try {
+              triggerFailure.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+            }
+            throw new RuntimeException("S3 simulated upload failure");
+          });
+
+      assertTrue(f1Started.await(3, TimeUnit.SECONDS));
+      // Submit slot 2 while slot 1 is blocked in latch
+      uploader.submitChunk(f2, 4, "k-fail-2", () -> {});
+
+      // In a background thread release triggerFailure after 100ms so failure happens while
+      // waitForInFlight polls
+      Executors.newSingleThreadScheduledExecutor()
+          .schedule(triggerFailure::countDown, 100, TimeUnit.MILLISECONDS);
+
+      // Submitting 3rd chunk triggers waitForInFlight() for slot 1 which throws ExecutionException
+      try {
+        uploader.submitChunk(f3, 4, "k-fail-3", () -> {});
+        fail("Expected IOException when in-flight upload threw ExecutionException");
+      } catch (IOException e) {
+        assertTrue(e.getMessage().contains("S3 simulated upload failure"));
+      }
+    }
+  }
+
+  @Test
+  public void testAbortWithActiveInFlightUploadWaitsAndCancels() throws Exception {
+    File f1 = new File(tempDir, "abort-f1.tmp");
+    Files.write(f1.toPath(), new byte[] {1, 2, 3});
+
+    CountDownLatch taskStarted = new CountDownLatch(1);
+    CountDownLatch hangLatch = new CountDownLatch(1);
+
+    AsyncChunkUploader uploader = new AsyncChunkUploader(executor);
+    uploader.submitChunk(
+        f1,
+        3,
+        "k-abort",
+        () -> {
+          taskStarted.countDown();
+          try {
+            hangLatch.await(10, TimeUnit.SECONDS);
+          } catch (InterruptedException ignored) {
+          }
+        });
+
+    assertTrue(taskStarted.await(3, TimeUnit.SECONDS));
+    uploader.abort();
+
+    hangLatch.countDown();
+    assertFalse("File should be cleaned up by abort", f1.exists());
+  }
+
+  @Test
+  public void testWaitForInFlightUploadTimeoutPolling() throws Exception {
+    File f1 = new File(tempDir, "poll-f1.tmp");
+    File f2 = new File(tempDir, "poll-f2.tmp");
+    File f3 = new File(tempDir, "poll-f3.tmp");
+    Files.write(f1.toPath(), new byte[] {1});
+    Files.write(f2.toPath(), new byte[] {2});
+    Files.write(f3.toPath(), new byte[] {3});
+
+    try (AsyncChunkUploader uploader = new AsyncChunkUploader(executor)) {
+      uploader.submitChunk(
+          f1,
+          1,
+          "k-poll-1",
+          () -> {
+            try {
+              Thread.sleep(120);
+            } catch (InterruptedException ignored) {
+            }
+          });
+
+      uploader.submitChunk(f2, 1, "k-poll-2", () -> {});
+
+      // Submitting 3rd chunk triggers waitForInFlightUpload(), which will encounter
+      // TimeoutException
+      // on the 50ms tick before succeeding on the 3rd tick.
+      uploader.submitChunk(f3, 1, "k-poll-3", () -> {});
+      uploader.drainAndComplete(3000);
     }
   }
 }

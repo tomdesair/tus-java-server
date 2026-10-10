@@ -393,4 +393,65 @@ public class S3UploadLockTest {
     lock.deleteS3Objects("tus-locks/upload-1.lock", "tus-locks/upload-1.stop");
     assertEquals("my-holder", lock.getHolderId());
   }
+
+  @Test
+  public void testDeleteSingleObjectEdgeCases() throws Exception {
+    LeaseData myLeaseData = createLeaseData("my-holder", "/files/upload-1");
+    S3UploadLock lock =
+        new S3UploadLock(
+            myLeaseData,
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            inputStreamMap);
+
+    lock.deleteSingleObject(null);
+
+    S3UploadLock nullClientLock =
+        new S3UploadLock(myLeaseData, null, "test-bucket", "k1", "k2", inputStreamMap);
+    nullClientLock.deleteSingleObject("k1");
+
+    S3UploadLock nullBucketLock =
+        new S3UploadLock(myLeaseData, minioClient, null, "k1", "k2", inputStreamMap);
+    nullBucketLock.deleteSingleObject("k1");
+
+    Mockito.doThrow(new RuntimeException("removeObject error"))
+        .when(minioClient)
+        .removeObject(any(RemoveObjectArgs.class));
+    lock.deleteSingleObject("tus-locks/upload-1.lock");
+    assertEquals("my-holder", lock.getHolderId());
+  }
+
+  @Test
+  public void testDeleteS3ObjectsResultIteratorExceptionFallback() throws Exception {
+    LeaseData myLeaseData = createLeaseData("my-holder", "/files/upload-1");
+    S3UploadLock lock =
+        new S3UploadLock(
+            myLeaseData,
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            inputStreamMap);
+
+    @SuppressWarnings("unchecked")
+    io.minio.Result<io.minio.messages.DeleteResult.Error> mockResult = mock(io.minio.Result.class);
+    Mockito.when(mockResult.get())
+        .thenThrow(new RuntimeException("Simulated error while reading delete result"));
+
+    Mockito.when(minioClient.removeObjects(any(RemoveObjectsArgs.class)))
+        .thenReturn(java.util.Collections.singletonList(mockResult));
+
+    lock.deleteS3Objects("tus-locks/upload-1.lock", "tus-locks/upload-1.stop");
+
+    Mockito.verify(minioClient)
+        .removeObject(
+            org.mockito.ArgumentMatchers.argThat(
+                (RemoveObjectArgs args) -> args.object().equals("tus-locks/upload-1.lock")));
+    Mockito.verify(minioClient)
+        .removeObject(
+            org.mockito.ArgumentMatchers.argThat(
+                (RemoveObjectArgs args) -> args.object().equals("tus-locks/upload-1.stop")));
+  }
 }

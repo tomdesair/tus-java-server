@@ -16,7 +16,7 @@ import org.apache.commons.lang3.Validate;
  */
 public abstract class UploadIdFactory {
 
-  private final ReadWriteLock lock = new ReentrantReadWriteLock();
+  private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
   private String uploadUri = "/";
   // Read and write operations on uploadUri and uploadUriPattern are guarded by a
   // ReentrantReadWriteLock.
@@ -41,12 +41,12 @@ public abstract class UploadIdFactory {
         "The upload URI should start with /, http://, or https://");
     Validate.isTrue(!Strings.CS.endsWith(uploadUri, "$"), "The upload URI should not end with $");
 
-    lock.writeLock().lock();
+    thisObjectLock.writeLock().lock();
     try {
       this.uploadUri = uploadUri;
       this.uploadUriPattern = null;
     } finally {
-      lock.writeLock().unlock();
+      thisObjectLock.writeLock().unlock();
     }
   }
 
@@ -57,11 +57,11 @@ public abstract class UploadIdFactory {
    * @return The URI of the main tus upload endpoint.
    */
   public String getUploadUri() {
-    lock.readLock().lock();
+    thisObjectLock.readLock().lock();
     try {
       return uploadUri;
     } finally {
-      lock.readLock().unlock();
+      thisObjectLock.readLock().unlock();
     }
   }
 
@@ -107,16 +107,16 @@ public abstract class UploadIdFactory {
    * @return A (cached) Pattern to match upload URI's
    */
   protected Pattern getUploadUriPattern() {
-    lock.readLock().lock();
+    thisObjectLock.readLock().lock();
     try {
       if (uploadUriPattern != null) {
         return uploadUriPattern;
       }
     } finally {
-      lock.readLock().unlock();
+      thisObjectLock.readLock().unlock();
     }
 
-    lock.writeLock().lock();
+    thisObjectLock.writeLock().lock();
     try {
       if (uploadUriPattern == null) {
         // Extract upload IDs by removing upload URI from start of request URI.
@@ -127,7 +127,7 @@ public abstract class UploadIdFactory {
       }
       return uploadUriPattern;
     } finally {
-      lock.writeLock().unlock();
+      thisObjectLock.writeLock().unlock();
     }
   }
 }

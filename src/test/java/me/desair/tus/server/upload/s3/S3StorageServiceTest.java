@@ -22,6 +22,7 @@ import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.RemoveObjectsArgs;
 import io.minio.Result;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
@@ -34,8 +35,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
@@ -273,14 +276,15 @@ public class S3StorageServiceTest {
     info.setId(uploadId);
     info.setLength(10000L);
     info.setOffset(20L);
+    String partKey1 = "metadata/" + uploadId + ".part.00001";
+    info.setUploadPartKeys(new ArrayList<>(Collections.singletonList(partKey1)));
 
     String json = UploadInfoJsonSerializer.serialize(info);
     when(minioClient.getObject(any(GetObjectArgs.class)))
         .thenAnswer(
             invocation -> {
               GetObjectArgs args = invocation.getArgument(0);
-              // Simulate existing .part buffer object of 20 bytes
-              if (args.object().endsWith(".part")) {
+              if (args.object().equals(partKey1)) {
                 return mockGetObjectResponse(new byte[20]);
               }
               return mockGetObjectResponse(json.getBytes());
@@ -292,7 +296,7 @@ public class S3StorageServiceTest {
         .thenAnswer(
             invocation -> {
               StatObjectArgs args = invocation.getArgument(0);
-              if (args.object().endsWith(".part")) {
+              if (args.object().equals(partKey1)) {
                 return partStat;
               }
               throw new ErrorResponseException(
@@ -310,8 +314,9 @@ public class S3StorageServiceTest {
     }
 
     // Verify that when maxAppendSize was exceeded, the prepended bytes were NOT lost
-    // and were flushed back to S3 as an incomplete .part object.
-    verify(minioClient, atLeastOnce()).putObject(argThat(args -> args.object().endsWith(".part")));
+    // and were flushed back to S3 as a part chunk object.
+    verify(minioClient, atLeastOnce())
+        .putObject(argThat(args -> args != null && args.object().contains(".part.")));
   }
 
   @Test(expected = MinUploadLengthNotReachedException.class)
@@ -418,6 +423,7 @@ public class S3StorageServiceTest {
     info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
     info.setLength(200000000L);
     info.setOffset(0L);
+    info.setUploadPartKeys(new ArrayList<>());
 
     String json = UploadInfoJsonSerializer.serialize(info);
     when(minioClient.getObject(any(GetObjectArgs.class)))
@@ -975,129 +981,6 @@ public class S3StorageServiceTest {
   }
 
   @Test
-  public void testFinalizeCompletedUploadWithLeftoverIncompletePart() throws Exception {
-    UploadInfo info = new UploadInfo();
-    UploadId id = new UploadId("leftover-part-123");
-    info.setId(id);
-    info.setLength(50L);
-    info.setOffset(0L);
-
-    String json = UploadInfoJsonSerializer.serialize(info);
-
-    StatObjectResponse leftoverHead = mock(StatObjectResponse.class);
-    when(leftoverHead.size()).thenReturn(50L);
-
-    when(minioClient.statObject(any(StatObjectArgs.class)))
-        .thenAnswer(
-            invocation -> {
-              StatObjectArgs args = invocation.getArgument(0);
-              if (args.object().endsWith(".part")) {
-                return leftoverHead;
-              }
-              ErrorResponse err = mock(ErrorResponse.class);
-              when(err.code()).thenReturn("NoSuchKey");
-              throw new ErrorResponseException(err, null, null);
-            });
-
-    when(minioClient.getObject(any(GetObjectArgs.class)))
-        .thenAnswer(
-            invocation -> {
-              GetObjectArgs args = invocation.getArgument(0);
-              if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(json.getBytes());
-              }
-              return mockGetObjectResponse(new byte[50]);
-            });
-
-    storageService.append(info, new ByteArrayInputStream(new byte[50]));
-  }
-
-  @Test
-  public void testFinalizeCompletedUploadWithInconsistentLeftoverPartPurged() throws Exception {
-    UploadInfo info = new UploadInfo();
-    UploadId id = new UploadId("inconsistent-part-123");
-    info.setId(id);
-    info.setLength(100L);
-    info.setOffset(0L);
-
-    String json = UploadInfoJsonSerializer.serialize(info);
-
-    StatObjectResponse leftoverHead = mock(StatObjectResponse.class);
-    // Leftover is 30 bytes, but total length is 100 bytes (0 parts + 30 != 100) -> Case 3
-    when(leftoverHead.size()).thenReturn(30L);
-
-    when(minioClient.statObject(any(StatObjectArgs.class)))
-        .thenAnswer(
-            invocation -> {
-              StatObjectArgs args = invocation.getArgument(0);
-              if (args.object().endsWith(".part")) {
-                return leftoverHead;
-              }
-              ErrorResponse err = mock(ErrorResponse.class);
-              when(err.code()).thenReturn("NoSuchKey");
-              throw new ErrorResponseException(err, null, null);
-            });
-
-    when(minioClient.getObject(any(GetObjectArgs.class)))
-        .thenAnswer(
-            invocation -> {
-              GetObjectArgs args = invocation.getArgument(0);
-              if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(json.getBytes());
-              }
-              return mockGetObjectResponse(new byte[100]);
-            });
-
-    storageService.append(info, new ByteArrayInputStream(new byte[100]));
-
-    // Verify inconsistent .part buffer was deleted
-    verify(minioClient, atLeastOnce())
-        .removeObject(
-            argThat(
-                (RemoveObjectArgs args) ->
-                    args.object().equals("metadata/inconsistent-part-123.part")));
-  }
-
-  @Test(expected = IOException.class)
-  public void testFinalizeCompletedUploadLeftoverPartPromotionExceptionThrowsIOException()
-      throws Exception {
-    UploadInfo info = new UploadInfo();
-    UploadId id = new UploadId("leftover-promo-err-123");
-    info.setId(id);
-    info.setLength(50L);
-    info.setOffset(0L);
-
-    String json = UploadInfoJsonSerializer.serialize(info);
-
-    StatObjectResponse leftoverHead = mock(StatObjectResponse.class);
-    when(leftoverHead.size()).thenReturn(50L);
-
-    when(minioClient.statObject(any(StatObjectArgs.class)))
-        .thenAnswer(
-            invocation -> {
-              StatObjectArgs args = invocation.getArgument(0);
-              if (args.object().endsWith(".part")) {
-                return leftoverHead;
-              }
-              ErrorResponse err = mock(ErrorResponse.class);
-              when(err.code()).thenReturn("NoSuchKey");
-              throw new ErrorResponseException(err, null, null);
-            });
-
-    when(minioClient.getObject(any(GetObjectArgs.class)))
-        .thenAnswer(
-            invocation -> {
-              GetObjectArgs args = invocation.getArgument(0);
-              if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(json.getBytes());
-              }
-              throw new IOException("Simulated network failure streaming leftover part");
-            });
-
-    storageService.append(info, new ByteArrayInputStream(new byte[50]));
-  }
-
-  @Test
   public void testFinalizeCompletedUploadZeroLength() throws Exception {
     UploadInfo info = new UploadInfo();
     UploadId id = new UploadId("zero-len-123");
@@ -1212,6 +1095,8 @@ public class S3StorageServiceTest {
     UploadId id = new UploadId("fallback-123");
     info.setId(id);
     info.setOffset(50L);
+    String partKey1 = "metadata/fallback-123.part.00001";
+    info.setUploadPartKeys(Collections.singletonList(partKey1));
 
     ErrorResponse noSuchKeyErr = mock(ErrorResponse.class);
     when(noSuchKeyErr.code()).thenReturn("NoSuchKey");
@@ -1224,7 +1109,7 @@ public class S3StorageServiceTest {
               if (args.object().endsWith(".info")) {
                 return mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes());
               }
-              if (args.object().endsWith(".part")) {
+              if (args.object().equals(partKey1)) {
                 return mockGetObjectResponse("part-data".getBytes());
               }
               throw noSuchKeyEx;
@@ -1647,20 +1532,11 @@ public class S3StorageServiceTest {
     UploadId id = new UploadId("sub5mb-test-123");
     info.setId(id);
     info.setLength(2000L);
-    info.setOffset(0L);
+    info.setOffset(2000L);
+    info.setUploadPartKeys(
+        Arrays.asList("uploads/sub5mb-test-123.part.00001", "uploads/sub5mb-test-123.part.00002"));
 
     String json = UploadInfoJsonSerializer.serialize(info);
-
-    Item item1 = mock(Item.class);
-    when(item1.objectName()).thenReturn("uploads/sub5mb-test-123.part.00001");
-    when(item1.size()).thenReturn(1000L);
-
-    Item item2 = mock(Item.class);
-    when(item2.objectName()).thenReturn("uploads/sub5mb-test-123.part.00002");
-    when(item2.size()).thenReturn(1000L);
-
-    when(minioClient.listObjects(any(ListObjectsArgs.class)))
-        .thenReturn(Arrays.asList(new Result<>(item1), new Result<>(item2)));
 
     StatObjectResponse stat1 = mock(StatObjectResponse.class);
     when(stat1.size()).thenReturn(1000L);
@@ -1671,9 +1547,9 @@ public class S3StorageServiceTest {
         .thenAnswer(
             invocation -> {
               StatObjectArgs args = invocation.getArgument(0);
-              if (args.object().endsWith(".part.00001")) {
+              if (args.object().contains(".part.00001")) {
                 return stat1;
-              } else if (args.object().endsWith(".part.00002")) {
+              } else if (args.object().contains(".part.00002")) {
                 return stat2;
               }
               ErrorResponse err = mock(ErrorResponse.class);
@@ -1691,7 +1567,7 @@ public class S3StorageServiceTest {
               return mockGetObjectResponse(new byte[1000]);
             });
 
-    UploadInfo result = storageService.append(info, new ByteArrayInputStream(new byte[2000]));
+    UploadInfo result = storageService.append(info, new ByteArrayInputStream(new byte[0]));
     assertNotNull(result);
     org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.never())
         .composeObject(any(ComposeObjectArgs.class));
@@ -1707,20 +1583,12 @@ public class S3StorageServiceTest {
     long fiveMb = 5L * 1024L * 1024L;
     info.setId(id);
     info.setLength(fiveMb + 100L);
-    info.setOffset(0L);
+    info.setOffset(fiveMb + 100L);
+    info.setUploadPartKeys(
+        Arrays.asList(
+            "uploads/compose-test-123.part.00001", "uploads/compose-test-123.part.00002"));
 
     String json = UploadInfoJsonSerializer.serialize(info);
-
-    Item item1 = mock(Item.class);
-    when(item1.objectName()).thenReturn("uploads/compose-test-123.part.00001");
-    when(item1.size()).thenReturn(fiveMb);
-
-    Item item2 = mock(Item.class);
-    when(item2.objectName()).thenReturn("uploads/compose-test-123.part.00002");
-    when(item2.size()).thenReturn(100L);
-
-    when(minioClient.listObjects(any(ListObjectsArgs.class)))
-        .thenReturn(Arrays.asList(new Result<>(item1), new Result<>(item2)));
 
     StatObjectResponse stat1 = mock(StatObjectResponse.class);
     when(stat1.size()).thenReturn(fiveMb);
@@ -1731,9 +1599,9 @@ public class S3StorageServiceTest {
         .thenAnswer(
             invocation -> {
               StatObjectArgs args = invocation.getArgument(0);
-              if (args.object().endsWith(".part.00001")) {
+              if (args.object().contains(".part.00001")) {
                 return stat1;
-              } else if (args.object().endsWith(".part.00002")) {
+              } else if (args.object().contains(".part.00002")) {
                 return stat2;
               }
               ErrorResponse err = mock(ErrorResponse.class);
@@ -1751,8 +1619,7 @@ public class S3StorageServiceTest {
               return mockGetObjectResponse(new byte[100]);
             });
 
-    UploadInfo result =
-        storageService.append(info, new ByteArrayInputStream(new byte[(int) (fiveMb + 100L)]));
+    UploadInfo result = storageService.append(info, new ByteArrayInputStream(new byte[0]));
     assertNotNull(result);
     org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.times(1))
         .composeObject(any(ComposeObjectArgs.class));
@@ -1768,20 +1635,13 @@ public class S3StorageServiceTest {
     long fiveMb = 5L * 1024L * 1024L;
     info.setId(id);
     info.setLength(fiveMb + 100L);
-    info.setOffset(0L);
+    info.setOffset(fiveMb + 100L);
+    info.setUploadPartKeys(
+        Arrays.asList(
+            "uploads/compose-fail-test-123.part.00001",
+            "uploads/compose-fail-test-123.part.00002"));
 
     String json = UploadInfoJsonSerializer.serialize(info);
-
-    Item item1 = mock(Item.class);
-    when(item1.objectName()).thenReturn("uploads/compose-fail-test-123.part.00001");
-    when(item1.size()).thenReturn(fiveMb);
-
-    Item item2 = mock(Item.class);
-    when(item2.objectName()).thenReturn("uploads/compose-fail-test-123.part.00002");
-    when(item2.size()).thenReturn(100L);
-
-    when(minioClient.listObjects(any(ListObjectsArgs.class)))
-        .thenReturn(Arrays.asList(new Result<>(item1), new Result<>(item2)));
 
     StatObjectResponse stat1 = mock(StatObjectResponse.class);
     when(stat1.size()).thenReturn(fiveMb);
@@ -1792,9 +1652,9 @@ public class S3StorageServiceTest {
         .thenAnswer(
             invocation -> {
               StatObjectArgs args = invocation.getArgument(0);
-              if (args.object().endsWith(".part.00001")) {
+              if (args.object().contains(".part.00001")) {
                 return stat1;
-              } else if (args.object().endsWith(".part.00002")) {
+              } else if (args.object().contains(".part.00002")) {
                 return stat2;
               }
               ErrorResponse err = mock(ErrorResponse.class);
@@ -1815,8 +1675,7 @@ public class S3StorageServiceTest {
     when(minioClient.composeObject(any(ComposeObjectArgs.class)))
         .thenThrow(new RuntimeException("The specified header is not valid in this context"));
 
-    UploadInfo result =
-        storageService.append(info, new ByteArrayInputStream(new byte[(int) (fiveMb + 100L)]));
+    UploadInfo result = storageService.append(info, new ByteArrayInputStream(new byte[0]));
     assertNotNull(result);
 
     // Verify composeObject was attempted and failed
@@ -1833,19 +1692,13 @@ public class S3StorageServiceTest {
     UploadId id2 = new UploadId("compose-skip-test-456");
     info2.setId(id2);
     info2.setLength(fiveMb + 100L);
-    info2.setOffset(0L);
+    info2.setOffset(fiveMb + 100L);
+    info2.setUploadPartKeys(
+        Arrays.asList(
+            "uploads/compose-skip-test-456.part.00001",
+            "uploads/compose-skip-test-456.part.00002"));
 
     String json2 = UploadInfoJsonSerializer.serialize(info2);
-    Item item21 = mock(Item.class);
-    when(item21.objectName()).thenReturn("uploads/compose-skip-test-456.part.00001");
-    when(item21.size()).thenReturn(fiveMb);
-
-    Item item22 = mock(Item.class);
-    when(item22.objectName()).thenReturn("uploads/compose-skip-test-456.part.00002");
-    when(item22.size()).thenReturn(100L);
-
-    when(minioClient.listObjects(any(ListObjectsArgs.class)))
-        .thenReturn(Arrays.asList(new Result<>(item21), new Result<>(item22)));
 
     when(minioClient.getObject(any(GetObjectArgs.class)))
         .thenAnswer(
@@ -1857,8 +1710,7 @@ public class S3StorageServiceTest {
               return mockGetObjectResponse(new byte[100]);
             });
 
-    UploadInfo result2 =
-        storageService.append(info2, new ByteArrayInputStream(new byte[(int) (fiveMb + 100L)]));
+    UploadInfo result2 = storageService.append(info2, new ByteArrayInputStream(new byte[0]));
     assertNotNull(result2);
 
     // composeObject count should still be 1 (never called for the second upload)
@@ -1867,7 +1719,6 @@ public class S3StorageServiceTest {
 
     // Reset flag for other tests
     storageService.setS3ComposeObjectSupported(true);
-    assertTrue(storageService.isS3ComposeObjectSupported());
   }
 
   @Test
@@ -1903,6 +1754,18 @@ public class S3StorageServiceTest {
               return java.util.Collections.emptyList();
             });
 
+    java.util.concurrent.atomic.AtomicBoolean partSaved =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    when(minioClient.putObject(any(PutObjectArgs.class)))
+        .thenAnswer(
+            inv -> {
+              PutObjectArgs args = inv.getArgument(0);
+              if (args.object().endsWith(".part")) {
+                partSaved.set(true);
+              }
+              return null;
+            });
+
     StatObjectResponse stat1 = mock(StatObjectResponse.class);
     when(stat1.size()).thenReturn(500L);
 
@@ -1913,9 +1776,9 @@ public class S3StorageServiceTest {
         .thenAnswer(
             invocation -> {
               StatObjectArgs args = invocation.getArgument(0);
-              if (args.object().endsWith(".part.00001")) {
+              if (args.object().contains(".part.00001")) {
                 return stat1;
-              } else if (args.object().endsWith(".part")) {
+              } else if (args.object().endsWith(".part") && partSaved.get()) {
                 return statPart;
               }
               ErrorResponse err = mock(ErrorResponse.class);
@@ -2148,165 +2011,16 @@ public class S3StorageServiceTest {
   }
 
   @Test
-  public void testFinalizeUploadWithStaleIncompletePartIgnored() throws Exception {
-    UploadId uploadId = new UploadId("stale-part-test");
-    UploadInfo info = new UploadInfo();
-    info.setId(uploadId);
-    info.setOffset(0L);
-    info.setLength(3425070L); // 3.42 MB total upload length
-
-    String infoJson = UploadInfoJsonSerializer.serialize(info);
-    String partKey1 = "metadata/stale-part-test.part.00001";
-    String stalePartKey = "metadata/stale-part-test.part";
-
-    Item part1Item = mock(Item.class);
-    when(part1Item.objectName()).thenReturn(partKey1);
-
-    StatObjectResponse part1Stat = mock(StatObjectResponse.class);
-    when(part1Stat.size()).thenReturn(3425070L); // Numbered part already covers full 3.42 MB
-
-    StatObjectResponse stalePartStat = mock(StatObjectResponse.class);
-    when(stalePartStat.size()).thenReturn(1277952L); // Stale leftover from prior pause
-
-    StatObjectResponse objectNotExists = mock(StatObjectResponse.class);
-
-    when(minioClient.listObjects(any(ListObjectsArgs.class)))
-        .thenAnswer(
-            invocation -> {
-              ListObjectsArgs args = invocation.getArgument(0);
-              if (args.prefix().startsWith("metadata/stale-part-test.part.")) {
-                return Collections.singletonList(new Result<>(part1Item));
-              }
-              return Collections.emptyList();
-            });
-
-    when(minioClient.statObject(any(StatObjectArgs.class)))
-        .thenAnswer(
-            invocation -> {
-              StatObjectArgs args = invocation.getArgument(0);
-              if (args.object().equals(partKey1)) {
-                return part1Stat;
-              } else if (args.object().equals(stalePartKey)) {
-                return stalePartStat;
-              } else if (args.object().equals("uploads/stale-part-test")) {
-                ErrorResponse err = mock(ErrorResponse.class);
-                when(err.code()).thenReturn("NoSuchKey");
-                throw new ErrorResponseException(err, null, null);
-              }
-              return objectNotExists;
-            });
-
-    when(minioClient.getObject(any(GetObjectArgs.class)))
-        .thenAnswer(
-            invocation -> {
-              GetObjectArgs args = invocation.getArgument(0);
-              if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(infoJson.getBytes());
-              }
-              return mockGetObjectResponse(new byte[0]);
-            });
-
-    // Append 0 bytes to trigger finalization check
-    ByteArrayInputStream emptyStream = new ByteArrayInputStream(new byte[0]);
-    UploadInfo result = storageService.append(info, emptyStream);
-
-    assertNotNull(result);
-    // Verify that the stale .part buffer was deleted via removeObject and NOT promoted to
-    // part.00002
-    verify(minioClient, atLeastOnce())
-        .removeObject(
-            argThat(
-                (RemoveObjectArgs args) -> args.object().equals("metadata/stale-part-test.part")));
-  }
-
-  @Test
-  public void testFinalizeUploadWithLegitimateNewIncompletePartPromoted() throws Exception {
-    UploadId uploadId = new UploadId("legit-part-test");
-    UploadInfo info = new UploadInfo();
-    info.setId(uploadId);
-    info.setOffset(0L);
-    info.setLength(10000000L); // 10 MB total length
-
-    String infoJson = UploadInfoJsonSerializer.serialize(info);
-    String partKey1 = "metadata/legit-part-test.part.00001";
-    String legitPartKey = "metadata/legit-part-test.part";
-
-    Item part1Item = mock(Item.class);
-    when(part1Item.objectName()).thenReturn(partKey1);
-
-    StatObjectResponse part1Stat = mock(StatObjectResponse.class);
-    when(part1Stat.size()).thenReturn(8000000L); // 8 MB numbered part
-
-    StatObjectResponse legitPartStat = mock(StatObjectResponse.class);
-    when(legitPartStat.size()).thenReturn(2000000L); // 2 MB tail; 8 MB + 2 MB == 10 MB exact match!
-
-    when(minioClient.listObjects(any(ListObjectsArgs.class)))
-        .thenAnswer(
-            invocation -> {
-              ListObjectsArgs args = invocation.getArgument(0);
-              if (args.prefix().startsWith("metadata/legit-part-test.part.")) {
-                return Collections.singletonList(new Result<>(part1Item));
-              }
-              return Collections.emptyList();
-            });
-
-    when(minioClient.statObject(any(StatObjectArgs.class)))
-        .thenAnswer(
-            invocation -> {
-              StatObjectArgs args = invocation.getArgument(0);
-              if (args.object().equals(partKey1)) {
-                return part1Stat;
-              } else if (args.object().equals(legitPartKey)) {
-                return legitPartStat;
-              } else if (args.object().equals("uploads/legit-part-test")) {
-                ErrorResponse err = mock(ErrorResponse.class);
-                when(err.code()).thenReturn("NoSuchKey");
-                throw new ErrorResponseException(err, null, null);
-              }
-              return mock(StatObjectResponse.class);
-            });
-
-    when(minioClient.getObject(any(GetObjectArgs.class)))
-        .thenAnswer(
-            invocation -> {
-              GetObjectArgs args = invocation.getArgument(0);
-              if (args.object().endsWith(".info")) {
-                return mockGetObjectResponse(infoJson.getBytes());
-              } else if (args.object().equals(legitPartKey)) {
-                return mockGetObjectResponse(new byte[2000000]);
-              }
-              return mockGetObjectResponse(new byte[0]);
-            });
-
-    ByteArrayInputStream emptyStream = new ByteArrayInputStream(new byte[0]);
-    UploadInfo result = storageService.append(info, emptyStream);
-
-    assertNotNull(result);
-    // Verify that the legitimate 2 MB tail was promoted to part.00002
-    verify(minioClient)
-        .putObject(
-            argThat(
-                (PutObjectArgs args) ->
-                    args.object().equals("metadata/legit-part-test.part.00002")));
-  }
-
-  @Test
   public void testCalculateCurrentOffsetDoesNotDoubleCountOrExceedLength() throws Exception {
     UploadId uploadId = new UploadId("calc-offset-test");
-    String infoJson = "{\"id\":\"calc-offset-test\",\"length\":3425070,\"offset\":null}";
+    String infoJson =
+        "{\"id\":\"calc-offset-test\",\"length\":3425070,\"offset\":null,\"uploadPartKeys\":[\"metadata/calc-offset-test.part.00001\"]}";
 
     String partKey1 = "metadata/calc-offset-test.part.00001";
-    String stalePartKey = "metadata/calc-offset-test.part";
-
-    Item part1Item = mock(Item.class);
-    when(part1Item.objectName()).thenReturn(partKey1);
 
     StatObjectResponse part1Stat = mock(StatObjectResponse.class);
     when(part1Stat.size()).thenReturn(3425070L); // 3.42 MB numbered part
 
-    StatObjectResponse stalePartStat = mock(StatObjectResponse.class);
-    when(stalePartStat.size()).thenReturn(1277952L); // Stale 1.27 MB leftover
-
     when(minioClient.getObject(any(GetObjectArgs.class)))
         .thenAnswer(
             invocation -> {
@@ -2317,24 +2031,12 @@ public class S3StorageServiceTest {
               return mockGetObjectResponse(new byte[0]);
             });
 
-    when(minioClient.listObjects(any(ListObjectsArgs.class)))
-        .thenAnswer(
-            invocation -> {
-              ListObjectsArgs args = invocation.getArgument(0);
-              if (args.prefix().startsWith("metadata/calc-offset-test.part.")) {
-                return Collections.singletonList(new Result<>(part1Item));
-              }
-              return Collections.emptyList();
-            });
-
     when(minioClient.statObject(any(StatObjectArgs.class)))
         .thenAnswer(
             invocation -> {
               StatObjectArgs args = invocation.getArgument(0);
               if (args.object().equals(partKey1)) {
                 return part1Stat;
-              } else if (args.object().equals(stalePartKey)) {
-                return stalePartStat;
               } else if (args.object().equals("uploads/calc-offset-test")) {
                 ErrorResponse err = mock(ErrorResponse.class);
                 when(err.code()).thenReturn("NoSuchKey");
@@ -2345,14 +2047,7 @@ public class S3StorageServiceTest {
 
     UploadInfo fetched = storageService.getUploadInfo(uploadId);
     assertNotNull(fetched);
-    // Must be exactly 3,425,070 bytes (not 4,703,022 bytes with double-counted stale part!)
     assertEquals(Long.valueOf(3425070L), fetched.getOffset());
-
-    // Verify stale .part buffer was deleted on the fly
-    verify(minioClient, atLeastOnce())
-        .removeObject(
-            argThat(
-                (RemoveObjectArgs args) -> args.object().equals("metadata/calc-offset-test.part")));
   }
 
   @Test
@@ -2417,6 +2112,511 @@ public class S3StorageServiceTest {
     } catch (MaxAppendSizeExceededException expected) {
       assertTrue(expected.getMessage().contains("maximum allowed S3 limit of 10000 parts"));
     }
+  }
+
+  @Test
+  public void testRemoveLastNumberOfBytesWithManifestParts() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("trunc-manifest-test"));
+    info.setLength(300L);
+    info.setOffset(300L);
+    info.setUploadPartKeys(
+        new ArrayList<>(Arrays.asList("metadata/trunc.part.00001", "metadata/trunc.part.00002")));
+
+    String json = UploadInfoJsonSerializer.serialize(info);
+
+    StatObjectResponse stat1 = mock(StatObjectResponse.class);
+    when(stat1.size()).thenReturn(150L);
+    StatObjectResponse stat2 = mock(StatObjectResponse.class);
+    when(stat2.size()).thenReturn(150L);
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (args.object().equals("metadata/trunc.part.00002")) {
+                return stat2;
+              } else if (args.object().equals("metadata/trunc.part.00001")) {
+                return stat1;
+              } else if (args.object().equals("uploads/trunc-manifest-test")) {
+                ErrorResponse err = mock(ErrorResponse.class);
+                when(err.code()).thenReturn("NoSuchKey");
+                throw new ErrorResponseException(err, null, null);
+              }
+              return mock(StatObjectResponse.class);
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (args.object().endsWith(".info")) {
+                return mockGetObjectResponse(json.getBytes());
+              }
+              return mockGetObjectResponse(new byte[150]);
+            });
+
+    // Remove 200 bytes: all 150 bytes of part 2, plus 50 bytes of part 1
+    storageService.removeLastNumberOfBytes(info, 200L);
+
+    assertEquals(Long.valueOf(100L), info.getOffset());
+    assertEquals(1, info.getUploadPartKeys().size());
+    assertEquals("metadata/trunc.part.00001", info.getUploadPartKeys().get(0));
+
+    verify(minioClient)
+        .removeObject(
+            argThat((RemoveObjectArgs args) -> args.object().equals("metadata/trunc.part.00002")));
+    verify(minioClient)
+        .putObject(
+            argThat((PutObjectArgs args) -> args.object().equals("metadata/trunc.part.00001")));
+  }
+
+  @Test
+  public void testDeleteS3ObjectsBatchFailureFallback() throws Exception {
+    assertTrue(storageService.isSupportsBatchDelete());
+    UploadId uploadId = new UploadId("batch-del-fallback");
+    List<String> keys = Arrays.asList("metadata/batch.part.00001", "metadata/batch.part.00002");
+
+    io.minio.messages.DeleteResult.Error delErr = mock(io.minio.messages.DeleteResult.Error.class);
+    when(delErr.objectName()).thenReturn("metadata/batch.part.00001");
+    when(delErr.message()).thenReturn("AccessDenied");
+
+    @SuppressWarnings("unchecked")
+    Result<io.minio.messages.DeleteResult.Error> errResult = mock(Result.class);
+    when(errResult.get()).thenReturn(delErr);
+
+    when(minioClient.removeObjects(any(RemoveObjectsArgs.class)))
+        .thenReturn(Collections.singletonList(errResult));
+
+    storageService.deleteS3ObjectsQuietly(keys);
+
+    verify(minioClient)
+        .removeObject(
+            argThat((RemoveObjectArgs args) -> args.object().equals("metadata/batch.part.00001")));
+    verify(minioClient)
+        .removeObject(
+            argThat((RemoveObjectArgs args) -> args.object().equals("metadata/batch.part.00002")));
+    assertFalse(storageService.isSupportsBatchDelete());
+
+    // Subsequent batch delete should bypass removeObjects directly
+    storageService.deleteS3ObjectsQuietly(Collections.singletonList("metadata/batch.part.00003"));
+    verify(minioClient)
+        .removeObject(
+            argThat((RemoveObjectArgs args) -> args.object().equals("metadata/batch.part.00003")));
+    // removeObjects was only called once (for the first attempt)
+    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.times(1))
+        .removeObjects(any(RemoveObjectsArgs.class));
+
+    // Reset flag for subsequent tests
+    storageService.setSupportsBatchDelete(true);
+  }
+
+  @Test
+  public void testDeleteS3ObjectsThrowsExceptionFallsBackToIndividualDelete() throws Exception {
+    assertTrue(storageService.isSupportsBatchDelete());
+    UploadId uploadId = new UploadId("batch-del-ex");
+    List<String> keys = Collections.singletonList("metadata/batch-ex.part.00001");
+
+    when(minioClient.removeObjects(any(RemoveObjectsArgs.class)))
+        .thenThrow(new RuntimeException("MinIO network failure"));
+
+    storageService.deleteS3ObjectsQuietly(keys);
+
+    verify(minioClient)
+        .removeObject(
+            argThat(
+                (RemoveObjectArgs args) -> args.object().equals("metadata/batch-ex.part.00001")));
+    assertFalse(storageService.isSupportsBatchDelete());
+
+    // Null or empty handling
+    storageService.deleteS3ObjectsQuietly(null);
+    storageService.deleteS3ObjectsQuietly(Collections.emptyList());
+    storageService.deleteS3ObjectsQuietly(Collections.singletonList(null));
+
+    // Reset flag
+    storageService.setSupportsBatchDelete(true);
+  }
+
+  @Test
+  public void testGetUploadedBytesFromManifestPartsWhenCompletedObjectMissing() throws Exception {
+    UploadId uploadId = new UploadId("manifest-stream-test");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setLength(12L);
+    info.setOffset(12L);
+    info.setUploadPartKeys(
+        Arrays.asList(
+            "metadata/manifest-stream-test.part.00001",
+            "metadata/manifest-stream-test.part.00002"));
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && "metadata/manifest-stream-test.info".equals(a.object()))))
+        .thenReturn(
+            mockGetObjectResponse(
+                UploadInfoJsonSerializer.serialize(info)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+    ErrorResponse err = new ErrorResponse("NoSuchKey", "Not found", null, null, null, null, null);
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && "uploads/manifest-stream-test".equals(a.object()))))
+        .thenThrow(new ErrorResponseException(err, null, null));
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && "metadata/manifest-stream-test.part.00001".equals(a.object()))))
+        .thenReturn(
+            mockGetObjectResponse("Hello ".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && "metadata/manifest-stream-test.part.00002".equals(a.object()))))
+        .thenReturn(
+            mockGetObjectResponse("World!".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+    try (InputStream stream = storageService.getUploadedBytes(uploadId)) {
+      assertNotNull(stream);
+      byte[] readBytes = org.apache.commons.io.IOUtils.toByteArray(stream);
+      assertEquals("Hello World!", new String(readBytes, java.nio.charset.StandardCharsets.UTF_8));
+    }
+  }
+
+  @Test
+  public void testAppendWithInterruptibleInputStream() throws Exception {
+    UploadId uploadId = new UploadId("interrupt-stream-append");
+    UploadInfo initial = new UploadInfo();
+    initial.setId(uploadId);
+    initial.setLength(10L);
+    initial.setOffset(null);
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && "metadata/interrupt-stream-append.info".equals(a.object()))))
+        .thenAnswer(
+            inv ->
+                mockGetObjectResponse(
+                    UploadInfoJsonSerializer.serialize(initial)
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+    UploadInfo created = storageService.create(initial, "owner");
+    assertNotNull(created.getOffset());
+    assertEquals(0L, created.getOffset().longValue());
+
+    byte[] data = "12345".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    try (me.desair.tus.server.util.InterruptibleInputStream is =
+        new me.desair.tus.server.util.InterruptibleInputStream(new ByteArrayInputStream(data))) {
+      UploadInfo updated = storageService.append(created, is);
+      assertEquals(5L, updated.getOffset().longValue());
+    }
+  }
+
+  @Test
+  public void testRemoveLastNumberOfBytesManifestPartPutObjectException() throws Exception {
+    UploadId uploadId = new UploadId("trunc-put-err");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setLength(100L);
+    info.setOffset(10L);
+    info.setUploadPartKeys(
+        new ArrayList<>(Collections.singletonList("metadata/trunc-put-err.part.00001")));
+
+    ErrorResponse noSuchKeyErr =
+        new ErrorResponse("NoSuchKey", "Not found", null, null, null, null, null);
+    when(minioClient.statObject(
+            argThat(
+                (StatObjectArgs args) ->
+                    args != null && "uploads/trunc-put-err".equals(args.object()))))
+        .thenThrow(new ErrorResponseException(noSuchKeyErr, null, null));
+
+    StatObjectResponse stat = mock(StatObjectResponse.class);
+    when(stat.size()).thenReturn(10L);
+    when(minioClient.statObject(
+            argThat(
+                (StatObjectArgs args) ->
+                    args != null && "metadata/trunc-put-err.part.00001".equals(args.object()))))
+        .thenReturn(stat);
+
+    byte[] partData = new byte[10];
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs args) ->
+                    args != null && "metadata/trunc-put-err.part.00001".equals(args.object()))))
+        .thenReturn(mockGetObjectResponse(partData));
+
+    doThrow(new RuntimeException("Simulated PutObject failure"))
+        .when(minioClient)
+        .putObject(
+            argThat(
+                (PutObjectArgs args) ->
+                    args != null && "metadata/trunc-put-err.part.00001".equals(args.object())));
+
+    storageService.removeLastNumberOfBytes(info, 3L);
+    assertEquals(7L, info.getOffset().longValue());
+  }
+
+  @Test
+  public void testSupportsBatchDeleteConfiguration() {
+    assertTrue(storageService.isSupportsBatchDelete());
+    storageService.setSupportsBatchDelete(false);
+    assertFalse(storageService.isSupportsBatchDelete());
+    storageService.setSupportsBatchDelete(true);
+    assertTrue(storageService.isSupportsBatchDelete());
+  }
+
+  @Test
+  public void testCloseInterruptedGracefully() throws Exception {
+    Thread.currentThread().interrupt();
+    try {
+      storageService.close();
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  public void testRemoveLastNumberOfBytesTruncatesCompletedObject() throws Exception {
+    UploadId uploadId = new UploadId("trunc-completed-1");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setLength(100L);
+    info.setOffset(100L);
+
+    String completedKey = "uploads/trunc-completed-1";
+    StatObjectResponse headStat = mock(StatObjectResponse.class);
+    when(headStat.size()).thenReturn(100L);
+
+    when(minioClient.statObject(
+            argThat((StatObjectArgs a) -> a != null && completedKey.equals(a.object()))))
+        .thenReturn(headStat);
+
+    byte[] fullBytes = new byte[100];
+    for (int i = 0; i < 100; i++) {
+      fullBytes[i] = (byte) i;
+    }
+    when(minioClient.getObject(
+            argThat((GetObjectArgs a) -> a != null && completedKey.equals(a.object()))))
+        .thenReturn(mockGetObjectResponse(fullBytes));
+
+    storageService.removeLastNumberOfBytes(info, 20L);
+
+    // 80 bytes should be rewritten as part 1, and completedKey should be deleted
+    verify(minioClient)
+        .putObject(
+            argThat(
+                (PutObjectArgs a) ->
+                    a != null && a.object().startsWith("metadata/trunc-completed-1.part.00001-")));
+    verify(minioClient)
+        .removeObject(
+            argThat((RemoveObjectArgs a) -> a != null && completedKey.equals(a.object())));
+    assertEquals(1, info.getUploadPartKeys().size());
+    assertTrue(
+        info.getUploadPartKeys().get(0).startsWith("metadata/trunc-completed-1.part.00001-"));
+  }
+
+  @Test
+  public void testRemoveLastNumberOfBytesTruncatesCompletedObjectToZero() throws Exception {
+    UploadId uploadId = new UploadId("trunc-completed-zero");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setLength(100L);
+    info.setOffset(100L);
+
+    String completedKey = "uploads/trunc-completed-zero";
+    StatObjectResponse headStat = mock(StatObjectResponse.class);
+    when(headStat.size()).thenReturn(100L);
+
+    when(minioClient.statObject(
+            argThat((StatObjectArgs a) -> a != null && completedKey.equals(a.object()))))
+        .thenReturn(headStat);
+
+    storageService.removeLastNumberOfBytes(info, 100L);
+
+    verify(minioClient)
+        .removeObject(
+            argThat((RemoveObjectArgs a) -> a != null && completedKey.equals(a.object())));
+    assertTrue(info.getUploadPartKeys().isEmpty());
+  }
+
+  @Test(expected = IOException.class)
+  public void testRemoveLastNumberOfBytesTruncatesCompletedObjectThrowsIOExceptionOnReadFailure()
+      throws Exception {
+    UploadId uploadId = new UploadId("trunc-completed-err");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setLength(100L);
+    info.setOffset(100L);
+
+    String completedKey = "uploads/trunc-completed-err";
+    StatObjectResponse headStat = mock(StatObjectResponse.class);
+    when(headStat.size()).thenReturn(100L);
+
+    when(minioClient.statObject(
+            argThat((StatObjectArgs a) -> a != null && completedKey.equals(a.object()))))
+        .thenReturn(headStat);
+
+    when(minioClient.getObject(
+            argThat((GetObjectArgs a) -> a != null && completedKey.equals(a.object()))))
+        .thenThrow(new RuntimeException("Simulated read failure"));
+
+    storageService.removeLastNumberOfBytes(info, 20L);
+  }
+
+  @Test
+  public void testRemoveLastNumberOfBytesTruncatesSinglePartRewrite() throws Exception {
+    UploadId uploadId = new UploadId("trunc-single-part");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setLength(100L);
+    info.setOffset(100L);
+    String part1Key = "uploads/trunc-single-part.part.00001";
+    info.setUploadPartKeys(new ArrayList<>(Collections.singletonList(part1Key)));
+
+    // completedKey does not exist
+    ErrorResponse notFound =
+        new ErrorResponse("NoSuchKey", "Not found", null, null, null, null, null);
+    when(minioClient.statObject(
+            argThat(
+                (StatObjectArgs a) -> a != null && "uploads/trunc-single-part".equals(a.object()))))
+        .thenThrow(new ErrorResponseException(notFound, null, null));
+
+    StatObjectResponse partStat = mock(StatObjectResponse.class);
+    when(partStat.size()).thenReturn(100L);
+    when(minioClient.statObject(
+            argThat((StatObjectArgs a) -> a != null && part1Key.equals(a.object()))))
+        .thenReturn(partStat);
+
+    byte[] partData = new byte[100];
+    when(minioClient.getObject(
+            argThat((GetObjectArgs a) -> a != null && part1Key.equals(a.object()))))
+        .thenReturn(mockGetObjectResponse(partData));
+
+    storageService.removeLastNumberOfBytes(info, 30L);
+
+    // Part should be rewritten with 70 bytes
+    verify(minioClient)
+        .putObject(argThat((PutObjectArgs a) -> a != null && part1Key.equals(a.object())));
+    assertEquals(1, info.getUploadPartKeys().size());
+  }
+
+  @Test
+  public void testRemoveLastNumberOfBytesDeletesEntirePartWhenSubsumed() throws Exception {
+    UploadId uploadId = new UploadId("trunc-subsumed");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setLength(100L);
+    info.setOffset(100L);
+    String part1Key = "uploads/trunc-subsumed.part.00001";
+    String part2Key = "uploads/trunc-subsumed.part.00002";
+    info.setUploadPartKeys(new ArrayList<>(Arrays.asList(part1Key, part2Key)));
+
+    ErrorResponse notFound =
+        new ErrorResponse("NoSuchKey", "Not found", null, null, null, null, null);
+    when(minioClient.statObject(
+            argThat(
+                (StatObjectArgs a) -> a != null && "uploads/trunc-subsumed".equals(a.object()))))
+        .thenThrow(new ErrorResponseException(notFound, null, null));
+
+    StatObjectResponse statPart1 = mock(StatObjectResponse.class);
+    when(statPart1.size()).thenReturn(50L);
+    StatObjectResponse statPart2 = mock(StatObjectResponse.class);
+    when(statPart2.size()).thenReturn(50L);
+
+    when(minioClient.statObject(
+            argThat((StatObjectArgs a) -> a != null && part1Key.equals(a.object()))))
+        .thenReturn(statPart1);
+    when(minioClient.statObject(
+            argThat((StatObjectArgs a) -> a != null && part2Key.equals(a.object()))))
+        .thenReturn(statPart2);
+
+    when(minioClient.getObject(
+            argThat((GetObjectArgs a) -> a != null && part1Key.equals(a.object()))))
+        .thenReturn(mockGetObjectResponse(new byte[50]));
+
+    // Removing 70 bytes should completely remove part2 (50 bytes) and truncate part1 by 20 bytes
+    storageService.removeLastNumberOfBytes(info, 70L);
+
+    verify(minioClient)
+        .removeObject(argThat((RemoveObjectArgs a) -> a != null && part2Key.equals(a.object())));
+    verify(minioClient)
+        .putObject(argThat((PutObjectArgs a) -> a != null && part1Key.equals(a.object())));
+    assertEquals(1, info.getUploadPartKeys().size());
+    assertEquals(part1Key, info.getUploadPartKeys().get(0));
+  }
+
+  @Test
+  public void testFetchS3ByteStreamFallbackToManifestParts() throws Exception {
+    UploadId uploadId = new UploadId("stream-fallback-id");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setLength(100L);
+    info.setOffset(50L);
+    String part1Key = "uploads/stream-fallback-id.part.00001";
+    info.setUploadPartKeys(new ArrayList<>(Collections.singletonList(part1Key)));
+
+    String completedKey = "uploads/stream-fallback-id";
+    ErrorResponse notFound =
+        new ErrorResponse("NoSuchKey", "Not found", null, null, null, null, null);
+    when(minioClient.getObject(
+            argThat((GetObjectArgs a) -> a != null && completedKey.equals(a.object()))))
+        .thenThrow(new ErrorResponseException(notFound, null, null));
+
+    when(minioClient.getObject(
+            argThat((GetObjectArgs a) -> a != null && part1Key.equals(a.object()))))
+        .thenReturn(mockGetObjectResponse("streamed-bytes".getBytes()));
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && "metadata/stream-fallback-id.info".equals(a.object()))))
+        .thenReturn(mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes()));
+
+    InputStream stream = storageService.getUploadedBytes(uploadId);
+    assertNotNull(stream);
+    byte[] content = stream.readAllBytes();
+    assertEquals("streamed-bytes", new String(content));
+  }
+
+  @Test
+  public void testPruneOrphanPartsDeletesUnmanifestedS3Part() throws Exception {
+    UploadId uploadId = new UploadId("orphan-test-id");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setLength(1000L);
+    info.setOffset(0L);
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && "metadata/orphan-test-id.info".equals(a.object()))))
+        .thenReturn(mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes()));
+
+    Item manifestedItem = mock(Item.class);
+    when(manifestedItem.objectName()).thenReturn("metadata/orphan-test-id.part.00001");
+    Item orphanItem = mock(Item.class);
+    when(orphanItem.objectName()).thenReturn("metadata/orphan-test-id.part.99999");
+
+    Result<Item> res1 = new Result<>(manifestedItem);
+    Result<Item> res2 = new Result<>(orphanItem);
+
+    when(minioClient.listObjects(
+            argThat(
+                (ListObjectsArgs a) ->
+                    a != null && "metadata/orphan-test-id.part.".equals(a.prefix()))))
+        .thenReturn(Arrays.asList(res1, res2));
+
+    storageService.append(info, new ByteArrayInputStream(new byte[0]));
+
+    verify(minioClient)
+        .removeObject(
+            argThat(
+                (RemoveObjectArgs a) ->
+                    a != null && "metadata/orphan-test-id.part.99999".equals(a.object())));
   }
 
   private GetObjectResponse mockGetObjectResponse(byte[] bytes) {

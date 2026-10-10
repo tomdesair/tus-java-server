@@ -606,6 +606,24 @@ public class Utils {
   }
 
   /**
+   * Ensures the given input stream is an {@link InterruptibleInputStream}. If the input stream is
+   * already an {@code InterruptibleInputStream}, it is cast and returned; otherwise, it is wrapped
+   * in a new {@code InterruptibleInputStream}. Returns null if the input stream is null.
+   *
+   * @param inputStream The input stream to check or wrap
+   * @return An InterruptibleInputStream wrapping or casting the input stream, or null if null
+   */
+  public static InterruptibleInputStream toInterruptibleStream(InputStream inputStream) {
+    if (inputStream == null) {
+      return null;
+    }
+    if (inputStream instanceof InterruptibleInputStream) {
+      return (InterruptibleInputStream) inputStream;
+    }
+    return new InterruptibleInputStream(inputStream);
+  }
+
+  /**
    * Safely interrupts an input stream if it is an instance of {@link InterruptibleInputStream}, or
    * closes it quietly if it is a standard input stream. Any exceptions encountered during
    * interruption or closing are caught and logged without propagating.

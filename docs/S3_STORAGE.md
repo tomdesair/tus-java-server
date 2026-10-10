@@ -339,6 +339,9 @@ The following minimal AWS IAM policy permissions are required for `S3StorageServ
 > [!IMPORTANT]
 > Make sure to change "my-upload-bucket" to the correct bucket name that you created for your uploads.
 
+> [!NOTE]
+> `S3UploadLock` and `S3StorageService` attempt batch Multi-Object Delete (`POST /?delete`) first to delete temporary chunk parts, `.lock`, and `.stop` files in a single round-trip. If batch deletion is not permitted by your IAM policy or unsupported by an S3-compatible backend, the service automatically falls back to individual single-object `DELETE` (`s3:DeleteObject`) requests.
+
 ---
 
 ## 9. Developer Instructions: Running Local S3 Integration Tests

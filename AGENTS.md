@@ -180,6 +180,13 @@ To maintain a clear separation between fast, offline unit tests and containerize
 - Do NOT use legacy `java.io.File.createTempFile(...)`. On POSIX systems, it creates files with overly permissive default umask permissions (often world-readable or group-readable, CWE-378 / SonarQube java:S5443).
 - Always use `java.nio.file.Files.createTempFile(...)` (or `Utils.createTempSiblingPath(...)` / `Utils.createTempSibling(...)`), which creates temporary files with restricted owner-only permissions (`rw-------` / `0600`) by default.
 
+### 23. Thread Safety: Prevent Volatile Class Variables & Use ReentrantReadWriteLock
+- Do NOT use `volatile` class variables for mutable state, lazy compilation, or feature flags. `volatile` references on complex objects or mutable fields can trigger static analysis warnings (e.g. SonarQube java:S3077) and cannot guard multi-step compound actions, non-atomic transitions, or lazy initializations.
+- Guard concurrent mutable state using a `ReadWriteLock` (`ReentrantReadWriteLock`).
+- Consistently name the lock field `private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();` in every class for pattern consistency across the codebase.
+- Use `thisObjectLock.readLock()` for fast, concurrent reads, and `thisObjectLock.writeLock()` for state mutations, lazy pattern compilation, or feature capability degradation.
+- Always acquire and release locks using `try ... finally` blocks (e.g. `thisObjectLock.readLock().lock(); try { return field; } finally { thisObjectLock.readLock().unlock(); }`).
+
 
 ## IETF Resumable Uploads for HTTP (RUFH) Spec Maintenance & Update Playbook
 

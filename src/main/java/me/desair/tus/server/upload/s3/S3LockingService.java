@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collections;
 import java.util.Objects;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import me.desair.tus.server.upload.AbstractLeaseLockingService;
 import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.upload.UploadId;
@@ -61,7 +63,8 @@ public class S3LockingService extends AbstractLeaseLockingService {
   private final MinioClient minioClient;
   private final String bucket;
   private final String locksPrefix;
-  private volatile boolean s3ConditionalWritesSupported = true;
+  private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
+  private boolean s3ConditionalWritesSupported = true;
 
   /**
    * Convenience constructor for local S3-compatible backends where region is omitted. Defaults the
@@ -182,7 +185,12 @@ public class S3LockingService extends AbstractLeaseLockingService {
    * @return This service instance for fluent chaining
    */
   public S3LockingService withS3ConditionalWritesSupported(boolean supported) {
-    this.s3ConditionalWritesSupported = supported;
+    thisObjectLock.writeLock().lock();
+    try {
+      this.s3ConditionalWritesSupported = supported;
+    } finally {
+      thisObjectLock.writeLock().unlock();
+    }
     return this;
   }
 
@@ -193,7 +201,12 @@ public class S3LockingService extends AbstractLeaseLockingService {
    *     disabled
    */
   public boolean isS3ConditionalWritesSupported() {
-    return s3ConditionalWritesSupported;
+    thisObjectLock.readLock().lock();
+    try {
+      return s3ConditionalWritesSupported;
+    } finally {
+      thisObjectLock.readLock().unlock();
+    }
   }
 
   @Override
@@ -238,7 +251,15 @@ public class S3LockingService extends AbstractLeaseLockingService {
 
       byte[] lockContentBytes = LeaseDataJsonSerializer.serializeToBytes(leaseData);
 
-      if (s3ConditionalWritesSupported) {
+      boolean conditionalSupported;
+      thisObjectLock.readLock().lock();
+      try {
+        conditionalSupported = s3ConditionalWritesSupported;
+      } finally {
+        thisObjectLock.readLock().unlock();
+      }
+
+      if (conditionalSupported) {
         // Layer 1: Optimistic Conditional PutObject with "If-None-Match: *"
         // AWS S3 and compliant servers reject this with 412 Precondition Failed if the object
         // already
@@ -264,7 +285,12 @@ public class S3LockingService extends AbstractLeaseLockingService {
                 "S3 endpoint does not support conditional writes (If-None-Match: *). "
                     + "Downgrading to non-CAS lock arbitration for key {}",
                 lockKey);
-            s3ConditionalWritesSupported = false;
+            thisObjectLock.writeLock().lock();
+            try {
+              s3ConditionalWritesSupported = false;
+            } finally {
+              thisObjectLock.writeLock().unlock();
+            }
             if (!isLockExpired(lockKey)) {
               return null;
             }
@@ -328,15 +354,24 @@ public class S3LockingService extends AbstractLeaseLockingService {
       return false;
     }
     String lockKey = buildLockKey(uploadId);
-    if (!isLockExpired(lockKey)) {
-      return false;
-    }
-    // Delete the expired .lock object from S3 so the subsequent tryAcquireLock() conditional
-    // write with "If-None-Match: *" can succeed and take over the abandoned lock.
-    try {
+    try (InputStream stream =
+        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
+      LeaseData lock = LeaseDataJsonSerializer.deserialize(stream);
+      if (!isLeaseExpired(lock, System.currentTimeMillis())) {
+        return false;
+      }
+      // Actual expired lock found in S3: delete it so next tryAcquireLock() can succeed
       minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(lockKey).build());
       log.info("Evicted expired S3 lock for key {}", lockKey);
       return true;
+    } catch (ErrorResponseException e) {
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
+        // Lock key was already released normally and removed from S3.
+        // Return true to indicate the resource is clear without emitting false eviction logs.
+        return true;
+      }
+      log.warn("Failed checking S3 lock expiration for key {}", lockKey, e);
+      return false;
     } catch (Exception e) {
       log.warn("Failed to evict expired S3 lock for key {}", lockKey, e);
       return false;

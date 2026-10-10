@@ -3,6 +3,7 @@ package me.desair.tus.server.upload.s3;
 import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
 import io.minio.RemoveObjectsArgs;
 import io.minio.Result;
 import io.minio.errors.ErrorResponseException;
@@ -131,15 +132,19 @@ public class S3UploadLock extends AbstractLeaseLock {
     if (minioClient == null || bucket == null) {
       return;
     }
-    List<DeleteRequest.Object> objects =
-        Stream.of(firstKey, secondKey)
-            .filter(Objects::nonNull)
-            .map(DeleteRequest.Object::new)
-            .collect(Collectors.toList());
-    if (objects.isEmpty()) {
+    List<String> keysToDelete =
+        Stream.of(firstKey, secondKey).filter(Objects::nonNull).collect(Collectors.toList());
+    if (keysToDelete.isEmpty()) {
       return;
     }
+
+    boolean batchFailed = false;
+    List<DeleteRequest.Object> objects =
+        keysToDelete.stream().map(DeleteRequest.Object::new).collect(Collectors.toList());
+
     try {
+      // First attempt fast S3 Multi-Object Delete (POST /?delete) in a single round trip.
+      // Supported by MinIO and compliant S3 endpoints where bucket policies permit multi-delete.
       Iterable<Result<DeleteResult.Error>> results =
           minioClient.removeObjects(
               RemoveObjectsArgs.builder().bucket(bucket).objects(objects).build());
@@ -149,16 +154,51 @@ public class S3UploadLock extends AbstractLeaseLock {
             if (result != null) {
               DeleteResult.Error error = result.get();
               if (error != null) {
-                log.debug("Failed to delete S3 object {}: {}", error.objectName(), error.message());
+                // S3 returned an error for an object (e.g. AccessDenied on multi-delete POST
+                // /?delete)
+                log.debug(
+                    "Batch delete reported error for S3 object {}: {}; falling back to individual"
+                        + " delete",
+                    error.objectName(),
+                    error.message());
+                batchFailed = true;
+                break;
               }
             }
           } catch (Exception e) {
-            log.debug("Failed to process batch delete result", e);
+            log.debug(
+                "Exception iterating batch delete results; falling back to individual delete", e);
+            batchFailed = true;
+            break;
           }
         }
       }
     } catch (Exception e) {
-      log.debug("Failed to batch delete S3 objects {} and {}", firstKey, secondKey, e);
+      log.debug(
+          "Batch multi-delete failed for keys {}; falling back to individual single-object DELETE",
+          keysToDelete,
+          e);
+      batchFailed = true;
+    }
+
+    // Fall back to resilient individual single-object DELETE calls (DELETE /bucket/key).
+    // Standard AWS IAM policies often grant s3:DeleteObject exclusively on arn:aws:s3:::bucket/*,
+    // which allows individual object deletions while rejecting bucket-level multi-object delete.
+    if (batchFailed) {
+      for (String key : keysToDelete) {
+        deleteSingleObject(key);
+      }
+    }
+  }
+
+  void deleteSingleObject(String key) {
+    if (minioClient == null || bucket == null || key == null) {
+      return;
+    }
+    try {
+      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
+    } catch (Exception e) {
+      log.warn("Failed to delete S3 lock object key {} in bucket {}", key, bucket, e);
     }
   }
 
