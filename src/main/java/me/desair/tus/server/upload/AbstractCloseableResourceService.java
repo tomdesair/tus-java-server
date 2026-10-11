@@ -2,6 +2,8 @@ package me.desair.tus.server.upload;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Abstract base class for services that manage closeable resources and optional JVM shutdown hooks.
@@ -9,7 +11,8 @@ import java.io.IOException;
 public abstract class AbstractCloseableResourceService implements Closeable {
 
   private final Thread shutdownHook;
-  private volatile boolean closed = false;
+  private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
+  private boolean closed = false;
 
   /** Constructs a closeable resource service without a JVM shutdown hook. */
   protected AbstractCloseableResourceService() {
@@ -36,7 +39,12 @@ public abstract class AbstractCloseableResourceService implements Closeable {
    * @return true if the service is closed, false otherwise
    */
   public boolean isClosed() {
-    return closed;
+    thisObjectLock.readLock().lock();
+    try {
+      return closed;
+    } finally {
+      thisObjectLock.readLock().unlock();
+    }
   }
 
   /**
@@ -47,11 +55,17 @@ public abstract class AbstractCloseableResourceService implements Closeable {
    */
   @Override
   public void close() throws IOException {
-    if (!closed) {
+    thisObjectLock.writeLock().lock();
+    try {
+      if (closed) {
+        return;
+      }
       closed = true;
-      deregisterShutdownHook();
-      cleanupOnClose();
+    } finally {
+      thisObjectLock.writeLock().unlock();
     }
+    deregisterShutdownHook();
+    cleanupOnClose();
   }
 
   /**

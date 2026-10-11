@@ -17,3 +17,10 @@ repos:
         language: system
         files: \.java$
         pass_filenames: false
+  - repo: https://github.com/lycheeverse/lychee
+    rev: lychee-v0.24.2
+    hooks:
+      - id: lychee
+        name: Lychee Markdown Link Check
+        args: ["--config", "lychee.toml", "--offline", "--no-progress"]
+        types: [markdown]

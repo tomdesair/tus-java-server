@@ -17,7 +17,7 @@ import org.testcontainers.containers.GenericContainer;
 
 public class ITS3LockingService {
 
-  private static GenericContainer<?> minio;
+  private static GenericContainer<?> rustfsContainer;
   private static MinioClient minioClient;
   private static final String BUCKET = "test-locking-service-bucket";
 
@@ -26,27 +26,28 @@ public class ITS3LockingService {
   @BeforeClass
   public static void setUpClass() {
     org.junit.Assume.assumeTrue(
-        "Container runtime is not available; skipping Testcontainers MinIO test",
+        "Container runtime is not available; skipping Testcontainers S3 (RustFS) test",
         TestUtils.isContainerRuntimeAvailable());
 
-    minio = TestUtils.createMinioContainer();
-    minio.start();
+    rustfsContainer = TestUtils.createRustFsContainer();
+    rustfsContainer.start();
 
-    minioClient = TestUtils.createMinioClient(minio);
+    minioClient = TestUtils.createMinioClient(rustfsContainer);
     TestUtils.createBucket(minioClient, BUCKET);
   }
 
   @AfterClass
   public static void tearDownClass() {
-    if (minio != null) {
-      minio.stop();
+    if (rustfsContainer != null) {
+      rustfsContainer.stop();
     }
   }
 
   @Before
   public void setUp() {
     org.junit.Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable());
-    lockingService = new S3LockingService(minioClient, BUCKET);
+    String endpoint = TestUtils.getS3Endpoint(rustfsContainer);
+    lockingService = new S3LockingService(endpoint, "rustfsadmin", "rustfsadmin", BUCKET);
   }
 
   @Test

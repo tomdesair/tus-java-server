@@ -1,6 +1,6 @@
-# Upload Locking & Lock Contention Resolution
+# Upload Locking, Lock Wait & Contention Resolution
 
-This document describes why locking is necessary in the `tus-java-server` library, how the core `UploadLockingService` interface is structured, how lock contention resolution works across replicas, and where to find detailed documentation for each concrete locking mechanism implementation.
+This document describes why locking is necessary in the `tus-java-server` library, how the core `UploadLockingService` interface is structured, how lock wait and contention resolution works across replicas, and where to find detailed documentation for each concrete locking mechanism implementation.
 
 ---
 
@@ -8,14 +8,14 @@ This document describes why locking is necessary in the `tus-java-server` librar
 
 In the `tus` protocol (and IETF Resumable Uploads for HTTP specification), client uploads can be interrupted and resumed across multiple HTTP requests. Multiple concurrent requests targeting the same upload resource must be strictly prevented to avoid data corruption (such as out-of-order byte writes or overlapping file offsets).
 
-### Stalled Uploads & Lock Contention Handling
+### Stalled Uploads, Lock Wait & Contention Handling
 
 1. **Active Streaming**: When a client sends upload bytes via a `PATCH` (or RUFH `POST`/`PATCH`) request, the server acquires an exclusive lock on that upload.
 2. **Network Interruption**: If the client's network drops, the original `PATCH` connection may remain open on the server in a "half-open" state (a stalled socket read waiting for client bytes).
 3. **Resume Attempt**: The client, recognizing the disconnect, attempts to resume by sending a `HEAD` request to query the current offset (or a `DELETE` request to terminate the upload).
-4. **Lock Conflict**: The stalled `PATCH` request is still running on the server and holding the lock, which would block the client's `HEAD` or `DELETE` request indefinitely if not resolved.
-
-To solve this, `tus-java-server` includes a **lock contention resolution mechanism** where an incoming `HEAD` or `DELETE` request signals the server to interrupt the stalled `PATCH` byte stream cleanly, releasing the lock for immediate resumption.
+4. **Lock Conflict & Lock Wait**: The stalled `PATCH` request is still running on the server and holding the lock. Rather than failing immediately, the server enters a **lock wait** retry loop (retrying every 200ms up to `withLockWaitTimeout(Duration)`, default 60s / 300 retries).
+5. **Contention Resolution**: The waiting request calls `lockingService.requestLockRelease(requestUri)`, which signals the active upload to interrupt its input stream.
+6. **Drain & Handover**: For cloud backends (S3, Azure), the interrupted upload is allotted a background drain timeout (`lockWaitTimeout - 5 seconds`, default 55s) to safely flush in-flight chunks and persist updated byte offsets before releasing the lock. Once freed, the waiting request acquires the lock and immediately returns the accurate offset to the client.
 
 ---
 
@@ -34,8 +34,14 @@ public interface UploadLockingService {
   // Checks if an upload is currently locked
   boolean isLocked(UploadId id);
 
-  // Cleans up stale or expired locks
+  // Cleans up stale or expired locks (fallback sweeper)
   void cleanupStaleLocks() throws IOException;
+
+  // Cleans up the lock file or object for a completed, terminated, or expired upload
+  default void cleanupLock(UploadId id) throws IOException {}
+
+  // Cleans up the lock file or object for a completed, terminated, or expired upload by URI
+  default void cleanupLock(String uploadUri) throws IOException {}
 
   // Injects the UploadIdFactory instance used to parse upload IDs from request URIs
   void setIdFactory(UploadIdFactory idFactory);
@@ -68,9 +74,12 @@ public interface UploadLock extends Closeable {
 }
 ```
 
-### Request Flow & Contention Resolution
+### Request Flow, Lock Cleanup & Contention Resolution
 
 - **Stream Registration**: When a request starts streaming payload bytes, its input stream is wrapped in an `InterruptibleInputStream` and registered via `lockingService.registerInputStream(requestUri, inputStream)`.
+- **Automatic Lock Cleanup on Completion**: When an upload finishes (`offset == length`), `TusFileUploadService` automatically invokes `lockingService.cleanupLock(uploadId)` to remove the lock file/blob (`.lock`) and any stop signal file/blob (`.stop`).
+- **Automatic Lock Cleanup on Termination & Expiration**: When an upload is canceled via `DELETE` (204 No Content) or expired via `cleanupExpiredUploads()`, the associated lock file or blob is also automatically deleted via `lockingService.cleanupLock(uploadId)`. Actively held locks are defended and never deleted mid-stream.
+- **Fallback Stale Lock Sweeper**: As a safety net, `cleanupStaleLocks()` periodically sweeps orphaned lock records (e.g. unleased Azure blobs older than 120s or stop signal markers older than 30s) left behind after hard node crashes or power outages.
 - **Release Request**: When a concurrent `HEAD` or `DELETE` request encounters an active lock, `TusFileUploadService` catches `UploadAlreadyLockedException` and calls `lockingService.requestLockRelease(requestUri)`.
 - **Stream Interruption**:
   - If the lock is held in the **same JVM**, `requestLockRelease` interrupts the local stream directly.
@@ -84,10 +93,10 @@ public interface UploadLock extends Closeable {
 
 | Storage Backend / Environment | Locking Service Class | Key Characteristics & Architecture | Documentation File |
 |---|---|---|---|
-| **Disk & Network Filesystems (Default)** | `LeaseFileLockingService` | Atomic sibling mutex directory (`<UploadId>.mutex/`), in-place expired lock takeover, TTL-based JSON lease files with heartbeat renewal, ownership fencing, and `.stop` signal files. Fully safe on NFSv3/v4, AWS EFS, SMB/CIFS, Kubernetes containers, and local disks. | [`docs/DISK_BASED_LOCKING.md`](file:///Users/tom/projects/tus-java-server/docs/DISK_BASED_LOCKING.md) |
-| **Local File System (Legacy Opt-Out)** | `DiskLockingService` | OS kernel-level exclusive POSIX `FileLock` (`fcntl`) with JVM shutdown hooks and `.stop` signal files. Best for single-node deployments on local disk. | [`docs/DISK_BASED_LOCKING.md`](file:///Users/tom/projects/tus-java-server/docs/DISK_BASED_LOCKING.md) |
-| **Amazon S3 / S3-Compatible** | `S3LockingService` | S3 object-backed TTL lease objects (`.lock`), conditional writes (`If-None-Match: *`), jittered read-after-write verification, heartbeat renewal, and cross-pod `.stop` signal object polling watchdog. | [`docs/S3_STORAGE.md`](file:///Users/tom/projects/tus-java-server/docs/S3_STORAGE.md) |
-| **Azure Blob Storage** | `AzureBlobLockingService` | Native Azure Blob Storage exclusive 30-second leases (`BlobLeaseClient`), background daemon renewal, and `.stop` signal blob polling watchdog. | [`docs/AZURE_BLOB_STORAGE.md`](file:///Users/tom/projects/tus-java-server/docs/AZURE_BLOB_STORAGE.md) |
+| **Disk & Network Filesystems (Default)** | `LeaseFileLockingService` | Atomic sibling mutex directory (`<UploadId>.mutex/`), in-place expired lock takeover, TTL-based JSON lease files with heartbeat renewal, ownership fencing, and `.stop` signal files. Fully safe on NFSv3/v4, AWS EFS, SMB/CIFS, Kubernetes containers, and local disks. | [`docs/DISK_BASED_LOCKING.md`](DISK_BASED_LOCKING.md) |
+| **Local File System (Legacy Opt-Out)** | `DiskLockingService` | OS kernel-level exclusive POSIX `FileLock` (`fcntl`) with JVM shutdown hooks and `.stop` signal files. Best for single-node deployments on local disk. | [`docs/DISK_BASED_LOCKING.md`](DISK_BASED_LOCKING.md) |
+| **Amazon S3 / S3-Compatible** | `S3LockingService` | S3 object-backed TTL lease objects (`.lock`), atomic conditional writes (`If-None-Match: *`), non-CAS lock arbitration with configurable jitter backoff (`withJitter`) for backends lacking CAS (B2, Ceph, Wasabi), heartbeat renewal, and cross-pod `.stop` signal object polling watchdog. | [`docs/S3_STORAGE.md`](S3_STORAGE.md) |
+| **Azure Blob Storage** | `AzureBlobLockingService` | Native Azure Blob Storage exclusive 30-second leases (`BlobLeaseClient`), background daemon renewal, and `.stop` signal blob polling watchdog. | [`docs/AZURE_BLOB_STORAGE.md`](AZURE_BLOB_STORAGE.md) |
 
 ---
 

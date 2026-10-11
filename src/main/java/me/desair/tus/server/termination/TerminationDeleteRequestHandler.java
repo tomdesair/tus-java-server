@@ -3,8 +3,10 @@ package me.desair.tus.server.termination;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
@@ -24,12 +26,14 @@ public class TerminationDeleteRequestHandler extends AbstractRequestHandler {
   }
 
   @Override
-  public void process(
+  public HttpProblemDetails process(
       HttpMethod method,
       TusServletRequest servletRequest,
       TusServletResponse servletResponse,
       UploadStorageService uploadStorageService,
-      String ownerKey)
+      UploadLockingService uploadLockingService,
+      String ownerKey,
+      TusException exception)
       throws IOException, TusException {
 
     UploadInfo uploadInfo =
@@ -37,8 +41,23 @@ public class TerminationDeleteRequestHandler extends AbstractRequestHandler {
 
     if (uploadInfo != null) {
       uploadStorageService.terminateUpload(uploadInfo);
+      if (uploadLockingService != null) {
+        uploadLockingService.cleanupLock(uploadInfo.getId());
+      }
     }
 
     servletResponse.setStatus(HttpServletResponse.SC_NO_CONTENT);
+    return null;
+  }
+
+  @Override
+  public void process(
+      HttpMethod method,
+      TusServletRequest servletRequest,
+      TusServletResponse servletResponse,
+      UploadStorageService uploadStorageService,
+      String ownerKey)
+      throws IOException, TusException {
+    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey, null);
   }
 }

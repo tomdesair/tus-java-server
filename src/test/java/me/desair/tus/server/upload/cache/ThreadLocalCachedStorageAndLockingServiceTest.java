@@ -12,6 +12,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.time.Duration;
 import java.util.UUID;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.upload.UploadId;
@@ -161,6 +162,36 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
     assertEquals(0, service.getMaxUploadSize());
     verify(mockStorage, times(1)).getMaxUploadSize();
 
+    service.setMaxAppendSize(500L);
+    verify(mockStorage, times(1)).setMaxAppendSize(500L);
+
+    service.getMaxAppendSize();
+    verify(mockStorage, times(1)).getMaxAppendSize();
+
+    service.setMinAppendSize(200L);
+    verify(mockStorage, times(1)).setMinAppendSize(200L);
+
+    service.getMinAppendSize();
+    verify(mockStorage, times(1)).getMinAppendSize();
+
+    service.setMinSize(300L);
+    verify(mockStorage, times(1)).setMinSize(300L);
+
+    service.getMinSize();
+    verify(mockStorage, times(1)).getMinSize();
+
+    service.setCloudUploadThreadPoolSize(12);
+    verify(mockStorage, times(1)).setCloudUploadThreadPoolSize(12);
+
+    service.getCloudUploadThreadPoolSize();
+    verify(mockStorage, times(1)).getCloudUploadThreadPoolSize();
+
+    service.setDrainTimeout(Duration.ofSeconds(25));
+    verify(mockStorage, times(1)).setDrainTimeout(Duration.ofSeconds(25));
+
+    service.getDrainTimeout();
+    verify(mockStorage, times(1)).getDrainTimeout();
+
     when(mockStorage.create(info, "owner")).thenReturn(info);
     assertEquals(info, service.create(info, "owner"));
     verify(mockStorage, times(1)).create(info, "owner");
@@ -220,6 +251,12 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
 
     service.requestLockRelease("/files/1");
     verify(mockLocking, times(1)).requestLockRelease("/files/1");
+
+    service.cleanupLock(id);
+    verify(mockLocking, times(1)).cleanupLock(id);
+
+    service.cleanupLock("/files/1");
+    verify(mockLocking, times(1)).cleanupLock("/files/1");
 
     service.close();
     verify(mockLocking, times(1)).close();

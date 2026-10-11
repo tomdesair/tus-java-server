@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
+import java.time.Duration;
 import java.util.Objects;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.TusException;
@@ -234,6 +235,26 @@ public class ThreadLocalCachedStorageAndLockingService
   }
 
   @Override
+  public void setCloudUploadThreadPoolSize(int size) {
+    storageServiceDelegate.setCloudUploadThreadPoolSize(size);
+  }
+
+  @Override
+  public int getCloudUploadThreadPoolSize() {
+    return storageServiceDelegate.getCloudUploadThreadPoolSize();
+  }
+
+  @Override
+  public void setDrainTimeout(Duration drainTimeout) {
+    storageServiceDelegate.setDrainTimeout(drainTimeout);
+  }
+
+  @Override
+  public Duration getDrainTimeout() {
+    return storageServiceDelegate.getDrainTimeout();
+  }
+
+  @Override
   public UploadLock lockUploadByUri(String requestUri) throws TusException, IOException {
     UploadLock uploadLock = lockingServiceDelegate.lockUploadByUri(requestUri);
     return new CachedLock(uploadLock);
@@ -258,6 +279,16 @@ public class ThreadLocalCachedStorageAndLockingService
   @Override
   public void requestLockRelease(String requestUri) {
     lockingServiceDelegate.requestLockRelease(requestUri);
+  }
+
+  @Override
+  public void cleanupLock(UploadId id) throws IOException {
+    lockingServiceDelegate.cleanupLock(id);
+  }
+
+  @Override
+  public void cleanupLock(String uploadUri) throws IOException {
+    lockingServiceDelegate.cleanupLock(uploadUri);
   }
 
   @Override

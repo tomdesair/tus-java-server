@@ -3,6 +3,7 @@ package me.desair.tus.server.upload;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.time.Duration;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
@@ -277,6 +278,43 @@ public interface UploadStorageService {
    */
   default boolean isJsonSerializationEnabled() {
     return false;
+  }
+
+  /**
+   * Set the thread pool size used for asynchronous background chunk uploading to cloud storage.
+   *
+   * @param size Number of worker threads
+   */
+  default void setCloudUploadThreadPoolSize(int size) {
+    // Default no-op for non-cloud implementations
+  }
+
+  /**
+   * Get the thread pool size used for asynchronous background chunk uploading to cloud storage.
+   *
+   * @return Thread pool size, defaults to 10
+   */
+  default int getCloudUploadThreadPoolSize() {
+    return 10;
+  }
+
+  /**
+   * Set the timeout for draining in-flight chunks during upload completion or interruption.
+   *
+   * @param drainTimeout Drain timeout duration
+   */
+  default void setDrainTimeout(Duration drainTimeout) {
+    // Default no-op for non-cloud implementations
+  }
+
+  /**
+   * Get the timeout for draining in-flight chunks during upload completion or interruption.
+   * Defaults to 55 seconds (derived from the 60-second default lock wait timeout minus 5 seconds).
+   *
+   * @return Drain timeout duration, defaults to 55 seconds
+   */
+  default Duration getDrainTimeout() {
+    return Duration.ofSeconds(55);
   }
 
   /**

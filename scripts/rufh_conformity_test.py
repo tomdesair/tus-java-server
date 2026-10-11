@@ -1114,6 +1114,45 @@ class TestResumableUploadLifecycle:
         status, resp_headers, _, _ = http_request("OPTIONS", target_url, headers=headers, test_name=request.node.name)
         assert status in (200, 204), "OPTIONS request with Upload-Complete MUST succeed"
 
+    def test_paused_upload_head_offset_and_resume(self, target_url, request):
+        """
+        §5 & §10.1: Resuming an Incomplete Upload After Pause.
+        Quote: "The client can pause the upload by withholding the rest of the content..."
+        Verifies that after uploading a chunk and pausing, querying HEAD returns the persisted
+        offset without resetting to 0, and the upload completes successfully when resumed from
+        that offset.
+        """
+        upload_uri = create_partial_upload(target_url, test_name=request.node.name)
+        status1, resp1, _, _ = http_request(
+            "PATCH",
+            upload_uri,
+            headers={UPLOAD_OFFSET: "0", UPLOAD_COMPLETE: FALSE, CONTENT_TYPE: APPLICATION_PARTIAL_UPLOAD},
+            body=b"0123456789" * 4,  # 40 bytes
+            test_name=request.node.name,
+        )
+        assert status1 in (200, 204)
+        assert resp1.get(UPLOAD_OFFSET) == "40"
+
+        # Simulate pause delay
+        time.sleep(0.5)
+
+        # Verify offset via HEAD after pause
+        status_h, h_headers, _, _ = http_request("HEAD", upload_uri, test_name=request.node.name)
+        assert status_h in (200, 204)
+        assert h_headers.get(UPLOAD_OFFSET) == "40", "HEAD after pause must report 40 bytes"
+
+        # Resume and complete upload
+        status2, resp2, _, _ = http_request(
+            "PATCH",
+            upload_uri,
+            headers={UPLOAD_OFFSET: "40", UPLOAD_COMPLETE: TRUE, CONTENT_TYPE: APPLICATION_PARTIAL_UPLOAD},
+            body=b"abcdefghijklmnopqrstuvwxyz" * 2,  # 52 bytes
+            test_name=request.node.name,
+        )
+        assert status2 in (200, 201, 204)
+        assert resp2.get(UPLOAD_OFFSET) == "92"
+        assert resp2.get(UPLOAD_COMPLETE) == TRUE
+
 
 class TestHttpDigests:
     """Tests for HTTP Digests (RFC 9530)."""

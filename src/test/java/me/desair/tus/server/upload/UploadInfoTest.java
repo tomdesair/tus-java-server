@@ -282,4 +282,23 @@ public class UploadInfoTest {
     UploadInfo info = new UploadInfo(servletRequest);
     assertThat(info.getCreatorIpAddresses(), is("24.23.22.21, 192.168.1.1, 10.11.12.13"));
   }
+
+  @Test
+  public void testUploadPartKeysEqualsAndHashCode() {
+    UploadInfo info1 = new UploadInfo();
+    UploadInfo info2 = new UploadInfo();
+
+    assertThat(info1.getUploadPartKeys(), nullValue());
+    assertEquals(info1, info2);
+    assertEquals(info1.hashCode(), info2.hashCode());
+
+    java.util.List<String> parts = java.util.Arrays.asList("part-1", "part-2");
+    info1.setUploadPartKeys(parts);
+    assertNotEquals(info1, info2);
+
+    info2.setUploadPartKeys(new java.util.ArrayList<>(parts));
+    assertEquals(info1, info2);
+    assertEquals(info1.hashCode(), info2.hashCode());
+    assertEquals(parts, info1.getUploadPartKeys());
+  }
 }

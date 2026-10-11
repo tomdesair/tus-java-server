@@ -64,7 +64,9 @@ AzureBlobLockingService azureLockingService = new AzureBlobLockingService(contai
 TusFileUploadService tusService = new TusFileUploadService()
     .withUploadUri("/files/upload")
     .withUploadStorageService(azureStorageService)
-    .withUploadLockingService(azureLockingService);
+    .withUploadLockingService(azureLockingService)
+    .withUploadDeduplication(true)
+    .withThreadLocalCache(true);
 ```
 
 ---
@@ -73,11 +75,11 @@ TusFileUploadService tusService = new TusFileUploadService()
 
 > [!IMPORTANT]
 > **Why `ThreadLocalCachedStorageAndLockingService` is Recommended for Azure**:
-> By default, `TusFileUploadService` automatically wraps your custom `UploadStorageService` and `UploadLockingService` in a `ThreadLocalCachedStorageAndLockingService`.
+> By default, thread-local caching is disabled (`false`). You should explicitly enable it via `.withThreadLocalCache(true)`.
 >
 > During a single HTTP request lifecycle (POST, PATCH, HEAD, DELETE), the tus server validates request headers, reads upload state, appends data, and constructs response headers. Without caching, retrieving `UploadInfo` and calculating offsets would require multiple redundant network roundtrips to Azure (`downloadContent` on `.info`, `getProperties`).
 >
-> `ThreadLocalCachedStorageAndLockingService` caches the `UploadInfo` in thread-local memory for the duration of a single HTTP request, releasing the cache automatically when the upload lock is closed at the end of the request. This dramatically reduces Azure network latency and API call cost per request.
+> Enabling `withThreadLocalCache(true)` caches the `UploadInfo` in thread-local memory for the duration of a single HTTP request, releasing the cache automatically when the upload lock is closed at the end of the request. This dramatically reduces Azure network latency and API call cost per request.
 
 ---
 
@@ -103,6 +105,15 @@ TusFileUploadService tusService = new TusFileUploadService()
 | `checksumsPrefix` | `"checksums/"` | Blob name prefix for deduplication index objects |
 | `locksPrefix` | `"locks/"` | Blob name prefix for distributed lock lease objects |
 
+### Lock Blob Lifecycle & Automatic Cleanup
+
+During an in-progress upload, `AzureBlobLockingService` creates a target lock blob (`locks/<uploadId>.lock`) and holds a 30-second native Azure Blob Lease with automatic background renewal.
+
+1. **Automatic Cleanup on Completion**: Once an upload completes (`offset == length`), `TusFileUploadService` calls `cleanupLock(UploadId)` after releasing the lease, deleting the `.lock` blob and any `.stop` signal blob.
+2. **Automatic Cleanup on Termination & Expiration**: When an upload is canceled (`DELETE`) or purged via `cleanupExpiredUploads()`, the corresponding `.lock` and `.stop` blobs are deleted.
+3. **Lease Safety Guard**: Deleting an actively leased blob without providing the lease ID triggers HTTP 412 (`LeaseIdMissing`). `AzureBlobLockingService` inspects the blob's lease status and skips deleting blobs that are actively leased by concurrent requests.
+4. **Fallback Stale Lock Sweeper (`cleanupStaleLocks`)**: To prevent abandoned lock blobs after ungraceful pod termination or network partitions, `cleanupStaleLocks()` runs as a scheduled fallback. It sweeps unleased `.lock` blobs older than 120 seconds and `.stop` signal blobs older than 30 seconds. Actively leased blobs are never deleted.
+
 ---
 
 ## 4. Post-Upload Processing (`getAzureBlobName`)
@@ -113,13 +124,14 @@ After an upload completes, downstream services can obtain the direct Azure blob 
 import com.azure.storage.blob.BlobClient;
 import me.desair.tus.server.upload.azure.AzureBlobStorageService;
 
-AzureBlobStorageService azureStorage = (AzureBlobStorageService) tusService.getUploadStorageService();
-
+// Inject or reference the concrete AzureBlobStorageService bean directly.
+// (Avoid casting tusService.getUploadStorageService() when withThreadLocalCache(true)
+// is enabled, as it returns ThreadLocalCachedStorageAndLockingService).
 String uploadUri = "/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e";
 String ownerKey = "user-123";
 
 // 1. Obtain full Azure blob name after upload completion
-String blobName = azureStorage.getAzureBlobName(uploadUri, ownerKey);
+String blobName = azureStorageService.getAzureBlobName(uploadUri, ownerKey);
 // e.g. "uploads/24249a5b-01a4-4bf8-b67a-364273bb5a2e"
 
 // 2. Direct Azure SDK access for post-upload processing
@@ -157,15 +169,23 @@ BlobContainerClient containerClient = new BlobContainerClientBuilder()
 
 ---
 
-## 6. Local Disk Buffer & Block Size Auto-Calibration
+## 6. Local Disk Buffer & Asynchronous Chunk Pipelining
 
-`AzureBlobStorageService` streams incoming PATCH payloads in chunks of `optimalBlockSize` into temporary files, staging each block to Azure as it completes. Peak disk usage per upload is capped at `1 × optimalBlockSize` (e.g. 8 MB).
+`AzureBlobStorageService` streams incoming PATCH payloads in chunks of `optimalBlockSize` into temporary files, pipelining block staging to Azure Blob Storage asynchronously via `AsyncChunkUploader`:
+- **Asynchronous 3-Slot Pipeline**:
+  - **Slot 1 (Receiving)**: Streaming incoming bytes from the client into a local temporary file.
+  - **Slot 2 (Waiting)**: Holds one ready chunk on disk buffer.
+  - **Slot 3 (Uploading)**: Actively staging the block (`stageBlock`) to Azure Blob Storage on a background daemon worker thread.
+  - Falls back to synchronous caller execution (`CallerRunsPolicy` on a `SynchronousQueue`) when the thread pool is saturated, preventing worker queue latency and unbounded buffering.
+- **Thread Pool Sizing**: Worker threads are managed via a shared executor, default 10 threads, configurable on `TusFileUploadService` via `.withCloudUploadThreadPoolSize(int)` or directly on `AzureBlobStorageService.setCloudUploadThreadPoolSize(int)`.
+- **Bounded Disk Footprint**: Peak disk usage per active upload is bounded to at most $2 \times \text{optimalBlockSize}$ (one receiving slot + one waiting slot).
 
 Block sizes auto-calibrate based on total upload size:
-- **Baseline Preferred Size**: 8 MB (configurable via constructor)
+- **Baseline Preferred Size**: 8 MB (configurable via constructor or `setPreferredBlockSize(long)`)
 - **Minimum Block Size**: 4 MB
 - **Maximum Block Size**: 4000 MiB (Azure limit)
 - **Maximum Blocks per Blob**: 50,000 (Azure limit)
+- **Multi-TB Support & Auto-Calibration**: When upload length exceeds 400 GB ($50,000 \times 8\text{ MB}$), block size automatically scales up proportionally (e.g. ~22 MB for 1 TB, ~110 MB for 5 TB, supporting blobs up to 190 TB) to ensure the upload finishes within Azure's 50,000 blocks ceiling.
 
 ---
 
@@ -174,10 +194,15 @@ Block sizes auto-calibrate based on total upload size:
 ### Lease Renewal Rationale
 `AzureBlobLockingService` uses native Azure Blob Leases (30-second duration) for distributed locking. Because large file uploads can stream over several minutes or hours, `AzureBlobUploadLock` runs a background daemon thread that renews the lease every 10 seconds. If an application server crashes unexpectedly, the lease auto-expires after 30 seconds without requiring manual lock cleanup sweeps.
 
-### Lock Contention Resolution
+### Lock Wait & Contention Resolution
 Lock contention resolution operates on two levels:
 1. **JVM-local**: Active `InterruptibleInputStream` instances are registered in a concurrent map and interrupted directly if a concurrent lock request arrives in the same JVM.
 2. **Cross-replica**: A `.stop` signal blob (`locks/<uploadId>.stop`) is written to Azure Storage. A background watchdog thread polls for `.stop` blobs and interrupts active streams on other cluster nodes.
+
+When a client resumes an interrupted transfer by sending a `HEAD` request (or cancels it with `DELETE`), the request enters a **lock wait** retry loop in `TusFileUploadService`:
+- **Lock Wait Timeout (`withLockWaitTimeout(Duration)`)**: Governs how long the incoming request waits (polling every 200ms; default 60 seconds / 300 retries).
+- **Background Chunk Draining (`drainTimeout`)**: The interrupted upload is automatically allotted up to `lockWaitTimeout - 5 seconds` (default 55 seconds) to drain and stage in-flight blocks to Azure Blob Storage via `AsyncChunkUploader` before committing the block list and persisting the updated offset.
+- **Lock Handover**: Because the drain timeout leaves a 5-second buffer before the lock wait budget expires, the active upload cleanly finishes staging blocks and releases the Azure Blob Lease within the caller's wait window, enabling seamless resumption without `UploadAlreadyLockedException`.
 
 ---
 
@@ -187,7 +212,7 @@ Lock contention resolution operates on two levels:
 |---|---|---|
 | **HTTP 409 Conflict** | Another process or cluster pod currently holds an active lease on the lock blob. | Normal behavior during concurrent PATCH/DELETE requests. Retry after lock release. |
 | **HTTP 404 BlobNotFound** | The upload metadata `.info` blob does not exist or was expired/deleted. | Verify upload ID validity or upload expiration timestamps (`uploadExpirationPeriod`). |
-| **Azurite connection refused** | Azurite emulator is not running or listening on port 10000. | Launch Azurite via Docker (`docker run -p 10000:10000 mcr.microsoft.com/azure-storage/azurite`). |
+| **Azurite connection refused** | Container runtime (Podman or Docker) is not running during integration tests. | Start Podman or Docker; Testcontainers automatically manages Azurite startup and teardown during integration tests. |
 | **`MaxAppendSizeExceededException`** | Incoming PATCH payload chunk exceeded the configured `maxAppendSize`. | Adjust `withMaxAppendSize()` setting on `TusFileUploadService`. |
 
 ---
@@ -201,11 +226,11 @@ Lock contention resolution operates on two levels:
 | `AzureBlobLockingServiceTest` | Unit Test | Offline | < 1s | Pure offline unit tests for Azure locking service parameters, prefix normalization, URI parsing, and defensive handling. |
 | `AzureBlobUploadLockTest` | Unit Test | Offline | < 1s | Pure offline unit tests for Azure upload lock parameters, getters, and daemon executor lifecycle. |
 | `AzureBlobConcatenationServiceTest` | Unit Test | Offline | < 1s | Pure offline unit tests for Azure concatenation service parameters, prefix sanitization, guard clauses, and partial upload handling. |
-| `ITAzureBlobStorageService` | Integration | Azurite (Docker) | ~ 3s | Live end-to-end storage integration test against Azurite emulator (Block Blob staging, `.part` buffer commits, truncations, deduplication, and expiration). |
-| `ITAzureBlobLockingService` | Integration | Azurite (Docker) | ~ 2s | Distributed locking, Azure Blob Leases, lease renewals, lock contention (409 Conflict), stream interruption, & stop signal integration tests. |
-| `ITAzureBlobConcatenationService` | Integration | Azurite (Docker) | ~ 2s | Server-side zero-copy block concatenation (`stageBlockFromUrl`) integration tests. |
-| `ITAzureBlobRufhProtocol` | Integration | Azurite (Docker) | ~ 3s | IETF RUFH protocol integration suite for Azure backend. |
-| `ITAzureBlobTusFileUploadService` | Integration | Azurite (Docker) | ~ 3s | Tus 1.0.0 protocol integration suite for Azure backend. |
+| `ITAzureBlobStorageService` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 3s | Live end-to-end storage integration test against Azurite emulator (Block Blob staging, `.part` buffer commits, truncations, deduplication, and expiration). |
+| `ITAzureBlobLockingService` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 2s | Distributed locking, Azure Blob Leases, lease renewals, lock contention (409 Conflict), stream interruption, & stop signal integration tests. |
+| `ITAzureBlobConcatenationService` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 2s | Server-side zero-copy block concatenation (`stageBlockFromUrl`) integration tests. |
+| `ITAzureBlobRufhProtocol` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 3s | IETF RUFH protocol integration suite for Azure backend. |
+| `ITAzureBlobTusFileUploadService` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 3s | Tus 1.0.0 protocol integration suite for Azure backend. |
 
 ---
 

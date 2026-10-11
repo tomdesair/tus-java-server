@@ -802,6 +802,95 @@ public abstract class AbstractITRufhProtocol {
   }
 
   // ===============================================================================================
+  // USE CASE 16: Min-Append-Size Exemption for Completing Uploads (§4.1.4)
+  // ===============================================================================================
+
+  /**
+   * Section 4.1.4 (Limits): "min-append-size: An Integer indicating the minimum number of bytes
+   * that MUST be appended with each upload append request. This limit does not apply to upload
+   * creation requests with no content, or to requests completing the upload by including the
+   * Upload-Complete: ?1 header field."
+   *
+   * <p>Use Case: Configure min-append-size (1 MB), then verify that an optimistic single-request
+   * creation upload with Upload-Complete: ?1 and a payload smaller than 1 MB bypasses the
+   * min-append-size limit and completes successfully.
+   */
+  @Test
+  public void testCompletingCreationBypassesMinAppendSize() throws Exception {
+    tusFileUploadService.withMinAppendSize(1024L * 1024L);
+
+    String payload = "Small optimistic payload under min-append-size.";
+
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    servletRequest.setContent(payload.getBytes(StandardCharsets.UTF_8));
+
+    UploadInfo completedInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertResponseHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    assertNotNull(completedInfo);
+    assertFalse(completedInfo.isUploadInProgress());
+    assertEquals(Long.valueOf(payload.length()), completedInfo.getOffset());
+
+    try (InputStream stream = tusFileUploadService.getUploadedBytes(completedInfo)) {
+      assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(payload));
+    }
+  }
+
+  /**
+   * Section 4.1.4 (Limits): "min-append-size: An Integer indicating the minimum number of bytes
+   * that MUST be appended with each upload append request. This limit does not apply to upload
+   * creation requests with no content, or to requests completing the upload by including the
+   * Upload-Complete: ?1 header field."
+   *
+   * <p>Use Case: Configure min-append-size (1 MB), initiate an upload without content, and append a
+   * completing chunk smaller than 1 MB with Upload-Complete: ?1. Verify that the completing append
+   * is exempt from min-append-size and completes the upload cleanly.
+   */
+  @Test
+  public void testCompletingAppendPatchBypassesMinAppendSize() throws Exception {
+    tusFileUploadService.withMinAppendSize(1024L * 1024L);
+
+    String uploadContent = "Small final chunk under min-append-size.";
+
+    // Step 1: Initiate upload with POST, Upload-Complete: ?0, declared Upload-Length, and no body
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, String.valueOf(uploadContent.length()));
+
+    UploadInfo createdInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    assertNotNull(createdInfo);
+    String uploadLocation = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    // Step 2: Append completing chunk with Upload-Complete: ?1
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadLocation);
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    servletRequest.setContent(uploadContent.getBytes(StandardCharsets.UTF_8));
+
+    UploadInfo completedInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertResponseHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    assertNotNull(completedInfo);
+    assertFalse(completedInfo.isUploadInProgress());
+    assertEquals(Long.valueOf(uploadContent.length()), completedInfo.getOffset());
+
+    try (InputStream stream = tusFileUploadService.getUploadedBytes(completedInfo)) {
+      assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
+    }
+  }
+
+  // ===============================================================================================
   // ASSERTION HELPERS
   // ===============================================================================================
 

@@ -150,7 +150,7 @@ public class AbstractLeaseLockTest {
 
     LeaseData leaseData =
         new LeaseData(
-            "holder-fail", "/files/upload-failing", 10000L, System.currentTimeMillis() + 10000L);
+            "holder-fail", "/files/upload-failing", 10000L, System.currentTimeMillis() - 1000L);
 
     TestLeaseLock lock =
         new TestLeaseLock(leaseData, activeStreams, mockExecutor, "test-watchdog") {
@@ -162,6 +162,63 @@ public class AbstractLeaseLockTest {
 
     // Trigger renewLease and verify that active streaming input stream was interrupted
     // immediately to prevent un-locked writes, and heartbeat daemon stopped.
+    lock.renewLease();
+
+    assertTrue(stream.isInterrupted());
+    verify(mockExecutor).shutdownNow();
+  }
+
+  @Test
+  public void testRenewLeaseTransientFailureDoesNotInterruptActiveStreamIfLeaseValid() {
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
+
+    me.desair.tus.server.util.InterruptibleInputStream stream =
+        new me.desair.tus.server.util.InterruptibleInputStream(
+            new ByteArrayInputStream("test".getBytes()));
+    activeStreams.put("/files/upload-failing", stream);
+
+    LeaseData leaseData =
+        new LeaseData(
+            "holder-fail", "/files/upload-failing", 10000L, System.currentTimeMillis() + 10000L);
+
+    TestLeaseLock lock =
+        new TestLeaseLock(leaseData, activeStreams, mockExecutor, "test-watchdog") {
+          @Override
+          protected void doRenewLease() {
+            throw new RuntimeException("Simulated transient network glitch");
+          }
+        };
+
+    // Trigger renewLease and verify that transient glitch does not abort while lease is still valid
+    lock.renewLease();
+
+    org.junit.Assert.assertFalse(stream.isInterrupted());
+    org.mockito.Mockito.verify(mockExecutor, org.mockito.Mockito.never()).shutdownNow();
+  }
+
+  @Test
+  public void testRenewLeaseOwnershipLostInterruptsActiveStreamAndShutsDownExecutor() {
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
+
+    me.desair.tus.server.util.InterruptibleInputStream stream =
+        new me.desair.tus.server.util.InterruptibleInputStream(
+            new ByteArrayInputStream("test".getBytes()));
+    activeStreams.put("/files/upload-lost", stream);
+
+    LeaseData leaseData =
+        new LeaseData(
+            "holder-lost", "/files/upload-lost", 10000L, System.currentTimeMillis() + 10000L);
+
+    TestLeaseLock lock =
+        new TestLeaseLock(leaseData, activeStreams, mockExecutor, "test-watchdog") {
+          @Override
+          protected void doRenewLease() {
+            throw new IllegalStateException("Lease taken over by rival holder");
+          }
+        };
+
     lock.renewLease();
 
     assertTrue(stream.isInterrupted());

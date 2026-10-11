@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
@@ -56,17 +57,20 @@ public class RufhDeleteRequestHandlerTest {
     info.setId(new UploadId("delete-id"));
     when(storageService.getUploadInfo("/files/delete-id", "owner")).thenReturn(info);
 
+    UploadLockingService mockLocking = org.mockito.Mockito.mock(UploadLockingService.class);
+
     handler.process(
         HttpMethod.DELETE,
         new TusServletRequest(request),
         new TusServletResponse(response),
         storageService,
-        null,
+        mockLocking,
         "owner",
         null);
 
     assertThat(response.getStatus(), is(204));
     verify(storageService).terminateUpload(info);
+    verify(mockLocking).cleanupLock(info.getId());
   }
 
   @Test(expected = me.desair.tus.server.exception.TusException.class)

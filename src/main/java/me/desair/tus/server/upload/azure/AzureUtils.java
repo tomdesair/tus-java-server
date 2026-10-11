@@ -58,7 +58,11 @@ public final class AzureUtils {
       return AzureErrorType.API_NOT_IMPLEMENTED;
     }
 
-    if (statusCode == 403 || errorCodeStr.contains("authorizationfailure")) {
+    if (statusCode == 401
+        || statusCode == 403
+        || errorCodeStr.contains("authorizationfailure")
+        || errorCodeStr.contains("cannotverifycopysource")
+        || errorCodeStr.contains("noauthenticationinformation")) {
       return AzureErrorType.ACCESS_DENIED;
     }
 

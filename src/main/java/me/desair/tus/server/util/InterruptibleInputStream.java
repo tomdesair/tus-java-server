@@ -2,6 +2,8 @@ package me.desair.tus.server.util;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * An InputStream wrapper that can be interrupted by another thread. When interrupted, it throws an
@@ -10,7 +12,8 @@ import java.io.InputStream;
 public class InterruptibleInputStream extends InputStream {
 
   private final InputStream delegate;
-  private volatile boolean interrupted = false;
+  private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
+  private boolean interrupted = false;
 
   /**
    * Constructs an interruptible input stream wrapping the given delegate stream.
@@ -26,7 +29,7 @@ public class InterruptibleInputStream extends InputStream {
   }
 
   private void checkInterrupted() throws IOException {
-    if (interrupted) {
+    if (isInterrupted()) {
       throw new IOException("Stream was interrupted by the upload locking service watchdog");
     }
   }
@@ -43,7 +46,12 @@ public class InterruptibleInputStream extends InputStream {
    * HEAD requests) wait for all in-flight bytes to be committed before reading the upload offset.
    */
   public void interrupt() {
-    interrupted = true;
+    thisObjectLock.writeLock().lock();
+    try {
+      interrupted = true;
+    } finally {
+      thisObjectLock.writeLock().unlock();
+    }
     try {
       delegate.close();
     } catch (IOException e) {
@@ -52,7 +60,12 @@ public class InterruptibleInputStream extends InputStream {
   }
 
   public boolean isInterrupted() {
-    return interrupted;
+    thisObjectLock.readLock().lock();
+    try {
+      return interrupted;
+    } finally {
+      thisObjectLock.readLock().unlock();
+    }
   }
 
   @Override

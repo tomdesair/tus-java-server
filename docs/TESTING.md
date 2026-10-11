@@ -1,6 +1,32 @@
-# Manual Testing
+# Testing Guide
 
-## Setup & Running the Server
+This document describes the testing strategy for `tus-java-server`, how to execute each testing tier, and step-by-step instructions for manual lock contention testing.
+
+---
+
+## 1. The Three-Tiered Testing Strategy
+
+The repository follows a three-tiered testing hierarchy (see [Architecture Guide](ARCHITECTURE.md#7-three-tiered-testing-strategy) for architectural details):
+
+1. **Unit Tests (`*Test.java`)**: Pure offline tests using Mockito. Fast (< 2s), zero containers or network dependencies. Run with:
+   ```bash
+   mvn test -q
+   ```
+2. **Integration Tests (`IT*`)**: End-to-end multi-backend validation using Testcontainers (Podman or Docker). Tested across Disk, S3 (RustFS), and Azure (Azurite) in CI. Run with:
+   ```bash
+   mvn verify -q
+   ```
+3. **Conformity Tests (`scripts/*_conformity_test.py`)**: Socket-level Python protocol verification suites executed against running server deployments. See the [Conformity Testing Guide](CONFORMITY_TESTING.md) for full instructions:
+   ```bash
+   python3 scripts/tus_conformity_test.py --url http://localhost:8080/test/api/upload
+   python3 scripts/rufh_conformity_test.py --url http://localhost:8080/test/api/upload
+   ```
+
+---
+
+## 2. Manual Testing & Contention Verification
+
+### Setup & Running the Server
 
 Before performing the manual verification, you need to compile the library and start the Spring Boot demo server.
 
@@ -16,7 +42,7 @@ Open the `spring-boot-rest/pom.xml` file in the sibling `tus-java-server-spring-
 <dependency>
   <groupId>me.desair.tus</groupId>
   <artifactId>tus-java-server</artifactId>
-  <version>2.0.0</version>
+  <version>2.0.0-SNAPSHOT</version>
 </dependency>
 ```
 
@@ -27,7 +53,7 @@ cd ../tus-java-server-spring-demo
 mvn clean package
 java -jar spring-boot-rest/target/spring-boot-rest-0.0.1-SNAPSHOT.jar
 ```
-*Note:* The demo server runs locally on port `8080` and exposes the upload endpoint at `http://localhost:8080/api/upload`.
+*Note:* The demo server runs locally on port `8080` and exposes the upload endpoint at `http://localhost:8080/test/api/upload`.
 
 ---
 
@@ -70,7 +96,7 @@ curl -X POST \
   -H "Upload-Length: 10000000" \
   -I http://localhost:8080/test/api/upload
 ```
-Look for the `Location` header in the response and record the upload resource URL (e.g., `http://localhost:8080/api/upload/000003f1-a850-49de-af03-997272d834c9`). We will refer to this as `${UPLOAD_URL}`.
+Look for the `Location` header in the response and record the upload resource URL (e.g., `http://localhost:8080/test/api/upload/000003f1-a850-49de-af03-997272d834c9`). We will refer to this as `${UPLOAD_URL}`.
 
 ```
 export UPLOAD_URL='http://localhost:8080/test/api/upload/0330595f-1c0d-49f5-9e78-c40b1845157d'
@@ -104,7 +130,7 @@ curl -X HEAD -H "Tus-Resumable: 1.0.0" -I ${UPLOAD_URL}
 - **First Terminal (PATCH)**:
   - The stalled/throttled `PATCH` upload should immediately abort with an I/O error or exit because the server terminated its input stream in response to the lock release request.
 - **Second Terminal (HEAD)**:
-  - The `HEAD` request should succeed with status `204 No Content` after a short delay (the server retries up to 40 times at 200ms intervals, an 8.0-second retry budget, while releasing the lock).
+  - The `HEAD` request should succeed with status `204 No Content` after a short delay (the server retries up to 300 times at 200ms intervals, a 60-second retry budget, configurable via `withLockWaitTimeout(Duration)`, while releasing the lock).
   - The response will contain the `Upload-Offset` header reflecting the number of bytes successfully written to disk before the stream was interrupted (e.g., `Upload-Offset: 153600`).
 - **Subsequent Uploads**:
   - You can immediately resume the upload using a new `PATCH` request starting from the offset returned in the `HEAD` response.

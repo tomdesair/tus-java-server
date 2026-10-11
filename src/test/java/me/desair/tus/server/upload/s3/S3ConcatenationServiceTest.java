@@ -39,18 +39,63 @@ public class S3ConcatenationServiceTest {
             "test-bucket",
             "uploads/",
             storageService,
-            Paths.get(System.getProperty("java.io.tmpdir")));
+            Paths.get(System.getProperty("java.io.tmpdir")),
+            5242880L,
+            null);
   }
 
   @Test
-  public void testConstructorsAndSetters() {
-    S3ConcatenationService service1 = new S3ConcatenationService(minioClient, "test-bucket");
-    S3ConcatenationService service2 =
-        new S3ConcatenationService(minioClient, "test-bucket", storageService);
-    service1.setUploadStorageService(storageService);
+  public void testConstructors() {
+    S3ConcatenationService service =
+        new S3ConcatenationService(
+            minioClient,
+            "test-bucket",
+            "uploads/",
+            storageService,
+            Paths.get(System.getProperty("java.io.tmpdir")),
+            5242880L,
+            null);
+    assertNotNull(service);
 
-    assertNotNull(service1);
-    assertNotNull(service2);
+    // Public connection parameter constructors without region (defaults to "local")
+    S3ConcatenationService serviceParamsNoRegionWithStorage =
+        new S3ConcatenationService(
+            "https://s3.amazonaws.com", "accessKey", "secretKey", "test-bucket", storageService);
+    assertNotNull(serviceParamsNoRegionWithStorage);
+
+    // Public connection parameter constructors with region
+    S3ConcatenationService serviceParamsWithRegion =
+        new S3ConcatenationService(
+            "https://s3.amazonaws.com",
+            "us-east-1",
+            "accessKey",
+            "secretKey",
+            "test-bucket",
+            storageService);
+    assertNotNull(serviceParamsWithRegion);
+
+    S3ConcatenationService serviceParamsFull =
+        new S3ConcatenationService(
+            "https://s3.amazonaws.com",
+            "us-east-1",
+            "accessKey",
+            "secretKey",
+            "test-bucket",
+            "uploads/",
+            storageService,
+            Paths.get(System.getProperty("java.io.tmpdir")),
+            5242880L);
+    assertNotNull(serviceParamsFull);
+
+    S3ConcatenationService defaultRegionService =
+        new S3ConcatenationService(
+            "https://s3.amazonaws.com",
+            null,
+            "accessKey",
+            "secretKey",
+            "test-bucket",
+            storageService);
+    assertNotNull(defaultRegionService);
   }
 
   @Test
@@ -263,8 +308,8 @@ public class S3ConcatenationServiceTest {
     Mockito.verify(minioClient).putObject(Mockito.any(PutObjectArgs.class));
   }
 
-  @Test(expected = IOException.class)
-  public void testMergeServerSideCopyFails() throws Exception {
+  @Test
+  public void testMergeServerSideCopyFailsFallsBackToStreaming() throws Exception {
     UploadInfo p1 = new UploadInfo();
     p1.setId(new UploadId("part-1"));
     p1.setOwnerKey("owner-1");
@@ -273,6 +318,8 @@ public class S3ConcatenationServiceTest {
     p1.setStorageUploadId("uploads/part-1");
 
     Mockito.when(storageService.getUploadInfo("/part-1", "owner-1")).thenReturn(p1);
+    Mockito.when(storageService.getUploadedBytes(new UploadId("part-1")))
+        .thenReturn(new ByteArrayInputStream(new byte[10]));
     Mockito.when(minioClient.composeObject(Mockito.any(ComposeObjectArgs.class)))
         .thenThrow(new RuntimeException("Compose error"));
 
@@ -282,6 +329,10 @@ public class S3ConcatenationServiceTest {
     finalUpload.setConcatenationPartIds(Arrays.asList("/part-1"));
 
     concatenationService.merge(finalUpload);
+
+    // Verify fallback to streaming putObject
+    Mockito.verify(minioClient).putObject(Mockito.any(PutObjectArgs.class));
+    assertEquals(Long.valueOf(10L * 1024 * 1024), finalUpload.getLength());
   }
 
   @Test(expected = IOException.class)
@@ -348,14 +399,16 @@ public class S3ConcatenationServiceTest {
     assertNotNull(result);
   }
 
-  @Test(expected = IOException.class)
-  public void testGetConcatenatedBytesWithoutStorageService() throws Exception {
-    S3ConcatenationService standalone = new S3ConcatenationService(minioClient, "test-bucket");
-    UploadInfo info = new UploadInfo();
-    info.setId(new UploadId("concat-1"));
-    info.setStorageUploadId("uploads/concat-1");
-
-    standalone.getConcatenatedBytes(info);
+  @Test(expected = NullPointerException.class)
+  public void testConstructorNullStorageServiceThrowsException() {
+    new S3ConcatenationService(
+        minioClient,
+        "test-bucket",
+        "uploads/",
+        null,
+        Paths.get(System.getProperty("java.io.tmpdir")),
+        5242880L,
+        null);
   }
 
   @Test
@@ -489,5 +542,12 @@ public class S3ConcatenationServiceTest {
 
     assertEquals(Long.valueOf(10L * 1024 * 1024), parent.getLength());
     assertEquals(Long.valueOf(10L * 1024 * 1024), parent.getOffset());
+  }
+
+  @Test
+  public void testSetS3ServerSideComposeHelper() {
+    S3ServerSideComposeHelper mockHelper = Mockito.mock(S3ServerSideComposeHelper.class);
+    concatenationService.setS3ServerSideComposeHelper(mockHelper);
+    assertNotNull(concatenationService);
   }
 }

@@ -56,11 +56,20 @@ public final class RufhInterimResponseUtil {
 
     String uploadUri;
     try {
-      UploadInfo uploadInfo = uploadStorageService.getUploadInfo(existingUploadUri, ownerKey);
+      UploadInfo uploadInfo =
+          existingUploadUri != null
+              ? uploadStorageService.getUploadInfo(existingUploadUri, ownerKey)
+              : null;
 
       if (uploadInfo != null) {
         long offset = uploadInfo.getOffset() != null ? uploadInfo.getOffset() : 0L;
         return getRawInterimResponseForAppend(offset);
+      }
+
+      // If there is no existing upload, an interim response with Location is only valid for
+      // an upload creation request matching this storage service's creation endpoint.
+      if (!Utils.isCreationEndpoint(servletRequest, uploadStorageService)) {
+        return null;
       }
 
       uploadInfo = new UploadInfo();

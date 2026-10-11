@@ -4,10 +4,12 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
+import static org.hamcrest.Matchers.sameInstance;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.Serializable;
 import java.nio.channels.FileChannel;
@@ -969,6 +971,19 @@ public class UtilsTest {
     assertThat(
         Utils.extractMediaType("  application/offset+octet-stream ; charset=utf-8 "),
         is("application/offset+octet-stream"));
+  }
+
+  @Test
+  public void testToInterruptibleStream() throws Exception {
+    assertThat(Utils.toInterruptibleStream(null), is(nullValue()));
+
+    ByteArrayInputStream bais = new ByteArrayInputStream(new byte[] {1, 2, 3});
+    InterruptibleInputStream wrapped = Utils.toInterruptibleStream(bais);
+    assertThat(wrapped, is(notNullValue()));
+    assertThat(wrapped.read(), is(1));
+
+    InterruptibleInputStream same = Utils.toInterruptibleStream(wrapped);
+    assertThat(same, is(sameInstance(wrapped)));
   }
 
   /** Simple serializable class for testing. */

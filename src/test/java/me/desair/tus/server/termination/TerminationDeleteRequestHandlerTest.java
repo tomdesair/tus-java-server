@@ -14,6 +14,7 @@ import java.util.UUID;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
@@ -90,6 +91,33 @@ public class TerminationDeleteRequestHandlerTest {
         null);
 
     verify(uploadStorageService, times(1)).terminateUpload(info);
+    assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_NO_CONTENT));
+  }
+
+  @Test
+  public void testWithExistingUploadAndLockingService() throws Exception {
+    final UploadId id = new UploadId(UUID.randomUUID());
+
+    UploadInfo info = new UploadInfo();
+    info.setId(id);
+    info.setOffset(2L);
+    info.setLength(10L);
+    when(uploadStorageService.getUploadInfo(nullable(String.class), nullable(String.class)))
+        .thenReturn(info);
+
+    UploadLockingService mockLocking = org.mockito.Mockito.mock(UploadLockingService.class);
+
+    handler.process(
+        HttpMethod.DELETE,
+        new TusServletRequest(servletRequest),
+        new TusServletResponse(servletResponse),
+        uploadStorageService,
+        mockLocking,
+        null,
+        null);
+
+    verify(uploadStorageService, times(1)).terminateUpload(info);
+    verify(mockLocking, times(1)).cleanupLock(id);
     assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_NO_CONTENT));
   }
 }
