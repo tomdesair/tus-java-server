@@ -55,7 +55,7 @@ Locks are structured as a dedicated directory containing a JSON lease metadata f
 
 ## 3. Distributed Concurrency & Contention Resolution
 
-### 1. Lock Acquisition Flow (`tryAcquireLock`)
+### 3.1 Lock Acquisition Flow (`tryAcquireLock`)
 To acquire or take over a lock:
 1. Extract `UploadId` from the request URI.
 2. Acquire sibling mutex `<storagePath>/locks/<UploadId>.mutex/` via `Files.createDirectory`.
@@ -67,7 +67,7 @@ To acquire or take over a lock:
    - Start background heartbeat daemon (renews every $\text{leaseDuration} / 3$) and return `LeaseFileUploadLock`.
 4. Release `<UploadId>.mutex/`.
 
-### 2. Lock Release Flow (`lock.close()`)
+### 3.2 Lock Release Flow (`lock.close()`)
 When an active upload completes or is aborted:
 1. Stop background heartbeat daemon.
 2. Acquire sibling mutex `<UploadId>.mutex/`.
@@ -75,24 +75,24 @@ When an active upload completes or is aborted:
 4. If ownership matches: delete `lease.json` and delete `<UploadId>.lock/`.
 5. Release `<UploadId>.mutex/`.
 
-### 3. Heartbeat Lease Auto-Renewal
+### 3.3 Heartbeat Lease Auto-Renewal
 Active streaming uploads periodically renew their lease by updating `expiresAt` in `lease.json` every $\text{leaseDuration} / 3$ (default: every 10 seconds for a 30s lease). The renewal verifies `holderId` ownership under the sibling mutex to ensure it aborts if the lease was taken over after a long pause.
 
-### 4. Lock Contention & `.stop` Signal Files
+### 3.4 Lock Contention & `.stop` Signal Files
 When a client sends a `HEAD` or `DELETE` request to resume or cancel an upload while a stalled `PATCH` stream holds the lock:
 1. The resuming server catches `UploadAlreadyLockedException` and calls `requestLockRelease(requestUri)`.
 2. It interrupts any JVM-local stream and writes `<storagePath>/locks/<UploadId>.stop`.
 3. A background watchdog thread on the holding replica (polling every 1.5 seconds) detects `.stop` and calls `stream.interrupt()`.
-4. The stalled `PATCH` stream aborts and releases its lock. The server's 8.0-second retry budget ($40 \times 200\text{ms}$) allows the `HEAD` or `DELETE` request to acquire the lock and succeed seamlessly.
+4. The stalled `PATCH` stream aborts and releases its lock. The server's 60-second retry budget ($300 \times 200\text{ms}$, configurable via `withLockWaitTimeout(Duration)`) allows the `HEAD` or `DELETE` request to acquire the lock and succeed seamlessly.
 
-### 5. Clock Synchronization & NTP Requirement
+### 3.5 Clock Synchronization & NTP Requirement
 Distributed lease evaluation across nodes relies on `expiresAt` timestamps written to `lease.json`. When sharing a network volume across multiple pods or virtual machines, all host nodes MUST synchronize system clocks using NTP (Network Time Protocol) or cloud time synchronization daemons (`chrony`). To absorb inevitable minor NTP drift, `LeaseFileLockingService` incorporates a built-in 2.0-second safety margin (`CLOCK_SKEW_SAFETY_MARGIN_MS = 2000L` inherited from `AbstractLeaseLockingService`), ensuring that a node whose clock is slightly ahead will never prematurely evict a live peer's lease. Clock drift between cluster nodes should remain well within $\pm 1$ second to ensure accurate TTL lease expiration and takeover.
 
 ---
 
 ## 4. Production Network Mount Configuration Guide
 
-### Linux / NFSv4 Mount Recommendations
+### 4.1 Linux / NFSv4 Mount Recommendations
 For multi-replica deployments connecting to shared NFS storage (e.g. AWS EFS, Azure NetApp Files, on-premise NFS):
 
 ```bash
@@ -103,7 +103,7 @@ mount -t nfs4 -o rw,hard,intr,rsize=1048576,wsize=1048576,actimeo=3 nfs-server:/
 - `actimeo=3`: Attribute caching timeout of 3s ensures `.stop` signal files and lease renewals propagate rapidly across pods.
 - `rsize=1048576,wsize=1048576`: 1MB I/O buffers for maximum streaming append throughput.
 
-### Windows / SMB 3.x Configuration
+### 4.2 Windows / SMB 3.x Configuration
 For Windows Server SMB shares or Azure Files SMB:
 
 ```powershell
@@ -116,16 +116,18 @@ New-SmbMapping -RemotePath "\\smb-server\uploads" -LocalPath "Z:" -Persistent $T
 
 If you are running single-node deployments on local disk and specifically require legacy OS-level `FileLock` (`fcntl` / `LockFileEx`), you can easily opt out of `LeaseFileLockingService` and restore `DiskLockingService`.
 
-### 1. Programmatic Java Configuration (Opt-Out):
+### 5.1 Programmatic Java Configuration (Opt-Out):
 ```java
 String storagePath = "/var/data/tus-uploads";
 
 TusFileUploadService tus = new TusFileUploadService()
     .withUploadStorageService(new DiskStorageService(storagePath))
-    .withUploadLockingService(new DiskLockingService(storagePath)); // Opt-out to legacy FileLock
+    .withUploadLockingService(new DiskLockingService(storagePath)) // Opt-out to legacy FileLock
+    .withUploadDeduplication(true)
+    .withThreadLocalCache(true);
 ```
 
-### 2. Spring Boot Bean Configuration (Opt-Out):
+### 5.2 Spring Boot Bean Configuration (Opt-Out):
 ```java
 @Configuration
 public class TusConfig {
@@ -135,7 +137,9 @@ public class TusConfig {
         return new TusFileUploadService()
             .withUploadUri("/files/upload")
             .withUploadStorageService(new DiskStorageService(storagePath))
-            .withUploadLockingService(new DiskLockingService(storagePath)); // Opt-out to legacy FileLock
+            .withUploadLockingService(new DiskLockingService(storagePath)) // Opt-out to legacy FileLock
+            .withUploadDeduplication(true)
+            .withThreadLocalCache(true);
     }
 }
 ```

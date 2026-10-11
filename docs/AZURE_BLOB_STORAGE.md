@@ -64,7 +64,9 @@ AzureBlobLockingService azureLockingService = new AzureBlobLockingService(contai
 TusFileUploadService tusService = new TusFileUploadService()
     .withUploadUri("/files/upload")
     .withUploadStorageService(azureStorageService)
-    .withUploadLockingService(azureLockingService);
+    .withUploadLockingService(azureLockingService)
+    .withUploadDeduplication(true)
+    .withThreadLocalCache(true);
 ```
 
 ---
@@ -73,11 +75,11 @@ TusFileUploadService tusService = new TusFileUploadService()
 
 > [!IMPORTANT]
 > **Why `ThreadLocalCachedStorageAndLockingService` is Recommended for Azure**:
-> By default, `TusFileUploadService` automatically wraps your custom `UploadStorageService` and `UploadLockingService` in a `ThreadLocalCachedStorageAndLockingService`.
+> By default, thread-local caching is disabled (`false`). You should explicitly enable it via `.withThreadLocalCache(true)`.
 >
 > During a single HTTP request lifecycle (POST, PATCH, HEAD, DELETE), the tus server validates request headers, reads upload state, appends data, and constructs response headers. Without caching, retrieving `UploadInfo` and calculating offsets would require multiple redundant network roundtrips to Azure (`downloadContent` on `.info`, `getProperties`).
 >
-> `ThreadLocalCachedStorageAndLockingService` caches the `UploadInfo` in thread-local memory for the duration of a single HTTP request, releasing the cache automatically when the upload lock is closed at the end of the request. This dramatically reduces Azure network latency and API call cost per request.
+> Enabling `withThreadLocalCache(true)` caches the `UploadInfo` in thread-local memory for the duration of a single HTTP request, releasing the cache automatically when the upload lock is closed at the end of the request. This dramatically reduces Azure network latency and API call cost per request.
 
 ---
 
@@ -122,13 +124,14 @@ After an upload completes, downstream services can obtain the direct Azure blob 
 import com.azure.storage.blob.BlobClient;
 import me.desair.tus.server.upload.azure.AzureBlobStorageService;
 
-AzureBlobStorageService azureStorage = (AzureBlobStorageService) tusService.getUploadStorageService();
-
+// Inject or reference the concrete AzureBlobStorageService bean directly.
+// (Avoid casting tusService.getUploadStorageService() when withThreadLocalCache(true)
+// is enabled, as it returns ThreadLocalCachedStorageAndLockingService).
 String uploadUri = "/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e";
 String ownerKey = "user-123";
 
 // 1. Obtain full Azure blob name after upload completion
-String blobName = azureStorage.getAzureBlobName(uploadUri, ownerKey);
+String blobName = azureStorageService.getAzureBlobName(uploadUri, ownerKey);
 // e.g. "uploads/24249a5b-01a4-4bf8-b67a-364273bb5a2e"
 
 // 2. Direct Azure SDK access for post-upload processing
@@ -209,7 +212,7 @@ When a client resumes an interrupted transfer by sending a `HEAD` request (or ca
 |---|---|---|
 | **HTTP 409 Conflict** | Another process or cluster pod currently holds an active lease on the lock blob. | Normal behavior during concurrent PATCH/DELETE requests. Retry after lock release. |
 | **HTTP 404 BlobNotFound** | The upload metadata `.info` blob does not exist or was expired/deleted. | Verify upload ID validity or upload expiration timestamps (`uploadExpirationPeriod`). |
-| **Azurite connection refused** | Azurite emulator is not running or listening on port 10000. | Launch Azurite via Docker (`docker run -p 10000:10000 mcr.microsoft.com/azure-storage/azurite`). |
+| **Azurite connection refused** | Container runtime (Podman or Docker) is not running during integration tests. | Start Podman or Docker; Testcontainers automatically manages Azurite startup and teardown during integration tests. |
 | **`MaxAppendSizeExceededException`** | Incoming PATCH payload chunk exceeded the configured `maxAppendSize`. | Adjust `withMaxAppendSize()` setting on `TusFileUploadService`. |
 
 ---
@@ -223,11 +226,11 @@ When a client resumes an interrupted transfer by sending a `HEAD` request (or ca
 | `AzureBlobLockingServiceTest` | Unit Test | Offline | < 1s | Pure offline unit tests for Azure locking service parameters, prefix normalization, URI parsing, and defensive handling. |
 | `AzureBlobUploadLockTest` | Unit Test | Offline | < 1s | Pure offline unit tests for Azure upload lock parameters, getters, and daemon executor lifecycle. |
 | `AzureBlobConcatenationServiceTest` | Unit Test | Offline | < 1s | Pure offline unit tests for Azure concatenation service parameters, prefix sanitization, guard clauses, and partial upload handling. |
-| `ITAzureBlobStorageService` | Integration | Azurite (Docker) | ~ 3s | Live end-to-end storage integration test against Azurite emulator (Block Blob staging, `.part` buffer commits, truncations, deduplication, and expiration). |
-| `ITAzureBlobLockingService` | Integration | Azurite (Docker) | ~ 2s | Distributed locking, Azure Blob Leases, lease renewals, lock contention (409 Conflict), stream interruption, & stop signal integration tests. |
-| `ITAzureBlobConcatenationService` | Integration | Azurite (Docker) | ~ 2s | Server-side zero-copy block concatenation (`stageBlockFromUrl`) integration tests. |
-| `ITAzureBlobRufhProtocol` | Integration | Azurite (Docker) | ~ 3s | IETF RUFH protocol integration suite for Azure backend. |
-| `ITAzureBlobTusFileUploadService` | Integration | Azurite (Docker) | ~ 3s | Tus 1.0.0 protocol integration suite for Azure backend. |
+| `ITAzureBlobStorageService` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 3s | Live end-to-end storage integration test against Azurite emulator (Block Blob staging, `.part` buffer commits, truncations, deduplication, and expiration). |
+| `ITAzureBlobLockingService` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 2s | Distributed locking, Azure Blob Leases, lease renewals, lock contention (409 Conflict), stream interruption, & stop signal integration tests. |
+| `ITAzureBlobConcatenationService` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 2s | Server-side zero-copy block concatenation (`stageBlockFromUrl`) integration tests. |
+| `ITAzureBlobRufhProtocol` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 3s | IETF RUFH protocol integration suite for Azure backend. |
+| `ITAzureBlobTusFileUploadService` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 3s | Tus 1.0.0 protocol integration suite for Azure backend. |
 
 ---
 

@@ -1,7 +1,7 @@
 # Agent Instructions
 
 ## Project Context
-When working on this project, always read the [`README.md`](README.md) file to obtain full context on project architecture, features, configuration options, and dual protocol version support (Tus 1.0.0 & IETF RUFH).
+When working on this project, always read the [`README.md`](README.md) and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) files to obtain full context on project architecture, extension pipelines, features, configuration options, and dual protocol version support (Tus 1.0.0 & IETF RUFH).
 
 ## GitHub CLI (`gh`) & Git Usage
 - Always run `git` commands (e.g., `git status`, `git diff`, `git add`, `git commit`, `git push`) and `gh` commands unsandboxed (setting `BypassSandbox: true` when calling `run_command`) to ensure git hooks, local tools, and remote repository authentication work without sandbox errors.
@@ -23,7 +23,7 @@ Any new feature, bugfix, or improvement must be developed in a separate branch t
 When a new feature is introduced, the `README.md` file must be updated with information on this new feature (e.g. configuration, usage).
 
 ### CHANGELOG.md
-For any new feature, big improvements, or fixes, the `CHANGELOG.md` file must be updated to describe the changes added in this version. Use a release version header (e.g., `## [1.0.0-3.2]`) instead of `## [Unreleased]`. Derive this next release version from the SNAPSHOT version declared in the `pom.xml` file by removing the `-SNAPSHOT` suffix. Make sure to not add duplicate headers.
+For any new feature, big improvements, or fixes, the `CHANGELOG.md` file must be updated to describe the changes added in this version. Use a release version header (e.g., `## [2.0.0]`) instead of `## [Unreleased]`. Derive this next release version from the SNAPSHOT version declared in the `pom.xml` file by removing the `-SNAPSHOT` suffix. Make sure to not add duplicate headers.
 
 ### Release Process
 When performing a release, please strictly follow the instructions outlined in the [docs/RELEASE.md](docs/RELEASE.md) documentation file.
@@ -35,8 +35,9 @@ When performing a release, please strictly follow the instructions outlined in t
 - **Jakarta EE / Servlets**: Always use `jakarta.servlet.*` package imports instead of the legacy `javax.servlet.*` packages.
 
 ### 2. Extension Architecture & Protocol Applicability
-- Every protocol extension MUST extend `AbstractTusExtension` and declare its applicability via `isApplicable(HttpMethod, ProtocolVersion)`.
-- `TusFileUploadService` MUST NOT contain protocol-specific conditionals, version branching, or hardcoded error handling; all protocol-specific validation and execution logic belongs inside dedicated `RequestValidator` and `RequestHandler` implementations.
+- Read the definitive architectural design in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before implementing new protocol logic.
+- `TusFileUploadService` is the single facade service class orchestrating protocols composed of modular extensions. It MUST NOT contain protocol-specific conditionals, version branching, or hardcoded error handling.
+- Every protocol extension MUST extend `AbstractTusExtension` and declare its applicability via `isApplicable(HttpMethod, ProtocolVersion)`. All protocol-specific validation and execution logic belongs inside dedicated `RequestValidator` and `RequestHandler` implementations.
 
 ### 3. Explicit Parameter Passing & No Request Attributes
 - Do NOT use magic string servlet request attributes (such as `"me.desair.tus.uploadLockingService"` or `"me.desair.tus.protocolVersion"`).
@@ -111,6 +112,7 @@ Whenever a new setter or configuration property (such as `setMinAppendSize`, `se
 - A corresponding `with...` builder method (e.g. `withMinAppendSize`, `withMinSize`) MUST be added to `TusFileUploadService` with thorough Javadoc comments.
 - `TusFileUploadService.withUploadStorageService(...)` MUST be updated to copy the setting from the old `UploadStorageService` instance to the new one.
 - `ThreadLocalCachedStorageAndLockingService` MUST delegate the setter and getter methods to `storageServiceDelegate`.
+- **ThreadLocalCache Wrapper Safety**: When `.withThreadLocalCache(true)` is enabled, `getUploadStorageService()` returns `ThreadLocalCachedStorageAndLockingService` (a wrapper), not concrete classes like `S3StorageService` or `AzureBlobStorageService`. Never cast `getUploadStorageService()` directly in downstream code; always inject or retain the concrete storage service bean directly.
 
 ### 15. Typed Exceptions & HttpServletResponse Status Codes
 - Do NOT throw generic `TusException` directly when throwing protocol errors or request validation failures.
@@ -147,6 +149,7 @@ To maintain a clear separation between fast, offline unit tests and containerize
   - Focus strictly on business processes, end-to-end user flows, protocol interactions, and backend service capability flows (such as `ITAzureBlobStorageService`, `ITAzureBlobLockingService`, `ITAzureBlobConcatenationService`, `ITAzureBlobRufhProtocol`, `ITAzureBlobTusFileUploadService`).
   - StorageService, LockingService, and ConcatenationService integration tests are maintained because they represent key capability flows that can be combined across different backend types (e.g. Azure storage combined with S3 locking).
   - Internal helper objects or component handles that do NOT represent an independent business process (such as `UploadLock` handles) MUST NOT have dedicated `IT*` integration test classes (e.g. `ITAzureBlobUploadLock` is omitted in favor of testing `AzureBlobUploadLockTest` offline and testing lock lifecycles end-to-end via `ITAzureBlobLockingService` / `ITAzureBlobTusFileUploadService`).
+- **Automated Container Lifecycle (Podman & Docker)**: Integration tests automatically manage container lifecycles via Testcontainers using either **Podman** or **Docker**. Never invoke `docker` CLI directly or instruct developers to manually start containers with `docker run` or `podman run`.
 - **Naming & Execution Rules**:
   - Unit test classes MUST end with `Test.java` (executed during `mvn test`).
   - Integration test classes MUST start with `IT` and MUST NOT end with `Test` or `Test.java` (executed during `mvn verify`).

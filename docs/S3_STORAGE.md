@@ -52,12 +52,14 @@ S3StorageService awsS3Storage = new S3StorageService(
 S3LockingService awsS3Locking = new S3LockingService(
     endpoint, "eu-central-1", accessKey, secretKey, bucketName);
 
-// Configure TusFileUploadService with S3 storage and locking
+// Configure TusFileUploadService with S3 storage, locking, and request caching
 // Note: Automatic JVM shutdown hooks are built-in by default to terminate watchdog threads on pod exit.
 TusFileUploadService tusService = new TusFileUploadService()
     .withUploadUri("/files/upload")
     .withUploadStorageService(awsS3Storage)
-    .withUploadLockingService(awsS3Locking);
+    .withUploadLockingService(awsS3Locking)
+    .withUploadDeduplication(true)
+    .withThreadLocalCache(true);
 ```
 
 ---
@@ -66,11 +68,11 @@ TusFileUploadService tusService = new TusFileUploadService()
 
 > [!IMPORTANT]
 > **Why `ThreadLocalCachedStorageAndLockingService` is Recommended for S3**:
-> By default, `TusFileUploadService` automatically wraps your custom `UploadStorageService` and `UploadLockingService` in a `ThreadLocalCachedStorageAndLockingService`.
+> By default, thread-local caching is disabled (`false`). You should explicitly enable it via `.withThreadLocalCache(true)`.
 >
 > During a single HTTP request lifecycle (POST, PATCH, HEAD, DELETE), the tus server validates request headers, reads upload state, appends data, and constructs response headers. Without caching, retrieving `UploadInfo` and calculating offsets would require multiple redundant network roundtrips to S3 (`GetObject` on `.info`, `ListObjects`, `StatObject`).
 >
-> `ThreadLocalCachedStorageAndLockingService` caches the `UploadInfo` in thread-local memory for the duration of a single HTTP request, releasing the cache automatically when the upload lock is closed at the end of the request. This dramatically reduces S3 network latency and cost per request.
+> Enabling `withThreadLocalCache(true)` caches the `UploadInfo` in thread-local memory for the duration of a single HTTP request, releasing the cache automatically when the upload lock is closed at the end of the request. This dramatically reduces S3 network latency and cost per request.
 
 ---
 
@@ -108,13 +110,14 @@ import io.minio.CopySource;
 import io.minio.GetObjectArgs;
 import java.io.InputStream;
 
-S3StorageService s3Storage = (S3StorageService) tusService.getUploadStorageService();
-
+// Inject or reference the concrete S3StorageService bean directly.
+// (Avoid casting tusService.getUploadStorageService() when withThreadLocalCache(true)
+// is enabled, as it returns ThreadLocalCachedStorageAndLockingService).
 String uploadUri = "/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e";
 String ownerKey = "user-123";
 
 // 1. Obtain full S3 key after upload completion using uploadUri and ownerKey
-String s3ObjectKey = s3Storage.getS3ObjectKey(uploadUri, ownerKey);
+String s3ObjectKey = awsS3Storage.getS3ObjectKey(uploadUri, ownerKey);
 // e.g. "uploads/24249a5b-01a4-4bf8-b67a-364273bb5a2e"
 
 // 2. Example: Storage-side processing using MinioClient (server-side object copy)

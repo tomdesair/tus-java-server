@@ -1,0 +1,31 @@
+# Checks that links and anchors in the Markdown documentation are not broken.
+# Pull requests only verify local files/anchors (offline, fast and never flaky);
+# the weekly run also checks external URLs.
+
+name: Documentation Link Check
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths: ["**.md", ".github/workflows/docs-link-check.yml", "lychee.toml"]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  link-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check Markdown links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # Offline (local links and #anchors only) on pull requests, full check otherwise
+          args: >-
+            --config lychee.toml
+            ${{ github.event_name == 'pull_request' && '--offline' || '' }}
+            README.md CONTRIBUTING.md CHANGELOG.md 'docs/**/*.md'
+          fail: true

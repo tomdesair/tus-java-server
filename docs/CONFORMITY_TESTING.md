@@ -132,7 +132,7 @@ done
 
 ---
 
-## 6. Understanding Test Results & AI Agent Remediation
+## 6. Understanding Test Results
 
 When executed directly via Python, both conformity test scripts produce a structured summary report detailing:
 
@@ -166,7 +166,7 @@ If a test fails, the runner outputs a structured failure breakdown containing:
 - Verbatim specification quote defining the required behavior
 - Exact failure assertion and returned HTTP status or header values
 
-Developers and automated AI agents can use this failure breakdown to immediately diagnose compliance discrepancies and make targeted fixes in the server code.
+Use this failure breakdown to immediately diagnose compliance discrepancies and make targeted fixes in the server code.
 
 ---
 
