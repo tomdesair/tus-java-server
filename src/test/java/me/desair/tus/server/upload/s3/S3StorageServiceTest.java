@@ -2842,8 +2842,8 @@ public class S3StorageServiceTest {
   }
 
   @Test(expected = MaxAppendSizeExceededException.class)
-  public void testAppendWithMaxPartsReachedFlushesChunkAndThrows() throws Exception {
-    UploadId uploadId = new UploadId("max-parts-id");
+  public void testAppendWhenInitialPartsBudgetExceededThrows() throws Exception {
+    UploadId uploadId = new UploadId("max-parts-init-id");
     UploadInfo info = new UploadInfo();
     info.setId(uploadId);
     info.setLength(1000000L);
@@ -2853,10 +2853,66 @@ public class S3StorageServiceTest {
 
     when(minioClient.getObject(
             argThat(
-                (GetObjectArgs a) -> a != null && "metadata/max-parts-id.info".equals(a.object()))))
+                (GetObjectArgs a) ->
+                    a != null && "metadata/max-parts-init-id.info".equals(a.object()))))
         .thenReturn(mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes()));
 
     storageService.append(info, new ByteArrayInputStream(new byte[50]));
+  }
+
+  @Test
+  public void testAppendWithMaxPartsReachedFlushesChunkAndThrows() throws Exception {
+    storageService.setPreferredPartSize(5 * 1024 * 1024L);
+    UploadId uploadId = new UploadId("max-parts-id");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setLength(20_000_000L);
+    info.setOffset(0L);
+    List<String> existingKeys =
+        new ArrayList<>(Collections.nCopies(9999, "uploads/max-parts-id.part.0000001"));
+    info.setUploadPartKeys(existingKeys);
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) -> a != null && "metadata/max-parts-id.info".equals(a.object()))))
+        .thenReturn(mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes()));
+
+    StatObjectResponse stat5Mb = mock(StatObjectResponse.class);
+    when(stat5Mb.size()).thenReturn(5L * 1024 * 1024);
+    when(minioClient.statObject(any(StatObjectArgs.class))).thenReturn(stat5Mb);
+
+    // Provide 5MB (which fills part 10,000) followed by 100 bytes (which hits the 10,000 max parts
+    // limit)
+    InputStream stream =
+        new InputStream() {
+          private long remaining = 5L * 1024 * 1024 + 100;
+
+          @Override
+          public int read() {
+            return remaining-- > 0 ? 0 : -1;
+          }
+
+          @Override
+          public int read(byte[] b, int off, int len) {
+            if (remaining <= 0) {
+              return -1;
+            }
+            int toRead = (int) Math.min(len, remaining);
+            Arrays.fill(b, off, off + toRead, (byte) 0);
+            remaining -= toRead;
+            return toRead;
+          }
+        };
+
+    try {
+      storageService.append(info, stream);
+      fail("Expected MaxAppendSizeExceededException when exceeding 10,000 parts limit");
+    } catch (MaxAppendSizeExceededException e) {
+      assertTrue(e.getMessage().contains("10000 parts"));
+      // Verify that the trailing chunk was flushed and the offset was updated before throwing
+      assertEquals(10001, info.getUploadPartKeys().size());
+      assertEquals(10000L * 5 * 1024 * 1024L + 100L, info.getOffset().longValue());
+    }
   }
 
   @Test

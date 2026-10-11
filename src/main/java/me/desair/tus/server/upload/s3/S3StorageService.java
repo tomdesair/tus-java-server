@@ -461,6 +461,7 @@ public class S3StorageService implements UploadStorageService {
       info.setOffset(newOffset);
       upload.setOffset(newOffset);
       info.setUploadPartKeys(new ArrayList<>(appendResult.allPartKeys));
+      upload.setUploadPartKeys(new ArrayList<>(appendResult.allPartKeys));
       update(info);
 
       // Safe transactional cleanup: Delete old tail parts only AFTER the new manifest is saved.
@@ -1151,29 +1152,26 @@ public class S3StorageService implements UploadStorageService {
           }
 
           // Validate remaining part capacity before allocating next S3 part number
-          if (allPartKeys.size() + plannedPartKeys.size() >= MAX_PARTS_PER_UPLOAD
-              || nextPartNumber > MAX_PARTS_PER_UPLOAD) {
+          if (allPartKeys.size() + plannedPartKeys.size() >= MAX_PARTS_PER_UPLOAD) {
             maxAppendSizeException =
                 new MaxAppendSizeExceededException(
                     "Upload has reached the maximum allowed S3 limit of "
                         + MAX_PARTS_PER_UPLOAD
                         + " parts.");
-            if (chunkBytesWritten > 0) {
-              int confirmedCount = uploader.drainAndComplete();
-              int confirmed = Math.min(confirmedCount, plannedPartKeys.size());
-              for (int i = 0; i < confirmed; i++) {
-                allPartKeys.add(plannedPartKeys.get(i));
-                confirmedBytesAppended += plannedChunkSizes.get(i);
-              }
-              plannedPartKeys.clear();
-              plannedChunkSizes.clear();
-
-              String chunkKey = buildChunkPartKey(id, nextPartNumber++);
-              uploadChunkToS3(chunkKey, tempChunkFile, chunkBytesWritten);
-              allPartKeys.add(chunkKey);
-              confirmedBytesAppended += chunkBytesWritten;
-              handedOff = true;
+            int confirmedCount = uploader.drainAndComplete();
+            int confirmed = Math.min(confirmedCount, plannedPartKeys.size());
+            for (int i = 0; i < confirmed; i++) {
+              allPartKeys.add(plannedPartKeys.get(i));
+              confirmedBytesAppended += plannedChunkSizes.get(i);
             }
+            plannedPartKeys.clear();
+            plannedChunkSizes.clear();
+
+            String chunkKey = buildChunkPartKey(id, nextPartNumber++);
+            uploadChunkToS3(chunkKey, tempChunkFile, chunkBytesWritten);
+            allPartKeys.add(chunkKey);
+            confirmedBytesAppended += chunkBytesWritten;
+            handedOff = true;
             streamFinished = true;
             break;
           }
@@ -1269,19 +1267,6 @@ public class S3StorageService implements UploadStorageService {
               .build());
     } catch (Exception e) {
       throw new IOException("Failed to upload part chunk to S3 key " + chunkKey, e);
-    } finally {
-      FileUtils.deleteQuietly(tempChunkFile);
-    }
-  }
-
-  private void storeIncompletePartToS3(String partObjectKey, File tempChunkFile, long chunkLength)
-      throws IOException {
-    try (FileInputStream fis = new FileInputStream(tempChunkFile)) {
-      minioClient.putObject(
-          PutObjectArgs.builder().bucket(bucket).object(partObjectKey).stream(fis, chunkLength, -1L)
-              .build());
-    } catch (Exception e) {
-      throw new IOException("Failed to write incomplete part object to S3 key " + partObjectKey, e);
     } finally {
       FileUtils.deleteQuietly(tempChunkFile);
     }
