@@ -16,11 +16,11 @@ All built-in backends are lease-based and need **no Redis or database**. Custom 
 ## 2. Multi-Replica Checklist
 
 - Every replica must use the **same** storage and locking backend and `withUploadUri(...)`.
-- Keep clocks synchronised with NTP (lease expiry depends on it). See the clock notes in [DISK_BASED_LOCKING.md](DISK_BASED_LOCKING.md#35-clock-synchronization--ntp-requirement) and [S3_STORAGE.md](S3_STORAGE.md#3-clock-synchronization--ntp-requirement).
+- Keep clocks synchronised with NTP (lease expiry depends on it). See the clock notes in [DISK_BASED_LOCKING.md](DISK_BASED_LOCKING.md#35-clock-synchronization--ntp-requirement) and [S3_STORAGE.md](S3_STORAGE.md#clock-synchronization--ntp-requirement).
 - Requests for one upload may land on different replicas: contention between a stalled `PATCH` and a resuming `HEAD`/`DELETE` is resolved across replicas automatically, see [LOCKING.md](LOCKING.md).
 - Run `cleanup()` on a schedule (on one or all replicas, it is safe to run concurrently).
 - Call `TusFileUploadService.close()` on shutdown so locks are released.
-- Cloud backends: configure bucket / container lifecycle rules for abandoned objects (see [S3 lifecycle rules](S3_STORAGE.md#8-operational-hardening-s3-lifecycle-cleanup-rules) and [Azure lifecycle rules](AZURE_BLOB_STORAGE.md#6-operational-hardening-azure-blob-lifecycle-management-rules)).
+- Cloud backends: configure bucket / container lifecycle rules for abandoned objects (see [S3 lifecycle rules](S3_STORAGE.md#s3-bucket-lifecycle-rules) and [Azure lifecycle rules](AZURE_BLOB_STORAGE.md#11-operational-hardening--cost-optimization-guidance)).
 
 ## 3. Reverse Proxies & Load Balancers
 
