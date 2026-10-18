@@ -306,6 +306,7 @@ public class TusFileUploadService implements Closeable {
         this.uploadStorageService.isJsonSerializationEnabled());
     uploadStorageService.setDrainTimeout(this.uploadStorageService.getDrainTimeout());
     uploadStorageService.setIdFactory(this.idFactory);
+    uploadStorageService.setUploadLockingService(this.uploadLockingService);
     // Update the upload storage service
     this.uploadStorageService = uploadStorageService;
     prepareCacheIfEnabled();
@@ -353,8 +354,11 @@ public class TusFileUploadService implements Closeable {
   public TusFileUploadService withUploadLockingService(UploadLockingService uploadLockingService) {
     Objects.requireNonNull(uploadLockingService, "The UploadLockingService cannot be null");
     uploadLockingService.setIdFactory(this.idFactory);
-    // Update the upload storage service
+    // Update the upload locking service
     this.uploadLockingService = uploadLockingService;
+    if (this.uploadStorageService != null) {
+      this.uploadStorageService.setUploadLockingService(uploadLockingService);
+    }
     prepareCacheIfEnabled();
     return this;
   }
@@ -947,7 +951,6 @@ public class TusFileUploadService implements Closeable {
       UploadInfo uploadInfo = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
       if (uploadInfo != null) {
         uploadStorageService.terminateUpload(uploadInfo);
-        cleanupLock(uploadInfo.getId());
       }
     }
   }
@@ -963,7 +966,7 @@ public class TusFileUploadService implements Closeable {
    */
   public void cleanup() throws IOException {
     uploadLockingService.cleanupStaleLocks();
-    uploadStorageService.cleanupExpiredUploads(uploadLockingService);
+    uploadStorageService.cleanupExpiredUploads();
   }
 
   protected UploadInfo processLockedRequest(
@@ -1044,7 +1047,7 @@ public class TusFileUploadService implements Closeable {
   }
 
   private void cleanupLock(UploadId id) {
-    if (id != null && uploadLockingService != null) {
+    if (id != null) {
       try {
         uploadLockingService.cleanupLock(id);
       } catch (Exception e) {
@@ -1176,7 +1179,7 @@ public class TusFileUploadService implements Closeable {
   }
 
   private void prepareCacheIfEnabled() {
-    if (isThreadLocalCacheEnabled && uploadStorageService != null && uploadLockingService != null) {
+    if (isThreadLocalCacheEnabled && uploadStorageService != null) {
       ThreadLocalCachedStorageAndLockingService service =
           new ThreadLocalCachedStorageAndLockingService(uploadStorageService, uploadLockingService);
       service.setIdFactory(this.idFactory);
@@ -1192,9 +1195,7 @@ public class TusFileUploadService implements Closeable {
    */
   @Override
   public void close() throws IOException {
-    if (uploadLockingService != null) {
-      uploadLockingService.close();
-    }
+    uploadLockingService.close();
     if (uploadStorageService != null) {
       uploadStorageService.close();
     }

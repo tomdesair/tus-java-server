@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import me.desair.tus.server.upload.UploadId;
 import org.apache.commons.io.FileUtils;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -39,5 +40,11 @@ public class ITRufhProtocol extends AbstractITRufhProtocol {
         .withMaxUploadSize(1073741824L)
         .withUploadExpirationPeriod(2L * 24 * 60 * 60 * 1000)
         .withDownloadFeature();
+  }
+
+  @Override
+  protected void deleteUploadedBytesOutOfBand(UploadId uploadId) throws Exception {
+    Files.deleteIfExists(
+        storagePath.resolve("uploads").resolve(uploadId.toString()).resolve("data"));
   }
 }

@@ -41,9 +41,6 @@ public class TerminationDeleteRequestHandler extends AbstractRequestHandler {
 
     if (uploadInfo != null) {
       uploadStorageService.terminateUpload(uploadInfo);
-      if (uploadLockingService != null) {
-        uploadLockingService.cleanupLock(uploadInfo.getId());
-      }
     }
 
     servletResponse.setStatus(HttpServletResponse.SC_NO_CONTENT);

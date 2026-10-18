@@ -2,14 +2,17 @@ package me.desair.tus.server;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -163,13 +166,132 @@ public class ITTusFileUploadService extends AbstractITTusFileUploadService {
     assertResponseStatus(HttpServletResponse.SC_OK);
     assertThat(servletResponse.getContentAsString(), is(manipulatedContent));
 
-    // Step 10: Delete parent upload and verify child download returns 404
+    // Step 10: Delete parent upload and verify child download still succeeds (parent data
+    // preserved)
     tusFileUploadService.deleteUpload(parentLocation, OWNER_KEY);
 
     reset();
     servletRequest.setMethod("GET");
     servletRequest.setRequestURI(childLocation);
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertThat(servletResponse.getContentAsString(), is(manipulatedContent));
+
+    // Step 11: Delete child upload and verify child download returns 404
+    tusFileUploadService.deleteUpload(childLocation, OWNER_KEY);
+
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(childLocation);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
+  }
+
+  /**
+   * Disk Integration Test: Verifies that during the end-to-end Tus protocol lifecycle, the physical
+   * checksums directory and markers are created on disk and properly purged on final deletion.
+   */
+  @Test
+  public void testPhysicalChecksumDirectoryCreationAndCleanupOnDisk() throws Exception {
+    tusFileUploadService.withUploadDeduplication(true);
+
+    String content = "Physical Disk Checksum Verification Payload";
+    byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+    byte[] sha1Digest = org.apache.commons.codec.digest.DigestUtils.sha1(contentBytes);
+    String sha1Hex = org.apache.commons.codec.binary.Hex.encodeHexString(sha1Digest);
+    String sha1Base64 = org.apache.commons.codec.binary.Base64.encodeBase64String(sha1Digest);
+
+    Path indexDir = storagePath.resolve("checksums").resolve("sha1").resolve(sha1Hex);
+    Path parentMarker = indexDir.resolve("parent");
+    Path parentDeletedMarker = indexDir.resolve("parent-deleted");
+
+    // 1. Create parent upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String parentUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    // Complete parent upload via PATCH with checksum
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(parentUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo parentInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+    // Assert physical directory and parent marker exist on disk
+    assertTrue(
+        "Physical checksum directory must exist on disk after parent upload",
+        Files.isDirectory(indexDir));
+    assertTrue("Parent pointer file must exist on disk", Files.isRegularFile(parentMarker));
+    assertEquals(
+        parentInfo.getId().toString(),
+        Files.readString(parentMarker, StandardCharsets.UTF_8).trim());
+    assertFalse(
+        "Parent-deleted tombstone must not exist initially", Files.exists(parentDeletedMarker));
+
+    // 2. Create duplicate child upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String childUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    // Complete child upload via PATCH with same checksum
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(childUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo childInfo = tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertEquals(parentInfo.getId(), childInfo.getDuplicatesUploadId());
+
+    Path childMarker = indexDir.resolve("children").resolve(childInfo.getId().toString());
+    assertTrue(
+        "Child marker file must exist on disk under children/", Files.isRegularFile(childMarker));
+
+    // 3. Delete parent upload via DELETE
+    reset();
+    servletRequest.setMethod("DELETE");
+    servletRequest.setRequestURI(parentUri);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+    assertTrue(
+        "Parent-deleted tombstone must exist on disk", Files.isRegularFile(parentDeletedMarker));
+
+    // 4. Delete child upload via DELETE (last child out)
+    reset();
+    servletRequest.setMethod("DELETE");
+    servletRequest.setRequestURI(childUri);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+    assertFalse(
+        "Physical checksum directory must be completely purged from disk", Files.exists(indexDir));
+  }
+
+  @Override
+  protected void deleteUploadedBytesOutOfBand(UploadId uploadId) throws Exception {
+    Files.deleteIfExists(
+        storagePath.resolve("uploads").resolve(uploadId.toString()).resolve("data"));
   }
 }

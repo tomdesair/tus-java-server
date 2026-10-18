@@ -205,6 +205,9 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
     service.copyUploadTo(info, mock(OutputStream.class));
     verify(mockStorage, times(1)).copyUploadTo(any(), any());
 
+    service.cleanupExpiredUploads();
+    verify(mockStorage, times(1)).cleanupExpiredUploads();
+
     service.cleanupExpiredUploads(mockLocking);
     verify(mockStorage, times(1)).cleanupExpiredUploads(mockLocking);
 

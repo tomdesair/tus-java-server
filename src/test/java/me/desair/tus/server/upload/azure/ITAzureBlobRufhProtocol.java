@@ -4,6 +4,7 @@ import com.azure.storage.blob.BlobContainerClient;
 import me.desair.tus.server.AbstractITRufhProtocol;
 import me.desair.tus.server.TestUtils;
 import me.desair.tus.server.TusFileUploadService;
+import me.desair.tus.server.upload.UploadId;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.testcontainers.containers.GenericContainer;
@@ -60,5 +61,10 @@ public class ITAzureBlobRufhProtocol extends AbstractITRufhProtocol {
         .withMaxUploadSize(1073741824L)
         .withUploadExpirationPeriod(2L * 24 * 60 * 60 * 1000)
         .withDownloadFeature();
+  }
+
+  @Override
+  protected void deleteUploadedBytesOutOfBand(UploadId uploadId) throws Exception {
+    containerClient.getBlobClient("uploads/" + uploadId).deleteIfExists();
   }
 }

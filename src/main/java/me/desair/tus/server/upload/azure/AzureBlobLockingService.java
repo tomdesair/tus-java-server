@@ -126,6 +126,19 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
   @Override
   public UploadLock lockUploadByUri(String requestUri) throws TusException, IOException {
     UploadId uploadId = idFactory.readUploadId(requestUri);
+    return lockUploadInternal(uploadId, requestUri);
+  }
+
+  @Override
+  public UploadLock lockUpload(UploadId uploadId) throws TusException, IOException {
+    if (uploadId == null) {
+      return null;
+    }
+    return lockUploadInternal(uploadId, uploadId.toString());
+  }
+
+  private UploadLock lockUploadInternal(UploadId uploadId, String uriOrId)
+      throws TusException, IOException {
     if (uploadId == null) {
       return null;
     }
@@ -158,19 +171,18 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
 
       AzureBlobUploadLock lock =
           new AzureBlobUploadLock(
-              leaseClient, lockBlob, requestUri, idStr, activeStreams, activeLocks);
+              leaseClient, lockBlob, uriOrId, idStr, activeStreams, activeLocks);
       activeLocks.put(idStr, lock);
       return lock;
     } catch (BlobStorageException e) {
       AzureErrorType errorType = AzureUtils.parseErrorResponse(e);
       if (errorType == AzureErrorType.LEASE_ALREADY_PRESENT
           || errorType == AzureErrorType.CONFLICT) {
-        log.debug(
-            "Lock contention for upload URI {}: Azure blob lease is already held", requestUri);
+        log.debug("Lock contention for upload URI {}: Azure blob lease is already held", uriOrId);
         throw new UploadAlreadyLockedException(
-            "Upload with URI " + requestUri + " is currently locked");
+            "Upload with URI " + uriOrId + " is currently locked");
       }
-      throw new IOException("Failed to acquire Azure blob lease lock for URI " + requestUri, e);
+      throw new IOException("Failed to acquire Azure blob lease lock for URI " + uriOrId, e);
     }
   }
 

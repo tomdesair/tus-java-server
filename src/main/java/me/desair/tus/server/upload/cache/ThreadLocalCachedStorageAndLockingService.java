@@ -7,6 +7,7 @@ import java.lang.ref.WeakReference;
 import java.time.Duration;
 import java.util.Objects;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
@@ -166,6 +167,15 @@ public class ThreadLocalCachedStorageAndLockingService
   }
 
   @Override
+  public void cleanupExpiredUploads() throws IOException {
+    storageServiceDelegate.cleanupExpiredUploads();
+    // Since any cached uploads was potentially removed by the storage service
+    // we clean the cache to prevent any stale state
+    cleanupCache();
+  }
+
+  @Override
+  @Deprecated
   public void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException {
     storageServiceDelegate.cleanupExpiredUploads(uploadLockingService);
     // Since any cached uploads was potentially removed by the storage service
@@ -235,6 +245,35 @@ public class ThreadLocalCachedStorageAndLockingService
   }
 
   @Override
+  public UploadInfo deduplicate(UploadInfo uploadInfo, ChecksumKey checksumKey) throws IOException {
+    UploadInfo result = storageServiceDelegate.deduplicate(uploadInfo, checksumKey);
+    if (result != null) {
+      uploadInfoCache.set(new WeakReference<>(result));
+    }
+    return result;
+  }
+
+  @Override
+  public void setUploadLockingService(UploadLockingService uploadLockingService) {
+    storageServiceDelegate.setUploadLockingService(uploadLockingService);
+  }
+
+  @Override
+  public UploadLockingService getUploadLockingService() {
+    return storageServiceDelegate.getUploadLockingService();
+  }
+
+  @Override
+  public boolean dataExists(UploadId id) throws IOException {
+    return storageServiceDelegate.dataExists(id);
+  }
+
+  @Override
+  public void deleteData(UploadId id) throws IOException {
+    storageServiceDelegate.deleteData(id);
+  }
+
+  @Override
   public void setCloudUploadThreadPoolSize(int size) {
     storageServiceDelegate.setCloudUploadThreadPoolSize(size);
   }
@@ -257,6 +296,12 @@ public class ThreadLocalCachedStorageAndLockingService
   @Override
   public UploadLock lockUploadByUri(String requestUri) throws TusException, IOException {
     UploadLock uploadLock = lockingServiceDelegate.lockUploadByUri(requestUri);
+    return new CachedLock(uploadLock);
+  }
+
+  @Override
+  public UploadLock lockUpload(UploadId id) throws TusException, IOException {
+    UploadLock uploadLock = lockingServiceDelegate.lockUpload(id);
     return new CachedLock(uploadLock);
   }
 

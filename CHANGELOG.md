@@ -21,6 +21,7 @@ See [docs/UPGRADING.md](docs/UPGRADING.md) for details and code examples.
 - **Download extension (breaking)**: no longer returns `204` for uploads still in progress and no longer sets the `Tus-Resumable` header (needed for dual-protocol support). The `UploadInProgressException` class was removed.
 - **Jackson bundled**: `jackson-databind`, `jackson-annotations` and `jackson-core` are now compile-scope dependencies; no separate declaration needed.
 - **Protocol detection**: `ProtocolVersion.AUTO` is the default. Restrict with `withSupportedProtocolVersions(...)`, see [docs/PROTOCOLS.md](docs/PROTOCOLS.md).
+- **Checksum Deduplication Index**: The checksum index format has been updated to support reference tracking, parent tombstoning, and full cleanup upon upload deletion across Disk, S3, and Azure Blob storage. See [docs/DEDUPLICATION.md](docs/DEDUPLICATION.md) for migration instructions (clearing the index directory or running the migration script).
 
 ### New
 - **IETF Resumable Uploads for HTTP (RUFH)**: full draft-12 support with automatic protocol detection, RFC 9651 structured headers (`Upload-Offset`, `Upload-Complete`, `Upload-Length`, `Upload-Limit`), RFC 7807 `application/problem+json` errors, RFC 9530 HTTP digests, `104` interim responses and a spec-quoted conformity suite (`scripts/rufh_conformity_test.py`). See [docs/PROTOCOLS.md](docs/PROTOCOLS.md), [docs/MIGRATION.md](docs/MIGRATION.md), [docs/INTERIM_RESPONSES.md](docs/INTERIM_RESPONSES.md) and [docs/CONFORMITY_TESTING.md](docs/CONFORMITY_TESTING.md).
@@ -32,11 +33,16 @@ See [docs/UPGRADING.md](docs/UPGRADING.md) for details and code examples.
 - **Automatic lock cleanup** on completion, termination (`DELETE`) and expiration across all locking services (`cleanupLock(...)`), plus a fallback sweeper for abandoned locks.
 - **JSON serialization**: store `UploadInfo` as JSON with `withJsonSerialization(true)`.
 - **Absolute base URLs**: `withUploadUri(String)` accepts e.g. `https://upload.example.com/files`, returning full `Location` URLs for Tus and RUFH; relative paths keep working.
+- **Multi-Backend Upload Deduplication & Lifecycle Cleanup**: Content-based upload deduplication with `withUploadDeduplication(true)` across Disk, S3, and Azure Blob storage. Features child reference markers, parent tombstoning, and complete index directory cleanup when uploads expire or are deleted. See [docs/DEDUPLICATION.md](docs/DEDUPLICATION.md).
+- **`NoOpUploadLockingService`**: Zero-overhead Null Object implementation of `UploadLockingService` for unit tests and custom environments, making locking service usage mandatory and eliminating defensive null checks across all storage backends, request handlers, and deduplication logic.
 
 ### Fixed
 - **Content-Type matching**: media types are matched per RFC 9110 and tolerate parameters such as `;charset=UTF-8` (added by Spring `CharacterEncodingFilter`, proxies or clients) instead of returning `406`.
 - **Undertow & other containers**: `Content-Length` is cleared before `sendError(...)` ([#40](https://github.com/tomdesair/tus-java-server/issues/40)).
 - **Disk**: truncate underflow guard in `DiskStorageService`; `FileChannel` leak on lock acquisition errors fixed in `FileBasedLock`.
+
+### Deprecated
+- **`UploadStorageService.cleanupExpiredUploads(UploadLockingService)`**: Deprecated in favor of the zero-argument `cleanupExpiredUploads()`, as storage services coordinate locking through `setUploadLockingService(UploadLockingService)`.
 
 ### Security
 - **Path traversal protection**: hardened `LeaseFileLockingService` against directory traversal via crafted upload identifiers ([#141](https://github.com/tomdesair/tus-java-server/pull/141)).

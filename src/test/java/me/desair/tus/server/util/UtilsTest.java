@@ -23,6 +23,9 @@ import java.util.List;
 import java.util.UUID;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.upload.NoOpUploadLockingService;
+import me.desair.tus.server.upload.UploadLockingService;
+import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.io.FileUtils;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -984,6 +987,48 @@ public class UtilsTest {
 
     InterruptibleInputStream same = Utils.toInterruptibleStream(wrapped);
     assertThat(same, is(sameInstance(wrapped)));
+  }
+
+  @Test
+  public void testGetLockingServiceOrDefault() {
+    UploadLockingService activeLockingService = mock(UploadLockingService.class);
+    UploadStorageService storageService = mock(UploadStorageService.class);
+
+    // Single-arg: UploadLockingService
+    assertThat(
+        Utils.getLockingServiceOrDefault((UploadLockingService) null)
+            instanceof NoOpUploadLockingService,
+        is(true));
+    assertThat(
+        Utils.getLockingServiceOrDefault(activeLockingService),
+        is(sameInstance(activeLockingService)));
+
+    // Single-arg: UploadStorageService
+    assertThat(
+        Utils.getLockingServiceOrDefault((UploadStorageService) null)
+            instanceof NoOpUploadLockingService,
+        is(true));
+    when(storageService.getUploadLockingService()).thenReturn(null);
+    assertThat(
+        Utils.getLockingServiceOrDefault(storageService) instanceof NoOpUploadLockingService,
+        is(true));
+    when(storageService.getUploadLockingService()).thenReturn(activeLockingService);
+    assertThat(
+        Utils.getLockingServiceOrDefault(storageService), is(sameInstance(activeLockingService)));
+
+    // Two-arg: UploadLockingService and UploadStorageService
+    assertThat(
+        Utils.getLockingServiceOrDefault(activeLockingService, storageService),
+        is(sameInstance(activeLockingService)));
+    assertThat(
+        Utils.getLockingServiceOrDefault(null, storageService),
+        is(sameInstance(activeLockingService)));
+    when(storageService.getUploadLockingService()).thenReturn(null);
+    assertThat(
+        Utils.getLockingServiceOrDefault(null, storageService) instanceof NoOpUploadLockingService,
+        is(true));
+    assertThat(
+        Utils.getLockingServiceOrDefault(null, null) instanceof NoOpUploadLockingService, is(true));
   }
 
   /** Simple serializable class for testing. */

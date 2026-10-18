@@ -2,14 +2,19 @@ package me.desair.tus.server.upload.azure;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import com.azure.storage.blob.BlobContainerClient;
+import com.azure.storage.blob.models.ListBlobsOptions;
 import jakarta.servlet.http.HttpServletResponse;
+import java.nio.charset.StandardCharsets;
 import me.desair.tus.server.AbstractITTusFileUploadService;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.TestUtils;
 import me.desair.tus.server.TusFileUploadService;
+import me.desair.tus.server.upload.UploadId;
+import me.desair.tus.server.upload.UploadInfo;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -168,5 +173,107 @@ public class ITAzureBlobTusFileUploadService extends AbstractITTusFileUploadServ
     assertFalse(
         "Stop signal blob should not exist",
         containerClient.getBlobClient("locks/" + uploadIdStr + ".stop").exists());
+  }
+
+  /**
+   * Azure Integration Test: Verifies that during the end-to-end Tus protocol lifecycle, the
+   * physical checksum index blobs in Azure Blob storage are created and properly purged on final
+   * deletion.
+   */
+  @Test
+  public void testPhysicalChecksumDirectoryCreationAndCleanupInAzureBlob() throws Exception {
+    tusFileUploadService.withUploadDeduplication(true);
+
+    String content = "Physical Azure Checksum Verification Payload";
+    byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+    byte[] sha1Digest = org.apache.commons.codec.digest.DigestUtils.sha1(contentBytes);
+    String sha1Hex = org.apache.commons.codec.binary.Hex.encodeHexString(sha1Digest);
+    String sha1Base64 = org.apache.commons.codec.binary.Base64.encodeBase64String(sha1Digest);
+
+    String parentBlobName = "checksums/sha1/" + sha1Hex + "/parent";
+    String parentDeletedBlobName = "checksums/sha1/" + sha1Hex + "/parent-deleted";
+
+    // 1. Create parent upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertEquals(HttpServletResponse.SC_CREATED, servletResponse.getStatus());
+    String parentUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    // Complete parent upload via PATCH with checksum
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(parentUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo parentInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertEquals(HttpServletResponse.SC_NO_CONTENT, servletResponse.getStatus());
+
+    // Assert physical parent pointer exists in Azure container
+    assertTrue(containerClient.getBlobClient(parentBlobName).exists());
+
+    // 2. Create duplicate child upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertEquals(HttpServletResponse.SC_CREATED, servletResponse.getStatus());
+    String childUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    // Complete child upload via PATCH with same checksum
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(childUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo childInfo = tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertEquals(HttpServletResponse.SC_NO_CONTENT, servletResponse.getStatus());
+    assertEquals(parentInfo.getId(), childInfo.getDuplicatesUploadId());
+
+    String childBlobName = "checksums/sha1/" + sha1Hex + "/children/" + childInfo.getId();
+    assertTrue(containerClient.getBlobClient(childBlobName).exists());
+
+    // 3. Delete parent upload via DELETE
+    reset();
+    servletRequest.setMethod("DELETE");
+    servletRequest.setRequestURI(parentUri);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertEquals(HttpServletResponse.SC_NO_CONTENT, servletResponse.getStatus());
+
+    assertTrue(containerClient.getBlobClient(parentDeletedBlobName).exists());
+
+    // 4. Delete child upload via DELETE (last child out)
+    reset();
+    servletRequest.setMethod("DELETE");
+    servletRequest.setRequestURI(childUri);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertEquals(HttpServletResponse.SC_NO_CONTENT, servletResponse.getStatus());
+
+    assertFalse(containerClient.getBlobClient(parentBlobName).exists());
+    assertFalse(containerClient.getBlobClient(parentDeletedBlobName).exists());
+    assertFalse(
+        containerClient
+            .listBlobs(new ListBlobsOptions().setPrefix("checksums/sha1/" + sha1Hex), null)
+            .iterator()
+            .hasNext());
+  }
+
+  @Override
+  protected void deleteUploadedBytesOutOfBand(UploadId uploadId) throws Exception {
+    containerClient.getBlobClient("uploads/" + uploadId).deleteIfExists();
   }
 }

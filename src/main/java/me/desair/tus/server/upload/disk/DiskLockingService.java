@@ -70,20 +70,31 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
   }
 
   /**
-   * Attempts to lock the upload resource. Wraps the lock in a RegisteredLock decorator to manage
-   * cleanup of stop files and the active lock registry.
+   * Attempts to lock the upload resource by URI. Wraps the lock in a RegisteredLock decorator to
+   * manage cleanup of stop files and the active lock registry.
    */
   @Override
   public UploadLock lockUploadByUri(String requestUri) throws TusException, IOException {
-
     UploadId id = idFactory.readUploadId(requestUri);
+    return lockUploadInternal(id, requestUri);
+  }
 
+  /** Attempts to lock the upload resource by UploadId directly without URI parsing. */
+  @Override
+  public UploadLock lockUpload(UploadId id) throws TusException, IOException {
+    if (id == null) {
+      return null;
+    }
+    return lockUploadInternal(id, id.toString());
+  }
+
+  private UploadLock lockUploadInternal(UploadId id, String uriOrId)
+      throws TusException, IOException {
     UploadLock lock = null;
-
     Path lockPath = getLockPath(id);
-    // If lockPath is not null, we know this is a valid Upload URI
+    // If lockPath is not null, we know this is a valid Upload URI / ID
     if (lockPath != null) {
-      FileBasedLock baseLock = new FileBasedLock(requestUri, lockPath);
+      FileBasedLock baseLock = new FileBasedLock(uriOrId, lockPath);
       Path stopFilePath = baseLock.getLockPath().resolveSibling(id.toString() + ".stop");
       lock = new RegisteredLock(baseLock, id.toString(), stopFilePath);
     }

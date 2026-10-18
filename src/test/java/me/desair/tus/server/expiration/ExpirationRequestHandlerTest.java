@@ -239,7 +239,6 @@ public class ExpirationRequestHandlerTest {
           null);
     } finally {
       verify(uploadStorageService, times(1)).terminateUpload(info);
-      verify(mockLocking, times(1)).cleanupLock(info.getId());
     }
   }
 

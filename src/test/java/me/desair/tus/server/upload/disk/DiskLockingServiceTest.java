@@ -5,6 +5,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.reset;
@@ -95,6 +96,18 @@ public class DiskLockingServiceTest {
     assertThat(uploadLock, not(nullValue()));
 
     uploadLock.release();
+  }
+
+  @Test
+  public void lockUploadByIdDirectly() throws Exception {
+    UploadId uploadId = new UploadId(UUID.randomUUID());
+    UploadLock uploadLock = lockingService.lockUpload(uploadId);
+
+    assertThat(uploadLock, not(nullValue()));
+    assertTrue(lockingService.isLocked(uploadId));
+
+    uploadLock.release();
+    assertNull(lockingService.lockUpload(null));
   }
 
   @Test

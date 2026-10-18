@@ -5,9 +5,11 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
+import me.desair.tus.server.util.Utils;
 
 /** Interface to a service that is able to store the (partially) uploaded files. */
 public interface UploadStorageService {
@@ -138,10 +140,29 @@ public interface UploadStorageService {
   /**
    * Clean up any upload data that is expired according to the configured expiration time.
    *
+   * <p>Storage implementations should use the {@link UploadLockingService} provided via {@link
+   * #setUploadLockingService(UploadLockingService)} to check lock status and coordinate lock
+   * cleanup.
+   *
+   * @throws IOException When an I/O error occurs
+   */
+  default void cleanupExpiredUploads() throws IOException {
+    cleanupExpiredUploads(null);
+  }
+
+  /**
+   * Clean up any upload data that is expired according to the configured expiration time.
+   *
    * @param uploadLockingService An {@link UploadLockingService} that can be used to check and lock
    *     uploads
+   * @throws IOException When an I/O error occurs
+   * @deprecated As of release 2.0.0, replaced by {@link #cleanupExpiredUploads()} in conjunction
+   *     with {@link #setUploadLockingService(UploadLockingService)}.
    */
-  void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException;
+  @Deprecated
+  default void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException {
+    setUploadLockingService(Utils.getLockingServiceOrDefault(uploadLockingService));
+  }
 
   /**
    * Remove the given last amount of bytes from the uploaded data.
@@ -155,7 +176,21 @@ public interface UploadStorageService {
   /**
    * Terminate completed and unfinished uploads allowing the Server to free up used resources.
    *
+   * <p>Implementations must:
+   *
+   * <ul>
+   *   <li>Delete physical committed data bytes and any temporary chunk buffers for this upload.
+   *   <li>Delete the metadata record ({@code .info}) for this upload.
+   *   <li>If upload deduplication is enabled, coordinate index removal or tombstoning via {@link
+   *       me.desair.tus.server.upload.checksum.DeduplicationService#removeUploadFromIndex(UploadInfo)}.
+   *   <li>Clean up any associated upload lock or contention artifacts (e.g. by delegating to {@link
+   *       UploadLockingService#cleanupLock(UploadId)}) to ensure no orphaned lock files, stop
+   *       signals, or lease objects remain in the locking layer.
+   * </ul>
+   *
    * @param uploadInfo The upload to terminate
+   * @throws UploadNotFoundException When the provided upload is not found in storage
+   * @throws IOException When removing data or metadata from the storage layer fails
    */
   void terminateUpload(UploadInfo uploadInfo) throws UploadNotFoundException, IOException;
 
@@ -219,11 +254,65 @@ public interface UploadStorageService {
    * @param checksum The checksum value to search for
    * @param algorithm The checksum algorithm used
    * @return The UploadInfo of the existing completed upload, or null if not found
+   * @deprecated Use {@link #deduplicate(UploadInfo, ChecksumKey)} instead.
    */
+  @Deprecated
   default UploadInfo getUploadInfoByChecksum(String checksum, ChecksumAlgorithm algorithm)
       throws IOException {
     return null;
   }
+
+  /**
+   * Performs thread-safe and cluster-safe deduplication for a completed upload using its normalized
+   * checksum key.
+   *
+   * @param uploadInfo the upload info of the completed upload
+   * @param checksumKey the normalized checksum key
+   * @return the resulting {@link UploadInfo} (either deduplicated or registered as parent)
+   * @throws IOException on storage I/O error
+   */
+  default UploadInfo deduplicate(UploadInfo uploadInfo, ChecksumKey checksumKey)
+      throws IOException {
+    return uploadInfo;
+  }
+
+  /**
+   * Sets the {@link UploadLockingService} to coordinate locking and lock cleanup.
+   *
+   * @param uploadLockingService the locking service instance (must not be {@code null})
+   */
+  default void setUploadLockingService(UploadLockingService uploadLockingService) {
+    java.util.Objects.requireNonNull(uploadLockingService, "uploadLockingService must not be null");
+  }
+
+  /**
+   * Gets the configured {@link UploadLockingService}.
+   *
+   * @return the locking service, or {@code null} if none configured
+   */
+  default UploadLockingService getUploadLockingService() {
+    return null;
+  }
+
+  /**
+   * Checks whether committed data bytes exist in storage for the specified upload ID.
+   *
+   * @param id The upload ID
+   * @return {@code true} if physical data exists for this upload; {@code false} otherwise
+   * @throws IOException on storage I/O error
+   */
+  default boolean dataExists(UploadId id) throws IOException {
+    return false;
+  }
+
+  /**
+   * Deletes the physical committed data bytes (and any partial chunk data) for the specified upload
+   * ID.
+   *
+   * @param id The upload ID
+   * @throws IOException on storage I/O error
+   */
+  default void deleteData(UploadId id) throws IOException {}
 
   /**
    * Get the minimum append size limit in bytes for a single upload append or creation request.

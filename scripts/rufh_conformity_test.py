@@ -124,7 +124,7 @@ def http_request(method, url, headers=None, body=None, test_name=""):
     port = parsed.port or 80
     path = parsed.path + ("?" + parsed.query if parsed.query else "")
 
-    s = socket.create_connection((host, port), timeout=5)
+    s = socket.create_connection((host, port), timeout=30)
     try:
         req_headers = CaseInsensitiveDict(headers)
         if "Connection" not in req_headers:
@@ -1182,6 +1182,90 @@ class TestHttpDigests:
         }
         status, _, _, _ = http_request("POST", target_url, headers=headers, body=payload, test_name=request.node.name)
         assert status in (400, 409)
+
+    def test_content_digest_deduplication_and_parent_child_lifecycle(self, target_url, request):
+        """RFC 9530 & RUFH: Content-Digest deduplication multi-child lifecycle & tombstoned parent joining."""
+        unique_token = str(time.time()).encode("ascii")
+        payload = b"RUFH RFC 9530 Multi-Child Deduplication Test Data: " + unique_token
+        digest_bytes = hashlib.sha256(payload).digest()
+        b64_digest = base64.b64encode(digest_bytes).decode("ascii")
+        content_digest = f"sha-256=:{b64_digest}:"
+
+        headers = {
+            UPLOAD_COMPLETE: TRUE,
+            UPLOAD_LENGTH: str(len(payload)),
+            "Content-Digest": content_digest,
+            "Repr-Digest": content_digest,
+            CONTENT_TYPE: "text/plain",
+        }
+
+        def make_abs(loc):
+            if not loc.startswith("http"):
+                parsed = urlparse(target_url)
+                return f"{parsed.scheme}://{parsed.netloc}{loc}"
+            return loc
+
+        # 1. Create parent upload P
+        status, resp_headers, _, _ = http_request("POST", target_url, headers=headers, body=payload, test_name=request.node.name)
+        assert status in (200, 201)
+        parent_loc = make_abs(resp_headers.get(LOCATION))
+
+        # 2. Create child duplicate upload C1
+        status2, resp2, _, _ = http_request("POST", target_url, headers=headers, body=payload, test_name=request.node.name)
+        assert status2 in (200, 201)
+        c1_loc = make_abs(resp2.get(LOCATION))
+
+        # 3. Terminate parent upload P (204) -> P is tombstoned while C1 remains
+        del_status, _, _, _ = http_request("DELETE", parent_loc, test_name=request.node.name)
+        assert del_status == 204
+
+        # Verify parent P is deleted (404)
+        p_head_status, _, _, _ = http_request("HEAD", parent_loc, test_name=request.node.name)
+        assert p_head_status in (404, 410)
+
+        # 4. Create child duplicate upload C2 while parent P is tombstoned -> C2 joins tombstoned P
+        status3, resp3, _, _ = http_request("POST", target_url, headers=headers, body=payload, test_name=request.node.name)
+        assert status3 in (200, 201)
+        c2_loc = make_abs(resp3.get(LOCATION))
+
+        # 5. Verify GET on C1, C2 returns identical payload bytes
+        for loc in (c1_loc, c2_loc):
+            get_status, _, get_body, _ = http_request("GET", loc, test_name=request.node.name)
+            assert get_status == 200, f"GET {loc} must return 200, got {get_status}"
+            assert get_body == payload, "Child must stream full payload from shared parent data"
+
+        # 6. Terminate child C1 (204)
+        del_status, _, _, _ = http_request("DELETE", c1_loc, test_name=request.node.name)
+        assert del_status == 204
+
+        # Verify C1 is deleted (404)
+        c1_head_status, _, _, _ = http_request("HEAD", c1_loc, test_name=request.node.name)
+        assert c1_head_status in (404, 410)
+
+        # 7. Child C2 is STILL accessible via HEAD and GET
+        head_status, head_resp, _, _ = http_request("HEAD", c2_loc, test_name=request.node.name)
+        assert head_status in (200, 204)
+        assert head_resp.get(UPLOAD_OFFSET) == str(len(payload))
+        get_status, _, get_body, _ = http_request("GET", c2_loc, test_name=request.node.name)
+        assert get_status == 200
+        assert get_body == payload
+
+        # 8. Terminate child C2. Last child out purges parent and checksum index.
+        del_status, _, _, _ = http_request("DELETE", c2_loc, test_name=request.node.name)
+        assert del_status == 204
+
+        # Verify C2 is deleted (404)
+        c2_head_status, _, _, _ = http_request("HEAD", c2_loc, test_name=request.node.name)
+        assert c2_head_status in (404, 410)
+
+        # 9. Third upload with same content succeeds as fresh new parent
+        status4, resp4, _, _ = http_request("POST", target_url, headers=headers, body=payload, test_name=request.node.name)
+        assert status4 in (200, 201)
+        new_loc = make_abs(resp4.get(LOCATION))
+        get_status, _, get_body, _ = http_request("GET", new_loc, test_name=request.node.name)
+        assert get_status == 200
+        assert get_body == payload
+        http_request("DELETE", new_loc, test_name=request.node.name)
 
 
 # CLI Entry Point & Custom Formatted Summary Reporter

@@ -70,7 +70,6 @@ public class RufhDeleteRequestHandlerTest {
 
     assertThat(response.getStatus(), is(204));
     verify(storageService).terminateUpload(info);
-    verify(mockLocking).cleanupLock(info.getId());
   }
 
   @Test(expected = me.desair.tus.server.exception.TusException.class)

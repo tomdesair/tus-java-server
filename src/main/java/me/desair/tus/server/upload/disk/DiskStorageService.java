@@ -11,7 +11,6 @@ import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,6 +19,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
@@ -29,6 +29,7 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.UploadType;
+import me.desair.tus.server.upload.checksum.DeduplicationService;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.concatenation.VirtualConcatenationService;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
@@ -59,10 +60,17 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   private UploadConcatenationService uploadConcatenationService;
   private boolean isUploadDeduplicationEnabled = false;
   private boolean jsonSerializationEnabled = false;
+  private final DiskChecksumIndex checksumIndex;
+  private DeduplicationService deduplicationService;
+  private UploadLockingService uploadLockingService;
 
   public DiskStorageService(String storagePath) {
     super(storagePath + File.separator + UPLOAD_SUB_DIRECTORY);
     setUploadConcatenationService(new VirtualConcatenationService(this));
+    this.checksumIndex = new DiskChecksumIndex(storagePath);
+    this.deduplicationService = new DeduplicationService(this.checksumIndex, this);
+    this.uploadLockingService = new DiskLockingService(storagePath);
+    this.deduplicationService.setUploadLockingService(this.uploadLockingService);
   }
 
   public DiskStorageService(UploadIdFactory idFactory, String storagePath) {
@@ -155,34 +163,45 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   }
 
   @Override
+  public void setUploadLockingService(UploadLockingService uploadLockingService) {
+    this.uploadLockingService =
+        Objects.requireNonNull(uploadLockingService, "uploadLockingService must not be null");
+    if (this.deduplicationService != null) {
+      this.deduplicationService.setUploadLockingService(uploadLockingService);
+    }
+  }
+
+  @Override
+  public UploadLockingService getUploadLockingService() {
+    return this.uploadLockingService;
+  }
+
+  @Override
+  public UploadInfo deduplicate(UploadInfo uploadInfo, ChecksumKey checksumKey) throws IOException {
+    if (!isUploadDeduplicationEnabled() || uploadInfo == null || checksumKey == null) {
+      return uploadInfo;
+    }
+    return deduplicationService.deduplicate(uploadInfo, checksumKey);
+  }
+
+  @Override
   public UploadInfo getUploadInfoByChecksum(String checksum, ChecksumAlgorithm algorithm)
       throws IOException {
     if (checksum == null || algorithm == null) {
       return null;
     }
-    Path checksumFile = getChecksumPath(checksum, algorithm);
-    if (Files.exists(checksumFile)) {
-      String uploadIdStr =
-          new String(Files.readAllBytes(checksumFile), StandardCharsets.UTF_8).trim();
-      UploadId id = new UploadId(uploadIdStr);
-      UploadInfo info = getUploadInfo(id);
-      if (info == null) {
-        Files.deleteIfExists(checksumFile);
-        return null;
-      }
-      Path bytesPath = null;
-      try {
-        bytesPath = getPathInUploadDir(id, DATA_FILE);
-      } catch (UploadNotFoundException e) {
-        // file doesn't exist
-      }
-      if (bytesPath == null || !Files.exists(bytesPath)) {
-        Files.deleteIfExists(checksumFile);
-        return null;
-      }
-      return info;
+    String normalized = normalizeChecksum(checksum);
+    if (!isSafePathComponent(normalized) || !isSafePathComponent(algorithm.toString())) {
+      throw new IOException("The checksum contains an unsafe value.");
     }
-    return null;
+    try {
+      ChecksumKey key = ChecksumKey.of(normalized, algorithm);
+      return deduplicationService != null
+          ? deduplicationService.getUploadInfoByChecksum(key)
+          : null;
+    } catch (IllegalArgumentException e) {
+      return null;
+    }
   }
 
   @Override
@@ -285,6 +304,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   @Override
   public void update(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
     if (uploadInfo != null) {
+      Path infoPath = getInfoPath(uploadInfo.getId());
+      saveUploadInfo(uploadInfo, infoPath);
+
       if (uploadInfo.getDuplicatesUploadId() != null) {
         // Delete the child's own data file if it exists
         try {
@@ -327,16 +349,20 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
       } else if (isUploadDeduplicationEnabled()
           && !uploadInfo.isUploadInProgress()
           && uploadInfo.getChecksum() != null
-          && uploadInfo.getChecksumAlgorithm() != null) {
-        // Index the checksum
-        Path checksumFile =
-            getChecksumPath(uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm());
-        Utils.ensureDirectoryExists(checksumFile.getParent());
-        Files.write(checksumFile, uploadInfo.getId().toString().getBytes(StandardCharsets.UTF_8));
+          && uploadInfo.getChecksumAlgorithm() != null
+          && uploadInfo.getDuplicatesUploadId() == null) {
+        String normalized = normalizeChecksum(uploadInfo.getChecksum());
+        if (!isSafePathComponent(normalized)
+            || !isSafePathComponent(uploadInfo.getChecksumAlgorithm().toString())) {
+          throw new IOException("The checksum contains an unsafe value.");
+        }
+        try {
+          ChecksumKey key = ChecksumKey.of(normalized, uploadInfo.getChecksumAlgorithm());
+          deduplicate(uploadInfo, key);
+        } catch (IllegalArgumentException e) {
+          throw new IOException("The checksum contains an unsafe value.", e);
+        }
       }
-
-      Path infoPath = getInfoPath(uploadInfo.getId());
-      saveUploadInfo(uploadInfo, infoPath);
     }
   }
 
@@ -419,18 +445,84 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   }
 
   @Override
+  public boolean dataExists(UploadId id) {
+    if (id == null) {
+      return false;
+    }
+    try {
+      Path bytesPath = getBytesPath(id);
+      return bytesPath != null && Files.exists(bytesPath);
+    } catch (UploadNotFoundException e) {
+      return false;
+    }
+  }
+
+  @Override
+  public void deleteData(UploadId id) throws IOException {
+    if (id != null) {
+      try {
+        Path bytesPath = getBytesPath(id);
+        if (bytesPath != null) {
+          Files.deleteIfExists(bytesPath);
+        }
+      } catch (UploadNotFoundException ignored) {
+      }
+      cleanDirectoryIfEmpty(id);
+    }
+  }
+
+  private void deleteMetadata(UploadId id) throws IOException {
+    if (id != null) {
+      try {
+        Path infoPath = getInfoPath(id);
+        if (infoPath != null) {
+          Files.deleteIfExists(infoPath);
+        }
+      } catch (UploadNotFoundException ignored) {
+      }
+      cleanDirectoryIfEmpty(id);
+    }
+  }
+
+  private void cleanDirectoryIfEmpty(UploadId id) {
+    Path uploadDir = getPathInStorageDirectory(id);
+    if (uploadDir != null && Files.exists(uploadDir)) {
+      try (DirectoryStream<Path> stream = Files.newDirectoryStream(uploadDir)) {
+        if (!stream.iterator().hasNext()) {
+          Files.deleteIfExists(uploadDir);
+        }
+      } catch (IOException ignored) {
+      }
+    }
+  }
+
+  @Override
   public void terminateUpload(UploadInfo info) throws UploadNotFoundException, IOException {
     if (info != null) {
-      if (info.getDuplicatesUploadId() == null
-          && info.getChecksum() != null
-          && info.getChecksumAlgorithm() != null) {
-        Path checksumFile = getChecksumPath(info.getChecksum(), info.getChecksumAlgorithm());
-        Files.deleteIfExists(checksumFile);
+      if (info.getChecksum() != null && info.getChecksumAlgorithm() != null) {
+        String normalized = normalizeChecksum(info.getChecksum());
+        if (!isSafePathComponent(normalized)
+            || !isSafePathComponent(info.getChecksumAlgorithm().toString())) {
+          throw new IOException("The checksum contains an unsafe value.");
+        }
       }
+
+      boolean deleteData = true;
+      if (isUploadDeduplicationEnabled() && deduplicationService != null) {
+        deleteData = deduplicationService.removeUploadFromIndex(info);
+      }
+
+      if (deleteData) {
+        deleteData(info.getId());
+      }
+      deleteMetadata(info.getId());
+
       Path uploadPath = getPathInStorageDirectory(info.getId());
-      if (uploadPath != null) {
+      if (uploadPath != null && deleteData) {
         FileUtils.deleteDirectory(uploadPath.toFile());
       }
+
+      uploadLockingService.cleanupLock(info.getId());
     }
   }
 
@@ -478,21 +570,19 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
       throw new UploadNotFoundException("The upload with id " + id + " was not found.");
     }
 
-    if (uploadInfo.getDuplicatesUploadId() != null) {
-      return getUploadedBytes(uploadInfo.getDuplicatesUploadId());
-    }
-
     if (UploadType.CONCATENATED.equals(uploadInfo.getUploadType())
         && uploadConcatenationService != null) {
       inputStream = uploadConcatenationService.getConcatenatedBytes(uploadInfo);
 
     } else {
-      Path bytesPath = getBytesPath(id);
+      UploadId targetDataId =
+          uploadInfo.getDuplicatesUploadId() != null ? uploadInfo.getDuplicatesUploadId() : id;
+      Path bytesPath = getBytesPath(targetDataId);
       // If bytesPath is not null, we know this is a valid Upload URI
       if (bytesPath != null) {
         if (!Files.exists(bytesPath)) {
           throw new UploadNotFoundException(
-              "The upload bytes for id " + id + " could not be found.");
+              "The upload bytes for id " + targetDataId + " could not be found.");
         }
         inputStream = Channels.newInputStream(FileChannel.open(bytesPath, READ));
       }
@@ -548,18 +638,38 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   }
 
   @Override
-  public void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException {
+  public void cleanupExpiredUploads() throws IOException {
     try (DirectoryStream<Path> expiredUploadsStream =
         Files.newDirectoryStream(
-            getStoragePath(), new ExpiredUploadFilter(this, uploadLockingService))) {
+            getStoragePath(), new ExpiredUploadFilter(this, this.uploadLockingService))) {
 
       for (Path path : expiredUploadsStream) {
-        FileUtils.deleteDirectory(path.toFile());
-        if (uploadLockingService != null) {
-          uploadLockingService.cleanupLock(new UploadId(path.getFileName().toString()));
+        UploadId id = new UploadId(path.getFileName().toString());
+        UploadInfo info = getUploadInfo(id);
+        if (info != null) {
+          try {
+            terminateUpload(info);
+          } catch (UploadNotFoundException e) {
+            FileUtils.deleteDirectory(path.toFile());
+            this.uploadLockingService.cleanupLock(id);
+          }
+        } else {
+          FileUtils.deleteDirectory(path.toFile());
+          this.uploadLockingService.cleanupLock(id);
         }
       }
     }
+
+    if (isUploadDeduplicationEnabled() && deduplicationService != null) {
+      deduplicationService.pruneOrphanedChecksumIndices();
+    }
+  }
+
+  @Override
+  @Deprecated
+  public void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException {
+    setUploadLockingService(Utils.getLockingServiceOrDefault(uploadLockingService));
+    cleanupExpiredUploads();
   }
 
   private List<UploadInfo> getUploads(UploadInfo info) throws IOException, UploadNotFoundException {
@@ -584,7 +694,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     return getPathInUploadDir(id, INFO_FILE);
   }
 
-  private Path getChecksumPath(String checksum, ChecksumAlgorithm algorithm) throws IOException {
+  private String normalizeChecksum(String checksum) {
     String filename = checksum;
     if (filename != null) {
       if (!filename.matches("^[0-9a-fA-F]+$")) {
@@ -598,18 +708,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         }
       }
     }
-
-    if (!isSafePathComponent(filename)) {
-      throw new IOException("The checksum contains an unsafe value.");
-    }
-    if (!isSafePathComponent(algorithm.toString())) {
-      throw new IOException("The checksum algorithm contains an unsafe value.");
-    }
-    return getStoragePath()
-        .getParent()
-        .resolve("checksums")
-        .resolve(algorithm.toString())
-        .resolve(filename);
+    return filename;
   }
 
   /**

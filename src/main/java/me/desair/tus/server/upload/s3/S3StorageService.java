@@ -42,6 +42,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.exception.MaxUploadLengthExceededException;
 import me.desair.tus.server.exception.MinAppendSizeNotMetException;
@@ -55,6 +56,7 @@ import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.UploadType;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
+import me.desair.tus.server.upload.checksum.DeduplicationService;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.util.AsyncChunkUploader;
 import me.desair.tus.server.util.InterruptibleInputStream;
@@ -127,6 +129,9 @@ public class S3StorageService implements UploadStorageService {
   private Long minSize;
   private Long uploadExpirationPeriod;
   private boolean deduplicationEnabled = false;
+  private final S3ChecksumIndex checksumIndex;
+  private DeduplicationService deduplicationService;
+  private UploadLockingService uploadLockingService;
 
   private UploadIdFactory idFactory = new UuidUploadIdFactory();
   private UploadConcatenationService concatenationService;
@@ -269,6 +274,12 @@ public class S3StorageService implements UploadStorageService {
             this.temporaryDirectory,
             DEFAULT_MIN_PART_SIZE,
             this.s3ComposeHelper);
+
+    this.checksumIndex = new S3ChecksumIndex(this.minioClient, this.bucket, this.checksumsPrefix);
+    this.deduplicationService = new DeduplicationService(this.checksumIndex, this);
+    this.uploadLockingService =
+        new S3LockingService(this.minioClient, this.bucket, this.locksPrefix);
+    this.deduplicationService.setUploadLockingService(this.uploadLockingService);
   }
 
   private static MinioClient buildMinioClient(
@@ -504,8 +515,7 @@ public class S3StorageService implements UploadStorageService {
     return info;
   }
 
-  @Override
-  public void update(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
+  private void writeMetadataObject(UploadInfo uploadInfo) throws IOException {
     if (uploadInfo == null || uploadInfo.getId() == null) {
       return;
     }
@@ -524,14 +534,24 @@ public class S3StorageService implements UploadStorageService {
       throw new IOException(
           "Failed to write metadata object to S3 for ID " + uploadInfo.getId(), e);
     }
+  }
+
+  @Override
+  public void update(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
+    writeMetadataObject(uploadInfo);
 
     // Index checksum for deduplication if upload is completed and deduplication is enabled
     if (isUploadDeduplicationEnabled()
         && uploadInfo.getChecksum() != null
         && !uploadInfo.isUploadInProgress()
         && uploadInfo.getDuplicatesUploadId() == null) {
-      putChecksumIndex(
-          uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm(), uploadInfo.getId());
+      try {
+        ChecksumKey key =
+            ChecksumKey.of(uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm());
+        deduplicate(uploadInfo, key);
+      } catch (Exception e) {
+        log.warn("Failed to index checksum for upload {}: {}", uploadInfo.getId(), e.getMessage());
+      }
     }
   }
 
@@ -550,11 +570,6 @@ public class S3StorageService implements UploadStorageService {
     UploadInfo info = getUploadInfo(id);
     if (info == null) {
       throw new UploadNotFoundException("Upload with ID " + id + " was not found");
-    }
-
-    // Resolve duplicate upload reference to parent upload if deduplicated
-    if (info.getDuplicatesUploadId() != null) {
-      return getUploadedBytes(info.getDuplicatesUploadId());
     }
 
     // Handle concatenated upload resolution if applicable
@@ -577,7 +592,7 @@ public class S3StorageService implements UploadStorageService {
   }
 
   @Override
-  public void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException {
+  public void cleanupExpiredUploads() throws IOException {
     // 1. Clean up orphaned local temporary chunk files
     Utils.cleanupTempFiles(this.temporaryDirectory, "tus-s3-chunk-*.tmp", 24L * 3600_000L);
     Utils.cleanupTempFiles(this.temporaryDirectory, "tus-s3-prep-*.tmp", 24L * 3600_000L);
@@ -604,21 +619,25 @@ public class S3StorageService implements UploadStorageService {
           if (info != null
               && info.isUploadInProgress()
               && info.isExpired()
-              && (uploadLockingService == null || !uploadLockingService.isLocked(id))) {
+              && !this.uploadLockingService.isLocked(id)) {
             terminateUpload(info);
-            if (uploadLockingService != null) {
-              // Clean up any remaining lock files now that the expired upload is terminated
-              uploadLockingService.cleanupLock(id);
-            }
           }
         }
       }
 
-      // 3. Prune orphaned checksum index entries pointing to missing or expired uploads
-      pruneOrphanedChecksumIndices();
+      if (isUploadDeduplicationEnabled() && deduplicationService != null) {
+        deduplicationService.pruneOrphanedChecksumIndices();
+      }
     } catch (Exception e) {
       throw new IOException("Failed to cleanup expired S3 uploads", e);
     }
+  }
+
+  @Override
+  @Deprecated
+  public void cleanupExpiredUploads(UploadLockingService uploadLockingService) throws IOException {
+    setUploadLockingService(Utils.getLockingServiceOrDefault(uploadLockingService));
+    cleanupExpiredUploads();
   }
 
   @Override
@@ -649,29 +668,66 @@ public class S3StorageService implements UploadStorageService {
   }
 
   @Override
+  public void setUploadLockingService(UploadLockingService uploadLockingService) {
+    this.uploadLockingService =
+        Objects.requireNonNull(uploadLockingService, "uploadLockingService must not be null");
+    if (this.deduplicationService != null) {
+      this.deduplicationService.setUploadLockingService(uploadLockingService);
+    }
+  }
+
+  @Override
+  public UploadLockingService getUploadLockingService() {
+    return this.uploadLockingService;
+  }
+
+  @Override
+  public UploadInfo deduplicate(UploadInfo uploadInfo, ChecksumKey checksumKey) throws IOException {
+    if (!isUploadDeduplicationEnabled() || uploadInfo == null || checksumKey == null) {
+      return uploadInfo;
+    }
+    return deduplicationService.deduplicate(uploadInfo, checksumKey);
+  }
+
+  @Override
+  public boolean dataExists(UploadId id) {
+    if (id == null) {
+      return false;
+    }
+    return objectExists(buildObjectKey(id));
+  }
+
+  @Override
+  public void deleteData(UploadId id) {
+    if (id != null) {
+      deleteObjectQuietly(buildObjectKey(id));
+      deleteAllPartObjectsQuietly(id);
+    }
+  }
+
+  private void deleteMetadata(UploadId id) {
+    if (id != null) {
+      deleteObjectQuietly(buildMetadataKey(id));
+    }
+  }
+
+  @Override
   public void terminateUpload(UploadInfo uploadInfo) throws UploadNotFoundException, IOException {
     if (uploadInfo == null || uploadInfo.getId() == null) {
       return;
     }
-    String objectKey = getS3ObjectKey(uploadInfo);
-    String metadataKey = buildMetadataKey(uploadInfo.getId());
 
-    // Delete final object and metadata object from S3
-    deleteObjectQuietly(objectKey);
-    deleteObjectQuietly(metadataKey);
-
-    // Delete all temporary part chunk objects (e.g. metadata/<id>.part.00001)
-    deleteAllPartObjectsQuietly(uploadInfo.getId());
-
-    // Delete checksum deduplication index object if present
-    if (uploadInfo.getChecksum() != null && uploadInfo.getChecksumAlgorithm() != null) {
-      deleteObjectQuietly(
-          buildChecksumKey(uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm()));
+    boolean deleteData = true;
+    if (isUploadDeduplicationEnabled() && deduplicationService != null) {
+      deleteData = deduplicationService.removeUploadFromIndex(uploadInfo);
     }
 
-    // Delete lock target and stop signal objects
-    deleteObjectQuietly(buildLockKey(uploadInfo.getId()));
-    deleteObjectQuietly(buildStopKey(uploadInfo.getId()));
+    if (deleteData) {
+      deleteData(uploadInfo.getId());
+    }
+    deleteMetadata(uploadInfo.getId());
+
+    uploadLockingService.cleanupLock(uploadInfo.getId());
   }
 
   @Override
@@ -680,85 +736,47 @@ public class S3StorageService implements UploadStorageService {
     if (!isUploadDeduplicationEnabled() || checksum == null || algorithm == null) {
       return null;
     }
-
-    String checksumKey = buildChecksumKey(checksum, algorithm);
-    String parentIdStr;
-    try (InputStream stream =
-        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(checksumKey).build())) {
-      parentIdStr = IOUtils.toString(stream, StandardCharsets.UTF_8).trim();
-    } catch (ErrorResponseException e) {
-      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
-        return null;
-      }
-      throw new IOException("Failed to read checksum index object from S3", e);
+    ChecksumKey key;
+    try {
+      key = ChecksumKey.of(checksum, algorithm);
     } catch (Exception e) {
-      throw new IOException("Failed to read checksum index object from S3", e);
-    }
-
-    UploadId parentId = new UploadId(parentIdStr);
-    UploadInfo parentInfo = getUploadInfo(parentId);
-    // Self-cleaning: if index points to missing parent upload or object, prune stale index
-    if (parentInfo == null || !objectExists(buildObjectKey(parentId))) {
-      deleteObjectQuietly(checksumKey);
       return null;
     }
-
-    return parentInfo;
-  }
-
-  /**
-   * Scans and prunes orphaned checksum deduplication index objects in S3 whose parent upload or
-   * final data object no longer exists (e.g. pruned by external S3 lifecycle rules).
-   */
-  private void pruneOrphanedChecksumIndices() {
-    // 1. Skip scanning if deduplication is disabled; no checksum indices are generated or
-    // referenced
-    if (!isUploadDeduplicationEnabled()) {
-      return;
-    }
-    try {
-      // 2. Query all index objects located under the deduplication prefix (e.g.
-      // checksums/<algo>/<hash>)
-      Iterable<Result<Item>> results =
-          minioClient.listObjects(
-              ListObjectsArgs.builder()
-                  .bucket(bucket)
-                  .prefix(checksumsPrefix)
-                  .recursive(true)
-                  .build());
-      for (Result<Item> result : results) {
-        Item item = result.get();
-        if (!item.isDir()) {
-          try (InputStream stream =
-              minioClient.getObject(
-                  GetObjectArgs.builder().bucket(bucket).object(item.objectName()).build())) {
-            // 3. Read the parent upload ID string stored as plain text inside the checksum index
-            // object
-            String parentIdStr = IOUtils.toString(stream, StandardCharsets.UTF_8).trim();
-            UploadId parentId = new UploadId(parentIdStr);
-
-            // 4. Verify whether the parent upload's metadata (.info) still exists and is accessible
-            UploadInfo parentInfo = getUploadInfo(parentId);
-
-            // 5. Verify whether the parent upload's final data object exists in S3 storage
-            // 6. If the parent upload or its data object no longer exists (e.g. expired, deleted,
-            // or purged
-            // by S3 lifecycle rules), prune the orphaned index entry to keep storage clean
-            if (parentInfo == null || !objectExists(buildObjectKey(parentId))) {
-              log.debug("Pruning orphaned S3 checksum index object {}", item.objectName());
-              deleteObjectQuietly(item.objectName());
-            }
-          } catch (Exception ignored) {
-            // Ignore individual object read errors to allow full sweep of remaining index entries
-          }
-        }
-      }
-    } catch (Exception e) {
-      log.debug("Failed to prune orphaned S3 checksum indices: {}", e.getMessage());
-    }
+    return deduplicationService != null ? deduplicationService.getUploadInfoByChecksum(key) : null;
   }
 
   // CONFIGURATION SETTERS & GETTERS
+
+  /**
+   * Configures whether S3 conditional writes (If-None-Match: *) are supported by the S3 endpoint.
+   *
+   * @param supported {@code true} to enable, {@code false} to disable
+   * @return this storage service instance
+   */
+  public S3StorageService withS3ConditionalWritesSupported(boolean supported) {
+    setS3ConditionalWritesSupported(supported);
+    return this;
+  }
+
+  /**
+   * Sets whether S3 conditional writes (If-None-Match: *) are supported by the S3 endpoint.
+   *
+   * @param supported {@code true} to enable, {@code false} to disable
+   */
+  public void setS3ConditionalWritesSupported(boolean supported) {
+    if (this.checksumIndex != null) {
+      this.checksumIndex.setS3ConditionalWritesSupported(supported);
+    }
+  }
+
+  /**
+   * Returns whether S3 conditional writes (If-None-Match: *) are supported by the S3 endpoint.
+   *
+   * @return {@code true} if supported, {@code false} otherwise
+   */
+  public boolean isS3ConditionalWritesSupported() {
+    return this.checksumIndex != null && this.checksumIndex.isS3ConditionalWritesSupported();
+  }
 
   @Override
   public void setMaxUploadSize(Long maxUploadSize) {
@@ -1283,6 +1301,11 @@ public class S3StorageService implements UploadStorageService {
   private void finalizeCompletedUploadIfFinished(
       UploadInfo info, String objectKey, UploadId id, long newOffset) throws IOException {
 
+    if (info.getDuplicatesUploadId() != null) {
+      // Child upload is deduplicated; its data is referenced from parent, no parts to compose
+      return;
+    }
+
     if (info.getLength() != null && newOffset >= info.getLength()) {
       List<String> partKeys =
           info.getUploadPartKeys() != null
@@ -1375,7 +1398,15 @@ public class S3StorageService implements UploadStorageService {
       if (isUploadDeduplicationEnabled()
           && info.getChecksum() != null
           && info.getDuplicatesUploadId() == null) {
-        putChecksumIndex(info.getChecksum(), info.getChecksumAlgorithm(), info.getId());
+        try {
+          ChecksumKey key = ChecksumKey.of(info.getChecksum(), info.getChecksumAlgorithm());
+          deduplicate(info, key);
+        } catch (Exception e) {
+          log.warn(
+              "Failed to register checksum index for completed upload {}: {}",
+              info.getId(),
+              e.getMessage());
+        }
       }
     }
   }
@@ -1687,19 +1718,6 @@ public class S3StorageService implements UploadStorageService {
     }
   }
 
-  private void putChecksumIndex(String checksum, ChecksumAlgorithm algorithm, UploadId parentId) {
-    String key = buildChecksumKey(checksum, algorithm);
-    try {
-      byte[] parentIdBytes = parentId.toString().getBytes(StandardCharsets.UTF_8);
-      minioClient.putObject(
-          PutObjectArgs.builder().bucket(bucket).object(key).stream(
-                  new ByteArrayInputStream(parentIdBytes), (long) parentIdBytes.length, -1L)
-              .build());
-    } catch (Exception e) {
-      log.warn("Failed to write checksum index object to S3 key {}", key, e);
-    }
-  }
-
   private boolean objectExists(String key) {
     try {
       minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(key).build());
@@ -1746,19 +1764,6 @@ public class S3StorageService implements UploadStorageService {
         + Objects.toString(id)
         + ".part."
         + String.format("%05d-%s", partNumber, UUID.randomUUID().toString().substring(0, 8));
-  }
-
-  private String buildChecksumKey(String checksum, ChecksumAlgorithm algorithm) {
-    String algorithmName = algorithm != null ? algorithm.getTusName().toLowerCase() : "unknown";
-    return checksumsPrefix + algorithmName + "/" + checksum;
-  }
-
-  private String buildLockKey(UploadId id) {
-    return locksPrefix + Objects.toString(id) + ".lock";
-  }
-
-  private String buildStopKey(UploadId id) {
-    return locksPrefix + Objects.toString(id) + ".stop";
   }
 
   private static class AppendResult {

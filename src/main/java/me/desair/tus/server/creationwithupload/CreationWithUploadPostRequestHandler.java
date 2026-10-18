@@ -46,12 +46,9 @@ public class CreationWithUploadPostRequestHandler extends AbstractRequestHandler
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(location, ownerKey);
         if (uploadInfo != null && uploadInfo.isUploadInProgress()) {
           InputStream stream = servletRequest.getContentInputStream();
-          InterruptibleInputStream interruptibleStream = null;
-          if (uploadLockingService != null) {
-            interruptibleStream = new InterruptibleInputStream(stream);
-            uploadLockingService.registerInputStream(location, interruptibleStream);
-            stream = interruptibleStream;
-          }
+          InterruptibleInputStream interruptibleStream = new InterruptibleInputStream(stream);
+          uploadLockingService.registerInputStream(location, interruptibleStream);
+          stream = interruptibleStream;
 
           try {
             uploadInfo = uploadStorageService.append(uploadInfo, stream);

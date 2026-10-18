@@ -45,7 +45,15 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
       UploadStorageService uploadStorageService,
       String ownerKey)
       throws IOException, TusException {
-    process(method, servletRequest, servletResponse, uploadStorageService, null, ownerKey, null);
+    UploadLockingService lockingService = Utils.getLockingServiceOrDefault(uploadStorageService);
+    process(
+        method,
+        servletRequest,
+        servletResponse,
+        uploadStorageService,
+        lockingService,
+        ownerKey,
+        null);
   }
 
   @Override
@@ -70,29 +78,13 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
       try {
         InputStream stream = servletRequest.getContentInputStream();
 
-        // If a locking service is provided, wrap the input stream in an InterruptibleInputStream
-        // and register it with the locking service to allow for interruption of the upload.
-        if (lockingService != null) {
-          interruptibleStream = new InterruptibleInputStream(stream);
-          lockingService.registerInputStream(servletRequest.getRequestURI(), interruptibleStream);
-          stream = interruptibleStream;
-        }
+        // Wrap the input stream in an InterruptibleInputStream and register it with the locking
+        // service to allow for clean interruption during lock contention or cancellation.
+        interruptibleStream = new InterruptibleInputStream(stream);
+        lockingService.registerInputStream(servletRequest.getRequestURI(), interruptibleStream);
+        stream = interruptibleStream;
 
         uploadInfo = uploadStorageService.append(uploadInfo, stream);
-
-        if (uploadStorageService.isUploadDeduplicationEnabled()
-            && servletRequest.hasCalculatedChecksum()) {
-          Utils.ChecksumInfo checksumInfo = Utils.parseUploadChecksumHeader(servletRequest);
-          if (checksumInfo != null) {
-            UploadInfo duplicateInfo =
-                uploadStorageService.getUploadInfoByChecksum(
-                    checksumInfo.getValue(), checksumInfo.getAlgorithm());
-            if (duplicateInfo != null) {
-              uploadInfo.setDuplicatesUploadId(duplicateInfo.getId());
-              uploadStorageService.update(uploadInfo);
-            }
-          }
-        }
       } catch (UploadNotFoundException e) {
         found = false;
       } catch (IOException e) {

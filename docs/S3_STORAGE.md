@@ -81,12 +81,14 @@ TusFileUploadService tusService = new TusFileUploadService()
 `S3StorageService` uses a clean, flat object key structure:
 
 ```
-<objectPrefix>/<UploadId>                        # Final completed data object
-<metadataPrefix>/<UploadId>.info                 # JSON-serialized UploadInfo metadata
-<metadataPrefix>/<UploadId>.part                 # Incomplete sub-5MB part buffer
-<checksumsPrefix>/<algorithm>/<hex_checksum>     # Deduplication checksum index object
-<locksPrefix>/<UploadId>.lock                    # Lock lease object (JSON: holder + expiry)
-<locksPrefix>/<UploadId>.stop                    # Cross-pod contention interrupt signal
+<objectPrefix>/<UploadId>                                    # Final completed data object
+<metadataPrefix>/<UploadId>.info                             # JSON-serialized UploadInfo metadata
+<metadataPrefix>/<UploadId>.part                             # Incomplete sub-5MB part buffer
+<checksumsPrefix>/<algorithm>/<hex_checksum>/parent          # Deduplication parent pointer object
+<checksumsPrefix>/<algorithm>/<hex_checksum>/parent-deleted  # Tombstone marker if parent deleted
+<checksumsPrefix>/<algorithm>/<hex_checksum>/children/<id>   # Active duplicate child reference
+<locksPrefix>/<UploadId>.lock                                # Lock lease object (JSON: holder + expiry)
+<locksPrefix>/<UploadId>.stop                                # Cross-pod contention interrupt signal
 ```
 
 ### Key Prefix Defaults

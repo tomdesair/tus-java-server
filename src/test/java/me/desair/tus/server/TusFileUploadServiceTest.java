@@ -988,7 +988,7 @@ public class TusFileUploadServiceTest {
   }
 
   @Test
-  public void testProcessCleansUpLockOnDeleteTermination() throws Exception {
+  public void testProcessTerminatesUploadOnDelete() throws Exception {
     UploadLockingService mockLockingService = mock(UploadLockingService.class);
     UploadLock mockLock = mock(UploadLock.class);
     when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
@@ -1022,11 +1022,11 @@ public class TusFileUploadServiceTest {
 
     service.process(mockReq, mockResp, "owner");
 
-    verify(mockLockingService).cleanupLock(testId);
+    verify(mockStorage).terminateUpload(info);
   }
 
   @Test
-  public void testDeleteUploadCleansUpLock() throws Exception {
+  public void testDeleteUploadTerminatesUpload() throws Exception {
     UploadLockingService mockLockingService = mock(UploadLockingService.class);
     UploadLock mockLock = mock(UploadLock.class);
     when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
@@ -1049,6 +1049,5 @@ public class TusFileUploadServiceTest {
     service.deleteUpload(uploadUri, "owner");
 
     verify(mockStorage).terminateUpload(info);
-    verify(mockLockingService).cleanupLock(testId);
   }
 }

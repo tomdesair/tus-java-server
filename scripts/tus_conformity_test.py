@@ -131,7 +131,7 @@ def http_request(method, url, headers=None, body=None):
     if not path:
         path = "/"
 
-    s = socket.create_connection((host, port), timeout=10)
+    s = socket.create_connection((host, port), timeout=30)
     try:
         req_headers = CaseInsensitiveDict(headers)
         if "Connection" not in req_headers:
@@ -836,6 +836,164 @@ class TestChecksumExtension:
         # Verify chunk was discarded
         _, head_headers, _ = http_request("HEAD", upload_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
         assert head_headers.get(UPLOAD_OFFSET) == "0", "Upload-Offset MUST NOT be updated after invalid algorithm"
+
+    def test_creation_with_upload_valid_sha1_checksum(self, target_url):
+        """
+        §7.4 Checksum & Creation-With-Upload: Valid SHA1 Checksum on Initial Creation.
+        A client creates an upload with initial body content and an Upload-Checksum header.
+        The server validates the payload and returns 201 Created with Upload-Offset matching length.
+        """
+        payload = b"Creation with valid SHA1 checksum payload"
+        digest_bytes = hashlib.sha1(payload).digest()
+        b64_digest = base64.b64encode(digest_bytes).decode("ascii")
+
+        extra_headers = {
+            UPLOAD_CHECKSUM: f"sha1 {b64_digest}",
+        }
+        loc, resp_headers = create_upload(
+            target_url,
+            upload_length=str(len(payload)),
+            content_type=APPLICATION_OFFSET_OCTET_STREAM,
+            extra_headers=extra_headers,
+            body=payload,
+        )
+        assert resp_headers.get(UPLOAD_OFFSET) == str(len(payload)), "Upload-Offset MUST match payload length"
+
+        # Verify via HEAD
+        status, head_headers, _ = http_request("HEAD", loc, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert status in (200, 204)
+        assert head_headers.get(UPLOAD_OFFSET) == str(len(payload))
+
+    def test_creation_with_upload_invalid_checksum_mismatch(self, target_url):
+        """
+        §7.4 Checksum & Creation-With-Upload: Invalid Checksum Mismatch Returns 460.
+        A client provides a mismatched Upload-Checksum header on initial creation.
+        The server MUST reject the creation and return 460 Checksum Mismatch.
+        """
+        payload = b"Creation with mismatching SHA1 checksum payload"
+        invalid_digest = base64.b64encode(b"0" * 20).decode("ascii")
+
+        headers = {
+            TUS_RESUMABLE: TUS_API_VERSION,
+            UPLOAD_LENGTH: str(len(payload)),
+            CONTENT_TYPE: APPLICATION_OFFSET_OCTET_STREAM,
+            UPLOAD_CHECKSUM: f"sha1 {invalid_digest}",
+        }
+        status, _, _ = http_request("POST", target_url, headers=headers, body=payload)
+        assert status == 460, f"Checksum mismatch on creation MUST return 460, got {status}"
+
+    def test_checksum_deduplication_and_parent_child_lifecycle(self, target_url):
+        """
+        Checksum Deduplication Multi-Child Lifecycle & Tombstoned Parent Joining:
+        1. Upload parent (P) with valid SHA1 checksum.
+        2. Upload child 1 (C1) with identical content and SHA1 checksum (deduplicated against P).
+        3. Delete parent P via DELETE (204) -> P is tombstoned, C1 preserved.
+        4. Upload child 2 (C2) with identical content while P is tombstoned -> C2 joins tombstoned P.
+        5. Verify GET on C1 and C2 returns 200 with identical uploaded bytes without duplication.
+        6. Delete C1 via DELETE (204) -> C2 remains accessible via HEAD and GET.
+        7. Delete C2 via DELETE (204). Last child out completely purges parent and checksum index.
+        8. Upload new resource with same content/checksum succeeds as fresh new parent.
+        """
+        unique_token = str(time.time()).encode("ascii")
+        payload = b"Multi-child deduplication test data payload: " + unique_token
+        digest_bytes = hashlib.sha1(payload).digest()
+        b64_digest = base64.b64encode(digest_bytes).decode("ascii")
+        checksum_header = f"sha1 {b64_digest}"
+
+        # 1. Upload parent P
+        parent_url, parent_headers = create_upload(
+            target_url,
+            upload_length=str(len(payload)),
+            content_type=APPLICATION_OFFSET_OCTET_STREAM,
+            extra_headers={UPLOAD_CHECKSUM: checksum_header},
+            body=payload,
+        )
+        assert parent_headers.get(UPLOAD_OFFSET) == str(len(payload))
+
+        # 2. Upload duplicate child C1
+        c1_url, c1_headers = create_upload(
+            target_url,
+            upload_length=str(len(payload)),
+            content_type=APPLICATION_OFFSET_OCTET_STREAM,
+            extra_headers={UPLOAD_CHECKSUM: checksum_header},
+            body=payload,
+        )
+        assert c1_headers.get(UPLOAD_OFFSET) == str(len(payload))
+
+        # 3. Delete parent P (204) -> P is tombstoned while C1 remains
+        del_status, _, _ = http_request("DELETE", parent_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert del_status == 204, f"Parent DELETE should return 204, got {del_status}"
+
+        # Verify parent P is deleted (404)
+        p_head_status, _, _ = http_request("HEAD", parent_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert p_head_status in (404, 410)
+
+        # Verify child C1 remains accessible via HEAD and GET
+        c1_head_status, c1_head_headers, _ = http_request("HEAD", c1_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert c1_head_status in (200, 204)
+        assert c1_head_headers.get(UPLOAD_OFFSET) == str(len(payload))
+        get_status, _, get_body = http_request("GET", c1_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert get_status == 200
+        assert get_body == payload
+
+        # 4. Upload child C2 while parent P is tombstoned -> C2 joins tombstoned P
+        c2_url, c2_headers = create_upload(
+            target_url,
+            upload_length=str(len(payload)),
+            content_type=APPLICATION_OFFSET_OCTET_STREAM,
+            extra_headers={UPLOAD_CHECKSUM: checksum_header},
+            body=payload,
+        )
+        assert c2_headers.get(UPLOAD_OFFSET) == str(len(payload))
+
+        # 5. Both children C1 and C2 stream payload bytes
+        for child_url in (c1_url, c2_url):
+            head_status, head_headers, _ = http_request("HEAD", child_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+            assert head_status in (200, 204)
+            assert head_headers.get(UPLOAD_OFFSET) == str(len(payload))
+            get_status, _, get_body = http_request("GET", child_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+            assert get_status == 200
+            assert get_body == payload, "Child must stream full payload from shared parent data"
+
+        # 6. Delete child C1 (204)
+        c1_del_status, _, _ = http_request("DELETE", c1_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert c1_del_status == 204
+
+        # Verify C1 is deleted (404)
+        c1_head_status, _, _ = http_request("HEAD", c1_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert c1_head_status in (404, 410)
+
+        # 7. Child C2 is STILL accessible via HEAD and GET
+        c2_head_status, c2_head_headers, _ = http_request("HEAD", c2_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert c2_head_status in (200, 204)
+        assert c2_head_headers.get(UPLOAD_OFFSET) == str(len(payload))
+        c2_get_status, _, c2_get_body = http_request("GET", c2_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert c2_get_status == 200
+        assert c2_get_body == payload
+
+        # 8. Delete child C2 (204). Last child out completely purges parent and checksum index.
+        c2_del_status, _, _ = http_request("DELETE", c2_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert c2_del_status == 204
+
+        # Verify C2 is deleted (404)
+        c2_head_status, _, _ = http_request("HEAD", c2_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert c2_head_status in (404, 410)
+
+        # 9. Upload new resource with same content/checksum succeeds and creates clean new parent
+        new_url, new_headers = create_upload(
+            target_url,
+            upload_length=str(len(payload)),
+            content_type=APPLICATION_OFFSET_OCTET_STREAM,
+            extra_headers={UPLOAD_CHECKSUM: checksum_header},
+            body=payload,
+        )
+        assert new_headers.get(UPLOAD_OFFSET) == str(len(payload))
+        get_status, _, get_body = http_request("GET", new_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
+        assert get_status == 200
+        assert get_body == payload
+
+        # Clean up
+        http_request("DELETE", new_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
 
 
 class TestTerminationExtension:

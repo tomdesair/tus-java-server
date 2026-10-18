@@ -58,9 +58,6 @@ public class ExpirationRequestHandler extends AbstractRequestHandler {
     if (expirationPeriod != null && expirationPeriod > 0 && uploadInfo != null) {
       if (uploadInfo.isExpired()) {
         uploadStorageService.terminateUpload(uploadInfo);
-        if (uploadLockingService != null) {
-          uploadLockingService.cleanupLock(uploadInfo.getId());
-        }
         throw new UploadNotFoundException(
             "The upload for path " + uploadUri + " has expired and was removed.");
       } else {

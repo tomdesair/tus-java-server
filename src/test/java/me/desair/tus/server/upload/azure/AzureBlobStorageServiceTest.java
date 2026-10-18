@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -28,7 +29,7 @@ import org.junit.Test;
  */
 public class AzureBlobStorageServiceTest {
 
-  private com.azure.storage.blob.BlobContainerClient containerClient;
+  private BlobContainerClient containerClient;
   private AzureBlobStorageService storageService;
 
   @Before
@@ -368,5 +369,15 @@ public class AzureBlobStorageServiceTest {
       Files.deleteIfExists(childFile);
       Files.deleteIfExists(tempDir);
     }
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void testSetUploadLockingServiceNullThrowsNpe() {
+    storageService.setUploadLockingService(null);
+  }
+
+  @Test
+  public void testGetUploadLockingServiceReturnsConfiguredInstance() {
+    assertNotNull(storageService.getUploadLockingService());
   }
 }

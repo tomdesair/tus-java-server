@@ -5,11 +5,11 @@ import java.io.InputStream;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.util.Map;
-import java.util.Objects;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.digest.validation.HttpDigestsValidator;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadDigestMismatchException;
@@ -78,7 +78,8 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
       captureDigestPreferences(servletRequest, uploadInfo, uploadStorageService);
 
       // 3. Verify Repr-Digest on upload completion
-      verifyReprDigestOnCompletion(uploadInfo, uploadUri, ownerKey, uploadStorageService);
+      verifyReprDigestOnCompletion(
+          servletRequest, uploadInfo, uploadUri, ownerKey, uploadStorageService);
 
       // 4. Provide Repr-Digest response header if requested
       addReprDigestResponseHeader(
@@ -144,45 +145,54 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
   }
 
   private void verifyReprDigestOnCompletion(
+      TusServletRequest servletRequest,
       UploadInfo uploadInfo,
       String uploadUri,
       String ownerKey,
       UploadStorageService uploadStorageService)
       throws IOException, TusException {
 
-    if (!uploadInfo.isUploadInProgress() && uploadInfo.getRepresentationDigest() != null) {
-      Map<ChecksumAlgorithm, String> expectedDigests =
-          ChecksumAlgorithm.parseDigestHeader(uploadInfo.getRepresentationDigest());
+    if (!uploadInfo.isUploadInProgress()) {
+      String reprDigest = uploadInfo.getRepresentationDigest();
+      if (reprDigest == null && servletRequest != null) {
+        reprDigest = servletRequest.getHeader(HttpHeader.CONTENT_DIGEST);
+      }
+      if (reprDigest != null) {
+        Map<ChecksumAlgorithm, String> expectedDigests =
+            ChecksumAlgorithm.parseDigestHeader(reprDigest);
 
-      for (Map.Entry<ChecksumAlgorithm, String> entry : expectedDigests.entrySet()) {
-        ChecksumAlgorithm alg = entry.getKey();
-        String expectedValue = entry.getValue();
-        String calculatedValue =
-            calculateEntireFileDigest(uploadUri, ownerKey, alg, uploadStorageService);
+        for (Map.Entry<ChecksumAlgorithm, String> entry : expectedDigests.entrySet()) {
+          ChecksumAlgorithm alg = entry.getKey();
+          String expectedValue = entry.getValue();
+          String calculatedValue =
+              calculateEntireFileDigest(uploadUri, ownerKey, alg, uploadStorageService);
 
-        if (calculatedValue != null) {
-          if (!Strings.CS.equals(expectedValue, calculatedValue)) {
-            throw new UploadDigestMismatchException(
-                "Repr-Digest mismatch for algorithm "
-                    + alg.getHttpDigestNames().get(0)
-                    + ". Expected: "
-                    + expectedValue
-                    + " but was: "
-                    + calculatedValue);
-          } else {
-            // Deduplication support: If verification succeeds and deduplication is enabled
-            if (uploadStorageService.isUploadDeduplicationEnabled()
-                && uploadInfo.getDuplicatesUploadId() == null) {
-              UploadInfo duplicateInfo =
-                  uploadStorageService.getUploadInfoByChecksum(expectedValue, alg);
-              if (duplicateInfo != null
-                  && !Objects.equals(duplicateInfo.getId(), uploadInfo.getId())) {
-                uploadInfo.setDuplicatesUploadId(duplicateInfo.getId());
-                uploadStorageService.update(uploadInfo);
+          if (calculatedValue != null) {
+            if (!Strings.CS.equals(expectedValue, calculatedValue)) {
+              throw new UploadDigestMismatchException(
+                  "Repr-Digest mismatch for algorithm "
+                      + alg.getHttpDigestNames().get(0)
+                      + ". Expected: "
+                      + expectedValue
+                      + " but was: "
+                      + calculatedValue);
+            } else {
+              // Always save verified checksum on the uploadInfo
+              uploadInfo.setChecksum(expectedValue);
+              uploadInfo.setChecksumAlgorithm(alg);
+
+              if (uploadStorageService.isUploadDeduplicationEnabled()
+                  && uploadInfo.getDuplicatesUploadId() == null) {
+                try {
+                  ChecksumKey key = ChecksumKey.of(expectedValue, alg);
+                  UploadInfo deduped = uploadStorageService.deduplicate(uploadInfo, key);
+                  if (deduped != null) {
+                    uploadInfo = deduped;
+                  }
+                } catch (Exception e) {
+                  uploadStorageService.update(uploadInfo);
+                }
               } else {
-                // Index this file
-                uploadInfo.setChecksum(expectedValue);
-                uploadInfo.setChecksumAlgorithm(alg);
                 uploadStorageService.update(uploadInfo);
               }
             }

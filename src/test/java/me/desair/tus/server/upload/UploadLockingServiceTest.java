@@ -38,5 +38,7 @@ public class UploadLockingServiceTest {
     dummyService.close();
 
     assertFalse(dummyService.isLocked(new UploadId("123")));
+    org.junit.Assert.assertNull(dummyService.lockUpload((UploadId) null));
+    org.junit.Assert.assertNull(dummyService.lockUpload(new UploadId("123")));
   }
 }

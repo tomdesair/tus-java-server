@@ -4,18 +4,22 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.azure.core.util.BinaryData;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
+import com.azure.storage.blob.models.ListBlobsOptions;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
 import me.desair.tus.server.TestUtils;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.exception.MinAppendSizeNotMetException;
 import me.desair.tus.server.exception.UploadNotFoundException;
@@ -484,26 +488,122 @@ public class ITAzureBlobStorageService {
     AzureBlobStorageService storage = new AzureBlobStorageService(containerClient);
     storage.setUploadDeduplicationEnabled(true);
 
+    String md5Hex = "5d41402abc4b2a76b9719d911017c592";
+    String parentBlobName = "checksums/md5/" + md5Hex + "/parent";
+    String parentDeletedBlobName = "checksums/md5/" + md5Hex + "/parent-deleted";
+
+    // 1. Parent upload
     UploadInfo parent = new UploadInfo();
     parent.setLength(5L);
-    parent.setChecksum("5d41402abc4b2a76b9719d911017c592");
+    parent.setChecksum(md5Hex);
     parent.setChecksumAlgorithm(ChecksumAlgorithm.MD5);
     parent = storage.create(parent, "owner1");
     storage.append(parent, new ByteArrayInputStream("hello".getBytes()));
 
+    // Verify parent pointer blob exists in Azure container
+    assertTrue(containerClient.getBlobClient(parentBlobName).exists());
+
+    // 2. Child duplicate upload
     UploadInfo child = new UploadInfo();
     child.setLength(5L);
-    child.setChecksum("5d41402abc4b2a76b9719d911017c592");
+    child.setChecksum(md5Hex);
     child.setChecksumAlgorithm(ChecksumAlgorithm.MD5);
     child = storage.create(child, "owner1");
-    storage.append(child, new ByteArrayInputStream("hello".getBytes()));
+    child = storage.append(child, new ByteArrayInputStream("hello".getBytes()));
 
     assertNotNull(child.getDuplicatesUploadId());
     assertEquals(parent.getId(), child.getDuplicatesUploadId());
 
+    String childBlobName = "checksums/md5/" + md5Hex + "/children/" + child.getId();
+    assertTrue(containerClient.getBlobClient(childBlobName).exists());
+
+    // 3. Terminate parent upload (child still alive)
     storage.terminateUpload(parent);
-    assertNull(
-        storage.getUploadInfoByChecksum("5d41402abc4b2a76b9719d911017c592", ChecksumAlgorithm.MD5));
+    assertTrue(containerClient.getBlobClient(parentDeletedBlobName).exists());
+    assertNull(storage.getUploadInfoByChecksum(md5Hex, ChecksumAlgorithm.MD5));
+
+    // 4. Terminate child upload (last child out)
+    storage.terminateUpload(child);
+
+    // Verify all blobs under checksum prefix are completely deleted from Azure
+    assertFalse(containerClient.getBlobClient(parentBlobName).exists());
+    assertFalse(containerClient.getBlobClient(parentDeletedBlobName).exists());
+    assertFalse(
+        containerClient
+            .listBlobs(new ListBlobsOptions().setPrefix("checksums/md5/" + md5Hex), null)
+            .iterator()
+            .hasNext());
+  }
+
+  @Test
+  public void testAzureBlobChecksumIndexDirectly() throws Exception {
+    AzureBlobChecksumIndex index = new AzureBlobChecksumIndex(containerClient, "test-checksums");
+    ChecksumKey key =
+        ChecksumKey.of("1122334455667788990011223344556677889900", ChecksumAlgorithm.SHA1);
+    UploadId parentId = new UploadId("parent-upload-id");
+    UploadId competingId = new UploadId("competing-upload-id");
+
+    // 1. Initial lookup returns null
+    assertNull(index.findParent(key));
+    assertFalse(index.isParentDeleted(key));
+    assertFalse(index.hasChildren(key));
+
+    // 2. First registration succeeds
+    assertTrue(index.tryRegisterParent(key, parentId));
+    assertEquals(parentId, index.findParent(key));
+
+    // 3. Second registration fails due to CAS (precondition failed)
+    assertFalse(index.tryRegisterParent(key, competingId));
+    assertEquals(parentId, index.findParent(key));
+
+    // 4. Add and remove child
+    UploadId childId = new UploadId("child-upload-id");
+    index.addChild(key, childId);
+    assertTrue(index.hasChildren(key));
+    index.removeChild(key, childId);
+    assertFalse(index.hasChildren(key));
+
+    // 5. Mark parent deleted (preserves parent file for active children and new joiners)
+    index.markParentDeleted(key);
+    assertTrue(index.isParentDeleted(key));
+    assertEquals(parentId, index.findParent(key));
+
+    // 6. Registration after tombstone returns false
+    assertFalse(index.tryRegisterParent(key, competingId));
+
+    // 7. Empty parent blob returns null
+    ChecksumKey emptyKey =
+        ChecksumKey.of("2233445566778899001122334455667788990011", ChecksumAlgorithm.SHA1);
+    containerClient
+        .getBlobClient("test-checksums/sha1/2233445566778899001122334455667788990011/parent")
+        .upload(BinaryData.fromBytes(new byte[0]), true);
+    assertNull(index.findParent(emptyKey));
+
+    // Verify getAllIndexedKeys returns registered keys
+    Set<ChecksumKey> allKeys = index.getAllIndexedKeys();
+    assertTrue(allKeys.contains(key));
+    assertTrue(allKeys.contains(emptyKey));
+
+    // 8. Delete entire index
+    index.deleteIndex(key);
+    assertFalse(index.isParentDeleted(key));
+    index.deleteIndex(emptyKey);
+    assertFalse(index.getAllIndexedKeys().contains(key));
+    assertFalse(index.getAllIndexedKeys().contains(emptyKey));
+
+    // 9. Error handling on non-existent container
+    BlobContainerClient nonExistentClient =
+        containerClient
+            .getServiceClient()
+            .getBlobContainerClient("non-existent-" + System.nanoTime());
+    AzureBlobChecksumIndex badIndex = new AzureBlobChecksumIndex(nonExistentClient);
+
+    assertThrows(IOException.class, () -> badIndex.tryRegisterParent(key, parentId));
+    assertNull(badIndex.findParent(key));
+    assertThrows(IOException.class, () -> badIndex.hasChildren(key));
+    assertThrows(IOException.class, () -> badIndex.deleteIndex(key));
+    assertThrows(IOException.class, () -> badIndex.getAllIndexedKeys());
+    assertFalse(badIndex.isParentDeleted(key));
   }
 
   @Test
@@ -718,52 +818,6 @@ public class ITAzureBlobStorageService {
   }
 
   @Test
-  public void testPruneOrphanedChecksumIndices() throws Exception {
-    storageService.setUploadDeduplicationEnabled(true);
-
-    BlobClient orphanedIndex = containerClient.getBlobClient("checksums/sha1/deadbeef12345678");
-    orphanedIndex.upload(BinaryData.fromString("non-existent-upload-id"), true);
-    assertTrue(orphanedIndex.exists());
-
-    storageService.cleanupExpiredUploads();
-
-    assertFalse(orphanedIndex.exists());
-  }
-
-  @Test
-  public void testPruneOrphanedChecksumIndicesMissingDataBlob() throws Exception {
-    storageService.setUploadDeduplicationEnabled(true);
-
-    UploadInfo parentInfo = new UploadInfo();
-    parentInfo.setLength(10L);
-    UploadInfo created = storageService.create(parentInfo, "owner1");
-
-    BlobClient orphanedIndex = containerClient.getBlobClient("checksums/sha1/missingdatablob");
-    orphanedIndex.upload(BinaryData.fromString(created.getId().toString()), true);
-    assertTrue(orphanedIndex.exists());
-
-    // Data blob doesn't exist yet (upload created but no bytes uploaded)
-    storageService.cleanupExpiredUploads();
-
-    assertFalse(orphanedIndex.exists());
-  }
-
-  @Test
-  public void testGetUploadInfoByChecksumStaleIndexDeleted() throws Exception {
-    storageService.setUploadDeduplicationEnabled(true);
-
-    BlobClient staleIndex = containerClient.getBlobClient("checksums/sha1/nonexistentparent");
-    staleIndex.upload(BinaryData.fromString("missing-parent-id"), true);
-    assertTrue(staleIndex.exists());
-
-    // Looking up non-existent parent should self-clean the stale index
-    UploadInfo match =
-        storageService.getUploadInfoByChecksum("nonexistentparent", ChecksumAlgorithm.SHA1);
-    assertNull(match);
-    assertFalse(staleIndex.exists());
-  }
-
-  @Test
   public void testRemoveLastNumberOfBytesDownToZero() throws Exception {
     UploadInfo info = new UploadInfo();
     info.setLength(10L);
@@ -949,5 +1003,45 @@ public class ITAzureBlobStorageService {
     storageService.terminateUpload(created);
 
     assertFalse(Boolean.TRUE.equals(lockBlob.exists()));
+  }
+
+  @Test
+  public void testPruneOrphanedChecksumIndicesMissingDataBlob() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    ChecksumKey key =
+        ChecksumKey.of("0123456789abcdef0123456789abcdef01234567", ChecksumAlgorithm.SHA1);
+    UploadId dummyId = new UploadId("orphan-id");
+
+    // Create an orphaned index pointing to a non-existent data blob
+    BlobClient parentBlob = containerClient.getBlobClient("checksums/" + key + "/parent");
+    parentBlob.upload(BinaryData.fromString(dummyId.toString()), true);
+    assertTrue(Boolean.TRUE.equals(parentBlob.exists()));
+
+    storageService.cleanupExpiredUploads();
+
+    assertFalse(Boolean.TRUE.equals(parentBlob.exists()));
+  }
+
+  @Test
+  public void testPruneOrphanedChecksumIndicesAbandonedTombstone() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    ChecksumKey key =
+        ChecksumKey.of("fedcba9876543210fedcba9876543210fedcba98", ChecksumAlgorithm.SHA1);
+    UploadId dummyId = new UploadId("tombstone-orphan-id");
+
+    // Create parent and tombstone marker with zero children
+    BlobClient parentBlob = containerClient.getBlobClient("checksums/" + key + "/parent");
+    parentBlob.upload(BinaryData.fromString(dummyId.toString()), true);
+    BlobClient tombstoneBlob =
+        containerClient.getBlobClient("checksums/" + key + "/parent-deleted");
+    tombstoneBlob.upload(BinaryData.fromString(""), true);
+
+    assertTrue(Boolean.TRUE.equals(parentBlob.exists()));
+    assertTrue(Boolean.TRUE.equals(tombstoneBlob.exists()));
+
+    storageService.cleanupExpiredUploads();
+
+    assertFalse(Boolean.TRUE.equals(parentBlob.exists()));
+    assertFalse(Boolean.TRUE.equals(tombstoneBlob.exists()));
   }
 }
