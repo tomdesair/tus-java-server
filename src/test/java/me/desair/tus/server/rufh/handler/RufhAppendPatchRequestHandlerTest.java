@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.upload.NoOpUploadLockingService;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -181,7 +182,7 @@ public class RufhAppendPatchRequestHandlerTest {
         new TusServletRequest(request),
         new TusServletResponse(response),
         storageService,
-        null,
+        new NoOpUploadLockingService(),
         "owner",
         null);
 
@@ -211,7 +212,7 @@ public class RufhAppendPatchRequestHandlerTest {
         new TusServletRequest(request),
         new TusServletResponse(response),
         storageService,
-        null,
+        new NoOpUploadLockingService(),
         "owner",
         null);
 

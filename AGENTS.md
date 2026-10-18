@@ -190,6 +190,11 @@ To maintain a clear separation between fast, offline unit tests and containerize
 - Use `thisObjectLock.readLock()` for fast, concurrent reads, and `thisObjectLock.writeLock()` for state mutations, lazy pattern compilation, or feature capability degradation.
 - Always acquire and release locks using `try ... finally` blocks (e.g. `thisObjectLock.readLock().lock(); try { return field; } finally { thisObjectLock.readLock().unlock(); }`).
 
+### 24. UploadLock AutoCloseable Lifecycle & Try-With-Resources
+- `UploadLock` implements `java.lang.AutoCloseable`.
+- Whenever acquiring an `UploadLock` (e.g. via `lockingService.lockUpload(uploadId)` or `lockingService.lockUploadByUri(uri)`), always manage the lock lifecycle using a `try-with-resources` block (e.g. `try (UploadLock lock = lockingService.lockUpload(id)) { ... }`).
+- This guarantees timely and reliable lock release upon normal completion or abrupt exceptions without requiring verbose and error-prone `try ... finally { if (lock != null) lock.release(); }` boilerplates.
+
 
 ## IETF Resumable Uploads for HTTP (RUFH) Spec Maintenance & Update Playbook
 

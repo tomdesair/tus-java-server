@@ -46,9 +46,6 @@ public class RufhDeleteRequestHandler extends AbstractRequestHandler {
     }
 
     uploadStorageService.terminateUpload(uploadInfo);
-    if (uploadLockingService != null) {
-      uploadLockingService.cleanupLock(uploadInfo.getId());
-    }
     servletResponse.setStatus(204);
     return null;
   }

@@ -1,10 +1,17 @@
 package me.desair.tus.server.upload.s3;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
+import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import io.minio.Result;
+import io.minio.StatObjectArgs;
+import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -91,10 +98,13 @@ public class ITS3StorageService {
     storageService.setUploadDeduplicationEnabled(true);
 
     byte[] content = "S3 Deduplicated Content".getBytes(StandardCharsets.UTF_8);
-    String sha1Base64 =
-        org.apache.commons.codec.binary.Base64.encodeBase64String(DigestUtils.sha1(content));
+    byte[] sha1Digest = DigestUtils.sha1(content);
+    String sha1Base64 = org.apache.commons.codec.binary.Base64.encodeBase64String(sha1Digest);
+    String sha1Hex = org.apache.commons.codec.binary.Hex.encodeHexString(sha1Digest);
+    String parentObjectKey = "checksums/sha1/" + sha1Hex + "/parent";
+    String parentDeletedKey = "checksums/sha1/" + sha1Hex + "/parent-deleted";
 
-    // Parent upload
+    // 1. Parent upload
     UploadInfo parent = new UploadInfo();
     parent.setLength((long) content.length);
     parent.setChecksum(sha1Base64);
@@ -103,10 +113,45 @@ public class ITS3StorageService {
 
     storageService.append(parent, new ByteArrayInputStream(content));
 
+    // Verify parent pointer exists in S3
+    assertNotNull(
+        minioClient.statObject(
+            StatObjectArgs.builder().bucket(BUCKET).object(parentObjectKey).build()));
+
     // Look up by checksum
     UploadInfo found = storageService.getUploadInfoByChecksum(sha1Base64, ChecksumAlgorithm.SHA1);
     assertNotNull(found);
     assertEquals(parent.getId(), found.getId());
+
+    // 2. Child duplicate upload
+    UploadInfo child = new UploadInfo();
+    child.setLength((long) content.length);
+    child.setChecksum(sha1Base64);
+    child.setChecksumAlgorithm(ChecksumAlgorithm.SHA1);
+    child = storageService.create(child, "owner1");
+    child = storageService.append(child, new ByteArrayInputStream(content));
+
+    assertEquals(parent.getId(), child.getDuplicatesUploadId());
+    String childObjectKey = "checksums/sha1/" + sha1Hex + "/children/" + child.getId();
+    assertNotNull(
+        minioClient.statObject(
+            StatObjectArgs.builder().bucket(BUCKET).object(childObjectKey).build()));
+
+    // 3. Terminate parent upload (child still alive)
+    storageService.terminateUpload(parent);
+
+    assertNotNull(
+        minioClient.statObject(
+            StatObjectArgs.builder().bucket(BUCKET).object(parentDeletedKey).build()));
+
+    // 4. Terminate child upload (last child out)
+    storageService.terminateUpload(child);
+
+    // Verify all objects under checksum prefix are completely purged from S3
+    Iterable<Result<Item>> remaining =
+        minioClient.listObjects(
+            ListObjectsArgs.builder().bucket(BUCKET).prefix("checksums/sha1/" + sha1Hex).build());
+    assertFalse(remaining.iterator().hasNext());
   }
 
   @Test
@@ -178,5 +223,62 @@ public class ITS3StorageService {
 
     // Verify upload was cleaned up from real S3
     assertNull(storageService.getUploadInfo(info.getId()));
+  }
+
+  @Test
+  public void testPruneOrphanedChecksumIndicesMissingData() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    String sha1Hex = "0123456789abcdef0123456789abcdef01234567";
+    String parentKey = "checksums/sha1/" + sha1Hex + "/parent";
+    byte[] parentContent = "orphan-parent-id".getBytes(StandardCharsets.UTF_8);
+
+    // Create an orphaned checksum index pointing to a non-existent data object in S3
+    putObject(parentKey, parentContent);
+    assertTrue(objectExists(parentKey));
+
+    // Running cleanupExpiredUploads should detect the missing parent data and prune the index
+    storageService.cleanupExpiredUploads();
+
+    // Verify the orphaned parent checksum pointer is deleted from S3
+    assertFalse(objectExists(parentKey));
+  }
+
+  @Test
+  public void testPruneOrphanedChecksumIndicesAbandonedTombstone() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    String sha1Hex = "abcdef0123456789abcdef0123456789abcdef01";
+    String parentKey = "checksums/sha1/" + sha1Hex + "/parent";
+    String parentDeletedKey = "checksums/sha1/" + sha1Hex + "/parent-deleted";
+    byte[] parentContent = "tombstone-parent-id".getBytes(StandardCharsets.UTF_8);
+
+    // Create parent and parent-deleted tombstone marker with zero children in S3
+    putObject(parentKey, parentContent);
+    putObject(parentDeletedKey, new byte[0]);
+
+    assertTrue(objectExists(parentKey));
+    assertTrue(objectExists(parentDeletedKey));
+
+    // Running cleanupExpiredUploads should detect the abandoned tombstone and prune both markers
+    storageService.cleanupExpiredUploads();
+
+    // Verify both the parent pointer and tombstone marker are pruned from S3
+    assertFalse(objectExists(parentKey));
+    assertFalse(objectExists(parentDeletedKey));
+  }
+
+  private void putObject(String objectKey, byte[] data) throws Exception {
+    minioClient.putObject(
+        PutObjectArgs.builder().bucket(BUCKET).object(objectKey).stream(
+                new ByteArrayInputStream(data), (long) data.length, -1L)
+            .build());
+  }
+
+  private boolean objectExists(String objectKey) {
+    try {
+      minioClient.statObject(StatObjectArgs.builder().bucket(BUCKET).object(objectKey).build());
+      return true;
+    } catch (Exception e) {
+      return false;
+    }
   }
 }

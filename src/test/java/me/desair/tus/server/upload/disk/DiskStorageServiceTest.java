@@ -4,8 +4,11 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -30,6 +33,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
@@ -542,6 +546,28 @@ public class DiskStorageServiceTest {
   }
 
   @Test
+  public void cleanupExpiredUploadsNoArg() throws Exception {
+    when(uploadLockingService.isLocked(any(UploadId.class))).thenReturn(false);
+    storageService.setUploadLockingService(uploadLockingService);
+
+    String content = "This is the content of my upload";
+
+    UploadInfo info = new UploadInfo();
+    info.setLength((long) content.getBytes().length + 20);
+    info.updateExpiration(100L);
+
+    info = storageService.create(info, null);
+    assertTrue(Files.exists(getUploadInfoPath(info.getId())));
+
+    Utils.sleep(500L);
+    storageService.cleanupExpiredUploads();
+
+    assertFalse(Files.exists(getUploadInfoPath(info.getId())));
+    assertFalse(Files.exists(getStoragePath(info.getId())));
+    org.mockito.Mockito.verify(uploadLockingService).cleanupLock(info.getId());
+  }
+
+  @Test
   public void testDeduplicationEnabled() throws Exception {
     storageService.setUploadDeduplicationEnabled(true);
     assertTrue(storageService.isUploadDeduplicationEnabled());
@@ -561,7 +587,7 @@ public class DiskStorageServiceTest {
     parent.setLength(100L);
     parent.setOffset(100L);
     parent.setChecksum("parentchecksumvalue");
-    parent.setChecksumAlgorithm(me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+    parent.setChecksumAlgorithm(ChecksumAlgorithm.SHA256);
     parent = storageService.create(parent, null);
     // Write dummy data so getBytesPath checks succeed
     Files.write(getUploadDataPath(parent.getId()), new byte[100]);
@@ -571,8 +597,7 @@ public class DiskStorageServiceTest {
 
     // Verify index lookup finds it
     UploadInfo resolvedParent =
-        storageService.getUploadInfoByChecksum(
-            "parentchecksumvalue", me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+        storageService.getUploadInfoByChecksum("parentchecksumvalue", ChecksumAlgorithm.SHA256);
     assertThat(resolvedParent, is(notNullValue()));
     assertThat(resolvedParent.getId(), is(parent.getId()));
 
@@ -610,9 +635,84 @@ public class DiskStorageServiceTest {
     // Test parent termination removes parent index
     storageService.terminateUpload(parent);
     resolvedParent =
-        storageService.getUploadInfoByChecksum(
-            "parentchecksumvalue", me.desair.tus.server.checksum.ChecksumAlgorithm.SHA256);
+        storageService.getUploadInfoByChecksum("parentchecksumvalue", ChecksumAlgorithm.SHA256);
     assertThat(resolvedParent, is(nullValue()));
+  }
+
+  /**
+   * Verifies that when deduplication is enabled on DiskStorageService: 1. A completed upload with a
+   * checksum creates the physical directory and 'parent' marker on disk. 2. A deduplicated child
+   * upload creates a marker under 'children/'. 3. Terminating the parent while the child is active
+   * writes the 'parent-deleted' tombstone marker and preserves parent data bytes. 4. Terminating
+   * the child (last child) purges both parent data bytes and the checksum directory.
+   */
+  @Test
+  public void testChecksumDirectoryCreationAndCleanupOnDisk() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    storageService.setUploadLockingService(uploadLockingService);
+
+    String sha1Hex = "0123456789abcdef0123456789abcdef01234567";
+    Path indexDir = storagePath.resolve("checksums").resolve("sha1").resolve(sha1Hex);
+    Path parentMarker = indexDir.resolve("parent");
+    Path parentDeletedMarker = indexDir.resolve("parent-deleted");
+
+    // 1. Create completed parent upload with SHA1 checksum
+    UploadInfo parent = new UploadInfo();
+    parent.setLength(100L);
+    parent.setOffset(100L);
+    parent.setChecksum(sha1Hex);
+    parent.setChecksumAlgorithm(ChecksumAlgorithm.SHA1);
+    parent = storageService.create(parent, null);
+    Files.write(getUploadDataPath(parent.getId()), new byte[100]);
+    parent.setOffset(100L);
+    storageService.update(parent);
+
+    // Assert that the checksum directory and parent pointer exist on disk
+    assertTrue(
+        "Checksum directory must exist on disk after parent upload", Files.isDirectory(indexDir));
+    assertTrue("Parent pointer file must exist on disk", Files.isRegularFile(parentMarker));
+    assertEquals(
+        parent.getId().toString(), Files.readString(parentMarker, StandardCharsets.UTF_8).trim());
+    assertFalse(
+        "Parent-deleted marker must not exist initially", Files.exists(parentDeletedMarker));
+
+    // 2. Create duplicate child upload
+    UploadInfo child = new UploadInfo();
+    child.setLength(100L);
+    child.setOffset(100L);
+    child.setChecksum(sha1Hex);
+    child.setChecksumAlgorithm(ChecksumAlgorithm.SHA1);
+    child = storageService.create(child, null);
+    Files.write(getUploadDataPath(child.getId()), new byte[100]);
+    child.setOffset(100L);
+    storageService.update(child);
+
+    Path childMarker = indexDir.resolve("children").resolve(child.getId().toString());
+    assertTrue(
+        "Child marker file must exist on disk under children/", Files.isRegularFile(childMarker));
+    assertFalse(
+        "Child physical data file must be removed", Files.exists(getUploadDataPath(child.getId())));
+
+    // 3. Terminate parent upload (child still alive)
+    storageService.terminateUpload(parent);
+
+    assertTrue(
+        "Parent-deleted tombstone marker must exist on disk",
+        Files.isRegularFile(parentDeletedMarker));
+    assertTrue(
+        "Parent marker file must still exist while child is active",
+        Files.isRegularFile(parentMarker));
+    assertTrue(
+        "Parent physical data file must still exist while child is active",
+        Files.exists(getUploadDataPath(parent.getId())));
+
+    // 4. Terminate child upload (last child)
+    storageService.terminateUpload(child);
+
+    assertFalse(
+        "Parent physical data file must be deleted upon last child termination",
+        Files.exists(getUploadDataPath(parent.getId())));
+    assertFalse("Checksum directory must be completely removed from disk", Files.exists(indexDir));
   }
 
   @Test
@@ -1135,5 +1235,110 @@ public class DiskStorageServiceTest {
     // Null is ignored preserving current value
     storageService.setDrainTimeout(null);
     assertThat(storageService.getDrainTimeout(), is(Duration.ofSeconds(20)));
+  }
+
+  @Test
+  public void testDataExistsAndDeleteData() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(100L);
+    UploadInfo created = storageService.create(info, "owner");
+    assertTrue(storageService.dataExists(created.getId()));
+
+    storageService.deleteData(created.getId());
+    assertFalse(storageService.dataExists(created.getId()));
+
+    Files.write(getUploadDataPath(created.getId()), new byte[100]);
+    assertTrue(storageService.dataExists(created.getId()));
+
+    storageService.deleteData(created.getId());
+    assertFalse(storageService.dataExists(created.getId()));
+    assertFalse(storageService.dataExists(null));
+  }
+
+  @Test
+  public void testPruneOrphanedChecksumIndicesOnDisk() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    String sha1Hex = "0123456789abcdef0123456789abcdef01234567";
+    Path indexDir = storagePath.resolve("checksums").resolve("sha1").resolve(sha1Hex);
+    Files.createDirectories(indexDir);
+    Path parentMarker = indexDir.resolve("parent");
+    Files.writeString(parentMarker, "orphan-parent-id", StandardCharsets.UTF_8);
+
+    assertTrue(Files.exists(parentMarker));
+
+    storageService.cleanupExpiredUploads(null);
+
+    assertFalse(Files.exists(parentMarker));
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void testSetUploadLockingServiceNullThrowsNpe() {
+    storageService.setUploadLockingService(null);
+  }
+
+  @Test
+  public void testGetUploadLockingServiceReturnsConfiguredInstance() {
+    assertNotNull(storageService.getUploadLockingService());
+  }
+
+  @Test
+  public void testPruneOrphanedChecksumIndicesAbandonedTombstoneOnDisk() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    String sha1Hex = "abcdef0123456789abcdef0123456789abcdef01";
+    Path indexDir = storagePath.resolve("checksums").resolve("sha1").resolve(sha1Hex);
+    Files.createDirectories(indexDir);
+    Path parentMarker = indexDir.resolve("parent");
+    Path parentDeletedMarker = indexDir.resolve("parent-deleted");
+    Files.writeString(parentMarker, "tombstone-parent-id", StandardCharsets.UTF_8);
+    Files.writeString(parentDeletedMarker, "", StandardCharsets.UTF_8);
+
+    assertTrue(Files.exists(parentMarker));
+    assertTrue(Files.exists(parentDeletedMarker));
+
+    storageService.cleanupExpiredUploads(null);
+
+    assertFalse(Files.exists(parentMarker));
+    assertFalse(Files.exists(parentDeletedMarker));
+  }
+
+  @Test
+  public void testDeduplicateWhenDisabledOrNullParams() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("test-id"));
+    ChecksumKey key =
+        ChecksumKey.of("0123456789abcdef0123456789abcdef01234567", ChecksumAlgorithm.SHA1);
+
+    storageService.setUploadDeduplicationEnabled(false);
+    assertEquals(info, storageService.deduplicate(info, key));
+
+    storageService.setUploadDeduplicationEnabled(true);
+    assertNull(storageService.deduplicate(null, key));
+    assertEquals(info, storageService.deduplicate(info, null));
+  }
+
+  @Test
+  public void testGetUploadInfoByChecksumNullParams() throws Exception {
+    assertNull(storageService.getUploadInfoByChecksum(null, ChecksumAlgorithm.SHA1));
+    assertNull(
+        storageService.getUploadInfoByChecksum("0123456789abcdef0123456789abcdef01234567", null));
+  }
+
+  @Test(expected = IOException.class)
+  public void testGetUploadInfoByChecksumUnsafeThrowsIOException() throws Exception {
+    storageService.getUploadInfoByChecksum(" / ", ChecksumAlgorithm.SHA1);
+  }
+
+  @Test(expected = IOException.class)
+  public void testUpdateWithMalformedChecksumThrowsIOException() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("malformed-sum-id"));
+    info.setLength(10L);
+    info.setChecksum("!!!");
+    info.setChecksumAlgorithm(ChecksumAlgorithm.SHA1);
+    info = storageService.create(info, null);
+    info.setOffset(10L);
+
+    storageService.update(info);
   }
 }

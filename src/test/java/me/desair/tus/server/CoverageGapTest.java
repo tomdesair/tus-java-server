@@ -489,9 +489,16 @@ public class CoverageGapTest {
     UploadLockingService mockLocking = org.mockito.Mockito.mock(UploadLockingService.class);
     mockHandler.process(HttpMethod.PATCH, null, null, null, mockLocking, "owner", null);
 
-    // Test branch: uploadLockingService == null, servletRequest != null
+    // Test process with NoOpUploadLockingService
     TusServletRequest mockRequest = org.mockito.Mockito.mock(TusServletRequest.class);
-    mockHandler.process(HttpMethod.PATCH, mockRequest, null, null, null, "owner", null);
+    mockHandler.process(
+        HttpMethod.PATCH,
+        mockRequest,
+        null,
+        null,
+        new me.desair.tus.server.upload.NoOpUploadLockingService(),
+        "owner",
+        null);
 
     // Test branch: uploadLockingService != null, servletRequest != null
     mockHandler.process(HttpMethod.PATCH, mockRequest, null, null, mockLocking, "owner", null);

@@ -1,6 +1,7 @@
 package me.desair.tus.server.upload;
 
 import java.io.IOException;
+import java.io.InputStream;
 import me.desair.tus.server.exception.TusException;
 
 /**
@@ -17,6 +18,21 @@ public interface UploadLockingService {
    * @throws TusException If the upload is already locked
    */
   UploadLock lockUploadByUri(String requestUri) throws TusException, IOException;
+
+  /**
+   * Lock the upload resource associated with the given {@link UploadId}.
+   *
+   * @param id The upload ID to lock
+   * @return The lock on the upload, or null if no lock was applied
+   * @throws TusException If the upload is already locked
+   * @throws IOException If locking fails
+   */
+  default UploadLock lockUpload(UploadId id) throws TusException, IOException {
+    if (id == null) {
+      return null;
+    }
+    return lockUploadByUri(id.toString());
+  }
 
   /**
    * Clean up any stale locks that are still present.
@@ -48,7 +64,7 @@ public interface UploadLockingService {
    * @param requestUri The request URI of the active request
    * @param inputStream The input stream of the active request
    */
-  default void registerInputStream(String requestUri, java.io.InputStream inputStream) {
+  default void registerInputStream(String requestUri, InputStream inputStream) {
     // No-op by default for backwards compatibility
   }
 

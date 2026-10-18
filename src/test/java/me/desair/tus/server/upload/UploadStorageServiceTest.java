@@ -9,6 +9,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
@@ -75,10 +76,6 @@ public class UploadStorageServiceTest {
           @Override
           public void copyUploadTo(UploadInfo info, OutputStream outputStream)
               throws UploadNotFoundException, IOException {}
-
-          @Override
-          public void cleanupExpiredUploads(UploadLockingService uploadLockingService)
-              throws IOException {}
 
           @Override
           public void removeLastNumberOfBytes(UploadInfo uploadInfo, long byteCount)
@@ -151,5 +148,39 @@ public class UploadStorageServiceTest {
 
     // Default close is a no-op
     dummyStorageService.close();
+  }
+
+  @Test
+  public void testDefaultDeduplicateAndLockingService() throws Exception {
+    UploadInfo info = new UploadInfo();
+    ChecksumKey key =
+        ChecksumKey.of("0123456789abcdef0123456789abcdef01234567", ChecksumAlgorithm.SHA1);
+    assertThat(dummyStorageService.deduplicate(info, key), is(info));
+    dummyStorageService.setUploadLockingService(new NoOpUploadLockingService());
+    assertThat(dummyStorageService.getUploadLockingService(), is(nullValue()));
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void testSetUploadLockingServiceThrowsOnNull() {
+    dummyStorageService.setUploadLockingService(null);
+  }
+
+  @Test
+  public void testDefaultDataExistsAndDeleteData() throws Exception {
+    UploadId id = new UploadId("test-id");
+    assertThat(dummyStorageService.dataExists(id), is(false));
+
+    // KISS: verifying method executes cleanly without throwing an exception
+    dummyStorageService.deleteData(id);
+  }
+
+  @Test
+  public void testDefaultCleanupExpiredUploads() throws Exception {
+    // KISS: verifying method executes cleanly without throwing an exception
+    dummyStorageService.cleanupExpiredUploads();
+    dummyStorageService.cleanupExpiredUploads(null);
+
+    UploadLockingService mockLocking = org.mockito.Mockito.mock(UploadLockingService.class);
+    dummyStorageService.cleanupExpiredUploads(mockLocking);
   }
 }

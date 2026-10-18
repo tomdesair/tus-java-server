@@ -69,12 +69,13 @@ public abstract class AbstractTusExtension implements TusExtension {
       UploadStorageService uploadStorageService,
       String ownerKey)
       throws IOException, TusException {
+    UploadLockingService lockingService = Utils.getLockingServiceOrDefault(uploadStorageService);
     process(
         method,
         servletRequest,
         servletResponse,
         uploadStorageService,
-        null,
+        lockingService,
         ownerKey,
         ProtocolVersion.TUS_1_0_0);
   }
@@ -94,6 +95,9 @@ public abstract class AbstractTusExtension implements TusExtension {
       return;
     }
 
+    UploadLockingService lockingServiceToUse =
+        Utils.getLockingServiceOrDefault(uploadLockingService, uploadStorageService);
+
     for (RequestHandler requestHandler : requestHandlers) {
       if (requestHandler.supports(method, version)) {
         requestHandler.process(
@@ -101,7 +105,7 @@ public abstract class AbstractTusExtension implements TusExtension {
             servletRequest,
             servletResponse,
             uploadStorageService,
-            uploadLockingService,
+            lockingServiceToUse,
             ownerKey,
             null);
       }
@@ -116,13 +120,14 @@ public abstract class AbstractTusExtension implements TusExtension {
       UploadStorageService uploadStorageService,
       String ownerKey)
       throws IOException, TusException {
+    UploadLockingService lockingService = Utils.getLockingServiceOrDefault(uploadStorageService);
     HttpProblemDetails pd =
         handleError(
             method,
             request,
             response,
             uploadStorageService,
-            null,
+            lockingService,
             ownerKey,
             ProtocolVersion.TUS_1_0_0,
             null);
@@ -147,6 +152,9 @@ public abstract class AbstractTusExtension implements TusExtension {
       return null;
     }
 
+    UploadLockingService lockingServiceToUse =
+        Utils.getLockingServiceOrDefault(uploadLockingService, uploadStorageService);
+
     HttpProblemDetails problemDetails = null;
     for (RequestHandler requestHandler : requestHandlers) {
       if (requestHandler.supports(method, version) && requestHandler.isErrorHandler()) {
@@ -156,7 +164,7 @@ public abstract class AbstractTusExtension implements TusExtension {
                 request,
                 response,
                 uploadStorageService,
-                uploadLockingService,
+                lockingServiceToUse,
                 ownerKey,
                 exception);
         if (pd != null) {

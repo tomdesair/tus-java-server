@@ -117,7 +117,6 @@ public class TerminationDeleteRequestHandlerTest {
         null);
 
     verify(uploadStorageService, times(1)).terminateUpload(info);
-    verify(mockLocking, times(1)).cleanupLock(id);
     assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_NO_CONTENT));
   }
 }

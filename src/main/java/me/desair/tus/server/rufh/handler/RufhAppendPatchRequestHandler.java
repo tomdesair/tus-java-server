@@ -72,11 +72,9 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
     InputStream is = servletRequest.getContentInputStream();
     InterruptibleInputStream interruptibleStream = null;
     if (is != null) {
-      if (uploadLockingService != null) {
-        interruptibleStream = new InterruptibleInputStream(is);
-        uploadLockingService.registerInputStream(requestUri, interruptibleStream);
-        is = interruptibleStream;
-      }
+      interruptibleStream = new InterruptibleInputStream(is);
+      uploadLockingService.registerInputStream(requestUri, interruptibleStream);
+      is = interruptibleStream;
       try {
         UploadInfo appended = uploadStorageService.append(uploadInfo, is);
         if (appended != null) {

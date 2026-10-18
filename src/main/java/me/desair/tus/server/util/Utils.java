@@ -32,7 +32,9 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.upload.NoOpUploadLockingService;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.io.serialization.ValidatingObjectInputStream;
 import org.apache.commons.lang3.StringUtils;
@@ -701,5 +703,50 @@ public class Utils {
     } catch (Exception e) {
       log.debug("Error scanning directory {} for stale temporary files: {}", dir, e.getMessage());
     }
+  }
+
+  /**
+   * Returns the given {@link UploadLockingService} if non-null, or attempts to retrieve it from the
+   * provided {@link UploadStorageService}, falling back to a non-null {@link
+   * NoOpUploadLockingService}.
+   *
+   * @param lockingService The locking service instance (may be null)
+   * @param storageService The storage service instance (may be null)
+   * @return A non-null {@link UploadLockingService}
+   */
+  public static UploadLockingService getLockingServiceOrDefault(
+      UploadLockingService lockingService, UploadStorageService storageService) {
+    if (lockingService != null) {
+      return lockingService;
+    }
+    return getLockingServiceOrDefault(storageService);
+  }
+
+  /**
+   * Returns the {@link UploadLockingService} associated with the provided {@link
+   * UploadStorageService}, falling back to a non-null {@link NoOpUploadLockingService} if either is
+   * null or unconfigured.
+   *
+   * @param storageService The storage service instance (may be null)
+   * @return A non-null {@link UploadLockingService}
+   */
+  public static UploadLockingService getLockingServiceOrDefault(
+      UploadStorageService storageService) {
+    if (storageService != null && storageService.getUploadLockingService() != null) {
+      return storageService.getUploadLockingService();
+    }
+    return new NoOpUploadLockingService();
+  }
+
+  /**
+   * Returns the given {@link UploadLockingService} if non-null, falling back to a non-null {@link
+   * NoOpUploadLockingService}.
+   *
+   * @param lockingService The locking service instance (may be null)
+   * @return A non-null {@link UploadLockingService}
+   */
+  public static UploadLockingService getLockingServiceOrDefault(
+      UploadLockingService lockingService) {
+    return lockingService != null ? lockingService : new NoOpUploadLockingService();
   }
 }

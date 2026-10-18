@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.disk.DiskStorageService;
 import me.desair.tus.server.upload.disk.LeaseFileLockingService;
 import org.apache.commons.io.FileUtils;
@@ -46,5 +47,11 @@ public class ITLeaseFileTusFileUploadService extends AbstractITTusFileUploadServ
         .withUploadExpirationPeriod(2L * 24 * 60 * 60 * 1000)
         .withDownloadFeature()
         .withChunkedTransferDecoding(true);
+  }
+
+  @Override
+  protected void deleteUploadedBytesOutOfBand(UploadId uploadId) throws Exception {
+    Files.deleteIfExists(
+        storagePath.resolve("uploads").resolve(uploadId.toString()).resolve("data"));
   }
 }

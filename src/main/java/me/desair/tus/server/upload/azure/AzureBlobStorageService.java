@@ -4,7 +4,6 @@ import com.azure.core.util.BinaryData;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.models.BlobItem;
-import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.Block;
 import com.azure.storage.blob.models.BlockList;
@@ -33,6 +32,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.exception.MinAppendSizeNotMetException;
 import me.desair.tus.server.exception.TusException;
@@ -43,6 +43,7 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
+import me.desair.tus.server.upload.checksum.DeduplicationService;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.util.AsyncChunkUploader;
 import me.desair.tus.server.util.InterruptibleInputStream;
@@ -51,7 +52,6 @@ import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.BoundedInputStream;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -106,6 +106,9 @@ public class AzureBlobStorageService implements UploadStorageService {
   private Long minSize;
   private Long uploadExpirationPeriod;
   private boolean deduplicationEnabled = false;
+  private final AzureBlobChecksumIndex checksumIndex;
+  private DeduplicationService deduplicationService;
+  private UploadLockingService uploadLockingService;
 
   private UploadIdFactory idFactory = new UuidUploadIdFactory();
   private UploadConcatenationService concatenationService;
@@ -175,6 +178,11 @@ public class AzureBlobStorageService implements UploadStorageService {
 
     this.concatenationService =
         new AzureBlobConcatenationService(containerClient, this.uploadPrefix, this);
+
+    this.checksumIndex = new AzureBlobChecksumIndex(this.containerClient, this.checksumsPrefix);
+    this.deduplicationService = new DeduplicationService(this.checksumIndex, this);
+    this.uploadLockingService = new AzureBlobLockingService(this.containerClient, this.locksPrefix);
+    this.deduplicationService.setUploadLockingService(this.uploadLockingService);
   }
 
   @Override
@@ -468,7 +476,7 @@ public class AzureBlobStorageService implements UploadStorageService {
 
   @SuppressWarnings("java:S2095") // InputStream is returned to caller for external management
   @Override
-  public InputStream getUploadedBytes(UploadId id) throws IOException {
+  public InputStream getUploadedBytes(UploadId id) throws IOException, UploadNotFoundException {
     UploadInfo info = getUploadInfo(id);
     if (info == null) {
       return null;
@@ -484,6 +492,11 @@ public class AzureBlobStorageService implements UploadStorageService {
       }
     } catch (Exception ignored) {
       // Data blob does not exist yet (e.g. 0-byte upload or immediately after creation)
+    }
+
+    if (info.getOffset() != null && info.getOffset() > 0L) {
+      throw new UploadNotFoundException(
+          "Uploaded bytes blob " + targetBlobName + " not found for ID " + id);
     }
 
     return new ByteArrayInputStream(new byte[0]);
@@ -504,45 +517,44 @@ public class AzureBlobStorageService implements UploadStorageService {
   }
 
   @Override
+  public void setUploadLockingService(UploadLockingService uploadLockingService) {
+    this.uploadLockingService =
+        Objects.requireNonNull(uploadLockingService, "uploadLockingService must not be null");
+    if (this.deduplicationService != null) {
+      this.deduplicationService.setUploadLockingService(uploadLockingService);
+    }
+  }
+
+  @Override
+  public UploadLockingService getUploadLockingService() {
+    return this.uploadLockingService;
+  }
+
+  @Override
+  public UploadInfo deduplicate(UploadInfo uploadInfo, ChecksumKey checksumKey) throws IOException {
+    if (!isUploadDeduplicationEnabled() || uploadInfo == null || checksumKey == null) {
+      return uploadInfo;
+    }
+    return deduplicationService.deduplicate(uploadInfo, checksumKey);
+  }
+
+  @Override
   public void terminateUpload(UploadInfo uploadInfo) throws UploadNotFoundException, IOException {
     if (uploadInfo == null || uploadInfo.getId() == null) {
       return;
     }
     UploadId id = uploadInfo.getId();
 
-    // 1. Delete committed data blob
-    containerClient.getBlobClient(uploadPrefix + id).deleteIfExists();
-
-    // 2. Delete metadata .info blob
-    containerClient.getBlobClient(metadataPrefix + id + ".info").deleteIfExists();
-
-    // 3. Delete checksum deduplication index blob if present
-    if (uploadInfo.getChecksum() != null && uploadInfo.getChecksumAlgorithm() != null) {
-      String checksumKey =
-          buildChecksumKey(uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm());
-      containerClient.getBlobClient(checksumKey).deleteIfExists();
+    boolean deleteData = true;
+    if (isUploadDeduplicationEnabled() && deduplicationService != null) {
+      deleteData = deduplicationService.removeUploadFromIndex(uploadInfo);
     }
 
-    // 4. Delete lock target and stop signal blobs
-    try {
-      containerClient.getBlobClient(locksPrefix + id + ".stop").deleteIfExists();
-    } catch (Exception ignored) {
+    if (deleteData) {
+      deleteData(id);
     }
-
-    try {
-      BlobClient lockBlob = containerClient.getBlobClient(locksPrefix + id + ".lock");
-      // Check if lock blob is actively leased by the current request before attempting deletion.
-      // Attempting deleteIfExists() on a leased blob without the lease ID causes Azure Blob
-      // Storage to reject the request with HTTP 412 (LeaseIdMissing) and logs an SDK error.
-      if (Boolean.TRUE.equals(lockBlob.exists())) {
-        BlobProperties props = lockBlob.getProperties();
-        if (props.getLeaseState() != null
-            && !Strings.CS.equals(props.getLeaseState().toString(), "leased")) {
-          lockBlob.deleteIfExists();
-        }
-      }
-    } catch (Exception ignored) {
-    }
+    deleteMetadata(id);
+    uploadLockingService.cleanupLock(id);
 
     log.debug("Terminated upload with ID {}", id);
   }
@@ -595,42 +607,51 @@ public class AzureBlobStorageService implements UploadStorageService {
     if (!isUploadDeduplicationEnabled() || checksum == null || algorithm == null) {
       return null;
     }
-
-    String checksumKey = buildChecksumKey(checksum, algorithm);
-    BlobClient checksumBlob = containerClient.getBlobClient(checksumKey);
-
+    ChecksumKey key;
     try {
-      byte[] bytes = checksumBlob.downloadContent().toBytes();
-      String parentIdStr = new String(bytes, StandardCharsets.UTF_8).trim();
-      UploadId parentId = new UploadId(parentIdStr);
-      UploadInfo parentInfo = getUploadInfo(parentId);
-
-      // Self-cleaning index: if index points to missing/deleted upload, clean up stale index
-      if (parentInfo == null) {
-        checksumBlob.deleteIfExists();
-        return null;
-      }
-
-      return parentInfo;
-    } catch (BlobStorageException e) {
-      if (AzureUtils.parseErrorResponse(e) == AzureErrorType.BLOB_NOT_FOUND) {
-        return null;
-      }
-      throw new IOException("Error reading checksum index blob " + checksumKey, e);
+      key = ChecksumKey.of(checksum, algorithm);
     } catch (Exception e) {
-      log.debug("Error retrieving upload info by checksum: {}", e.getMessage());
       return null;
     }
+    return deduplicationService != null ? deduplicationService.getUploadInfoByChecksum(key) : null;
   }
 
   @Override
   public void update(UploadInfo uploadInfo) throws IOException {
     Objects.requireNonNull(uploadInfo, "UploadInfo must not be null");
     saveUploadInfo(uploadInfo);
+
+    if (isUploadDeduplicationEnabled()
+        && uploadInfo.getChecksum() != null
+        && !uploadInfo.isUploadInProgress()
+        && uploadInfo.getDuplicatesUploadId() == null) {
+      checkAndApplyDeduplication(uploadInfo);
+    }
   }
 
   @Override
-  public void cleanupExpiredUploads(UploadLockingService lockingService) throws IOException {
+  public boolean dataExists(UploadId id) {
+    if (id == null) {
+      return false;
+    }
+    return Boolean.TRUE.equals(containerClient.getBlobClient(uploadPrefix + id).exists());
+  }
+
+  @Override
+  public void deleteData(UploadId id) {
+    if (id != null) {
+      containerClient.getBlobClient(uploadPrefix + id).deleteIfExists();
+    }
+  }
+
+  private void deleteMetadata(UploadId id) {
+    if (id != null) {
+      containerClient.getBlobClient(metadataPrefix + id + ".info").deleteIfExists();
+    }
+  }
+
+  @Override
+  public void cleanupExpiredUploads() throws IOException {
     Utils.cleanupTempFiles(this.tempBufferDir, "tus-azure-chunk-*.tmp", 24L * 3600_000L);
     ListBlobsOptions options = new ListBlobsOptions().setPrefix(metadataPrefix);
     for (BlobItem item : containerClient.listBlobs(options, null)) {
@@ -642,7 +663,7 @@ public class AzureBlobStorageService implements UploadStorageService {
         UploadInfo info = getUploadInfo(id);
         // Only clean up in-progress uploads; completed uploads must be preserved per Tus 1.0.0 spec
         if (info != null && info.isExpired() && info.isUploadInProgress()) {
-          if (lockingService != null && lockingService.isLocked(id)) {
+          if (this.uploadLockingService.isLocked(id)) {
             log.debug("Skipping cleanup of expired upload {} because it is currently locked", id);
             continue;
           }
@@ -652,19 +673,20 @@ public class AzureBlobStorageService implements UploadStorageService {
           } catch (UploadNotFoundException ignored) {
             // Upload was already terminated or deleted concurrently
           }
-          if (lockingService != null) {
-            lockingService.cleanupLock(id);
-          }
         }
       }
     }
 
-    // Prune orphaned checksum index entries pointing to expired/deleted parent uploads
-    pruneOrphanedChecksumIndices();
+    if (isUploadDeduplicationEnabled() && deduplicationService != null) {
+      deduplicationService.pruneOrphanedChecksumIndices();
+    }
   }
 
-  public void cleanupExpiredUploads() throws IOException {
-    cleanupExpiredUploads(null);
+  @Override
+  @Deprecated
+  public void cleanupExpiredUploads(UploadLockingService lockingService) throws IOException {
+    setUploadLockingService(Utils.getLockingServiceOrDefault(lockingService));
+    cleanupExpiredUploads();
   }
 
   // --- Configuration Getters & Setters ---
@@ -929,50 +951,6 @@ public class AzureBlobStorageService implements UploadStorageService {
     }
   }
 
-  /**
-   * Scans checksum deduplication index blobs under {@code checksumsPrefix} and deletes any index
-   * blobs whose referenced parent upload has expired or no longer exists in Azure.
-   */
-  private void pruneOrphanedChecksumIndices() {
-    // 1. Skip scanning if deduplication is disabled; no checksum indices are generated or
-    // referenced
-    if (!isUploadDeduplicationEnabled()) {
-      return;
-    }
-    try {
-      // 2. Query all index blobs located under the deduplication prefix (e.g.
-      // checksums/<algo>/<hash>)
-      ListBlobsOptions options = new ListBlobsOptions().setPrefix(checksumsPrefix);
-      for (BlobItem item : containerClient.listBlobs(options, null)) {
-        try {
-          BlobClient checksumBlob = containerClient.getBlobClient(item.getName());
-
-          // 3. Read the parent upload ID string stored as plain text inside the checksum index blob
-          String parentIdStr = checksumBlob.downloadContent().toString().trim();
-          UploadId parentId = new UploadId(parentIdStr);
-
-          // 4. Verify whether the parent upload's metadata (.info) still exists and is accessible
-          UploadInfo parentInfo = getUploadInfo(parentId);
-
-          // 5. Verify whether the parent upload's final data blob exists in Azure storage
-          BlobClient parentDataBlob = containerClient.getBlobClient(uploadPrefix + parentId);
-
-          // 6. If the parent upload or its data blob no longer exists (e.g. expired, deleted, or
-          // purged
-          // by Azure lifecycle policies), prune the orphaned index entry to keep storage clean
-          if (parentInfo == null || !Boolean.TRUE.equals(parentDataBlob.exists())) {
-            log.debug("Pruning orphaned Azure checksum index blob {}", item.getName());
-            checksumBlob.deleteIfExists();
-          }
-        } catch (Exception ignored) {
-          // Ignore individual blob read errors to allow full sweep of remaining index entries
-        }
-      }
-    } catch (Exception e) {
-      log.debug("Failed to prune orphaned Azure checksum indices: {}", e.getMessage());
-    }
-  }
-
   /** Commits empty block list for 0-byte upload completion. */
   private void commitEmptyDataBlob(UploadId id) {
     BlockBlobClient blockBlobClient =
@@ -995,7 +973,6 @@ public class AzureBlobStorageService implements UploadStorageService {
     return Base64.getEncoder().encodeToString(idString.getBytes(StandardCharsets.UTF_8));
   }
 
-  /** Checks for deduplication match and links upload if duplicate. */
   private void checkAndApplyDeduplication(UploadInfo uploadInfo) throws IOException {
     if (!isUploadDeduplicationEnabled()
         || uploadInfo == null
@@ -1004,30 +981,13 @@ public class AzureBlobStorageService implements UploadStorageService {
       return;
     }
 
-    String checksum = uploadInfo.getChecksum();
-    ChecksumAlgorithm algorithm = uploadInfo.getChecksumAlgorithm();
-
-    UploadInfo existingUpload = getUploadInfoByChecksum(checksum, algorithm);
-    if (existingUpload != null && !existingUpload.getId().equals(uploadInfo.getId())) {
-      log.info(
-          "Found duplicate upload with checksum {}/{} (parent ID {})",
-          algorithm,
-          checksum,
-          existingUpload.getId());
-      uploadInfo.setDuplicatesUploadId(existingUpload.getId());
-      containerClient.getBlobClient(uploadPrefix + uploadInfo.getId()).deleteIfExists();
-    } else {
-      String checksumKey = buildChecksumKey(checksum, algorithm);
-      BlobClient checksumBlob = containerClient.getBlobClient(checksumKey);
-      byte[] idBytes = uploadInfo.getId().toString().getBytes(StandardCharsets.UTF_8);
-      checksumBlob.upload(BinaryData.fromBytes(idBytes), true);
+    try {
+      ChecksumKey key = ChecksumKey.of(uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm());
+      deduplicate(uploadInfo, key);
+    } catch (Exception e) {
+      log.warn(
+          "Failed to apply deduplication for upload {}: {}", uploadInfo.getId(), e.getMessage());
     }
-  }
-
-  /** Builds checksum index key path. */
-  private String buildChecksumKey(String checksum, ChecksumAlgorithm algorithm) {
-    String algorithmName = algorithm != null ? algorithm.getTusName().toLowerCase() : "unknown";
-    return checksumsPrefix + algorithmName + "/" + checksum;
   }
 
   /** Sanitizes object key prefix format. */

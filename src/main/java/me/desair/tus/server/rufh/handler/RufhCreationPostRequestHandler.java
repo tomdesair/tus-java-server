@@ -115,11 +115,9 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
     InputStream is = servletRequest.getContentInputStream();
     InterruptibleInputStream interruptibleStream = null;
     if (is != null && hasContent) {
-      if (uploadLockingService != null) {
-        interruptibleStream = new InterruptibleInputStream(is);
-        uploadLockingService.registerInputStream(uploadUri, interruptibleStream);
-        is = interruptibleStream;
-      }
+      interruptibleStream = new InterruptibleInputStream(is);
+      uploadLockingService.registerInputStream(uploadUri, interruptibleStream);
+      is = interruptibleStream;
       try {
         UploadInfo appended = uploadStorageService.append(uploadInfo, is);
         if (appended != null) {

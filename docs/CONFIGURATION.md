@@ -49,7 +49,7 @@ For Azure Blob Storage dependencies see the [Azure Blob Storage Guide](AZURE_BLO
 | `withMaxUploadSize(Long)` | `Long.MAX_VALUE` | Maximum allowed total upload size in bytes per upload resource. |
 | `withMaxAppendSize(Long)` / `withMinAppendSize(Long)` / `withMinSize(Long)` | No limit | IETF RUFH only: maximum size of a single append (`PATCH`) request, minimum size of an append or creation request, and minimum total upload size (all in bytes). |
 | `withUploadExpirationPeriod(Long)` | `null` (disabled) | Expiration period in **milliseconds** after which incomplete/expired uploads become eligible for cleanup (run `cleanup()` periodically, see the [Integration Guide](INTEGRATION_GUIDE.md#3-cleanup)). |
-| `withUploadDeduplication(Boolean)` | `false` | Enables duplicate file detection by checksum, linking new uploads (`duplicatesUploadId`) and skipping redundant storage writes. |
+| `withUploadDeduplication(Boolean)` | `false` | Enables duplicate file detection by checksum, linking new uploads (`duplicatesUploadId`) and skipping redundant storage writes. See [Upload Deduplication & Migration](DEDUPLICATION.md). |
 
 ### Identity, events & serialization
 
@@ -64,7 +64,7 @@ For Azure Blob Storage dependencies see the [Azure Blob Storage Guide](AZURE_BLO
 | Method | Default | Description |
 |---|---|---|
 | `withStoragePath(String)` | `${java.io.tmpdir}/tus` | Path on the filesystem or shared drive where uploaded bytes and metadata are stored when using `DiskStorageService`. Also configures `LeaseFileLockingService`. |
-| `withUploadStorageService(UploadStorageService)` | `DiskStorageService` | Configures custom or cloud storage backend (`DiskStorageService`, `S3StorageService`, `AzureBlobStorageService`). Automatically copies over previous limits and configuration. |
+| `withUploadStorageService(UploadStorageService)` | `DiskStorageService` | Configures custom or cloud storage backend (`DiskStorageService`, `S3StorageService`, `AzureBlobStorageService`). Automatically copies over previous limits and configuration. For guidelines on implementing custom storage backends, see [ARCHITECTURE.md](ARCHITECTURE.md#implementing-a-custom-storage-backend). |
 | `withUploadLockingService(UploadLockingService)` | `LeaseFileLockingService` | Configures custom or cloud locking backend (`LeaseFileLockingService`, `S3LockingService`, `AzureBlobLockingService`). |
 | `withLockWaitTimeout(Duration)` | `Duration.ofSeconds(60)` | Maximum duration a request waits to acquire an upload lock held by an in-flight transfer (retrying every 200ms, resulting in 300 retries). Automatically configures cloud background chunk drain timeout to 5s less than this value (default 55s). See [LOCKING.md](LOCKING.md). |
 | `withThreadLocalCache(Boolean)` | `false` | Enables in-memory thread-local caching of upload request data to reduce storage backend I/O load. Strongly recommended for cloud backends (S3, Azure) to eliminate redundant remote metadata lookups per request. |

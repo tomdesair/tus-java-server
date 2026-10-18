@@ -111,6 +111,20 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
   }
 
   @Override
+  public UploadLock lockUpload(UploadId uploadId) throws TusException, IOException {
+    if (uploadId == null) {
+      return null;
+    }
+
+    String holderId = UUID.randomUUID().toString();
+    UploadLock lock = acquireOrEvictExpiredLock(uploadId, holderId, uploadId.toString());
+    if (lock == null) {
+      throw new UploadAlreadyLockedException("Upload with ID " + uploadId + " is currently locked");
+    }
+    return lock;
+  }
+
+  @Override
   public boolean isLocked(UploadId id) {
     if (id == null) {
       return false;

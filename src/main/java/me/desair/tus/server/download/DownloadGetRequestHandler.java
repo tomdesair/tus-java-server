@@ -65,9 +65,8 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
                 .replace("+", "%20")));
 
     servletResponse.setHeader(HttpHeader.CONTENT_TYPE, info.getFileMimeType());
+    servletResponse.setStatus(HttpServletResponse.SC_OK);
 
     uploadStorageService.copyUploadTo(info, servletResponse.getOutputStream());
-
-    servletResponse.setStatus(HttpServletResponse.SC_OK);
   }
 }

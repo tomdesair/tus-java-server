@@ -282,6 +282,7 @@ Detailed Tus and RUFH flow diagrams: [Protocols](docs/PROTOCOLS.md).
 | Tus vs. IETF RUFH, protocol version selection, extensions, HTTP digests, 104 responses | [Protocols](docs/PROTOCOLS.md), [Migrating clients to RUFH](docs/MIGRATION.md), [Interim responses](docs/INTERIM_RESPONSES.md) |
 | Multi-replica, Kubernetes, reverse proxies | [Deployment Guide](docs/DEPLOYMENT.md), [Locking](docs/LOCKING.md) |
 | Storage backends | [Disk & network (NFS/EFS/SMB)](docs/DISK_BASED_LOCKING.md), [S3-compatible](docs/S3_STORAGE.md), [Azure Blob](docs/AZURE_BLOB_STORAGE.md) |
+| Upload deduplication | [Upload Deduplication & Migration](docs/DEDUPLICATION.md) |
 | Problems | [Troubleshooting](docs/TROUBLESHOOTING.md) |
 | Upgrading from 1.x | [Upgrade Guide](docs/UPGRADING.md), [CHANGELOG](CHANGELOG.md) |
 

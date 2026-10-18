@@ -89,11 +89,13 @@ TusFileUploadService tusService = new TusFileUploadService()
 
 ```
 <container>/
-├── uploads/<uploadId>                # Final upload data (Block Blob)
-├── metadata/<uploadId>.info          # JSON-serialized UploadInfo
-├── checksums/<algorithm>/<hex_hash>  # Deduplication checksum index object
-├── locks/<uploadId>.lock             # Distributed lock target blob (Blob Lease)
-└── locks/<uploadId>.stop             # Cross-replica contention interrupt signal
+├── uploads/<uploadId>                                       # Final upload data (Block Blob)
+├── metadata/<uploadId>.info                                 # JSON-serialized UploadInfo
+├── checksums/<algorithm>/<hex_hash>/parent                  # Deduplication parent pointer blob
+├── checksums/<algorithm>/<hex_hash>/parent-deleted          # Tombstone marker blob if parent deleted
+├── checksums/<algorithm>/<hex_hash>/children/<childId>      # Active duplicate child reference blob
+├── locks/<uploadId>.lock                                    # Distributed lock target blob (Blob Lease)
+└── locks/<uploadId>.stop                                    # Cross-replica contention interrupt signal
 ```
 
 ### Key Prefix Defaults

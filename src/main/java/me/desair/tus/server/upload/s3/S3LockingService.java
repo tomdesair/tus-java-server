@@ -138,6 +138,19 @@ public class S3LockingService extends AbstractLeaseLockingService {
   }
 
   /**
+   * Package-private constructor accepting {@link MinioClient} with default lease and poll settings.
+   */
+  S3LockingService(MinioClient minioClient, String bucket, String locksPrefix) {
+    this(
+        minioClient,
+        bucket,
+        locksPrefix,
+        DEFAULT_LEASE_DURATION_MS,
+        DEFAULT_POLL_INTERVAL_MS,
+        new UuidUploadIdFactory());
+  }
+
+  /**
    * Package-private constructor accepting {@link MinioClient} where all parameter configuration is
    * concentrated.
    */

@@ -191,24 +191,7 @@ public class CorePatchRequestHandlerTest {
   }
 
   @Test
-  public void testProcess7ParamsBranchCoverage() throws Exception {
-    UploadLockingService mockLocking = mock(UploadLockingService.class);
-
-    // lockingService != null, servletRequest == null
-    try {
-      handler.process(
-          HttpMethod.PATCH,
-          null,
-          new TusServletResponse(servletResponse),
-          uploadStorageService,
-          mockLocking,
-          "owner",
-          null);
-    } catch (Exception e) {
-      // Expected, we just need to hit the branch check
-    }
-
-    // lockingService == null, servletRequest != null
+  public void testProcessWithNoOpUploadLockingService() throws Exception {
     UploadInfo info = new UploadInfo();
     info.setId(new UploadId(UUID.randomUUID()));
     info.setOffset(2L);
@@ -223,9 +206,11 @@ public class CorePatchRequestHandlerTest {
         new TusServletRequest(servletRequest),
         new TusServletResponse(servletResponse),
         uploadStorageService,
-        null,
+        new me.desair.tus.server.upload.NoOpUploadLockingService(),
         "owner",
         null);
+
+    verify(uploadStorageService, times(1)).append(eq(info), any(InputStream.class));
   }
 
   @Test

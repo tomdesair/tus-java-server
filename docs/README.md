@@ -21,6 +21,7 @@
 - [Disk & network storage (NFS, EFS, SMB)](DISK_BASED_LOCKING.md)
 - [S3-compatible storage](S3_STORAGE.md)
 - [Azure Blob Storage](AZURE_BLOB_STORAGE.md)
+- [Upload Deduplication & Migration](DEDUPLICATION.md)
 
 ## Contributors & maintainers
 - [Architecture Guide](ARCHITECTURE.md), [CONTRIBUTING](../CONTRIBUTING.md), [Testing guide](TESTING.md), [Conformity testing](CONFORMITY_TESTING.md), [Release process](RELEASE.md)

@@ -12,6 +12,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -28,6 +29,8 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
@@ -44,6 +47,15 @@ public abstract class AbstractITTusFileUploadService {
 
   protected abstract TusFileUploadService createTusFileUploadService(String uploadUri)
       throws Exception;
+
+  /**
+   * Deletes the physical uploaded data bytes for the given upload ID out-of-band directly from the
+   * underlying storage backend.
+   *
+   * @param uploadId the upload ID whose data bytes should be deleted
+   * @throws Exception if deletion fails
+   */
+  protected abstract void deleteUploadedBytesOutOfBand(UploadId uploadId) throws Exception;
 
   protected static final String UPLOAD_URI = "/test/upload";
   protected static final String OWNER_KEY = "JOHN_DOE";
@@ -2440,6 +2452,670 @@ public abstract class AbstractITTusFileUploadService {
     try (InputStream stream = tusFileUploadService.getUploadedBytes(completedUploadInfo.get())) {
       assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(part1Content + part2Content));
     }
+  }
+
+  @Test
+  public void testDeduplicationAndParentChildDeletionLifecycle() throws Exception {
+    tusFileUploadService.withUploadDeduplication(true);
+
+    String content = "Hello Deduplication World 12345";
+    byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+    String sha1Base64 =
+        org.apache.commons.codec.binary.Base64.encodeBase64String(
+            org.apache.commons.codec.digest.DigestUtils.sha1(contentBytes));
+
+    // 1. Create parent upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String parentUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    // Upload parent content with checksum
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(parentUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo parentInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(parentInfo);
+    assertNull(parentInfo.getDuplicatesUploadId());
+
+    // 2. Create child upload with identical content and checksum
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String childUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    // Upload child content with checksum
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(childUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo childInfo = tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(childInfo);
+    // Verify child upload was linked to parent
+    assertEquals(parentInfo.getId(), childInfo.getDuplicatesUploadId());
+
+    // 3. Verify child can download bytes
+    try (InputStream is = tusFileUploadService.getUploadedBytes(childInfo)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+
+    // 4. Terminate parent upload via DELETE
+    reset();
+    servletRequest.setMethod("DELETE");
+    servletRequest.setRequestURI(parentUri);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+    // Verify parent upload info is gone
+    UploadInfo deletedParent = tusFileUploadService.getUploadInfo(parentUri, OWNER_KEY);
+    assertNull(deletedParent);
+
+    // 5. Child STILL has readable content (parent data preserved via tombstone)
+    try (InputStream is = tusFileUploadService.getUploadedBytes(childInfo)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+
+    // 6. Terminate child upload via DELETE
+    reset();
+    servletRequest.setMethod("DELETE");
+    servletRequest.setRequestURI(childUri);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+    // Verify child is also gone
+    UploadInfo deletedChild = tusFileUploadService.getUploadInfo(childUri, OWNER_KEY);
+    assertNull(deletedChild);
+
+    // 7. Create third upload with SAME checksum - should register as new parent cleanly
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String newParentUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(newParentUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo newParentInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(newParentInfo);
+    assertNull(newParentInfo.getDuplicatesUploadId());
+  }
+
+  @Test
+  public void testMultiChildDeduplicationAndParentDeletionLifecycle() throws Exception {
+    tusFileUploadService.withUploadDeduplication(true);
+
+    String content = "Multi Child Deduplication Test Payload 12345";
+    byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+    String sha1Base64 =
+        org.apache.commons.codec.binary.Base64.encodeBase64String(
+            org.apache.commons.codec.digest.DigestUtils.sha1(contentBytes));
+
+    // 1. Create and complete parent upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String parentUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(parentUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo parentInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(parentInfo);
+    assertNull(parentInfo.getDuplicatesUploadId());
+
+    // 2. Create and complete child 1 upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String child1Uri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(child1Uri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo child1Info =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(child1Info);
+    assertEquals(parentInfo.getId(), child1Info.getDuplicatesUploadId());
+
+    // 3. Create and complete child 2 upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String child2Uri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(child2Uri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo child2Info =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(child2Info);
+    assertEquals(parentInfo.getId(), child2Info.getDuplicatesUploadId());
+
+    // 4. Terminate parent upload via DELETE
+    reset();
+    servletRequest.setMethod("DELETE");
+    servletRequest.setRequestURI(parentUri);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNull(tusFileUploadService.getUploadInfo(parentUri, OWNER_KEY));
+
+    // 5. Verify both children can still stream data
+    try (InputStream is = tusFileUploadService.getUploadedBytes(child1Info)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+    try (InputStream is = tusFileUploadService.getUploadedBytes(child2Info)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+
+    // 6. Terminate child 1 via DELETE
+    reset();
+    servletRequest.setMethod("DELETE");
+    servletRequest.setRequestURI(child1Uri);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNull(tusFileUploadService.getUploadInfo(child1Uri, OWNER_KEY));
+
+    // 7. Child 2 must STILL have readable data
+    try (InputStream is = tusFileUploadService.getUploadedBytes(child2Info)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+
+    // 8. Terminate child 2 via DELETE (last child out)
+    reset();
+    servletRequest.setMethod("DELETE");
+    servletRequest.setRequestURI(child2Uri);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNull(tusFileUploadService.getUploadInfo(child2Uri, OWNER_KEY));
+
+    // 9. Verify subsequent upload with same checksum registers cleanly as new parent
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String newParentUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(newParentUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo newParent = tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(newParent);
+    assertNull(newParent.getDuplicatesUploadId());
+  }
+
+  @Test
+  public void testDownloadFailsWhenParentBytesDeletedOutOfBandWithDeduplicationEnabled()
+      throws Exception {
+    tusFileUploadService.withUploadDeduplication(true);
+
+    String content = "Test Out Of Band Deletion With Deduplication Enabled";
+    byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+    String sha1Base64 =
+        org.apache.commons.codec.binary.Base64.encodeBase64String(
+            org.apache.commons.codec.digest.DigestUtils.sha1(contentBytes));
+
+    // 1. Create and complete parent upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String parentUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(parentUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo parentInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(parentInfo);
+    assertNull(parentInfo.getDuplicatesUploadId());
+
+    // 2. Create and complete child 1 upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String child1Uri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(child1Uri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo child1Info =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(child1Info);
+    assertEquals(parentInfo.getId(), child1Info.getDuplicatesUploadId());
+
+    // 3. Create and complete child 2 upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String child2Uri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(child2Uri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo child2Info =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(child2Info);
+    assertEquals(parentInfo.getId(), child2Info.getDuplicatesUploadId());
+
+    // 4. Verify initial download succeeds for all three
+    try (InputStream is = tusFileUploadService.getUploadedBytes(parentInfo)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+    try (InputStream is = tusFileUploadService.getUploadedBytes(child1Info)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+    try (InputStream is = tusFileUploadService.getUploadedBytes(child2Info)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+
+    // 5. Delete uploaded bytes of parent OUT-OF-BAND
+    deleteUploadedBytesOutOfBand(parentInfo.getId());
+
+    // 6. Verify programmatic download fails for parent, child 1, and child 2
+    assertThrows(
+        UploadNotFoundException.class, () -> tusFileUploadService.getUploadedBytes(parentInfo));
+    assertThrows(
+        UploadNotFoundException.class, () -> tusFileUploadService.getUploadedBytes(child1Info));
+    assertThrows(
+        UploadNotFoundException.class, () -> tusFileUploadService.getUploadedBytes(child2Info));
+
+    // 7. Verify HTTP GET download fails with 404 for parent, child 1, and child 2
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(parentUri);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
+
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(child1Uri);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
+
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(child2Uri);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
+  }
+
+  @Test
+  public void
+      testDownloadSucceedsForChildrenWhenParentBytesDeletedOutOfBandWithDeduplicationDisabled()
+          throws Exception {
+    tusFileUploadService.withUploadDeduplication(false);
+
+    String content = "Test Out Of Band Deletion With Deduplication Disabled";
+    byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+    String sha1Base64 =
+        org.apache.commons.codec.binary.Base64.encodeBase64String(
+            org.apache.commons.codec.digest.DigestUtils.sha1(contentBytes));
+
+    // 1. Create and complete parent upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String parentUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(parentUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo parentInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(parentInfo);
+    assertNull(parentInfo.getDuplicatesUploadId());
+
+    // 2. Create and complete child 1 upload (independent, not deduplicated)
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String child1Uri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(child1Uri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo child1Info =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(child1Info);
+    assertNull(child1Info.getDuplicatesUploadId());
+
+    // 3. Create and complete child 2 upload (independent, not deduplicated)
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String child2Uri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(child2Uri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo child2Info =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(child2Info);
+    assertNull(child2Info.getDuplicatesUploadId());
+
+    // 4. Delete uploaded bytes of parent OUT-OF-BAND
+    deleteUploadedBytesOutOfBand(parentInfo.getId());
+
+    // 5. Download of parent FAILS
+    assertThrows(
+        UploadNotFoundException.class, () -> tusFileUploadService.getUploadedBytes(parentInfo));
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(parentUri);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
+
+    // 6. Download of child 1 and child 2 SUCCEEDS
+    try (InputStream is = tusFileUploadService.getUploadedBytes(child1Info)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+    try (InputStream is = tusFileUploadService.getUploadedBytes(child2Info)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(child1Uri);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertThat(servletResponse.getContentAsString(), is(content));
+
+    reset();
+    servletRequest.setMethod("GET");
+    servletRequest.setRequestURI(child2Uri);
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_OK);
+    assertThat(servletResponse.getContentAsString(), is(content));
+  }
+
+  @Test
+  public void testNewChildJoinsTombstonedParentAndPurgesAfterAllChildrenDeleted() throws Exception {
+    tusFileUploadService.withUploadDeduplication(true);
+
+    String content = "Test Content For Tombstoned Parent Child Join " + UUID.randomUUID();
+    byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+    String sha1Base64 =
+        org.apache.commons.codec.binary.Base64.encodeBase64String(
+            org.apache.commons.codec.digest.DigestUtils.sha1(contentBytes));
+
+    // 1. Create and complete parent upload (P)
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String parentUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(parentUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo parentInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(parentInfo);
+    assertNull(parentInfo.getDuplicatesUploadId());
+
+    // 2. Create and complete first child upload (C1)
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String child1Uri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(child1Uri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo child1Info =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(child1Info);
+    assertEquals(parentInfo.getId(), child1Info.getDuplicatesUploadId());
+
+    // 3. Delete Parent (P) via DELETE HTTP request -> P is tombstoned while C1 remains
+    reset();
+    servletRequest.setMethod("DELETE");
+    servletRequest.setRequestURI(parentUri);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+    // Verify P is 404 / null
+    assertNull(tusFileUploadService.getUploadInfo(parentUri, OWNER_KEY));
+
+    // Verify C1 can still download data
+    try (InputStream is = tusFileUploadService.getUploadedBytes(child1Info)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+
+    // 4. Create and complete new child upload (C2) while P is tombstoned
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String child2Uri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(child2Uri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo child2Info =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(child2Info);
+    // C2 successfully joined the tombstoned parent P!
+    assertEquals(parentInfo.getId(), child2Info.getDuplicatesUploadId());
+
+    // Both C1 and C2 stream content successfully
+    try (InputStream is = tusFileUploadService.getUploadedBytes(child1Info)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+    try (InputStream is = tusFileUploadService.getUploadedBytes(child2Info)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+
+    // 5. Delete child 1 (C1) via DELETE -> C2 remains valid and streams content
+    reset();
+    servletRequest.setMethod("DELETE");
+    servletRequest.setRequestURI(child1Uri);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+    assertNull(tusFileUploadService.getUploadInfo(child1Uri, OWNER_KEY));
+    try (InputStream is = tusFileUploadService.getUploadedBytes(child2Info)) {
+      assertThat(IOUtils.toString(is, StandardCharsets.UTF_8), is(content));
+    }
+
+    // 6. Delete child 2 (C2) (last child) -> tombstoned parent data and checksum index purged
+    reset();
+    servletRequest.setMethod("DELETE");
+    servletRequest.setRequestURI(child2Uri);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+
+    assertNull(tusFileUploadService.getUploadInfo(child2Uri, OWNER_KEY));
+
+    // 7. Uploading the same content again registers a clean new parent P2 (not child)
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String parent2Uri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(parent2Uri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo parent2Info =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(parent2Info);
+    assertNull(parent2Info.getDuplicatesUploadId());
   }
 
   protected void assertResponseHeader(final String header, final String value) {

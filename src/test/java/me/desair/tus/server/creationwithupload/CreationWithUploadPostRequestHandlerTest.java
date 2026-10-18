@@ -92,7 +92,14 @@ public class CreationWithUploadPostRequestHandlerTest {
     when(storageService.getUploadInfo("/files/123", "owner")).thenReturn(uploadInfo);
     when(storageService.append(eq(uploadInfo), any(InputStream.class))).thenReturn(updatedInfo);
 
-    handler.process(HttpMethod.POST, request, response, storageService, null, "owner", null);
+    handler.process(
+        HttpMethod.POST,
+        request,
+        response,
+        storageService,
+        new me.desair.tus.server.upload.NoOpUploadLockingService(),
+        "owner",
+        null);
 
     verify(response).setHeader(HttpHeader.UPLOAD_OFFSET, "5");
   }

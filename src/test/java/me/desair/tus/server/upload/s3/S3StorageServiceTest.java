@@ -33,13 +33,17 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.exception.UploadNotFoundException;
@@ -187,6 +191,15 @@ public class S3StorageServiceTest {
     when(minioClient.getObject(any(GetObjectArgs.class))).thenThrow(ex);
 
     storageService.getUploadedBytes(new UploadId("missing-123"));
+  }
+
+  @Test
+  public void testWithS3ConditionalWritesSupported() {
+    assertTrue(storageService.isS3ConditionalWritesSupported());
+    storageService.withS3ConditionalWritesSupported(false);
+    assertFalse(storageService.isS3ConditionalWritesSupported());
+    storageService.setS3ConditionalWritesSupported(true);
+    assertTrue(storageService.isS3ConditionalWritesSupported());
   }
 
   @Test
@@ -763,8 +776,8 @@ public class S3StorageServiceTest {
     String json = UploadInfoJsonSerializer.serialize(parentInfo);
 
     java.util.Map<String, byte[]> objectData = new java.util.HashMap<>();
-    objectData.put("checksums/sha256/abc123hash", "parent-123".getBytes());
-    objectData.put("uploads/checksums/sha256/abc123hash", "parent-123".getBytes());
+    objectData.put("checksums/sha256/abc123hash/parent", "parent-123".getBytes());
+    objectData.put("metadata/uploads/parent-123.info", json.getBytes());
     objectData.put("uploads/parent-123.info", json.getBytes());
 
     when(minioClient.getObject(any(GetObjectArgs.class)))
@@ -785,6 +798,149 @@ public class S3StorageServiceTest {
         storageService.getUploadInfoByChecksum("abc123hash", ChecksumAlgorithm.SHA256);
     assertNotNull(match);
     assertEquals(new UploadId("parent-123"), match.getId());
+  }
+
+  /**
+   * Verifies that when deduplication is enabled on S3StorageService: 1. A completed upload with a
+   * checksum creates the S3 object 'checksums/<alg>/<hex>/parent'. 2. A deduplicated child upload
+   * creates 'checksums/<alg>/<hex>/children/<childId>'. 3. Terminating the parent while the child
+   * is active writes 'parent-deleted' and preserves parent data. 4. Terminating the last child
+   * deletes the parent data object and all checksum index objects.
+   */
+  @Test
+  public void testChecksumDirectoryCreationAndCleanupInS3() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    UploadLockingService lockingService = mock(UploadLockingService.class);
+    storageService.setUploadLockingService(lockingService);
+
+    String sha1Hex = "0123456789abcdef0123456789abcdef01234567";
+    String parentKey = "checksums/sha1/" + sha1Hex + "/parent";
+    String parentDeletedKey = "checksums/sha1/" + sha1Hex + "/parent-deleted";
+    String childPrefix = "checksums/sha1/" + sha1Hex + "/children/";
+
+    Set<String> s3Objects = new HashSet<>();
+
+    when(minioClient.putObject(any(PutObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              PutObjectArgs args = invocation.getArgument(0);
+              s3Objects.add(args.object());
+              return null;
+            });
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if (s3Objects.contains(args.object())) {
+                return mock(StatObjectResponse.class);
+              }
+              ErrorResponse errorResponse = mock(ErrorResponse.class);
+              when(errorResponse.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(errorResponse, null, null);
+            });
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (!s3Objects.contains(args.object())) {
+                ErrorResponse errorResponse = mock(ErrorResponse.class);
+                when(errorResponse.code()).thenReturn("NoSuchKey");
+                throw new ErrorResponseException(errorResponse, null, null);
+              }
+              if (args.object().equals(parentKey)) {
+                return mockGetObjectResponse("parent-123".getBytes(StandardCharsets.UTF_8));
+              }
+              if (args.object().endsWith(".info")) {
+                UploadInfo info = new UploadInfo();
+                info.setId(new UploadId("parent-123"));
+                info.setLength(100L);
+                info.setOffset(100L);
+                info.setChecksum(sha1Hex);
+                info.setChecksumAlgorithm(ChecksumAlgorithm.SHA1);
+                return mockGetObjectResponse(
+                    UploadInfoJsonSerializer.serialize(info).getBytes(StandardCharsets.UTF_8));
+              }
+              return mockGetObjectResponse(new byte[0]);
+            });
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              ListObjectsArgs args = invocation.getArgument(0);
+              List<Result<Item>> items = new ArrayList<>();
+              for (String obj : s3Objects) {
+                if (obj.startsWith(args.prefix())) {
+                  Item item = mock(Item.class);
+                  when(item.objectName()).thenReturn(obj);
+                  items.add(new Result<>(item));
+                }
+              }
+              return items;
+            });
+
+    doAnswer(
+            invocation -> {
+              RemoveObjectArgs args = invocation.getArgument(0);
+              s3Objects.remove(args.object());
+              return null;
+            })
+        .when(minioClient)
+        .removeObject(any(RemoveObjectArgs.class));
+
+    doAnswer(
+            invocation -> {
+              s3Objects.removeIf(key -> key.startsWith("checksums/sha1/" + sha1Hex));
+              return Collections.emptyList();
+            })
+        .when(minioClient)
+        .removeObjects(any(RemoveObjectsArgs.class));
+
+    // 1. Parent upload completion
+    UploadInfo parent = new UploadInfo();
+    parent.setId(new UploadId("parent-123"));
+    parent.setLength(100L);
+    parent.setOffset(100L);
+    parent.setChecksum(sha1Hex);
+    parent.setChecksumAlgorithm(ChecksumAlgorithm.SHA1);
+    s3Objects.add("uploads/parent-123");
+
+    storageService.update(parent);
+
+    assertTrue("Parent pointer object must exist in S3", s3Objects.contains(parentKey));
+    assertFalse(
+        "Parent-deleted marker must not exist initially", s3Objects.contains(parentDeletedKey));
+
+    // 2. Child duplicate upload
+    UploadId childId = new UploadId("child-456");
+    UploadInfo child = new UploadInfo();
+    child.setId(childId);
+    child.setLength(100L);
+    child.setOffset(100L);
+    child.setChecksum(sha1Hex);
+    child.setChecksumAlgorithm(ChecksumAlgorithm.SHA1);
+
+    storageService.deduplicate(child, ChecksumKey.of(sha1Hex, ChecksumAlgorithm.SHA1));
+
+    String childKey = childPrefix + childId;
+    assertTrue(
+        "Child marker object must exist in S3 under children/", s3Objects.contains(childKey));
+    assertEquals(parent.getId(), child.getDuplicatesUploadId());
+
+    // 3. Parent termination with active child
+    storageService.terminateUpload(parent);
+
+    assertTrue(
+        "Parent-deleted tombstone marker must exist in S3", s3Objects.contains(parentDeletedKey));
+
+    // 4. Child termination (last child out)
+    storageService.terminateUpload(child);
+
+    assertFalse("Parent pointer object must be removed from S3", s3Objects.contains(parentKey));
+    assertFalse(
+        "Parent-deleted marker must be removed from S3", s3Objects.contains(parentDeletedKey));
+    assertFalse("Child marker must be removed from S3", s3Objects.contains(childKey));
   }
 
   @Test
@@ -947,6 +1103,34 @@ public class S3StorageServiceTest {
     when(mockLocking.isLocked(expiredId)).thenReturn(false);
 
     storageService.cleanupExpiredUploads(mockLocking);
+    verify(mockLocking).cleanupLock(expiredId);
+  }
+
+  @Test
+  public void testCleanupExpiredUploadsNoArg() throws Exception {
+    UploadId expiredId = new UploadId("exp-s3-no-arg");
+    UploadInfo expiredInfo = new UploadInfo();
+    expiredInfo.setId(expiredId);
+    expiredInfo.setOffset(5L);
+    expiredInfo.setLength(10L);
+    expiredInfo.setExpirationTimestamp(System.currentTimeMillis() - 10000L);
+
+    Item item = mock(Item.class);
+    when(item.objectName()).thenReturn("metadata/" + expiredId + ".info");
+    Result<Item> resultItem = new Result<>(item);
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(Collections.singletonList(resultItem));
+
+    String json = UploadInfoJsonSerializer.serialize(expiredInfo);
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
+
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+    when(mockLocking.isLocked(expiredId)).thenReturn(false);
+    storageService.setUploadLockingService(mockLocking);
+
+    storageService.cleanupExpiredUploads();
     verify(mockLocking).cleanupLock(expiredId);
   }
 
@@ -2690,6 +2874,135 @@ public class S3StorageServiceTest {
   }
 
   @Test
+  public void testPruneOrphanedChecksumIndicesMissingData() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    String hex = "0123456789abcdef0123456789abcdef01234567";
+
+    Item item = mock(Item.class);
+    when(item.objectName()).thenReturn("checksums/sha1/" + hex + "/parent");
+    Result<Item> result = new Result<>(item);
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              ListObjectsArgs args = invocation.getArgument(0);
+              String prefix = args.prefix();
+              if (prefix.endsWith("/children/")) {
+                return Collections.emptyList();
+              }
+              if ("checksums/".equals(prefix) || prefix.startsWith("checksums/sha1/" + hex)) {
+                return Collections.singletonList(result);
+              }
+              return Collections.emptyList();
+            });
+
+    when(minioClient.removeObjects(any(RemoveObjectsArgs.class)))
+        .thenReturn(Collections.emptyList());
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (("checksums/sha1/" + hex + "/parent").equals(args.object())) {
+                return mockGetObjectResponse("parent-123\n".getBytes(StandardCharsets.UTF_8));
+              }
+              ErrorResponse notFound = mock(ErrorResponse.class);
+              when(notFound.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(notFound, null, null);
+            });
+
+    ErrorResponse notFound = mock(ErrorResponse.class);
+    when(notFound.code()).thenReturn("NoSuchKey");
+    ErrorResponseException notFoundEx = new ErrorResponseException(notFound, null, null);
+
+    when(minioClient.statObject(any(StatObjectArgs.class))).thenThrow(notFoundEx);
+
+    storageService.cleanupExpiredUploads(null);
+
+    verify(minioClient).removeObjects(any(RemoveObjectsArgs.class));
+    verify(minioClient)
+        .removeObject(
+            argThat((RemoveObjectArgs a) -> a != null && a.object().equals("uploads/parent-123")));
+  }
+
+  @Test
+  public void testPruneOrphanedChecksumIndicesAbandonedTombstone() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    String hex = "fedcba9876543210fedcba9876543210fedcba98";
+
+    Item item = mock(Item.class);
+    when(item.objectName()).thenReturn("checksums/sha1/" + hex + "/parent");
+    Result<Item> result = new Result<>(item);
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              ListObjectsArgs args = invocation.getArgument(0);
+              String prefix = args.prefix();
+              if (prefix.endsWith("/children/")) {
+                return Collections.emptyList();
+              }
+              if ("checksums/".equals(prefix) || prefix.startsWith("checksums/sha1/" + hex)) {
+                return Collections.singletonList(result);
+              }
+              return Collections.emptyList();
+            });
+
+    when(minioClient.removeObjects(any(RemoveObjectsArgs.class)))
+        .thenReturn(Collections.emptyList());
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              GetObjectArgs args = invocation.getArgument(0);
+              if (("checksums/sha1/" + hex + "/parent").equals(args.object())) {
+                return mockGetObjectResponse("tombstone-parent\n".getBytes(StandardCharsets.UTF_8));
+              }
+              ErrorResponse notFound = mock(ErrorResponse.class);
+              when(notFound.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(notFound, null, null);
+            });
+
+    when(minioClient.statObject(any(StatObjectArgs.class)))
+        .thenAnswer(
+            invocation -> {
+              StatObjectArgs args = invocation.getArgument(0);
+              if ("uploads/tombstone-parent".equals(args.object())
+                  || ("checksums/sha1/" + hex + "/parent-deleted").equals(args.object())) {
+                return mock(StatObjectResponse.class);
+              }
+              ErrorResponse notFound = mock(ErrorResponse.class);
+              when(notFound.code()).thenReturn("NoSuchKey");
+              throw new ErrorResponseException(notFound, null, null);
+            });
+
+    storageService.cleanupExpiredUploads(null);
+
+    verify(minioClient).removeObjects(any(RemoveObjectsArgs.class));
+    verify(minioClient)
+        .removeObject(
+            argThat(
+                (RemoveObjectArgs a) ->
+                    a != null && a.object().equals("uploads/tombstone-parent")));
+  }
+
+  @Test
+  public void testPruneOrphanedChecksumIndicesMalformedPathIgnored() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+
+    Item item = mock(Item.class);
+    when(item.objectName()).thenReturn("checksums/invalid/parent");
+    Result<Item> result = new Result<>(item);
+
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(Collections.singletonList(result));
+
+    storageService.cleanupExpiredUploads(null);
+    // KISS: malformed path is skipped without error
+    assertTrue(true);
+  }
+
+  @Test
   public void testIsJsonSerializationEnabled() {
     assertTrue(storageService.isJsonSerializationEnabled());
   }
@@ -2938,6 +3251,16 @@ public class S3StorageServiceTest {
     } catch (IOException e) {
       assertTrue(e.getMessage().contains("S3 chunk put failed") || e.getCause() != null);
     }
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void testSetUploadLockingServiceNullThrowsNpe() {
+    storageService.setUploadLockingService(null);
+  }
+
+  @Test
+  public void testGetUploadLockingServiceReturnsConfiguredInstance() {
+    assertNotNull(storageService.getUploadLockingService());
   }
 
   private GetObjectResponse mockGetObjectResponse(byte[] bytes) {
