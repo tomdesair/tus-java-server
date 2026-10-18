@@ -4,9 +4,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
 import io.minio.Result;
 import io.minio.StatObjectArgs;
 import io.minio.messages.Item;
@@ -221,5 +223,62 @@ public class ITS3StorageService {
 
     // Verify upload was cleaned up from real S3
     assertNull(storageService.getUploadInfo(info.getId()));
+  }
+
+  @Test
+  public void testPruneOrphanedChecksumIndicesMissingData() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    String sha1Hex = "0123456789abcdef0123456789abcdef01234567";
+    String parentKey = "checksums/sha1/" + sha1Hex + "/parent";
+    byte[] parentContent = "orphan-parent-id".getBytes(StandardCharsets.UTF_8);
+
+    // Create an orphaned checksum index pointing to a non-existent data object in S3
+    putObject(parentKey, parentContent);
+    assertTrue(objectExists(parentKey));
+
+    // Running cleanupExpiredUploads should detect the missing parent data and prune the index
+    storageService.cleanupExpiredUploads();
+
+    // Verify the orphaned parent checksum pointer is deleted from S3
+    assertFalse(objectExists(parentKey));
+  }
+
+  @Test
+  public void testPruneOrphanedChecksumIndicesAbandonedTombstone() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    String sha1Hex = "abcdef0123456789abcdef0123456789abcdef01";
+    String parentKey = "checksums/sha1/" + sha1Hex + "/parent";
+    String parentDeletedKey = "checksums/sha1/" + sha1Hex + "/parent-deleted";
+    byte[] parentContent = "tombstone-parent-id".getBytes(StandardCharsets.UTF_8);
+
+    // Create parent and parent-deleted tombstone marker with zero children in S3
+    putObject(parentKey, parentContent);
+    putObject(parentDeletedKey, new byte[0]);
+
+    assertTrue(objectExists(parentKey));
+    assertTrue(objectExists(parentDeletedKey));
+
+    // Running cleanupExpiredUploads should detect the abandoned tombstone and prune both markers
+    storageService.cleanupExpiredUploads();
+
+    // Verify both the parent pointer and tombstone marker are pruned from S3
+    assertFalse(objectExists(parentKey));
+    assertFalse(objectExists(parentDeletedKey));
+  }
+
+  private void putObject(String objectKey, byte[] data) throws Exception {
+    minioClient.putObject(
+        PutObjectArgs.builder().bucket(BUCKET).object(objectKey).stream(
+                new ByteArrayInputStream(data), (long) data.length, -1L)
+            .build());
+  }
+
+  private boolean objectExists(String objectKey) {
+    try {
+      minioClient.statObject(StatObjectArgs.builder().bucket(BUCKET).object(objectKey).build());
+      return true;
+    } catch (Exception e) {
+      return false;
+    }
   }
 }
