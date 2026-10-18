@@ -1113,7 +1113,7 @@ public class S3StorageServiceTest {
     expiredInfo.setId(expiredId);
     expiredInfo.setOffset(5L);
     expiredInfo.setLength(10L);
-    expiredInfo.updateExpiration(0L);
+    expiredInfo.setExpirationTimestamp(System.currentTimeMillis() - 10000L);
 
     Item item = mock(Item.class);
     when(item.objectName()).thenReturn("metadata/" + expiredId + ".info");

@@ -121,26 +121,38 @@ public class DiskChecksumIndexTest {
     UploadId parentId = new UploadId("parent-123");
     index.tryRegisterParent(checksumKey, parentId);
 
+    Path checksumsDir = tempDir.resolve("checksums");
+
     // Create a regular file directly inside storagePath (must be skipped)
-    Files.createFile(tempDir.resolve("regular-file.tmp"));
+    Files.createFile(checksumsDir.resolve("regular-file.tmp"));
 
     // Create an invalid/unknown algorithm directory (must be skipped)
-    Files.createDirectories(tempDir.resolve("unknown-algo").resolve("some-hash"));
+    Files.createDirectories(checksumsDir.resolve("unknown-algo").resolve("some-hash"));
 
     // Create a valid algorithm directory with a hash dir that lacks a parent file (must be skipped)
-    Files.createDirectories(tempDir.resolve("sha1").resolve("empty-hash-dir"));
+    Files.createDirectories(checksumsDir.resolve("sha1").resolve("empty-hash-dir"));
 
     // Create a valid algorithm directory with an empty file instead of a directory (must be
     // skipped)
-    Files.createFile(tempDir.resolve("sha1").resolve("not-a-dir"));
+    Files.createFile(checksumsDir.resolve("sha1").resolve("not-a-dir"));
 
     // Create a malformed hash directory (must be caught and skipped)
-    Path malformedDir = tempDir.resolve("sha1").resolve("invalid_hex_chars_!@#$");
+    Path malformedDir = checksumsDir.resolve("sha1").resolve("invalid_hex_chars_!@#$");
     Files.createDirectories(malformedDir);
     Files.createFile(malformedDir.resolve("parent"));
 
     Set<ChecksumKey> keys = index.getAllIndexedKeys();
     assertEquals(1, keys.size());
     assertTrue(keys.contains(checksumKey));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testChildIdPathTraversalThrowsException() throws IOException {
+    index.addChild(checksumKey, new UploadId("../../..%2F/etc/passwd"));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testRemoveChildIdPathTraversalThrowsException() throws IOException {
+    index.removeChild(checksumKey, new UploadId("../../..%2F/etc/passwd"));
   }
 }

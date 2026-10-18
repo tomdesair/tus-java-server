@@ -48,7 +48,8 @@ public class DiskChecksumIndex implements ChecksumIndex {
    */
   public DiskChecksumIndex(String storagePath) {
     Objects.requireNonNull(storagePath, "storagePath must not be null");
-    this.storagePath = Paths.get(storagePath).resolve(CHECKSUMS_SUB_DIRECTORY);
+    this.storagePath =
+        Paths.get(storagePath).resolve(CHECKSUMS_SUB_DIRECTORY).normalize().toAbsolutePath();
   }
 
   @Override
@@ -115,7 +116,7 @@ public class DiskChecksumIndex implements ChecksumIndex {
     Path childrenDir = getChecksumDir(key).resolve(CHILDREN_DIRECTORY);
     Utils.ensureDirectoryExists(childrenDir);
 
-    Path childMarker = childrenDir.resolve(childId.toString());
+    Path childMarker = getChildMarker(childrenDir, childId);
     try {
       Files.createFile(childMarker);
     } catch (FileAlreadyExistsException ignored) {
@@ -128,7 +129,8 @@ public class DiskChecksumIndex implements ChecksumIndex {
     Objects.requireNonNull(key, "key must not be null");
     Objects.requireNonNull(childId, "childId must not be null");
 
-    Path childMarker = getChecksumDir(key).resolve(CHILDREN_DIRECTORY).resolve(childId.toString());
+    Path childrenDir = getChecksumDir(key).resolve(CHILDREN_DIRECTORY);
+    Path childMarker = getChildMarker(childrenDir, childId);
     Files.deleteIfExists(childMarker);
   }
 
@@ -192,6 +194,21 @@ public class DiskChecksumIndex implements ChecksumIndex {
   }
 
   private Path getChecksumDir(ChecksumKey key) {
-    return storagePath.resolve(key.toString());
+    Path path = storagePath.resolve(key.toString());
+    if (!path.normalize().toAbsolutePath().startsWith(storagePath.normalize().toAbsolutePath())) {
+      throw new IllegalArgumentException(
+          "Checksum key is not valid and would result in a path traversal");
+    }
+    return path;
+  }
+
+  private Path getChildMarker(Path childrenDir, UploadId childId) {
+    Objects.requireNonNull(childId, "childId must not be null");
+    Path path = childrenDir.resolve(childId.toString());
+    if (!path.normalize().toAbsolutePath().startsWith(childrenDir.normalize().toAbsolutePath())) {
+      throw new IllegalArgumentException(
+          "Child upload ID is not valid and would result in a path traversal");
+    }
+    return path;
   }
 }
