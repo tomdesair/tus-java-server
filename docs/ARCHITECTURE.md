@@ -183,9 +183,9 @@ Custom storage engines (e.g. Google Cloud Storage, relational database BLOB stor
 
 1. **Upload Lifecycle**:
    - `create(UploadInfo, String)`: Allocate initial storage resources and persist the upload metadata record.
-   - `append(UploadInfo, InputStream)`: Stream and append incoming payload chunks to storage.
+   - `append(UploadInfo, InputStream)`: Stream and append incoming payload chunks to storage. Persist partial progress if interrupted.
    - `getUploadInfo(UploadId)` / `update(UploadInfo)`: Retrieve and update upload metadata.
-   - `getUploadedBytes(UploadId)`: Stream completed file bytes to consumers.
+   - `getUploadedBytes(UploadId)` / `copyUploadTo(UploadInfo, OutputStream)`: Stream completed file bytes to consumers.
 2. **Resource Termination & Lock Cleanup Contract (`terminateUpload`)**:
    `terminateUpload(UploadInfo)` is the single authoritative method responsible for freeing all resources when an upload is deleted, cancelled, or expired. Custom implementations must:
    - Free physical committed data bytes and any temporary chunk buffers.
@@ -194,6 +194,20 @@ Custom storage engines (e.g. Google Cloud Storage, relational database BLOB stor
    - **Delegate Lock Cleanup**: Call `uploadLockingService.cleanupLock(uploadInfo.getId())`, ensuring no orphaned lock files, stop signals, or lease objects remain in the locking layer.
 3. **Mandatory Locking Service**:
    An `UploadLockingService` is mandatory across all storage backends. Storage services receive their `UploadLockingService` reference via `setUploadLockingService(UploadLockingService)` (enforcing non-null). For unit tests or specialized embedding environments where locking is bypassed, [`NoOpUploadLockingService`](../src/main/java/me/desair/tus/server/upload/NoOpUploadLockingService.java) provides a zero-overhead Null Object implementation.
+4. **Supporting Checksum Deduplication**:
+   When upload deduplication is enabled (`.withUploadDeduplication(true)`), storage backends must implement the following critical interface methods:
+   - `deduplicate(UploadInfo, ChecksumKey)`: Coordinate cluster-safe deduplication upon upload completion. Storage backends typically instantiate a [`DeduplicationService`](../src/main/java/me/desair/tus/server/upload/checksum/DeduplicationService.java) backed by a custom [`ChecksumIndex`](../src/main/java/me/desair/tus/server/upload/checksum/ChecksumIndex.java) implementation to check for an existing parent, link the child upload, or register a new parent.
+   - `dataExists(UploadId)`: Return `true` if physical committed data exists for the upload ID. The deduplication service invokes this method during parent lookup to detect out-of-band data deletions and automatically self-heal stale checksum index entries. *(The default interface method returns `false`, which disables parent reuse if not overridden.)*
+   - `deleteData(UploadId)`: Delete physical committed data bytes without removing the upload's `.info` metadata record. This is invoked to free physical storage when a duplicate upload is linked to an existing parent, and to purge retained parent data when the last active child terminates. *(The default interface method is a no-op, which leaks storage if not overridden.)*
+   - `setUploadDeduplicationEnabled(boolean)` / `isUploadDeduplicationEnabled()`: Store and expose whether deduplication is active.
+   - **Read/Write Safety Rules**:
+     - *Read operations* (`getUploadedBytes`, `copyUploadTo`) MUST check `uploadInfo.getDuplicatesUploadId()` and dynamically stream bytes from the parent upload if set.
+     - *Write and mutation operations* (`append`, `removeLastNumberOfBytes`) MUST NEVER resolve `duplicatesUploadId` to the parent; they must operate strictly on child storage to prevent mutating parent data.
+5. **Optional Features & Extensions**:
+   - `UploadConcatenationService`: Implement concatenation to support merging parallel chunk uploads into a single final resource.
+   - Size limits: Implement `setMinAppendSize`, `setMaxAppendSize`, `setMinSize`, and `setMaxUploadSize` to enforce upload payload constraints.
+   - Cloud streaming: Implement `setCloudUploadThreadPoolSize` and `setDrainTimeout` for asynchronous chunk uploaders.
+   - Cleanup: Implement `close()` to release underlying network clients, thread pools, or file descriptors.
 
 
 ---
@@ -324,5 +338,5 @@ For detailed testing instructions, see [`docs/TESTING.md`](TESTING.md) and [`doc
 | **Add a Request Validation Rule** | Create a class implementing `RequestValidator` in the target extension's `validation` package. | Keep validation side-effect-free. Throw typed `TusException` subclasses. Register in `extension.initValidators()`. |
 | **Add a Request Processing Action** | Create a class implementing `RequestHandler` (or extending `AbstractRequestHandler`). | Wrap streaming payload inputs in `InterruptibleInputStream`. Set headers on `TusServletResponse`. Register in `extension.initRequestHandlers()`. |
 | **Add a New Protocol Extension** | Create a package under `me.desair.tus.server.<extension>` and extend `AbstractTusExtension`. | Implement `getName()`, `isApplicable(method, version)`, `initValidators()`, and `initRequestHandlers()`. Register in `TusFileUploadService.initFeatures()`. |
-| **Add a Storage Backend** | Implement `UploadStorageService` (and optionally `UploadConcatenationService`). | Implement `terminateUpload` to delete physical data bytes, metadata `.info`, and delegate lock cleanup via `uploadLockingService.cleanupLock(uploadInfo.getId())`. Support deduplication (`duplicatesUploadId`). Implement offline unit tests (`*Test.java`) and Testcontainers integration tests (`IT*`). |
+| **Add a Storage Backend** | Implement `UploadStorageService` (and optionally `UploadConcatenationService`). | Implement `terminateUpload` (free data, metadata `.info`, and delegate `cleanupLock`). If supporting deduplication, implement `deduplicate`, `dataExists`, and `deleteData`, follow read/write safety rules (`duplicatesUploadId`), and implement a `ChecksumIndex`. Implement offline unit tests (`*Test.java`) and Testcontainers integration tests (`IT*`). |
 | **Add a Distributed Locking Provider** | Extend `AbstractLeaseLockingService` and `AbstractLeaseLock`. | Implement the template hooks (`tryAcquireLock`, `isLockExpired`, `evictExpiredLock`, `writeStopSignal`, `checkStopSignals`). Inherit NTP safety margins and stream interruption automatically. |

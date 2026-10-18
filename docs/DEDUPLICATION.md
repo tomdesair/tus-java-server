@@ -133,3 +133,53 @@ echo "Checksum migration completed successfully."
 #### S3 Object Storage Migration
 
 For S3, move each object from `checksums/<algorithm>/<checksum>` to `checksums/<algorithm>/<checksum>/parent` retaining the `UploadId` content.
+
+---
+
+## 5. Implementing Deduplication in Custom Storage Backends
+
+When developing a custom storage backend (e.g., for GCP Cloud Storage, database BLOB storage, or proprietary systems), upload deduplication can be enabled by implementing the following SPI components:
+
+### 5.1 Critical `UploadStorageService` Methods
+
+| Method | Role in Deduplication | Default Behavior if Omitted |
+|---|---|---|
+| `deduplicate(UploadInfo, ChecksumKey)` | Orchestrates duplicate linking or CAS parent registration via `DeduplicationService`. | Returns `uploadInfo` unmodified (deduplication bypassed). |
+| `dataExists(UploadId)` | Verifies that physical committed payload data exists for the upload. Required for self-healing missing parents. | Returns `false` (breaks parent reuse). |
+| `deleteData(UploadId)` | Deletes physical payload bytes without deleting the `.info` metadata file. Required for child payload cleanup and last-child parent purges. | No-op (leaks child and tombstoned parent payloads). |
+| `setUploadDeduplicationEnabled(boolean)` / `isUploadDeduplicationEnabled()` | Stores and exposes the deduplication feature flag. | Always returns `false`. |
+
+### 5.2 Read/Write Safety Rules
+
+- **Transparent Reads**: `getUploadedBytes(UploadId)` and `copyUploadTo(UploadInfo, OutputStream)` MUST inspect `uploadInfo.getDuplicatesUploadId()`. If non-null, data bytes must be streamed directly from the parent upload's storage location.
+- **Isolated Writes**: `append(UploadInfo, InputStream)` and `removeLastNumberOfBytes(UploadInfo, long)` MUST NEVER resolve `duplicatesUploadId` to the parent; they must strictly operate on the target upload's own storage resources to prevent parent corruption.
+
+### 5.3 Implementing a Custom `ChecksumIndex`
+
+Storage backends implement the [`ChecksumIndex`](../src/main/java/me/desair/tus/server/upload/checksum/ChecksumIndex.java) interface to manage checksum index entries:
+
+```java
+public interface ChecksumIndex {
+  boolean tryRegisterParent(ChecksumKey key, UploadId uploadId) throws IOException;
+  UploadId findParent(ChecksumKey key) throws IOException;
+  boolean isParentDeleted(ChecksumKey key) throws IOException;
+  void markParentDeleted(ChecksumKey key) throws IOException;
+  void addChild(ChecksumKey key, UploadId childId) throws IOException;
+  void removeChild(ChecksumKey key, UploadId childId) throws IOException;
+  boolean hasChildren(ChecksumKey key) throws IOException;
+  void deleteIndex(ChecksumKey key) throws IOException;
+  Set<ChecksumKey> getAllIndexedKeys() throws IOException;
+}
+```
+
+The storage backend instantiates a [`DeduplicationService`](../src/main/java/me/desair/tus/server/upload/checksum/DeduplicationService.java) passing its custom `ChecksumIndex`, `UploadStorageService`, and `UploadLockingService`. In `deduplicate(...)`, the storage service delegates to the deduplication service:
+
+```java
+@Override
+public UploadInfo deduplicate(UploadInfo uploadInfo, ChecksumKey checksumKey) throws IOException {
+  if (!isUploadDeduplicationEnabled() || uploadInfo == null || checksumKey == null) {
+    return uploadInfo;
+  }
+  return deduplicationService.deduplicate(uploadInfo, checksumKey);
+}
+```
