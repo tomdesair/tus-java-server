@@ -25,6 +25,7 @@ import io.minio.errors.ErrorResponseException;
 import io.minio.messages.ErrorResponse;
 import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
@@ -292,5 +293,36 @@ public class S3ChecksumIndexTest {
     when(minioClient.listObjects(any(ListObjectsArgs.class)))
         .thenThrow(new RuntimeException("Simulated error"));
     checksumIndex.getAllIndexedKeys();
+  }
+
+  @Test(expected = IOException.class)
+  public void testTryRegisterParentOtherErrorResponseThrowsIOException() throws Exception {
+    when(minioClient.putObject(any(PutObjectArgs.class))).thenThrow(createError("InternalError"));
+
+    checksumIndex.tryRegisterParent(key, uploadId);
+  }
+
+  @Test(expected = IOException.class)
+  public void testTryRegisterParentGenericExceptionThrowsIOException() throws Exception {
+    when(minioClient.putObject(any(PutObjectArgs.class)))
+        .thenThrow(new RuntimeException("Simulated error"));
+
+    checksumIndex.tryRegisterParent(key, uploadId);
+  }
+
+  @Test(expected = IOException.class)
+  public void testMarkParentDeletedExceptionThrowsIOException() throws Exception {
+    when(minioClient.putObject(any(PutObjectArgs.class)))
+        .thenThrow(new RuntimeException("Simulated error"));
+
+    checksumIndex.markParentDeleted(key);
+  }
+
+  @Test(expected = IOException.class)
+  public void testHasChildrenExceptionThrowsIOException() throws Exception {
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenThrow(new RuntimeException("Simulated error"));
+
+    checksumIndex.hasChildren(key);
   }
 }

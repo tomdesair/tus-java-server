@@ -8,6 +8,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -32,6 +33,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
@@ -1297,5 +1299,46 @@ public class DiskStorageServiceTest {
 
     assertFalse(Files.exists(parentMarker));
     assertFalse(Files.exists(parentDeletedMarker));
+  }
+
+  @Test
+  public void testDeduplicateWhenDisabledOrNullParams() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("test-id"));
+    ChecksumKey key =
+        ChecksumKey.of("0123456789abcdef0123456789abcdef01234567", ChecksumAlgorithm.SHA1);
+
+    storageService.setUploadDeduplicationEnabled(false);
+    assertEquals(info, storageService.deduplicate(info, key));
+
+    storageService.setUploadDeduplicationEnabled(true);
+    assertNull(storageService.deduplicate(null, key));
+    assertEquals(info, storageService.deduplicate(info, null));
+  }
+
+  @Test
+  public void testGetUploadInfoByChecksumNullParams() throws Exception {
+    assertNull(storageService.getUploadInfoByChecksum(null, ChecksumAlgorithm.SHA1));
+    assertNull(
+        storageService.getUploadInfoByChecksum("0123456789abcdef0123456789abcdef01234567", null));
+  }
+
+  @Test(expected = IOException.class)
+  public void testGetUploadInfoByChecksumUnsafeThrowsIOException() throws Exception {
+    storageService.getUploadInfoByChecksum(" / ", ChecksumAlgorithm.SHA1);
+  }
+
+  @Test(expected = IOException.class)
+  public void testUpdateWithMalformedChecksumThrowsIOException() throws Exception {
+    storageService.setUploadDeduplicationEnabled(true);
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("malformed-sum-id"));
+    info.setLength(10L);
+    info.setChecksum("!!!");
+    info.setChecksumAlgorithm(ChecksumAlgorithm.SHA1);
+    info = storageService.create(info, null);
+    info.setOffset(10L);
+
+    storageService.update(info);
   }
 }

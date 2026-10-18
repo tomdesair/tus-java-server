@@ -579,10 +579,28 @@ public class ITAzureBlobStorageService {
         .upload(BinaryData.fromBytes(new byte[0]), true);
     assertNull(index.findParent(emptyKey));
 
-    // Verify getAllIndexedKeys returns registered keys
+    // Upload malformed and non-parent blobs to exercise all branches in getAllIndexedKeys
+    String blobTooManyParts = "test-checksums/too/many/parts/here/parent";
+    String blobChild = "test-checksums/sha1/1122334455667788990011223344556677889900/child";
+    String blobUnknownAlgo =
+        "test-checksums/unknownalgo/1122334455667788990011223344556677889900/parent";
+    String blobMalformedHex = "test-checksums/sha1/invalid_hex!/parent";
+
+    containerClient.getBlobClient(blobTooManyParts).upload(BinaryData.fromString("test"), true);
+    containerClient.getBlobClient(blobChild).upload(BinaryData.fromString("test"), true);
+    containerClient.getBlobClient(blobUnknownAlgo).upload(BinaryData.fromString("test"), true);
+    containerClient.getBlobClient(blobMalformedHex).upload(BinaryData.fromString("test"), true);
+
+    // Verify getAllIndexedKeys returns registered keys and skips malformed entries
     Set<ChecksumKey> allKeys = index.getAllIndexedKeys();
     assertTrue(allKeys.contains(key));
     assertTrue(allKeys.contains(emptyKey));
+
+    // Clean up malformed test blobs
+    containerClient.getBlobClient(blobTooManyParts).deleteIfExists();
+    containerClient.getBlobClient(blobChild).deleteIfExists();
+    containerClient.getBlobClient(blobUnknownAlgo).deleteIfExists();
+    containerClient.getBlobClient(blobMalformedHex).deleteIfExists();
 
     // 8. Delete entire index
     index.deleteIndex(key);

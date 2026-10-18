@@ -261,6 +261,21 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
     service.cleanupLock("/files/1");
     verify(mockLocking, times(1)).cleanupLock("/files/1");
 
+    service.getUploadLockingService();
+    verify(mockStorage, times(1)).getUploadLockingService();
+
+    service.dataExists(id);
+    verify(mockStorage, times(1)).dataExists(id);
+
+    service.deleteData(id);
+    verify(mockStorage, times(1)).deleteData(id);
+
+    service.lockUpload(id);
+    verify(mockLocking, times(1)).lockUpload(id);
+
+    service.lockUploadByUri("/files/1");
+    verify(mockLocking, times(1)).lockUploadByUri("/files/1");
+
     service.close();
     verify(mockLocking, times(1)).close();
   }

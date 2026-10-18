@@ -88,8 +88,6 @@ public class AzureBlobChecksumIndex implements ChecksumIndex {
         return false;
       }
       throw new IOException("Failed to create parent index blob in Azure: " + parentKey, e);
-    } catch (Exception e) {
-      throw new IOException("Failed to create parent index blob in Azure: " + parentKey, e);
     }
   }
 
@@ -107,8 +105,6 @@ public class AzureBlobChecksumIndex implements ChecksumIndex {
       if (AzureUtils.parseErrorResponse(e) == AzureErrorType.BLOB_NOT_FOUND) {
         return null;
       }
-      throw new IOException("Failed to read parent index blob in Azure: " + parentKey, e);
-    } catch (Exception e) {
       throw new IOException("Failed to read parent index blob in Azure: " + parentKey, e);
     }
   }
