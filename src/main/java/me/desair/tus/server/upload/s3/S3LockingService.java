@@ -357,7 +357,14 @@ public class S3LockingService extends AbstractLeaseLockingService {
       }
 
       return new S3UploadLock(
-          leaseData, minioClient, bucket, lockKey, stopKey, activeInputStreams, watchdogExecutor);
+          leaseData,
+          uploadId,
+          minioClient,
+          bucket,
+          lockKey,
+          stopKey,
+          activeInputStreams,
+          watchdogExecutor);
     } catch (ErrorResponseException e) {
       S3ErrorType errorType = S3Utils.parseErrorResponse(e);
       if (errorType == S3ErrorType.PRECONDITION_FAILED || errorType == S3ErrorType.CONFLICT) {
@@ -435,8 +442,7 @@ public class S3LockingService extends AbstractLeaseLockingService {
   }
 
   @Override
-  protected void checkStopSignalForEntry(String uri, InputStream inputStream) {
-    UploadId uploadId = idFactory.readUploadId(uri);
+  protected void checkStopSignalForUpload(UploadId uploadId, InputStream inputStream) {
     if (uploadId == null) {
       return;
     }
@@ -448,7 +454,7 @@ public class S3LockingService extends AbstractLeaseLockingService {
       // Remote stop signal object found! Interrupt local byte stream immediately
       Utils.interruptStream(inputStream);
       // Clean up the stream registration and delete the stop signal to avoid duplicate interrupts
-      activeInputStreams.remove(uri);
+      activeInputStreams.remove(uploadId);
       deleteObjectQuietly(stopKey);
     } catch (ErrorResponseException e) {
       if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
@@ -457,6 +463,13 @@ public class S3LockingService extends AbstractLeaseLockingService {
       }
     } catch (Exception e) {
       log.debug("Error checking stop signal for {}", stopKey, e);
+    }
+  }
+
+  @Override
+  protected void clearStopSignal(UploadId uploadId) {
+    if (uploadId != null) {
+      deleteObjectQuietly(buildStopKey(uploadId));
     }
   }
 

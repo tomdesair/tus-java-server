@@ -41,9 +41,7 @@ public class AzureBlobUploadLock implements UploadLock {
   private final String uploadId;
   private final Map<String, WeakReference<InterruptibleInputStream>> activeStreams;
   private final Map<String, AzureBlobUploadLock> activeLocks;
-  private final ScheduledExecutorService renewalExecutor;
   private final ScheduledFuture<?> renewalTask;
-  private final boolean ownsExecutor;
   private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
   private boolean released = false;
   private boolean blobDeleted = false;
@@ -173,28 +171,13 @@ public class AzureBlobUploadLock implements UploadLock {
     this.activeLocks = activeLocks;
 
     if (renewalExecutor != null) {
-      this.renewalExecutor = renewalExecutor;
-      this.ownsExecutor = false;
       this.renewalTask =
           renewalExecutor.scheduleWithFixedDelay(
               this::renewLease,
               RENEWAL_INTERVAL_SECONDS,
               RENEWAL_INTERVAL_SECONDS,
               TimeUnit.SECONDS);
-    } else if (leaseClient != null) {
-      // Initialize background daemon thread to renew lease periodically during upload
-      this.renewalExecutor =
-          Utils.scheduleWatchdog(
-              "azure-lease-renewal-" + uploadUri,
-              this::renewLease,
-              RENEWAL_INTERVAL_SECONDS,
-              RENEWAL_INTERVAL_SECONDS,
-              TimeUnit.SECONDS);
-      this.ownsExecutor = true;
-      this.renewalTask = null;
     } else {
-      this.renewalExecutor = null;
-      this.ownsExecutor = false;
       this.renewalTask = null;
     }
   }
@@ -289,7 +272,7 @@ public class AzureBlobUploadLock implements UploadLock {
         } finally {
           thisObjectLock.writeLock().unlock();
         }
-        shutdownExecutor();
+        cancelRenewalTask();
         // If lease renewal fails definitively, abort any active input stream immediately
         // so the upload thread does not continue writing un-locked data to Azure.
         if (activeStreams != null && uploadId != null) {
@@ -328,7 +311,7 @@ public class AzureBlobUploadLock implements UploadLock {
     } finally {
       thisObjectLock.writeLock().unlock();
     }
-    shutdownExecutor();
+    cancelRenewalTask();
     // Remove active stream and lock registrations from service maps upon release
     // to avoid stale references lingering in heap.
     if (activeStreams != null && uploadId != null) {
@@ -404,13 +387,10 @@ public class AzureBlobUploadLock implements UploadLock {
     return uploadUri;
   }
 
-  /** Shuts down the renewal executor cleanly. */
-  private void shutdownExecutor() {
+  /** Cancels the periodic lease renewal task. */
+  private void cancelRenewalTask() {
     if (renewalTask != null) {
       renewalTask.cancel(true);
-    }
-    if (ownsExecutor) {
-      Utils.shutdownExecutor(renewalExecutor);
     }
   }
 }

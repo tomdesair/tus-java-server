@@ -25,6 +25,8 @@ import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 public class TusFileUploadServiceTest {
 
@@ -1049,5 +1051,24 @@ public class TusFileUploadServiceTest {
     service.deleteUpload(uploadUri, "owner");
 
     verify(mockStorage).terminateUpload(info);
+  }
+
+  @Test
+  public void testProcessTusExceptionOverloadDelegates() throws Exception {
+    TusFileUploadService service = new TusFileUploadService();
+    MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+    MockHttpServletResponse servletResponse = new MockHttpServletResponse();
+    TusServletRequest request = new TusServletRequest(servletRequest);
+    TusServletResponse response = new TusServletResponse(servletResponse);
+
+    service.processTusException(
+        HttpMethod.PATCH,
+        request,
+        response,
+        "owner",
+        new me.desair.tus.server.exception.TusException(HttpServletResponse.SC_BAD_REQUEST, "test"),
+        ProtocolVersion.TUS_1_0_0);
+
+    assertEquals(HttpServletResponse.SC_BAD_REQUEST, servletResponse.getStatus());
   }
 }

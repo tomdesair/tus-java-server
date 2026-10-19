@@ -16,7 +16,7 @@ import org.slf4j.LoggerFactory;
  * <p>Provides common lifecycle management for TTL-based locks including:
  *
  * <ul>
- *   <li>Background heartbeat lease auto-renewal daemon scheduling.
+ *   <li>Background heartbeat lease auto-renewal task execution via a shared service executor.
  *   <li>Active request input stream registration tracking and clean shutdown.
  * </ul>
  */
@@ -25,65 +25,35 @@ public abstract class AbstractLeaseLock implements UploadLock {
   private static final Logger log = LoggerFactory.getLogger(AbstractLeaseLock.class);
 
   private final LeaseData leaseData;
-  private final ScheduledExecutorService heartbeatExecutor;
+  private final UploadId uploadId;
+  private final Map<UploadId, InputStream> activeInputStreams;
   private final ScheduledFuture<?> heartbeatTask;
-  private final boolean ownsExecutor;
-  private final Map<String, InputStream> activeInputStreams;
 
   /**
-   * Constructs an active lock and schedules the background heartbeat renewal daemon.
+   * Constructs an active lock and schedules the background heartbeat renewal task using the shared
+   * service-level executor.
    *
    * @param leaseData The lease metadata
+   * @param uploadId The upload identifier associated with this lock
    * @param activeInputStreams Map of active request input streams in the JVM
-   * @param watchdogThreadName Name prefix for the watchdog heartbeat thread
-   */
-  protected AbstractLeaseLock(
-      LeaseData leaseData, Map<String, InputStream> activeInputStreams, String watchdogThreadName) {
-    this(leaseData, activeInputStreams, null, watchdogThreadName);
-  }
-
-  /**
-   * Full constructor allowing injection of a custom or shared executor.
-   *
-   * @param leaseData The lease metadata
-   * @param activeInputStreams Map of active request input streams in the JVM
-   * @param heartbeatExecutor ScheduledExecutorService for lease renewal, or null to auto-schedule
-   * @param watchdogThreadName Name prefix for the watchdog heartbeat thread
+   * @param heartbeatExecutor Shared ScheduledExecutorService for lease renewal
    */
   protected AbstractLeaseLock(
       LeaseData leaseData,
-      Map<String, InputStream> activeInputStreams,
-      ScheduledExecutorService heartbeatExecutor,
-      String watchdogThreadName) {
+      UploadId uploadId,
+      Map<UploadId, InputStream> activeInputStreams,
+      ScheduledExecutorService heartbeatExecutor) {
     this.leaseData = Objects.requireNonNull(leaseData, "leaseData must not be null");
+    this.uploadId = uploadId;
     this.activeInputStreams = activeInputStreams;
 
     long leaseDurationMs = leaseData.getLeaseDurationMs();
-    if (heartbeatExecutor != null) {
-      this.heartbeatExecutor = heartbeatExecutor;
-      this.ownsExecutor = false;
-      if (leaseDurationMs > 0) {
-        long renewalPeriodMs = Math.max(1000L, leaseDurationMs / 3);
-        this.heartbeatTask =
-            heartbeatExecutor.scheduleWithFixedDelay(
-                this::renewLease, renewalPeriodMs, renewalPeriodMs, TimeUnit.MILLISECONDS);
-      } else {
-        this.heartbeatTask = null;
-      }
-    } else if (leaseDurationMs > 0 && watchdogThreadName != null) {
+    if (heartbeatExecutor != null && leaseDurationMs > 0) {
       long renewalPeriodMs = Math.max(1000L, leaseDurationMs / 3);
-      this.heartbeatExecutor =
-          Utils.scheduleWatchdog(
-              watchdogThreadName + "-" + leaseData.getHolderId(),
-              this::renewLease,
-              renewalPeriodMs,
-              renewalPeriodMs,
-              TimeUnit.MILLISECONDS);
-      this.ownsExecutor = true;
-      this.heartbeatTask = null;
+      this.heartbeatTask =
+          heartbeatExecutor.scheduleWithFixedDelay(
+              this::renewLease, renewalPeriodMs, renewalPeriodMs, TimeUnit.MILLISECONDS);
     } else {
-      this.heartbeatExecutor = null;
-      this.ownsExecutor = false;
       this.heartbeatTask = null;
     }
   }
@@ -98,6 +68,10 @@ public abstract class AbstractLeaseLock implements UploadLock {
 
   public String getRequestUri() {
     return leaseData.getRequestUri();
+  }
+
+  public UploadId getUploadId() {
+    return uploadId;
   }
 
   public long getLeaseDurationMs() {
@@ -128,18 +102,14 @@ public abstract class AbstractLeaseLock implements UploadLock {
 
   @Override
   public void close() {
-    // 1. Terminate heartbeat daemon cleanly (cancel task if using a shared executor; shut down if
-    // owned)
+    // 1. Cancel heartbeat task cleanly
     if (heartbeatTask != null) {
       heartbeatTask.cancel(true);
     }
-    if (ownsExecutor) {
-      Utils.shutdownExecutor(heartbeatExecutor);
-    }
 
     // 2. Remove active stream registration from JVM heap
-    if (activeInputStreams != null && getRequestUri() != null) {
-      activeInputStreams.remove(getRequestUri());
+    if (activeInputStreams != null && uploadId != null) {
+      activeInputStreams.remove(uploadId);
     }
 
     // 3. Release backend storage resources
@@ -159,44 +129,39 @@ public abstract class AbstractLeaseLock implements UploadLock {
       leaseData.setExpiresAt(oldExpiresAt);
       // Ownership lost (e.g. lease taken over by another node): abort immediately
       log.info(
-          "Aborting active input stream for upload URI {} as lock was taken over: {}",
-          getRequestUri(),
+          "Aborting active input stream for upload ID {} as lock was taken over: {}",
+          uploadId,
           e.getMessage());
       abortActiveStreamAndHeartbeat();
     } catch (Exception e) {
       leaseData.setExpiresAt(oldExpiresAt);
-      // Transient failure (e.g. network timeout). Only abort if the previous lease actually
-      // expired.
+      // Transient failure (e.g. network timeout). Only abort if previous lease actually expired.
       if (System.currentTimeMillis() >= oldExpiresAt) {
         log.warn(
-            "Lease for upload URI {} expired after renewal failure; aborting active stream",
-            getRequestUri(),
+            "Lease for upload ID {} expired after renewal failure; aborting active stream",
+            uploadId,
             e);
         abortActiveStreamAndHeartbeat();
       } else {
         log.warn(
-            "Transient failure renewing lease for upload URI {} (will retry on next tick): {}",
-            getRequestUri(),
+            "Transient failure renewing lease for upload ID {} (will retry on next tick): {}",
+            uploadId,
             e.getMessage());
       }
     }
   }
 
   private void abortActiveStreamAndHeartbeat() {
-    if (activeInputStreams != null && getRequestUri() != null) {
-      InputStream stream = activeInputStreams.get(getRequestUri());
+    if (activeInputStreams != null && uploadId != null) {
+      InputStream stream = activeInputStreams.remove(uploadId);
       if (stream != null) {
         log.info(
-            "Aborting active input stream for upload URI {} due to lease renewal failure",
-            getRequestUri());
+            "Aborting active input stream for upload ID {} due to lease renewal failure", uploadId);
         Utils.interruptStream(stream);
       }
     }
     if (heartbeatTask != null) {
       heartbeatTask.cancel(true);
-    }
-    if (ownsExecutor) {
-      Utils.shutdownExecutor(heartbeatExecutor);
     }
   }
 

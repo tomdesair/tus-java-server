@@ -253,7 +253,7 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
       }
 
       return new LeaseFileUploadLock(
-          leaseData, lockDirPath, stopFilePath, activeInputStreams, watchdogExecutor);
+          leaseData, uploadId, lockDirPath, stopFilePath, activeInputStreams, watchdogExecutor);
     } catch (Exception e) {
       log.debug("Error acquiring lease for upload {}", uploadId, e);
       return null;
@@ -292,8 +292,7 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
   }
 
   @Override
-  protected void checkStopSignalForEntry(String uri, InputStream inputStream) {
-    UploadId uploadId = idFactory.readUploadId(uri);
+  protected void checkStopSignalForUpload(UploadId uploadId, InputStream inputStream) {
     if (uploadId == null) {
       return;
     }
@@ -302,8 +301,18 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
     if (stopFilePath != null && Files.exists(stopFilePath)) {
       log.info("Watchdog detected stop file for upload ID {}. Interrupting stream.", uploadId);
       Utils.interruptStream(inputStream);
-      activeInputStreams.remove(uri);
+      activeInputStreams.remove(uploadId);
       Utils.deletePathQuietly(stopFilePath);
+    }
+  }
+
+  @Override
+  protected void clearStopSignal(UploadId uploadId) {
+    if (uploadId != null) {
+      Path stopFilePath = getStopFilePath(uploadId);
+      if (stopFilePath != null) {
+        Utils.deletePathQuietly(stopFilePath);
+      }
     }
   }
 

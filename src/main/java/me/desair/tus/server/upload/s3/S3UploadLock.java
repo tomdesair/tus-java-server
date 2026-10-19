@@ -19,6 +19,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import me.desair.tus.server.upload.AbstractLeaseLock;
 import me.desair.tus.server.upload.LeaseData;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import org.apache.commons.lang3.Strings;
@@ -46,6 +47,7 @@ public class S3UploadLock extends AbstractLeaseLock {
    * daemon.
    *
    * @param leaseData The lease metadata
+   * @param uploadId The upload identifier associated with this lock
    * @param minioClient The MinIO client
    * @param bucket The S3 bucket
    * @param lockKey The S3 object key for the lock lease
@@ -54,23 +56,25 @@ public class S3UploadLock extends AbstractLeaseLock {
    */
   S3UploadLock(
       LeaseData leaseData,
+      UploadId uploadId,
       MinioClient minioClient,
       String bucket,
       String lockKey,
       String stopKey,
-      Map<String, InputStream> inputStreamMap) {
-    this(leaseData, minioClient, bucket, lockKey, stopKey, inputStreamMap, null);
+      Map<UploadId, InputStream> inputStreamMap) {
+    this(leaseData, uploadId, minioClient, bucket, lockKey, stopKey, inputStreamMap, null);
   }
 
   S3UploadLock(
       LeaseData leaseData,
+      UploadId uploadId,
       MinioClient minioClient,
       String bucket,
       String lockKey,
       String stopKey,
-      Map<String, InputStream> inputStreamMap,
+      Map<UploadId, InputStream> inputStreamMap,
       ScheduledExecutorService heartbeatExecutor) {
-    super(leaseData, inputStreamMap, heartbeatExecutor, "s3-lock-heartbeat");
+    super(leaseData, uploadId, inputStreamMap, heartbeatExecutor);
     this.minioClient = minioClient;
     this.bucket = bucket;
     this.lockKey = lockKey;

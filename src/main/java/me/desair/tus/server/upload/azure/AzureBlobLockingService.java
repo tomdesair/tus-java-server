@@ -119,9 +119,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
 
   @Override
   protected void cleanupOnClose() throws IOException {
-    if (watchdogExecutor != null) {
-      Utils.shutdownExecutor(watchdogExecutor);
-    }
+    Utils.shutdownExecutor(watchdogExecutor);
     for (WeakReference<InterruptibleInputStream> streamRef : activeStreams.values()) {
       if (streamRef != null) {
         Utils.interruptStream(streamRef.get());
@@ -263,6 +261,17 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
           "Failed to delete unleased lock blob {}: {}", lockBlob.getBlobName(), e.getMessage());
     }
     return false;
+  }
+
+  @Override
+  public void cleanupLock(UploadId id) {
+    if (id == null) {
+      return;
+    }
+    String idStr = id.toString();
+    deleteStopSignalBlob(idStr);
+    BlobClient lockBlob = getBlobClient(locksPrefix + idStr + ".lock");
+    deleteLockBlobIfUnleased(lockBlob);
   }
 
   @Override

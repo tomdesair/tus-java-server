@@ -322,7 +322,7 @@ public class S3StorageService implements UploadStorageService {
       return null;
     }
 
-    // Resolve duplicate child upload dynamically to parent S3 object key per AGENTS.md §7
+    // Resolve duplicate child upload dynamically to parent S3 object key
     if (uploadInfo.getDuplicatesUploadId() != null) {
       return buildObjectKey(uploadInfo.getDuplicatesUploadId());
     }

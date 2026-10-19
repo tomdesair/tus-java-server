@@ -109,8 +109,8 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
       int sequence = 0;
       for (UploadInfo partialInfo : partialUploads) {
         String blockId = generateBlockId(sequence++);
-        // Resolve duplicate child uploads dynamically to parent upload blob
-        // per AGENTS.md §7 to prevent referencing a non-existent child blob name.
+        // Resolve duplicate child uploads dynamically to the parent upload blob
+        // to prevent referencing a non-existent child blob name on storage.
         String partialBlobName;
         if (storageService instanceof AzureBlobStorageService) {
           partialBlobName =

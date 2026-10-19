@@ -515,4 +515,14 @@ public class AzureBlobUploadLockTest {
     org.junit.Assert.assertTrue(stream.isInterrupted());
     org.junit.Assert.assertFalse(activeStreams.containsKey("upload-412"));
   }
+
+  @Test
+  public void testFallbackReleaseLeaseWhenLeaseClientNull() {
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            null, null, "/test/upload/fallback-null", (ScheduledExecutorService) null, null, null);
+    // KISS: leaseClient is null, verifies method executes cleanly without network calls
+    lock.fallbackReleaseLease();
+    assertNotNull(lock);
+  }
 }

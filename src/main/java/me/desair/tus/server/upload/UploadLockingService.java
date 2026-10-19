@@ -88,4 +88,18 @@ public interface UploadLockingService {
   default void close() throws IOException {
     // No-op by default for backwards compatibility
   }
+
+  /**
+   * Cleans up lock artifacts and stop signals associated with the given upload.
+   *
+   * <p>Called upon upload termination (e.g. DELETE) or expiration cleanup so that locking
+   * implementations can delete backend-specific lock files, blobs, or contention signals without
+   * storage services needing awareness of locking internals.
+   *
+   * @param id The ID of the upload to clean up
+   * @throws IOException If cleanup fails
+   */
+  default void cleanupLock(UploadId id) throws IOException {
+    // No-op by default for backwards compatibility
+  }
 }

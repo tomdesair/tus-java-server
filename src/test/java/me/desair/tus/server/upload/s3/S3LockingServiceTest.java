@@ -1080,4 +1080,15 @@ public class S3LockingServiceTest {
     lock.close();
     assertFalse(s3StorageMap.containsKey(lockKey));
   }
+
+  @Test
+  public void testCleanupLockClearsStopSignal() throws Exception {
+    UploadId id = new UploadId(UUID.randomUUID());
+    String stopKey = "locks/" + id + ".stop";
+    s3StorageMap.put(stopKey, new byte[0]);
+
+    lockingService.cleanupLock(null);
+    lockingService.cleanupLock(id);
+    assertFalse(s3StorageMap.containsKey(stopKey));
+  }
 }

@@ -28,6 +28,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -642,12 +643,12 @@ public class Utils {
   }
 
   /**
-   * Safely shuts down a ScheduledExecutorService using {@link
-   * ScheduledExecutorService#shutdownNow()}.
+   * Safely shuts down an {@link ExecutorService} using {@link ExecutorService#shutdownNow()}.
+   * Handles null or already shut down executors safely as a no-op.
    *
-   * @param executor The ScheduledExecutorService to shut down
+   * @param executor The ExecutorService to shut down, or null
    */
-  public static void shutdownExecutor(ScheduledExecutorService executor) {
+  public static void shutdownExecutor(ExecutorService executor) {
     if (executor != null && !executor.isShutdown()) {
       try {
         executor.shutdownNow();

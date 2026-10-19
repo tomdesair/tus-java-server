@@ -17,6 +17,7 @@ import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.List;
 import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.util.InterruptibleInputStream;
 import org.junit.Before;
 import org.junit.Test;
@@ -405,5 +406,27 @@ public class AzureBlobLockingServiceTest {
   @Test
   public void testLockUploadNullReturnsNull() throws Exception {
     assertNull(lockingService.lockUpload(null));
+  }
+
+  @Test
+  public void testCleanupLock() {
+    BlobClient mockLock = Mockito.mock(BlobClient.class);
+    BlobClient mockStop = Mockito.mock(BlobClient.class);
+    AzureBlobLockingService service =
+        new AzureBlobLockingService(containerClient) {
+          @Override
+          BlobClient getBlobClient(String name) {
+            if (name.endsWith(".stop")) {
+              return mockStop;
+            }
+            return mockLock;
+          }
+        };
+
+    service.cleanupLock(null);
+
+    UploadId id = new UploadId("test-id");
+    service.cleanupLock(id);
+    Mockito.verify(mockStop).deleteIfExists();
   }
 }

@@ -273,4 +273,11 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
     service.close();
     verify(mockLocking, times(1)).close();
   }
+
+  @Test
+  public void testCleanupLockDelegates() throws IOException {
+    UploadId id = new UploadId(UUID.randomUUID().toString());
+    service.cleanupLock(id);
+    verify(mockLocking, times(1)).cleanupLock(id);
+  }
 }

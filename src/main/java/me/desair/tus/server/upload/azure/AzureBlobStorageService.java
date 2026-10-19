@@ -4,7 +4,6 @@ import com.azure.core.util.BinaryData;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.models.BlobItem;
-import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.Block;
 import com.azure.storage.blob.models.BlockList;
@@ -54,7 +53,6 @@ import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.BoundedInputStream;
-import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -581,29 +579,11 @@ public class AzureBlobStorageService implements UploadStorageService {
       deleteData(id);
     }
     deleteMetadata(id);
-    deleteLockArtifacts(id);
+    if (uploadLockingService != null) {
+      uploadLockingService.cleanupLock(id);
+    }
 
     log.debug("Terminated upload with ID {}", id);
-  }
-
-  private void deleteLockArtifacts(UploadId id) {
-    if (id == null) {
-      return;
-    }
-    String idStr = id.toString();
-    try {
-      containerClient.getBlobClient("locks/" + idStr + ".stop").deleteIfExists();
-      BlobClient lockBlob = containerClient.getBlobClient("locks/" + idStr + ".lock");
-      if (Boolean.TRUE.equals(lockBlob.exists())) {
-        BlobProperties props = lockBlob.getProperties();
-        if (props.getLeaseState() != null
-            && !Strings.CS.equals(props.getLeaseState().toString(), "leased")) {
-          lockBlob.deleteIfExists();
-        }
-      }
-    } catch (Exception e) {
-      log.debug("Failed cleaning up lock artifacts for upload ID {}: {}", idStr, e.getMessage());
-    }
   }
 
   @Override

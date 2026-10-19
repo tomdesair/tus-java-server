@@ -582,7 +582,7 @@ public class LeaseFileLockingServiceTest {
     LeaseFileLockingService service = new LeaseFileLockingService(storagePath.toString());
     InterruptibleInputStream stream =
         new InterruptibleInputStream(new ByteArrayInputStream("data".getBytes()));
-    service.registerInputStream(UPLOAD_URL + "/close-test", stream);
+    service.registerInputStream(UPLOAD_URL + "/" + UUID.randomUUID(), stream);
 
     service.close();
 
@@ -933,5 +933,18 @@ public class LeaseFileLockingServiceTest {
 
     lock.release();
     assertFalse(Files.exists(lockDir));
+  }
+
+  @Test
+  public void testCleanupLockClearsStopSignal() throws Exception {
+    UploadId id = new UploadId(UUID.randomUUID().toString());
+    Path stopFile = storagePath.resolve("locks").resolve(id + ".stop");
+    Utils.ensureDirectoryExists(stopFile.getParent());
+    Files.write(stopFile, new byte[0]);
+    assertTrue(Files.exists(stopFile));
+
+    lockingService.cleanupLock(null);
+    lockingService.cleanupLock(id);
+    assertFalse(Files.exists(stopFile));
   }
 }

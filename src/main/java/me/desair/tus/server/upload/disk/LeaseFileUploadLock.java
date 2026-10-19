@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import me.desair.tus.server.upload.AbstractLeaseLock;
 import me.desair.tus.server.upload.LeaseData;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.Strings;
@@ -26,29 +27,31 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
 
   private final Path lockDirPath;
   private final Path stopFilePath;
-  private final LeaseData leaseData;
 
   /**
    * Constructs an active {@link LeaseFileUploadLock} and starts the background heartbeat lease
    * renewal daemon.
    *
    * @param leaseData The lease metadata
+   * @param uploadId The upload identifier associated with this lock
    * @param lockDirPath Dedicated lock directory path
    * @param stopFilePath Lock contention stop signal file path
    * @param activeInputStreams Map of active request input streams in the JVM
    */
   public LeaseFileUploadLock(
       LeaseData leaseData,
+      UploadId uploadId,
       Path lockDirPath,
       Path stopFilePath,
-      Map<String, InputStream> activeInputStreams) {
-    this(leaseData, lockDirPath, stopFilePath, activeInputStreams, null);
+      Map<UploadId, InputStream> activeInputStreams) {
+    this(leaseData, uploadId, lockDirPath, stopFilePath, activeInputStreams, null);
   }
 
   /**
    * Testing constructor allowing injection of a custom heartbeat executor.
    *
    * @param leaseData The lease metadata
+   * @param uploadId The upload identifier associated with this lock
    * @param lockDirPath Dedicated lock directory path
    * @param stopFilePath Lock contention stop signal file path
    * @param activeInputStreams Map of active request input streams in the JVM
@@ -56,18 +59,14 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
    */
   LeaseFileUploadLock(
       LeaseData leaseData,
+      UploadId uploadId,
       Path lockDirPath,
       Path stopFilePath,
-      Map<String, InputStream> activeInputStreams,
+      Map<UploadId, InputStream> activeInputStreams,
       ScheduledExecutorService heartbeatExecutor) {
-    super(leaseData, activeInputStreams, heartbeatExecutor, "lease-file-lock-heartbeat");
-    this.leaseData = leaseData;
+    super(leaseData, uploadId, activeInputStreams, heartbeatExecutor);
     this.lockDirPath = lockDirPath;
     this.stopFilePath = stopFilePath;
-  }
-
-  public LeaseData getLeaseData() {
-    return leaseData;
   }
 
   public String getStoragePath() {
@@ -98,8 +97,8 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
       }
 
       Path leaseFile = lockDirPath.resolve("lease.json");
-      leaseData.setExpiresAt(getExpiresAt());
-      LeaseDataJsonSerializer.serializeToPath(leaseData, leaseFile);
+      getLeaseData().setExpiresAt(getExpiresAt());
+      LeaseDataJsonSerializer.serializeToPath(getLeaseData(), leaseFile);
     }
   }
 

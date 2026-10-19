@@ -1031,6 +1031,21 @@ public class UtilsTest {
         Utils.getLockingServiceOrDefault(null, null) instanceof NoOpUploadLockingService, is(true));
   }
 
+  @Test
+  public void testDeleteDirectoryQuietly() throws Exception {
+    org.junit.Assert.assertFalse(Utils.deleteDirectoryQuietly(null));
+    Path nonExistent = storagePath.resolve("non-existent-" + UUID.randomUUID());
+    org.junit.Assert.assertFalse(Utils.deleteDirectoryQuietly(nonExistent));
+
+    Path testDir = storagePath.resolve("delete-dir-test-" + UUID.randomUUID());
+    Path subDir = testDir.resolve("sub");
+    Files.createDirectories(subDir);
+    Files.write(subDir.resolve("test.txt"), "hello".getBytes());
+
+    org.junit.Assert.assertTrue(Utils.deleteDirectoryQuietly(testDir));
+    org.junit.Assert.assertFalse(Files.exists(testDir));
+  }
+
   /** Simple serializable class for testing. */
   public static class TestSerializable implements Serializable {
     private static final long serialVersionUID = 1L;

@@ -641,10 +641,9 @@ public class TusFileUploadService implements Closeable {
             throw new IOException("Lock acquisition retry interrupted", ie);
           }
         } else {
-          // Concurrent PATCH requests must fail fast (423/409) rather than waiting in contention
-          // loop,
-          // because a resumed PATCH cannot know the actual committed offset without first issuing a
-          // HEAD.
+          // Concurrent PATCH requests must fail fast (423/409) rather than waiting in a
+          // contention loop, because a resumed PATCH cannot know the actual committed offset
+          // without first issuing a HEAD request.
           throw e;
         }
       }

@@ -327,6 +327,12 @@ public class ThreadLocalCachedStorageAndLockingService
   }
 
   @Override
+  public void cleanupLock(UploadId id) throws IOException {
+    lockingServiceDelegate.cleanupLock(id);
+    cleanupCache();
+  }
+
+  @Override
   public void close() throws IOException {
     lockingServiceDelegate.close();
     storageServiceDelegate.close();
