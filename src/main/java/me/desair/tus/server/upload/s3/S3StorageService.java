@@ -688,6 +688,10 @@ public class S3StorageService implements UploadStorageService {
               && info.isExpired()
               && !this.uploadLockingService.isLocked(id)) {
             terminateUpload(info);
+            this.uploadLockingService.cleanupLock(id);
+          } else if (info == null) {
+            // Corrupted or missing metadata object: clean up any orphaned lock
+            this.uploadLockingService.cleanupLock(id);
           }
         }
       }

@@ -579,9 +579,6 @@ public class AzureBlobStorageService implements UploadStorageService {
       deleteData(id);
     }
     deleteMetadata(id);
-    if (uploadLockingService != null) {
-      uploadLockingService.cleanupLock(id);
-    }
 
     log.debug("Terminated upload with ID {}", id);
   }
@@ -704,8 +701,12 @@ public class AzureBlobStorageService implements UploadStorageService {
           try {
             terminateUpload(info);
           } catch (UploadNotFoundException ignored) {
-            // Upload was already terminated or deleted concurrently
+            // Upload was already terminated or deleted concurrently; still ensure lock is cleaned
           }
+          this.uploadLockingService.cleanupLock(id);
+        } else if (info == null) {
+          // Corrupted or missing metadata object: clean up any orphaned lock
+          this.uploadLockingService.cleanupLock(id);
         }
       }
     }

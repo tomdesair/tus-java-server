@@ -634,6 +634,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
         } else {
           FileUtils.deleteDirectory(path.toFile());
         }
+        uploadLockingService.cleanupLock(id);
       }
     }
 

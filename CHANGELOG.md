@@ -38,7 +38,8 @@ See [docs/UPGRADING.md](docs/UPGRADING.md) for details and code examples.
 
 ### Fixed
 - **Azure Lock Cleanup**: eliminated lingering `.lock` blobs in Azure Blob Storage by having `AzureBlobUploadLock.release()` delete the actively leased blob directly using lease conditions, and cleaning up lock artifacts in `AzureBlobStorageService.terminateUpload()`.
-- **S3 Upload Performance**: reduced S3 upload latency by over 30% by eliminating sequential multipart part listings on every chunk, optimizing sub-5MB rollback, and lazily writing upload metadata.
+- **S3 Upload Performance**: reduced S3 upload latency by ~70% (~3x speedup in conformity benchmarks) via optimistic conditional writes (`If-None-Match: *`) during lock acquisition, caching part sizes to avoid repeated `statObject` roundtrips, and stream-based byte truncation.
+- **Lock Lifecycle & Expired Upload Cleanup**: unified `cleanupExpiredUploads()` across Disk, S3, and Azure backends to clean up orphaned locks and prune stale checksum index entries, while ensuring `terminateUpload()` relies on the active `UploadLock` lifecycle.
 - **Async Chunk Uploading**: hardened `AsyncChunkUploader` against servlet thread pool starvation under `CallerRunsPolicy` and fixed race conditions during temporary chunk file deletions.
 - **Network Filesystem Locking**: prevented `FileChannel.lock()` `ENOLCK` failures on distributed filesystems (NFS, AWS EFS, Kubernetes PVs) by restricting kernel file locks exclusively to legacy `DiskLockingService`.
 - **Deduplication Resilience**: protected deduplication traversal against infinite cyclic recursion (`StackOverflowError`) and handled missing concatenation parts safely.

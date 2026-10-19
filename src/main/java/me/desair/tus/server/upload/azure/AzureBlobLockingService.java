@@ -100,10 +100,17 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
         Objects.requireNonNull(containerClient, "containerClient must not be null");
     this.locksPrefix = sanitizePrefix(locksPrefix);
 
-    // Use pooled scheduled daemon executor to poll .stop signals across pods without thread leaks
+    // Use multi-threaded pooled scheduled daemon executor to poll .stop signals across pods
+    // and execute heartbeat renewals concurrently without head-of-line blocking
+    int poolSize = Math.max(2, Math.min(Runtime.getRuntime().availableProcessors(), 8));
     this.watchdogExecutor =
         Utils.scheduleWatchdog(
-            "azure-lock-watchdog", this::pollStopSignals, 2000L, 2000L, TimeUnit.MILLISECONDS);
+            "azure-lock-watchdog",
+            poolSize,
+            this::pollStopSignals,
+            2000L,
+            2000L,
+            TimeUnit.MILLISECONDS);
   }
 
   AzureBlobLockingService(

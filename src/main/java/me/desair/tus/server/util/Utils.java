@@ -29,9 +29,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -614,12 +616,38 @@ public class Utils {
    * @return A new single-thread ScheduledExecutorService
    */
   public static ScheduledExecutorService createScheduledDaemonExecutor(String threadName) {
-    return Executors.newSingleThreadScheduledExecutor(
-        runnable -> {
-          Thread thread = new Thread(runnable, threadName);
-          thread.setDaemon(true);
-          return thread;
-        });
+    return createScheduledDaemonExecutor(threadName, 1);
+  }
+
+  /**
+   * Creates a scheduled thread pool executor with the specified core pool size and daemon threads.
+   * Enables immediate task removal upon cancellation to prevent memory buildup in long-running
+   * services.
+   *
+   * @param threadName The name prefix for the background daemon threads
+   * @param corePoolSize The number of threads to keep in the pool
+   * @return A new ScheduledExecutorService
+   */
+  public static ScheduledExecutorService createScheduledDaemonExecutor(
+      String threadName, int corePoolSize) {
+    int poolSize = Math.max(1, corePoolSize);
+    ScheduledThreadPoolExecutor executor =
+        new ScheduledThreadPoolExecutor(
+            poolSize,
+            new ThreadFactory() {
+              private final AtomicInteger threadCounter = new AtomicInteger(1);
+
+              @Override
+              public Thread newThread(Runnable runnable) {
+                String name =
+                    poolSize > 1 ? threadName + "-" + threadCounter.getAndIncrement() : threadName;
+                Thread thread = new Thread(runnable, name);
+                thread.setDaemon(true);
+                return thread;
+              }
+            });
+    executor.setRemoveOnCancelPolicy(true);
+    return executor;
   }
 
   /**
@@ -635,7 +663,29 @@ public class Utils {
    */
   public static ScheduledExecutorService scheduleWatchdog(
       String threadName, Runnable task, long initialDelay, long period, TimeUnit unit) {
-    ScheduledExecutorService executor = createScheduledDaemonExecutor(threadName);
+    return scheduleWatchdog(threadName, 1, task, initialDelay, period, unit);
+  }
+
+  /**
+   * Creates a multi-threaded daemon scheduled executor and immediately schedules a task to run
+   * periodically at a fixed rate.
+   *
+   * @param threadName The name for the background daemon thread
+   * @param corePoolSize The number of threads in the executor pool
+   * @param task The task to execute periodically
+   * @param initialDelay The initial delay before the first execution
+   * @param period The period between successive executions
+   * @param unit The time unit of the initialDelay and period parameters
+   * @return The created ScheduledExecutorService
+   */
+  public static ScheduledExecutorService scheduleWatchdog(
+      String threadName,
+      int corePoolSize,
+      Runnable task,
+      long initialDelay,
+      long period,
+      TimeUnit unit) {
+    ScheduledExecutorService executor = createScheduledDaemonExecutor(threadName, corePoolSize);
     if (period > 0 && task != null) {
       executor.scheduleAtFixedRate(task, initialDelay, period, unit);
     }

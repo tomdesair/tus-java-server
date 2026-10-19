@@ -2088,6 +2088,51 @@ public class S3StorageServiceTest {
   }
 
   @Test
+  public void testCleanupExpiredUploadsWithNullInfoCleansLock() throws Exception {
+    Item item = mock(Item.class);
+    when(item.objectName()).thenReturn("metadata/corrupt-456.info");
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(java.util.Collections.singletonList(new Result<>(item)));
+
+    ErrorResponse errorResponse =
+        new ErrorResponse("NoSuchKey", "Not found", null, null, null, null, null);
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenThrow(new ErrorResponseException(errorResponse, null, null));
+
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+    storageService.cleanupExpiredUploads(mockLocking);
+
+    verify(mockLocking).cleanupLock(new UploadId("corrupt-456"));
+  }
+
+  @Test
+  public void testCleanupExpiredUploadsCleansLockForExpiredInProgressUpload() throws Exception {
+    UploadInfo expiredInfo = new UploadInfo();
+    UploadId id = new UploadId("expired-456");
+    expiredInfo.setId(id);
+    expiredInfo.setLength(100L);
+    expiredInfo.setOffset(50L);
+    expiredInfo.setExpirationTimestamp(System.currentTimeMillis() - 10000L);
+
+    String json = UploadInfoJsonSerializer.serialize(expiredInfo);
+
+    Item item = mock(Item.class);
+    when(item.objectName()).thenReturn("metadata/expired-456.info");
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(java.util.Collections.singletonList(new Result<>(item)));
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
+
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+    when(mockLocking.isLocked(id)).thenReturn(false);
+
+    storageService.cleanupExpiredUploads(mockLocking);
+
+    verify(mockLocking).cleanupLock(id);
+  }
+
+  @Test
   public void testCleanupExpiredUploadsPrunesStaleTempFilesAndChecksumIndices() throws Exception {
     java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("s3-cleanup-test");
     try {
@@ -2935,7 +2980,7 @@ public class S3StorageServiceTest {
 
     storageService.cleanupExpiredUploads(null);
 
-    verify(minioClient).removeObjects(any(RemoveObjectsArgs.class));
+    verify(minioClient, atLeastOnce()).removeObjects(any(RemoveObjectsArgs.class));
     verify(minioClient)
         .removeObject(
             argThat((RemoveObjectArgs a) -> a != null && a.object().equals("uploads/parent-123")));
@@ -2994,7 +3039,7 @@ public class S3StorageServiceTest {
 
     storageService.cleanupExpiredUploads(null);
 
-    verify(minioClient).removeObjects(any(RemoveObjectsArgs.class));
+    verify(minioClient, atLeastOnce()).removeObjects(any(RemoveObjectsArgs.class));
     verify(minioClient)
         .removeObject(
             argThat(

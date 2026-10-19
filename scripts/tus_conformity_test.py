@@ -995,6 +995,44 @@ class TestChecksumExtension:
         # Clean up
         http_request("DELETE", new_url, headers={TUS_RESUMABLE: TUS_API_VERSION})
 
+    def test_checksum_deduplication_active_child_preserved(self, target_url):
+        """
+        Deduplication Active Child Verification:
+        Uploads parent P and duplicate child C with identical SHA1 checksum.
+        Verifies both stream the exact payload. Preserves the active child and parent
+        in storage so that checksum index entries with children remain present for inspection.
+        """
+        payload = b"Preserved active deduplicated child test payload: " + str(time.time()).encode("ascii")
+        digest_bytes = hashlib.sha1(payload).digest()
+        b64_digest = base64.b64encode(digest_bytes).decode("ascii")
+        checksum_header = f"sha1 {b64_digest}"
+
+        # 1. Upload parent P
+        p_url, p_headers = create_upload(
+            target_url,
+            upload_length=str(len(payload)),
+            content_type=APPLICATION_OFFSET_OCTET_STREAM,
+            extra_headers={UPLOAD_CHECKSUM: checksum_header},
+            body=payload,
+        )
+        assert p_headers.get(UPLOAD_OFFSET) == str(len(payload))
+
+        # 2. Upload duplicate child C
+        c_url, c_headers = create_upload(
+            target_url,
+            upload_length=str(len(payload)),
+            content_type=APPLICATION_OFFSET_OCTET_STREAM,
+            extra_headers={UPLOAD_CHECKSUM: checksum_header},
+            body=payload,
+        )
+        assert c_headers.get(UPLOAD_OFFSET) == str(len(payload))
+
+        # 3. Verify GET returns 200 with identical bytes for both parent and child
+        for loc in (p_url, c_url):
+            status, _, body = http_request("GET", loc, headers={TUS_RESUMABLE: TUS_API_VERSION})
+            assert status == 200, f"GET {loc} must return 200, got {status}"
+            assert body == payload, "GET must return identical body bytes"
+
 
 class TestTerminationExtension:
     """Termination Extension compliance tests (§7.5)."""

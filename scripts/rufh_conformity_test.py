@@ -1326,6 +1326,45 @@ class TestHttpDigests:
         assert get_body == payload
         http_request("DELETE", new_loc, test_name=request.node.name)
 
+    def test_content_digest_deduplication_active_child_preserved(self, target_url, request):
+        """
+        RFC 9530 & RUFH: Deduplication Active Child Verification.
+        Uploads parent P and duplicate child C with identical Content-Digest.
+        Verifies both stream the exact payload. Preserves the active child and parent
+        in storage so that checksum index entries with children remain present for inspection.
+        """
+        payload = b"Preserved active RUFH deduplicated child test payload: " + str(time.time()).encode("ascii")
+        sha256_b64 = base64.b64encode(hashlib.sha256(payload).digest()).decode("ascii")
+        headers = {
+            UPLOAD_COMPLETE: TRUE,
+            UPLOAD_LENGTH: str(len(payload)),
+            "Content-Digest": f"sha-256=:{sha256_b64}:",
+            "Repr-Digest": f"sha-256=:{sha256_b64}:",
+            CONTENT_TYPE: "text/plain",
+        }
+
+        def make_abs(loc):
+            if not loc.startswith("http"):
+                parsed = urlparse(target_url)
+                return f"{parsed.scheme}://{parsed.netloc}{loc}"
+            return loc
+
+        # 1. Create parent upload P
+        status1, resp1, _, _ = http_request("POST", target_url, headers=headers, body=payload, test_name=request.node.name)
+        assert status1 in (200, 201)
+        p_loc = make_abs(resp1.get(LOCATION))
+
+        # 2. Create child duplicate upload C
+        status2, resp2, _, _ = http_request("POST", target_url, headers=headers, body=payload, test_name=request.node.name)
+        assert status2 in (200, 201)
+        c_loc = make_abs(resp2.get(LOCATION))
+
+        # 3. Verify GET on P and C returns identical payload bytes
+        for loc in (p_loc, c_loc):
+            get_status, _, get_body, _ = http_request("GET", loc, test_name=request.node.name)
+            assert get_status == 200, f"GET {loc} must return 200, got {get_status}"
+            assert get_body == payload, "Child must stream full payload from shared parent data"
+
 
 # CLI Entry Point & Custom Formatted Summary Reporter
 if __name__ == "__main__":

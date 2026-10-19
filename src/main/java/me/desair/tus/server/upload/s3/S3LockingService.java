@@ -401,30 +401,31 @@ public class S3LockingService extends AbstractLeaseLockingService {
       return false;
     }
     String lockKey = buildLockKey(uploadId);
-    // Synchronize eviction per lockKey to prevent concurrent threads within the JVM from
-    // racing during expired lock deletion and trampling on a freshly acquired replacement lock.
-    synchronized (lockKey.intern()) {
-      try (InputStream stream =
-          minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
-        LeaseData lock = LeaseDataJsonSerializer.deserialize(stream);
-        if (!isLeaseExpired(lock, System.currentTimeMillis())) {
-          return false;
-        }
-        // Actual expired lock found in S3: delete it so next tryAcquireLock() can succeed
-        minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(lockKey).build());
-        log.info("Evicted expired S3 lock for key {}", lockKey);
-        return true;
-      } catch (ErrorResponseException e) {
-        if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
-          // Lock key was already evicted or released normally; resource is clear
-          return true;
-        }
-        log.warn("Failed checking S3 lock expiration for key {}", lockKey, e);
-        return false;
-      } catch (Exception e) {
-        log.warn("Failed to evict expired S3 lock for key {}", lockKey, e);
+    // Across distributed containers/pods and concurrent threads, expired lock eviction does
+    // not rely on JVM-local synchronization. We inspect the lease in S3, delete the expired
+    // object if stale, and let atomic S3 conditional write (If-None-Match: *) combined with
+    // jittered read-after-write ownership verification in tryAcquireLock arbitrate any race
+    // safely without risk of lock collision.
+    try (InputStream stream =
+        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
+      LeaseData lock = LeaseDataJsonSerializer.deserialize(stream);
+      if (!isLeaseExpired(lock, System.currentTimeMillis())) {
         return false;
       }
+      // Actual expired lock found in S3: delete it so next tryAcquireLock() can succeed
+      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(lockKey).build());
+      log.info("Evicted expired S3 lock for key {}", lockKey);
+      return true;
+    } catch (ErrorResponseException e) {
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
+        // Lock key was already evicted or released normally; resource is clear
+        return true;
+      }
+      log.warn("Failed checking S3 lock expiration for key {}", lockKey, e);
+      return false;
+    } catch (Exception e) {
+      log.warn("Failed to evict expired S3 lock for key {}", lockKey, e);
+      return false;
     }
   }
 

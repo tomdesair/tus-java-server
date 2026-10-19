@@ -391,6 +391,25 @@ public class ITAzureBlobStorageService {
   }
 
   @Test
+  public void cleanupExpiredUploadsNoArgShouldDeleteExpiredAndCleanLock() throws Exception {
+    storageService.setUploadExpirationPeriod(1L);
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(20L); // In-progress upload
+    UploadInfo created = storageService.create(info, "owner1");
+
+    com.azure.storage.blob.BlobClient lockBlob =
+        containerClient.getBlobClient("locks/" + created.getId() + ".lock");
+    lockBlob.upload(com.azure.core.util.BinaryData.fromString(""), true);
+    assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
+
+    Thread.sleep(50L);
+    storageService.cleanupExpiredUploads();
+    assertNull(storageService.getUploadInfo(created.getId()));
+    assertFalse(Boolean.TRUE.equals(lockBlob.exists()));
+  }
+
+  @Test
   public void cleanupExpiredUploadsShouldPreserveCompletedUploads() throws Exception {
     storageService.setUploadExpirationPeriod(1L);
 
@@ -680,6 +699,20 @@ public class ITAzureBlobStorageService {
     UploadLock lock = lockingService.lockUploadByUri("/test/upload/" + expiredLocked.getId());
     assertNotNull(lock);
 
+    // 3. Create an orphaned corrupted metadata blob with an existing lock to verify cleanupLock on
+    // null info
+    String corruptIdStr = "corrupt-azure-" + System.nanoTime();
+    containerClient
+        .getBlobClient("metadata/" + corruptIdStr + ".info")
+        .upload(BinaryData.fromString("bad-json"), true);
+    containerClient
+        .getBlobClient("locks/" + corruptIdStr + ".lock")
+        .upload(BinaryData.fromString("dummy-lock"), true);
+    containerClient
+        .getBlobClient("locks/" + corruptIdStr + ".stop")
+        .upload(BinaryData.fromString("dummy-stop"), true);
+    assertTrue(containerClient.getBlobClient("locks/" + corruptIdStr + ".lock").exists());
+
     try {
       storageService.cleanupExpiredUploads(lockingService);
 
@@ -688,6 +721,10 @@ public class ITAzureBlobStorageService {
 
       // Unlocked upload SHOULD have been cleaned up
       assertNull(storageService.getUploadInfo(expiredUnlocked.getId()));
+
+      // Orphaned lock and stop signal for corrupted upload SHOULD have been cleaned up
+      assertFalse(containerClient.getBlobClient("locks/" + corruptIdStr + ".lock").exists());
+      assertFalse(containerClient.getBlobClient("locks/" + corruptIdStr + ".stop").exists());
     } finally {
       lock.release();
     }
