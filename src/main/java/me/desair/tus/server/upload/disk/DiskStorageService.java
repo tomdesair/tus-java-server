@@ -291,6 +291,10 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
       info.setOffset(0L);
       info.setOwnerKey(ownerKey);
 
+      if (uploadExpirationPeriod != null && uploadExpirationPeriod > 0) {
+        info.updateExpiration(uploadExpirationPeriod);
+      }
+
       update(info);
 
       return info;
@@ -316,35 +320,8 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
           // It doesn't exist yet, which is fine
         }
 
-        // Retrieve the parent UploadInfo
-        UploadId parentId = uploadInfo.getDuplicatesUploadId();
-        UploadInfo parentInfo = getUploadInfo(parentId);
-        if (parentInfo != null) {
-          Path parentBytesPath = null;
-          try {
-            parentBytesPath = getPathInUploadDir(parentId, DATA_FILE);
-          } catch (UploadNotFoundException e) {
-            // Parent file is not found
-          }
-
-          if (parentBytesPath != null && Files.exists(parentBytesPath)) {
-            // Ensure parent's expiration timestamp is >= child's expiration timestamp
-            Long childExpire = uploadInfo.getExpirationTimestamp();
-            Long parentExpire = parentInfo.getExpirationTimestamp();
-            if (childExpire == null) {
-              if (parentExpire != null) {
-                parentInfo.setExpirationTimestamp(null);
-                Path parentInfoPath = getInfoPath(parentId);
-                saveUploadInfo(parentInfo, parentInfoPath);
-              }
-            } else {
-              if (parentExpire != null && parentExpire < childExpire) {
-                parentInfo.setExpirationTimestamp(childExpire);
-                Path parentInfoPath = getInfoPath(parentId);
-                saveUploadInfo(parentInfo, parentInfoPath);
-              }
-            }
-          }
+        if (deduplicationService != null) {
+          deduplicationService.syncParentExpirationIfChild(uploadInfo);
         }
       } else if (isUploadDeduplicationEnabled()
           && !uploadInfo.isUploadInProgress()
@@ -370,6 +347,10 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   public UploadInfo append(UploadInfo info, InputStream inputStream)
       throws IOException, TusException {
     if (info != null) {
+      if (uploadExpirationPeriod != null && uploadExpirationPeriod > 0) {
+        info.updateExpiration(uploadExpirationPeriod);
+      }
+
       Path bytesPath = getBytesPath(info.getId());
 
       long max = getMaxUploadSize() > 0 ? getMaxUploadSize() : Long.MAX_VALUE;
@@ -381,8 +362,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
           FileChannel file = FileChannel.open(bytesPath, WRITE)) {
 
         try {
-          // Lock will be released when the channel closes
-          file.lock();
+          // Note: OS FileChannel.lock() is intentionally omitted here to prevent ENOLCK /
+          // "No locks available" errors on NFS mounts and Kubernetes RWX persistent volumes.
+          // Single-writer mutual exclusion is already guaranteed by the request-level UploadLock.
 
           // Validate that the given offset is at the end of the file
           if (!offset.equals(file.size())) {
@@ -430,8 +412,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
       try (FileChannel file = FileChannel.open(bytesPath, WRITE)) {
 
-        // Lock will be released when the channel closes
-        file.lock();
+        // Note: OS FileChannel.lock() is intentionally omitted to avoid ENOLCK on NFS/K8s RWX PVCs.
 
         // Guard against Math.max(0, file.size() - byteCount) to prevent FileChannel.truncate
         // from throwing IllegalArgumentException on over-truncation during checksum rollback
@@ -521,8 +502,6 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
       if (uploadPath != null && deleteData) {
         FileUtils.deleteDirectory(uploadPath.toFile());
       }
-
-      uploadLockingService.cleanupLock(info.getId());
     }
   }
 
@@ -651,11 +630,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
             terminateUpload(info);
           } catch (UploadNotFoundException e) {
             FileUtils.deleteDirectory(path.toFile());
-            this.uploadLockingService.cleanupLock(id);
           }
         } else {
           FileUtils.deleteDirectory(path.toFile());
-          this.uploadLockingService.cleanupLock(id);
         }
       }
     }

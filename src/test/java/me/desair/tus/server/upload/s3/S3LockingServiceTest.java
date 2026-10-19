@@ -60,16 +60,18 @@ public class S3LockingServiceTest {
             invocation -> {
               PutObjectArgs args = invocation.getArgument(0);
               var headers = args.extraHeaders();
-              if (headers != null
-                  && "*".equals(headers.get("If-None-Match"))
-                  && s3StorageMap.containsKey(args.object())) {
-                ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
-                Mockito.when(errorResponse.code()).thenReturn("PreconditionFailed");
-                throw new ErrorResponseException(errorResponse, null, "PreconditionFailed");
-              }
               try (InputStream stream = args.stream()) {
                 byte[] bytes = stream.readAllBytes();
-                s3StorageMap.put(args.object(), bytes);
+                synchronized (s3StorageMap) {
+                  if (headers != null
+                      && "*".equals(headers.getFirst("If-None-Match"))
+                      && s3StorageMap.containsKey(args.object())) {
+                    ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
+                    Mockito.when(errorResponse.code()).thenReturn("PreconditionFailed");
+                    throw new ErrorResponseException(errorResponse, null, "PreconditionFailed");
+                  }
+                  s3StorageMap.put(args.object(), bytes);
+                }
               }
               return null;
             });
@@ -78,7 +80,10 @@ public class S3LockingServiceTest {
         .thenAnswer(
             invocation -> {
               GetObjectArgs args = invocation.getArgument(0);
-              byte[] bytes = s3StorageMap.get(args.object());
+              byte[] bytes;
+              synchronized (s3StorageMap) {
+                bytes = s3StorageMap.get(args.object());
+              }
               if (bytes == null) {
                 ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
                 Mockito.when(errorResponse.code()).thenReturn("NoSuchKey");
@@ -95,7 +100,9 @@ public class S3LockingServiceTest {
     Mockito.doAnswer(
             invocation -> {
               io.minio.RemoveObjectArgs args = invocation.getArgument(0);
-              s3StorageMap.remove(args.object());
+              synchronized (s3StorageMap) {
+                s3StorageMap.remove(args.object());
+              }
               return null;
             })
         .when(minioClient)
@@ -614,6 +621,8 @@ public class S3LockingServiceTest {
 
   @Test(expected = UploadAlreadyLockedException.class)
   public void testLockUploadByUriWithContentionOnPostPutVerificationThrows() throws Exception {
+    lockingService.withS3ConditionalWritesSupported(false);
+
     // Simulate a TOCTOU race where PutObject succeeds, but another contender overwrote the lock
     // before our read-after-write verification
     Mockito.when(minioClient.putObject(Mockito.any(PutObjectArgs.class))).thenReturn(null);
@@ -1059,77 +1068,13 @@ public class S3LockingServiceTest {
   }
 
   @Test
-  public void testCleanupLockNullAndInvalid() throws Exception {
-    lockingService.cleanupLock((UploadId) null);
-    lockingService.cleanupLock((String) null);
-    // KISS: verifying method executes cleanly without throwing an exception
-    assertTrue(true);
-  }
-
-  @Test
-  public void testCleanupLockDeletesExpiredLockAndStopObjects() throws Exception {
-    UploadId id = new UploadId(UUID.randomUUID());
-    String lockKey = "locks/" + id + ".lock";
-    String stopKey = "locks/" + id + ".stop";
-
-    LeaseData expiredLock =
-        new LeaseData(
-            "old-holder",
-            "/files/upload/" + id,
-            30000L,
-            System.currentTimeMillis() - 5000L,
-            System.currentTimeMillis() - 35000L,
-            lockKey,
-            stopKey);
-    s3StorageMap.put(
-        lockKey, me.desair.tus.server.util.LeaseDataJsonSerializer.serializeToBytes(expiredLock));
-    s3StorageMap.put(stopKey, new byte[0]);
-
-    assertTrue(s3StorageMap.containsKey(lockKey));
-    assertTrue(s3StorageMap.containsKey(stopKey));
-
-    lockingService.cleanupLock(id);
-
-    assertFalse(s3StorageMap.containsKey(lockKey));
-    assertFalse(s3StorageMap.containsKey(stopKey));
-  }
-
-  @Test
-  public void testCleanupLockByUri() throws Exception {
-    UploadId id = new UploadId(UUID.randomUUID());
-    String uri = "/files/upload/" + id;
-    String lockKey = "locks/" + id + ".lock";
-
-    LeaseData expiredLock =
-        new LeaseData(
-            "old-holder",
-            uri,
-            30000L,
-            System.currentTimeMillis() - 5000L,
-            System.currentTimeMillis() - 35000L,
-            lockKey,
-            null);
-    s3StorageMap.put(
-        lockKey, me.desair.tus.server.util.LeaseDataJsonSerializer.serializeToBytes(expiredLock));
-    assertTrue(s3StorageMap.containsKey(lockKey));
-
-    lockingService.cleanupLock(uri);
-
-    assertFalse(s3StorageMap.containsKey(lockKey));
-  }
-
-  @Test
-  public void testCleanupLockPreservesActivelyHeldLock() throws Exception {
+  public void testLockCloseDeletesLockObject() throws Exception {
     UploadId id = new UploadId(UUID.randomUUID());
     String uri = "/files/upload/" + id;
     String lockKey = "locks/" + id + ".lock";
 
     UploadLock lock = lockingService.lockUploadByUri(uri);
     assertNotNull(lock);
-    assertTrue(s3StorageMap.containsKey(lockKey));
-
-    // Actively held unexpired lock must not be deleted by cleanupLock
-    lockingService.cleanupLock(id);
     assertTrue(s3StorageMap.containsKey(lockKey));
 
     lock.close();

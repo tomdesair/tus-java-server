@@ -1153,6 +1153,65 @@ class TestResumableUploadLifecycle:
         assert resp2.get(UPLOAD_OFFSET) == "92"
         assert resp2.get(UPLOAD_COMPLETE) == TRUE
 
+    def test_interrupted_upload_complete_patch_does_not_prematurely_complete(self, target_url, request):
+        """
+        §4.2 & §5: Interrupted upload-completing PATCH must not prematurely finalize upload.
+        When a client sends a PATCH with Upload-Complete: ?1 and Content-Length: 100, but the
+        connection is prematurely closed after sending only 40 bytes, the server must persist the
+        partial 40 bytes, must NOT mark the upload as completed, and must leave the length
+        deferred so subsequent PATCH requests can resume and complete the upload.
+        """
+        upload_uri = create_partial_upload(target_url, test_name=request.node.name)
+
+        parsed = urlparse(upload_uri)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 80
+        path = parsed.path + ("?" + parsed.query if parsed.query else "")
+
+        s = socket.create_connection((host, port), timeout=10)
+        try:
+            req_lines = [
+                f"PATCH {path} HTTP/1.1",
+                f"Host: {host}:{port}",
+                f"{UPLOAD_OFFSET}: 0",
+                f"{UPLOAD_COMPLETE}: {TRUE}",
+                f"{CONTENT_TYPE}: {APPLICATION_PARTIAL_UPLOAD}",
+                "Content-Length: 100",
+                "Connection: close",
+                "",
+                ""
+            ]
+            req_data = "\r\n".join(req_lines).encode("latin1")
+            s.sendall(req_data)
+            # Send only 40 bytes out of the 100 bytes declared in Content-Length
+            s.sendall(b"0123456789" * 4)
+            time.sleep(0.1)
+            # Abruptly close the socket to interrupt the stream
+            s.close()
+        except Exception:
+            pass
+
+        # Give server a brief moment to commit partial data
+        time.sleep(0.5)
+
+        # Check upload status via HEAD
+        status_h, h_headers, _, _ = http_request("HEAD", upload_uri, test_name=request.node.name)
+        assert status_h in (200, 204)
+        assert h_headers.get(UPLOAD_OFFSET) == "40", "Server must have saved the 40 received bytes"
+        assert h_headers.get(UPLOAD_COMPLETE) == FALSE, "Interrupted upload must NOT be marked complete"
+
+        # Now resume from offset 40 and complete the remaining 60 bytes
+        status_resume, resp_resume, _, _ = http_request(
+            "PATCH",
+            upload_uri,
+            headers={UPLOAD_OFFSET: "40", UPLOAD_COMPLETE: TRUE, CONTENT_TYPE: APPLICATION_PARTIAL_UPLOAD},
+            body=b"abcdefghij" * 6,  # 60 bytes
+            test_name=request.node.name,
+        )
+        assert status_resume in (200, 201, 204)
+        assert resp_resume.get(UPLOAD_OFFSET) == "100"
+        assert resp_resume.get(UPLOAD_COMPLETE) == TRUE
+
 
 class TestHttpDigests:
     """Tests for HTTP Digests (RFC 9530)."""

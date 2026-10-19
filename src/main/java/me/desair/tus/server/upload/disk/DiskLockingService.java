@@ -36,11 +36,11 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
   private static final String LOCK_SUB_DIRECTORY = "locks";
 
   /** Registry tracking active request input streams in the current JVM. */
-  private static final ConcurrentHashMap<String, WeakReference<InterruptibleInputStream>>
-      activeLocks = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, WeakReference<InterruptibleInputStream>> activeLocks =
+      new ConcurrentHashMap<>();
 
-  private static Thread watchdogThread = null;
-  private static final Object watchdogLock = new Object();
+  private Thread watchdogThread = null;
+  private final Object watchdogLock = new Object();
 
   private UploadIdFactory idFactory;
 
@@ -125,32 +125,6 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     }
   }
 
-  @Override
-  public void cleanupLock(UploadId id) throws IOException {
-    if (id == null) {
-      return;
-    }
-    // Only delete lock file if it exists and is not actively locked by another process/request.
-    // Notice we check Files.exists first because calling isLocked on a non-existent lock path
-    // would open a FileChannel with CREATE and instantiate a lock file on disk unnecessarily.
-    Path lockPath = getLockPath(id);
-    if (lockPath != null && Files.exists(lockPath)) {
-      if (!isLocked(id)) {
-        Files.deleteIfExists(lockPath);
-      }
-    }
-    Path stopPath = getStopPath(id);
-    if (stopPath != null) {
-      Files.deleteIfExists(stopPath);
-    }
-  }
-
-  @Override
-  public void cleanupLock(String uploadUri) throws IOException {
-    UploadId id = idFactory != null ? idFactory.readUploadId(uploadUri) : null;
-    cleanupLock(id);
-  }
-
   /** Checks whether the upload is locked by attempting to obtain a short-lived file lock. */
   @Override
   public boolean isLocked(UploadId id) {
@@ -158,6 +132,9 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     Path lockPath = getLockPath(id);
 
     if (lockPath != null) {
+      if (!Files.exists(lockPath)) {
+        return false;
+      }
       // Try to obtain a lock to see if the upload is currently locked
       try (UploadLock lock = new FileBasedLock(id.toString(), lockPath)) {
 

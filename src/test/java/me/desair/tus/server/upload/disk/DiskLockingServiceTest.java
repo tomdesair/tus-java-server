@@ -410,7 +410,7 @@ public class DiskLockingServiceTest {
         map =
             (java.util.concurrent.ConcurrentHashMap<
                     String, java.lang.ref.WeakReference<InterruptibleInputStream>>)
-                field.get(null);
+                field.get(lockingService);
 
     java.lang.ref.WeakReference<InterruptibleInputStream> ref = map.get(uploadIdStr);
     ref.clear();
@@ -444,7 +444,7 @@ public class DiskLockingServiceTest {
         map =
             (java.util.concurrent.ConcurrentHashMap<
                     String, java.lang.ref.WeakReference<InterruptibleInputStream>>)
-                field.get(null);
+                field.get(lockingService);
 
     java.lang.ref.WeakReference<InterruptibleInputStream> ref = map.get(uploadIdStr);
     org.junit.Assert.assertNotNull(ref);
@@ -483,7 +483,7 @@ public class DiskLockingServiceTest {
     java.lang.reflect.Field field = DiskLockingService.class.getDeclaredField("activeLocks");
     field.setAccessible(true);
     java.util.concurrent.ConcurrentHashMap<?, ?> map =
-        (java.util.concurrent.ConcurrentHashMap<?, ?>) field.get(null);
+        (java.util.concurrent.ConcurrentHashMap<?, ?>) field.get(lockingService);
     map.clear();
   }
 
@@ -496,7 +496,7 @@ public class DiskLockingServiceTest {
         map =
             (java.util.concurrent.ConcurrentHashMap<
                     String, java.lang.ref.WeakReference<InterruptibleInputStream>>)
-                field.get(null);
+                field.get(lockingService);
 
     String uploadIdStr = UUID.randomUUID().toString();
     String uri = "/upload/test/" + uploadIdStr;
@@ -700,46 +700,7 @@ public class DiskLockingServiceTest {
   }
 
   @Test
-  public void testCleanupLockNullAndInvalid() throws Exception {
-    lockingService.cleanupLock((UploadId) null);
-    lockingService.cleanupLock((String) null);
-    // KISS: verifying method executes cleanly without throwing an exception
-    assertTrue(true);
-  }
-
-  @Test
-  public void testCleanupLockDeletesLockAndStopFiles() throws Exception {
-    UploadId id = new UploadId(UUID.randomUUID().toString());
-    Path lockPath = storagePath.resolve("locks").resolve(id.toString());
-    Path stopPath = storagePath.resolve("locks").resolve(id.toString() + ".stop");
-    Files.createFile(lockPath);
-    Files.createFile(stopPath);
-
-    assertTrue(Files.exists(lockPath));
-    assertTrue(Files.exists(stopPath));
-
-    lockingService.cleanupLock(id);
-
-    assertFalse(Files.exists(lockPath));
-    assertFalse(Files.exists(stopPath));
-  }
-
-  @Test
-  public void testCleanupLockByUri() throws Exception {
-    UploadId id = new UploadId(UUID.randomUUID().toString());
-    when(idFactory.readUploadId(UPLOAD_URL + "/" + id)).thenReturn(id);
-
-    Path lockPath = storagePath.resolve("locks").resolve(id.toString());
-    Files.createFile(lockPath);
-    assertTrue(Files.exists(lockPath));
-
-    lockingService.cleanupLock(UPLOAD_URL + "/" + id);
-
-    assertFalse(Files.exists(lockPath));
-  }
-
-  @Test
-  public void testCleanupLockWhenActivelyLockedDoesNotDeleteLockFile() throws Exception {
+  public void testLockReleaseDeletesLockFile() throws Exception {
     UploadId id = new UploadId(UUID.randomUUID().toString());
     when(idFactory.readUploadId(UPLOAD_URL + "/" + id)).thenReturn(id);
 
@@ -747,10 +708,6 @@ public class DiskLockingServiceTest {
     assertThat(lock, is(not(nullValue())));
 
     Path lockPath = storagePath.resolve("locks").resolve(id.toString());
-    assertTrue(Files.exists(lockPath));
-
-    // When actively locked, cleanupLock must preserve the lock file
-    lockingService.cleanupLock(id);
     assertTrue(Files.exists(lockPath));
 
     lock.release();

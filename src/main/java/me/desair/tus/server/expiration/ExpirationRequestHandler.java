@@ -61,8 +61,16 @@ public class ExpirationRequestHandler extends AbstractRequestHandler {
         throw new UploadNotFoundException(
             "The upload for path " + uploadUri + " has expired and was removed.");
       } else {
+        Long previousExpiration = uploadInfo.getExpirationTimestamp();
         uploadInfo.updateExpiration(expirationPeriod);
-        uploadStorageService.update(uploadInfo);
+        // Performance optimization: If create() or append() already refreshed the expiration
+        // timestamp when persisting metadata during this exact request (within a 1000ms window),
+        // skip calling update(uploadInfo) to avoid an expensive redundant remote S3/Azure PUT
+        // metadata round-trip.
+        if (previousExpiration == null
+            || Math.abs(uploadInfo.getExpirationTimestamp() - previousExpiration) > 1000L) {
+          uploadStorageService.update(uploadInfo);
+        }
       }
     }
     return null;

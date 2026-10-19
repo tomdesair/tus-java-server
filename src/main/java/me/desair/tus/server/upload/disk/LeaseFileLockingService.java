@@ -160,24 +160,6 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
     }
   }
 
-  @Override
-  public void cleanupLock(UploadId id) throws IOException {
-    if (id == null) {
-      return;
-    }
-    Path lockDirPath = getLockDirPath(id);
-    if (lockDirPath != null && Files.exists(lockDirPath)) {
-      // Safe eviction under sibling mutex to prevent deleting an active successor's lease
-      if (isLockExpired(id)) {
-        atomicEvictExpiredLock(lockDirPath);
-      }
-    }
-    Path stopFilePath = getStopFilePath(id);
-    if (stopFilePath != null) {
-      Utils.deletePathQuietly(stopFilePath);
-    }
-  }
-
   /**
    * Attempts primary lock acquisition or in-place takeover of an expired lease under the protection
    * of a {@link LeaseFileMutex}.
@@ -270,7 +252,8 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
         Utils.deletePathQuietly(stopFilePath);
       }
 
-      return new LeaseFileUploadLock(leaseData, lockDirPath, stopFilePath, activeInputStreams);
+      return new LeaseFileUploadLock(
+          leaseData, lockDirPath, stopFilePath, activeInputStreams, watchdogExecutor);
     } catch (Exception e) {
       log.debug("Error acquiring lease for upload {}", uploadId, e);
       return null;

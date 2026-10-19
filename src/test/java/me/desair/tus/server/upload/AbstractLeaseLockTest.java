@@ -6,14 +6,18 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
@@ -97,6 +101,9 @@ public class AbstractLeaseLockTest {
   @Test
   public void testActiveLockConstructorWithCustomExecutor() {
     ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    ScheduledFuture mockFuture = mock(ScheduledFuture.class);
+    when(mockExecutor.scheduleWithFixedDelay(any(), anyLong(), anyLong(), any()))
+        .thenReturn(mockFuture);
     Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
 
     LeaseData leaseData =
@@ -106,7 +113,7 @@ public class AbstractLeaseLockTest {
     assertNotNull(lock);
     lock.close();
 
-    verify(mockExecutor).shutdownNow();
+    verify(mockFuture).cancel(true);
     assertTrue(lock.released.get());
   }
 
@@ -141,6 +148,9 @@ public class AbstractLeaseLockTest {
   @Test
   public void testRenewLeaseFailureInterruptsActiveStreamAndShutsDownExecutor() {
     ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    ScheduledFuture mockFuture = mock(ScheduledFuture.class);
+    when(mockExecutor.scheduleWithFixedDelay(any(), anyLong(), anyLong(), any()))
+        .thenReturn(mockFuture);
     Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
 
     me.desair.tus.server.util.InterruptibleInputStream stream =
@@ -165,12 +175,15 @@ public class AbstractLeaseLockTest {
     lock.renewLease();
 
     assertTrue(stream.isInterrupted());
-    verify(mockExecutor).shutdownNow();
+    verify(mockFuture).cancel(true);
   }
 
   @Test
   public void testRenewLeaseTransientFailureDoesNotInterruptActiveStreamIfLeaseValid() {
     ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    ScheduledFuture mockFuture = mock(ScheduledFuture.class);
+    when(mockExecutor.scheduleWithFixedDelay(any(), anyLong(), anyLong(), any()))
+        .thenReturn(mockFuture);
     Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
 
     me.desair.tus.server.util.InterruptibleInputStream stream =
@@ -195,11 +208,15 @@ public class AbstractLeaseLockTest {
 
     org.junit.Assert.assertFalse(stream.isInterrupted());
     org.mockito.Mockito.verify(mockExecutor, org.mockito.Mockito.never()).shutdownNow();
+    org.mockito.Mockito.verify(mockFuture, org.mockito.Mockito.never()).cancel(true);
   }
 
   @Test
   public void testRenewLeaseOwnershipLostInterruptsActiveStreamAndShutsDownExecutor() {
     ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    ScheduledFuture mockFuture = mock(ScheduledFuture.class);
+    when(mockExecutor.scheduleWithFixedDelay(any(), anyLong(), anyLong(), any()))
+        .thenReturn(mockFuture);
     Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
 
     me.desair.tus.server.util.InterruptibleInputStream stream =
@@ -222,6 +239,6 @@ public class AbstractLeaseLockTest {
     lock.renewLease();
 
     assertTrue(stream.isInterrupted());
-    verify(mockExecutor).shutdownNow();
+    verify(mockFuture).cancel(true);
   }
 }

@@ -17,7 +17,6 @@ import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.List;
 import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
-import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.util.InterruptibleInputStream;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,7 +38,9 @@ public class AzureBlobLockingServiceTest {
             .endpoint("https://dummyaccount.blob.core.windows.net")
             .containerName("dummy-container")
             .buildClient();
-    lockingService = new AzureBlobLockingService(containerClient);
+    lockingService =
+        new AzureBlobLockingService(
+            containerClient, AzureBlobLockingService.DEFAULT_LOCKS_PREFIX, null);
     TimeBasedUploadIdFactory idFactory = new TimeBasedUploadIdFactory();
     idFactory.setUploadUri("/test/upload");
     lockingService.setIdFactory(idFactory);
@@ -51,16 +52,22 @@ public class AzureBlobLockingServiceTest {
   }
 
   @Test
-  public void prefixSanitizationVariants() {
+  public void prefixSanitizationVariants() throws Exception {
     AzureBlobLockingService service1 = new AzureBlobLockingService(containerClient, null);
     AzureBlobLockingService service2 =
         new AzureBlobLockingService(containerClient, "/custom/locks");
     AzureBlobLockingService service3 =
         new AzureBlobLockingService(containerClient, "custom/locks/");
 
-    assertNotNull(service1);
-    assertNotNull(service2);
-    assertNotNull(service3);
+    try {
+      assertNotNull(service1);
+      assertNotNull(service2);
+      assertNotNull(service3);
+    } finally {
+      service1.close();
+      service2.close();
+      service3.close();
+    }
   }
 
   @Test(expected = NullPointerException.class)
@@ -98,14 +105,6 @@ public class AzureBlobLockingServiceTest {
   }
 
   @Test
-  public void cleanupLockWithNullOrInvalidShouldDoNothing() throws Exception {
-    // KISS: verifying null/invalid parameters are handled safely without throwing exceptions
-    lockingService.cleanupLock((UploadId) null);
-    lockingService.cleanupLock((String) null);
-    lockingService.cleanupLock("invalid-uri-no-id");
-  }
-
-  @Test
   public void deleteLockBlobIfUnleasedNullReturnsFalse() {
     assertFalse(lockingService.deleteLockBlobIfUnleased(null));
   }
@@ -124,43 +123,6 @@ public class AzureBlobLockingServiceTest {
         .when(mockBlob)
         .deleteWithResponse(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
     assertFalse(lockingService.deleteLockBlobWithLease(mockBlob, "lease-id"));
-  }
-
-  @Test
-  public void cleanupLockWithActiveLockDeletesWithLease() throws Exception {
-    UploadId testId = new UploadId("test-active-lock-id");
-    BlobClient mockBlob = Mockito.mock(BlobClient.class);
-    com.azure.storage.blob.specialized.BlobLeaseClient realLease =
-        new com.azure.storage.blob.specialized.BlobLeaseClientBuilder()
-            .blobClient(mockBlob)
-            .leaseId("mock-lease-123")
-            .buildClient();
-
-    AzureBlobUploadLock mockLock = Mockito.mock(AzureBlobUploadLock.class);
-    Mockito.when(mockLock.getLeaseClient()).thenReturn(realLease);
-
-    AzureBlobLockingService testService =
-        new AzureBlobLockingService(containerClient) {
-          @Override
-          BlobClient getBlobClient(String blobName) {
-            return mockBlob;
-          }
-
-          @Override
-          void deleteStopSignalBlob(String idStr) {
-            // KISS: no-op in unit test to avoid network call against dummy endpoint
-          }
-
-          @Override
-          boolean deleteLockBlobWithLease(BlobClient lockBlob, String leaseId) {
-            return true;
-          }
-        };
-
-    testService.activeLocks.put("test-active-lock-id", mockLock);
-    testService.cleanupLock(testId);
-
-    Mockito.verify(mockLock).markBlobDeleted();
   }
 
   @Test
@@ -190,19 +152,6 @@ public class AzureBlobLockingServiceTest {
     lockingService.pollStopSignals();
 
     assertFalse(lockingService.activeStreams.containsKey("stale-upload-id"));
-  }
-
-  @Test
-  public void cleanupLockHandlesExceptionGracefully() throws Exception {
-    AzureBlobLockingService throwingService =
-        new AzureBlobLockingService(containerClient) {
-          @Override
-          void deleteStopSignalBlob(String idStr) {
-            throw new RuntimeException("Simulated delete stop failure");
-          }
-        };
-    // KISS: verify method catches exception and logs debug without propagating
-    throwingService.cleanupLock(new UploadId("12345"));
   }
 
   @Test
@@ -307,5 +256,154 @@ public class AzureBlobLockingServiceTest {
     com.azure.storage.blob.implementation.models.BlobItemInternal itemInternal =
         new com.azure.storage.blob.implementation.models.BlobItemInternal().setName(blobName);
     return com.azure.storage.blob.implementation.util.ModelHelper.populateBlobItem(itemInternal);
+  }
+
+  @Test
+  public void testDeleteStopSignalBlobCatchesException() {
+    AzureBlobLockingService service =
+        new AzureBlobLockingService(containerClient) {
+          @Override
+          BlobClient getBlobClient(String name) {
+            BlobClient mock = Mockito.mock(BlobClient.class);
+            Mockito.doThrow(new RuntimeException("Delete stop error")).when(mock).deleteIfExists();
+            return mock;
+          }
+        };
+    // KISS: verify method swallows exception without throwing
+    service.deleteStopSignalBlob("upload-test");
+  }
+
+  @Test
+  public void deleteLockBlobIfUnleasedAvailableLeaseStateDeletes() {
+    BlobClient mockBlob = Mockito.mock(BlobClient.class);
+    Mockito.when(mockBlob.exists()).thenReturn(true);
+    com.azure.storage.blob.models.BlobProperties props =
+        createTestBlobProperties(LeaseStateType.AVAILABLE);
+    Mockito.when(mockBlob.getProperties()).thenReturn(props);
+
+    assertTrue(lockingService.deleteLockBlobIfUnleased(mockBlob));
+    Mockito.verify(mockBlob).deleteIfExists();
+  }
+
+  @Test
+  public void deleteLockBlobIfUnleasedLeasedDoesNotDelete() {
+    BlobClient mockBlob = Mockito.mock(BlobClient.class);
+    Mockito.when(mockBlob.exists()).thenReturn(true);
+    com.azure.storage.blob.models.BlobProperties props =
+        createTestBlobProperties(LeaseStateType.LEASED);
+    Mockito.when(mockBlob.getProperties()).thenReturn(props);
+
+    assertFalse(lockingService.deleteLockBlobIfUnleased(mockBlob));
+    Mockito.verify(mockBlob, Mockito.never()).deleteIfExists();
+  }
+
+  @Test
+  public void deleteLockBlobWithLeaseSuccess() {
+    BlobClient mockBlob = Mockito.mock(BlobClient.class);
+    assertTrue(lockingService.deleteLockBlobWithLease(mockBlob, "valid-lease-id"));
+    Mockito.verify(mockBlob)
+        .deleteWithResponse(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+  }
+
+  @Test
+  public void ensureLockBlobExistsCatchesBlobStorageException() {
+    BlobClient mockBlob = Mockito.mock(BlobClient.class);
+    com.azure.core.http.HttpResponse response =
+        Mockito.mock(com.azure.core.http.HttpResponse.class);
+    Mockito.when(response.getStatusCode()).thenReturn(500);
+    com.azure.storage.blob.models.BlobStorageException bse =
+        new com.azure.storage.blob.models.BlobStorageException("Internal error", response, null);
+    Mockito.doThrow(bse)
+        .when(mockBlob)
+        .upload(Mockito.any(com.azure.core.util.BinaryData.class), Mockito.anyBoolean());
+    lockingService.ensureLockBlobExists(mockBlob);
+  }
+
+  private com.azure.storage.blob.models.BlobProperties createTestBlobProperties(
+      LeaseStateType leaseState) {
+    return new com.azure.storage.blob.models.BlobProperties(
+        null,
+        OffsetDateTime.now(),
+        "etag",
+        0L,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        leaseState,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null);
+  }
+
+  @Test
+  public void testPollStopSignalsCatchesException() {
+    ByteArrayInputStream bais = new ByteArrayInputStream("test".getBytes());
+    InterruptibleInputStream stream = new InterruptibleInputStream(bais);
+
+    AzureBlobLockingService service =
+        new AzureBlobLockingService(
+            containerClient, AzureBlobLockingService.DEFAULT_LOCKS_PREFIX, null) {
+          @Override
+          BlobClient getBlobClient(String name) {
+            throw new RuntimeException("Stop blob check failed");
+          }
+        };
+    service.activeStreams.put("poll-err", new java.lang.ref.WeakReference<>(stream));
+    service.pollStopSignals();
+    assertNotNull(service);
+  }
+
+  @Test
+  public void testPollStopSignalsDetectsStopBlobAndInterrupts() {
+    ByteArrayInputStream bais = new ByteArrayInputStream("test".getBytes());
+    InterruptibleInputStream stream = new InterruptibleInputStream(bais);
+
+    BlobClient mockStopBlob = Mockito.mock(BlobClient.class);
+    Mockito.when(mockStopBlob.exists()).thenReturn(true);
+
+    AzureBlobLockingService service =
+        new AzureBlobLockingService(
+            containerClient, AzureBlobLockingService.DEFAULT_LOCKS_PREFIX, null) {
+          @Override
+          BlobClient getBlobClient(String name) {
+            return mockStopBlob;
+          }
+        };
+    service.activeStreams.put("poll-stop", new java.lang.ref.WeakReference<>(stream));
+    service.pollStopSignals();
+
+    assertTrue(stream.isInterrupted());
+    Mockito.verify(mockStopBlob).deleteIfExists();
+  }
+
+  @Test
+  public void testLockUploadNullReturnsNull() throws Exception {
+    assertNull(lockingService.lockUpload(null));
   }
 }

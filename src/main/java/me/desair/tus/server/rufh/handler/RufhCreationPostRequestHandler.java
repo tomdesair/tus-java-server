@@ -147,8 +147,21 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
       }
     }
 
-    boolean isFinished = Boolean.TRUE.equals(uploadComplete) || isUploadCompleted(uploadInfo);
-    if (isFinished) {
+    // Detect whether stream was prematurely interrupted (e.g. concurrent contention or socket drop)
+    // or fewer bytes arrived than expected by Content-Length.
+    boolean streamInterrupted =
+        (interruptibleStream != null && interruptibleStream.isInterrupted())
+            || (contentLength >= 0 && uploadInfo != null && uploadInfo.getOffset() < contentLength);
+
+    // Per RUFH §4.2: An upload must only be marked complete if the stream completed uninterrupted.
+    // If the stream was interrupted, we acknowledge partial progress and allow subsequent PATCH
+    // resumes.
+    boolean isFinished =
+        !streamInterrupted
+            && (Boolean.TRUE.equals(uploadComplete)
+                || (uploadInfo != null && isUploadCompleted(uploadInfo)));
+
+    if (isFinished && uploadInfo != null) {
       uploadInfo.setLength(uploadInfo.getOffset());
       uploadStorageService.update(uploadInfo);
       servletResponse.setStatus(200);
@@ -157,11 +170,19 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
           HttpHeader.UPLOAD_COMPLETE, StructuredHeaderUtil.formatBoolean(true));
       servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, String.valueOf(uploadInfo.getOffset()));
     } else {
+      // If length was originally deferred (no Upload-Length header) and stream was interrupted,
+      // reset length to null so that the upload remains in-progress and can be resumed via PATCH.
+      if (streamInterrupted && uploadInfo != null && uploadLength == null) {
+        uploadInfo.setLength(null);
+        uploadStorageService.update(uploadInfo);
+      }
       servletResponse.setStatus(201);
       servletResponse.setHeader(HttpHeader.LOCATION, uploadUri);
       servletResponse.setHeader(
           HttpHeader.UPLOAD_COMPLETE, StructuredHeaderUtil.formatBoolean(false));
-      servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, String.valueOf(uploadInfo.getOffset()));
+      servletResponse.setHeader(
+          HttpHeader.UPLOAD_OFFSET,
+          String.valueOf(uploadInfo != null ? uploadInfo.getOffset() : 0L));
     }
     return null;
   }

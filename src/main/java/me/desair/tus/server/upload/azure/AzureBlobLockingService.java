@@ -106,9 +106,22 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
             "azure-lock-watchdog", this::pollStopSignals, 2000L, 2000L, TimeUnit.MILLISECONDS);
   }
 
+  AzureBlobLockingService(
+      BlobContainerClient containerClient,
+      String locksPrefix,
+      ScheduledExecutorService watchdogExecutor) {
+    super("azure-lock-shutdown-hook");
+    this.containerClient =
+        Objects.requireNonNull(containerClient, "containerClient must not be null");
+    this.locksPrefix = sanitizePrefix(locksPrefix);
+    this.watchdogExecutor = watchdogExecutor;
+  }
+
   @Override
   protected void cleanupOnClose() throws IOException {
-    Utils.shutdownExecutor(watchdogExecutor);
+    if (watchdogExecutor != null) {
+      Utils.shutdownExecutor(watchdogExecutor);
+    }
     for (WeakReference<InterruptibleInputStream> streamRef : activeStreams.values()) {
       if (streamRef != null) {
         Utils.interruptStream(streamRef.get());
@@ -145,7 +158,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
     String idStr = uploadId.toString();
 
     // 1. Target lock blob and instantiate Azure Blob Lease client
-    BlobClient lockBlob = containerClient.getBlobClient(locksPrefix + idStr + ".lock");
+    BlobClient lockBlob = getBlobClient(locksPrefix + idStr + ".lock");
     BlobLeaseClient leaseClient = createBlobLeaseClient(lockBlob);
 
     try {
@@ -169,9 +182,17 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
       // Lock successfully acquired: clear any lingering .stop signal blob
       deleteStopSignalBlob(idStr);
 
+      BlobClient stopBlob = getBlobClient(locksPrefix + idStr + ".stop");
       AzureBlobUploadLock lock =
           new AzureBlobUploadLock(
-              leaseClient, lockBlob, uriOrId, idStr, activeStreams, activeLocks);
+              leaseClient,
+              lockBlob,
+              stopBlob,
+              uriOrId,
+              watchdogExecutor,
+              idStr,
+              activeStreams,
+              activeLocks);
       activeLocks.put(idStr, lock);
       return lock;
     } catch (BlobStorageException e) {
@@ -184,37 +205,6 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
       }
       throw new IOException("Failed to acquire Azure blob lease lock for URI " + uriOrId, e);
     }
-  }
-
-  @Override
-  public void cleanupLock(UploadId id) throws IOException {
-    if (id == null) {
-      return;
-    }
-    String idStr = id.toString();
-    try {
-      // 1. Delete any lingering cross-pod .stop signal blob from prior lock contention
-      deleteStopSignalBlob(idStr);
-
-      // 2. Delete the target .lock blob in the locks prefix
-      BlobClient lockBlob = getBlobClient(locksPrefix + idStr + ".lock");
-      AzureBlobUploadLock activeLock = activeLocks.get(idStr);
-      if (activeLock != null && activeLock.getLeaseClient() != null) {
-        // The lock is actively held by this instance (e.g. during DELETE termination).
-        // Safely delete the blob specifying the active lease ID condition.
-        deleteLockBlobWithLease(lockBlob, activeLock.getLeaseClient().getLeaseId());
-        activeLock.markBlobDeleted();
-      } else {
-        deleteLockBlobIfUnleased(lockBlob);
-      }
-    } catch (Exception e) {
-      log.debug("Failed to clean up Azure lock blob for upload ID {}: {}", idStr, e.getMessage());
-    }
-  }
-
-  @Override
-  public void cleanupLock(String uploadUri) throws IOException {
-    cleanupLock(uploadUri != null && idFactory != null ? idFactory.readUploadId(uploadUri) : null);
   }
 
   /**
@@ -336,7 +326,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
     if (id == null) {
       return false;
     }
-    BlobClient lockBlob = containerClient.getBlobClient(locksPrefix + id + ".lock");
+    BlobClient lockBlob = getBlobClient(locksPrefix + id + ".lock");
     try {
       // Single HEAD call to fetch properties and check if LeaseState is "leased"
       BlobProperties props = lockBlob.getProperties();
@@ -380,7 +370,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
   /** Creates a .stop signal blob to request remote pods to halt active streaming appends. */
   void createStopSignalBlob(String idStr) {
     try {
-      BlobClient stopBlob = containerClient.getBlobClient(locksPrefix + idStr + ".stop");
+      BlobClient stopBlob = getBlobClient(locksPrefix + idStr + ".stop");
       stopBlob.upload(BinaryData.fromString("stop"), true);
     } catch (Exception e) {
       log.debug("Failed to write .stop signal blob for upload ID {}: {}", idStr, e.getMessage());
@@ -390,7 +380,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
   /** Deletes the .stop signal blob after lock acquisition. */
   void deleteStopSignalBlob(String idStr) {
     try {
-      BlobClient stopBlob = containerClient.getBlobClient(locksPrefix + idStr + ".stop");
+      BlobClient stopBlob = getBlobClient(locksPrefix + idStr + ".stop");
       stopBlob.deleteIfExists();
     } catch (Exception ignored) {
       // Ignore cleanup exceptions
@@ -400,9 +390,10 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
   /** Ensures the lock target blob exists on Azure Blob Storage. */
   void ensureLockBlobExists(BlobClient lockBlob) {
     try {
-      if (!lockBlob.exists()) {
-        lockBlob.upload(BinaryData.fromBytes("lock".getBytes(StandardCharsets.UTF_8)), false);
-      }
+      // Calling upload(..., false) directly without lockBlob.exists() saves an expensive HEAD
+      // call. If another concurrent thread or pod already created the blob, Azure returns 409
+      // Conflict or PreconditionFailed, which is caught and ignored safely.
+      lockBlob.upload(BinaryData.fromBytes("lock".getBytes(StandardCharsets.UTF_8)), false);
     } catch (BlobStorageException e) {
       AzureErrorType errorType = AzureUtils.parseErrorResponse(e);
       if (errorType != AzureErrorType.CONFLICT
@@ -444,7 +435,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
           activeStreams.remove(idStr);
           continue;
         }
-        BlobClient stopBlob = containerClient.getBlobClient(locksPrefix + idStr + ".stop");
+        BlobClient stopBlob = getBlobClient(locksPrefix + idStr + ".stop");
         if (Boolean.TRUE.equals(stopBlob.exists())) {
           log.info("Detected remote .stop signal blob for upload ID {}", idStr);
           interruptLocalStream(idStr);

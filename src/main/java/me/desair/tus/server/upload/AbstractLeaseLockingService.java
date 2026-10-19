@@ -2,6 +2,7 @@ package me.desair.tus.server.upload;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -150,17 +151,46 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
       return;
     }
 
-    // 1. Interrupt active local input stream in this JVM
+    // 1. Interrupt active local input stream in this JVM.
+    // Try exact URI match first; fall back to matching by UploadId if requestUri used a different
+    // scheme/host
     InputStream activeStream = activeInputStreams.remove(requestUri);
+    if (activeStream == null && idFactory != null) {
+      UploadId id = idFactory.readUploadId(requestUri);
+      if (id != null) {
+        for (Iterator<Map.Entry<String, InputStream>> it = activeInputStreams.entrySet().iterator();
+            it.hasNext(); ) {
+          Map.Entry<String, InputStream> entry = it.next();
+          UploadId entryId = idFactory.readUploadId(entry.getKey());
+          if (id.equals(entryId)) {
+            activeStream = entry.getValue();
+            it.remove();
+            break;
+          }
+        }
+      }
+    }
+
     if (activeStream != null) {
       Utils.interruptStream(activeStream);
     }
 
     // 2. Write a .stop signal to notify remote cluster replicas / pods
-    UploadId uploadId = idFactory.readUploadId(requestUri);
-    if (uploadId != null) {
-      writeStopSignal(uploadId);
+    if (idFactory != null) {
+      UploadId uploadId = idFactory.readUploadId(requestUri);
+      if (uploadId != null) {
+        writeStopSignal(uploadId);
+      }
     }
+  }
+
+  /**
+   * Returns the shared scheduled executor used for background watchdog polling.
+   *
+   * @return The scheduled executor service
+   */
+  public ScheduledExecutorService getWatchdogExecutor() {
+    return watchdogExecutor;
   }
 
   @Override
@@ -198,7 +228,7 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
     LeaseData leaseData =
         new LeaseData(holderId, requestUri, leaseDurationMs, expiresAt, now, null, null);
 
-    UploadLock lock = tryAcquireLock(uploadId, leaseData);
+    UploadLock lock = tryAcquireLock(uploadId, leaseData, false);
     if (lock != null) {
       return lock;
     }
@@ -211,13 +241,29 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
         now = System.currentTimeMillis();
         leaseData.setAcquiredAt(now);
         leaseData.setExpiresAt(now + leaseDurationMs);
-        lock = tryAcquireLock(uploadId, leaseData);
+        lock = tryAcquireLock(uploadId, leaseData, true);
         if (lock != null) {
           return lock;
         }
       }
     }
     return null;
+  }
+
+  /**
+   * Subclass implementation of primary lock acquisition, indicating whether this call is an
+   * eviction retry after deleting an expired lock. Default implementation delegates to {@link
+   * #tryAcquireLock(UploadId, LeaseData)}.
+   *
+   * @param uploadId The upload identifier
+   * @param leaseData The lease metadata describing the lock to acquire
+   * @param isEvictionRetry True if this acquisition follows an expired lock eviction
+   * @return Acquired {@link UploadLock}, or null if already held
+   * @throws IOException If an I/O error occurs
+   */
+  protected UploadLock tryAcquireLock(
+      UploadId uploadId, LeaseData leaseData, boolean isEvictionRetry) throws IOException {
+    return tryAcquireLock(uploadId, leaseData);
   }
 
   /**
@@ -336,10 +382,5 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
     }
     this.jitterMinMs = minMs;
     this.jitterMaxMs = maxMs;
-  }
-
-  @Override
-  public void cleanupLock(String uploadUri) throws IOException {
-    cleanupLock(uploadUri != null && idFactory != null ? idFactory.readUploadId(uploadUri) : null);
   }
 }

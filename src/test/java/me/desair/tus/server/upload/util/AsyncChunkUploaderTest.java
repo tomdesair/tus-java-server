@@ -44,9 +44,10 @@ public class AsyncChunkUploaderTest {
   public void tearDown() throws Exception {
     if (executor != null) {
       executor.shutdownNow();
+      executor.awaitTermination(2, TimeUnit.SECONDS);
     }
     if (tempDir != null && tempDir.exists()) {
-      org.apache.commons.io.FileUtils.deleteDirectory(tempDir);
+      org.apache.commons.io.FileUtils.deleteQuietly(tempDir);
     }
   }
 
@@ -748,7 +749,17 @@ public class AsyncChunkUploaderTest {
     uploader.abort();
 
     hangLatch.countDown();
-    assertFalse("File should be cleaned up by abort", f1.exists());
+    // Allow up to 3 seconds for asynchronous background worker thread to execute its finally
+    // cleanup
+    boolean deleted = false;
+    for (int i = 0; i < 60; i++) {
+      if (!f1.exists()) {
+        deleted = true;
+        break;
+      }
+      Thread.sleep(50);
+    }
+    assertTrue("File should be cleaned up by worker thread finally block", deleted);
   }
 
   @Test

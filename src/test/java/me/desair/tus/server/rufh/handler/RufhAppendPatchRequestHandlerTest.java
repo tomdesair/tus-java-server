@@ -165,13 +165,12 @@ public class RufhAppendPatchRequestHandlerTest {
     request.setRequestURI("/files/append-id");
     request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
     request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
-    request.addHeader(HttpHeader.CONTENT_LENGTH, "4");
-    request.setContent("data".getBytes());
+    request.setContent(new byte[0]);
 
     UploadInfo info = new UploadInfo();
     info.setId(new UploadId("append-id"));
     info.setOffset(1000L);
-    info.setLength(1004L);
+    info.setLength(1000L);
 
     when(storageService.getUploadInfo("/files/append-id", "owner")).thenReturn(info);
     // storageService.append returns null

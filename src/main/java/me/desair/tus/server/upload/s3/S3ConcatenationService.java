@@ -289,7 +289,19 @@ public class S3ConcatenationService implements UploadConcatenationService {
     try {
       List<String> partKeys = new ArrayList<>();
       for (UploadInfo partial : partialUploads) {
-        partKeys.add(partial.getStorageUploadId());
+        // Resolve duplicate child uploads dynamically to parent upload's physical S3 object key
+        // per AGENTS.md §7 to prevent composing against non-existent child blob targets.
+        String key;
+        if (uploadStorageService instanceof S3StorageService) {
+          key = ((S3StorageService) uploadStorageService).getS3ObjectKey(partial);
+        } else if (partial.getDuplicatesUploadId() != null) {
+          key = objectPrefix + partial.getDuplicatesUploadId();
+        } else if (partial.getStorageUploadId() != null) {
+          key = partial.getStorageUploadId();
+        } else {
+          key = objectPrefix + partial.getId();
+        }
+        partKeys.add(key);
       }
 
       // Execute S3 server-side object composition via native S3 multipart copy helper.

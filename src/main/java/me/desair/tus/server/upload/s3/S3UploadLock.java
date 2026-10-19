@@ -206,8 +206,8 @@ public class S3UploadLock extends AbstractLeaseLock {
    * Verifies that the S3 lock object is still owned by this lock holder.
    *
    * @param key The S3 lock object key
-   * @return {@code true} if the lock object is missing or owned by this holder; {@code false} if
-   *     owned by a different holder or arguments are invalid
+   * @return {@code true} if the lock object does not exist, is unparseable, or matches this
+   *     holder's ID; {@code false} if owned by a different holder
    */
   boolean doesLockOwnershipMatch(String key) {
     if (key == null || minioClient == null || bucket == null) {

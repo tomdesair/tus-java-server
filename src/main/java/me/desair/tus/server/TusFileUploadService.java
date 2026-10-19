@@ -95,18 +95,20 @@ public class TusFileUploadService implements Closeable {
   }
 
   protected void initFeatures() {
-    // The order of the features is important
+    // The order of the features is important: ExpirationExtension must run before ChecksumExtension
+    // and HttpDigestsExtension so that upload expiration timestamps are already refreshed when
+    // deduplication triggers on upload completion.
     addTusExtension(new CoreProtocol());
     CreationExtension creationExtension = new CreationExtension();
     addTusExtension(creationExtension);
     addTusExtension(new CreationWithUploadExtension(creationExtension));
     addTusExtension(new ResumableUploadsForHttpProtocol());
-    addTusExtension(new ChecksumExtension());
-    addTusExtension(new TerminationExtension());
     addTusExtension(new ExpirationExtension());
+    addTusExtension(new ChecksumExtension());
+    addTusExtension(new HttpDigestsExtension());
+    addTusExtension(new TerminationExtension());
     addTusExtension(new ConcatenationExtension());
     addTusExtension(new CorsExtension());
-    addTusExtension(new HttpDigestsExtension());
   }
 
   /**
@@ -606,7 +608,6 @@ public class TusFileUploadService implements Closeable {
     }
 
     if (wasInProgress && processedUploadInfo != null && !processedUploadInfo.isUploadInProgress()) {
-      cleanupLock(processedUploadInfo.getId());
       notifyUploadCompletionListeners(processedUploadInfo);
     }
 
@@ -626,7 +627,12 @@ public class TusFileUploadService implements Closeable {
         break;
       } catch (TusException e) {
         if (HttpMethod.HEAD.equals(method) || HttpMethod.DELETE.equals(method)) {
-          uploadLockingService.requestLockRelease(requestUri);
+          // Throttled contention signal: write stop signal on initial contention (retries == 0)
+          // and every 12th iteration (~2400ms) rather than every 200ms to avoid write storms on
+          // S3/Azure.
+          if (retries == 0 || retries % 12 == 0) {
+            uploadLockingService.requestLockRelease(requestUri);
+          }
           retries++;
           try {
             Thread.sleep(LOCK_RETRY_INTERVAL_MS);
@@ -635,6 +641,10 @@ public class TusFileUploadService implements Closeable {
             throw new IOException("Lock acquisition retry interrupted", ie);
           }
         } else {
+          // Concurrent PATCH requests must fail fast (423/409) rather than waiting in contention
+          // loop,
+          // because a resumed PATCH cannot know the actual committed offset without first issuing a
+          // HEAD.
           throw e;
         }
       }
@@ -974,6 +984,20 @@ public class TusFileUploadService implements Closeable {
       throws IOException {
     ProtocolVersion detectedVersion = detectProtocolVersion(request);
 
+    // Record initial upload offset before request processing starts.
+    // If an error occurs (e.g. MaxAppendSizeExceededException), processTusException must only
+    // rollback bytes that were actually committed during this request, and never truncate bytes
+    // committed by earlier successful requests.
+    long initialOffset = 0L;
+    try {
+      UploadInfo preInfo = resolveUploadInfo(request, null, ownerKey);
+      if (preInfo != null) {
+        initialOffset = preInfo.getOffset();
+      }
+    } catch (Exception e) {
+      log.debug("Could not resolve initial upload offset: {}", e.getMessage());
+    }
+
     try {
       validateRequest(method, request, ownerKey, detectedVersion);
 
@@ -982,7 +1006,7 @@ public class TusFileUploadService implements Closeable {
       return resolveUploadInfo(request, response, ownerKey);
 
     } catch (TusException e) {
-      processTusException(method, request, response, ownerKey, e, detectedVersion);
+      processTusException(method, request, response, ownerKey, e, detectedVersion, initialOffset);
       return null;
     } catch (RuntimeException e) {
       // Catch unexpected RuntimeException (e.g. NPE in custom extension) and convert it to an
@@ -994,7 +1018,8 @@ public class TusFileUploadService implements Closeable {
           new TusException(
               HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
               "Internal server error: " + e.getMessage());
-      processTusException(method, request, response, ownerKey, wrapped, detectedVersion);
+      processTusException(
+          method, request, response, ownerKey, wrapped, detectedVersion, initialOffset);
       return null;
     }
   }
@@ -1042,16 +1067,6 @@ public class TusFileUploadService implements Closeable {
             uploadInfo.getId(),
             t.getMessage(),
             t);
-      }
-    }
-  }
-
-  private void cleanupLock(UploadId id) {
-    if (id != null) {
-      try {
-        uploadLockingService.cleanupLock(id);
-      } catch (Exception e) {
-        log.debug("Error cleaning up lock for upload ID {}: {}", id, e.getMessage());
       }
     }
   }
@@ -1104,6 +1119,18 @@ public class TusFileUploadService implements Closeable {
       TusException exception,
       ProtocolVersion version)
       throws IOException {
+    processTusException(method, request, response, ownerKey, exception, version, 0L);
+  }
+
+  protected void processTusException(
+      HttpMethod method,
+      TusServletRequest request,
+      TusServletResponse response,
+      String ownerKey,
+      TusException exception,
+      ProtocolVersion version,
+      long initialOffset)
+      throws IOException {
 
     int status = exception.getStatus();
     String message = exception.getMessage();
@@ -1138,12 +1165,18 @@ public class TusFileUploadService implements Closeable {
         }
       }
 
-      // Since an error occurred, the bytes we have written are probably not valid.
-      // So remove them.
+      // Since an error occurred, only rollback bytes that were actually committed during this
+      // request. Capping rollback to (uploadInfo.getOffset() - initialOffset) guarantees that if an
+      // uncommitted chunk failed (e.g. MaxAppendSizeExceededException where bytes were read into
+      // temp storage but never committed to offset), we do not truncate earlier valid data!
       String uploadUri = Utils.getUploadUri(request, response);
       UploadInfo uploadInfo = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
       if (uploadInfo != null) {
-        uploadStorageService.removeLastNumberOfBytes(uploadInfo, request.getBytesRead());
+        long committedThisRequest = Math.max(0L, uploadInfo.getOffset() - initialOffset);
+        long bytesToRollback = Math.min(request.getBytesRead(), committedThisRequest);
+        if (bytesToRollback > 0) {
+          uploadStorageService.removeLastNumberOfBytes(uploadInfo, bytesToRollback);
+        }
       }
 
     } catch (TusException ex) {

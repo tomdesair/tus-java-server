@@ -59,13 +59,11 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
     String uploadCompleteHeader = servletRequest.getHeader(HttpHeader.UPLOAD_COMPLETE);
     Boolean uploadComplete = StructuredHeaderUtil.parseBoolean(uploadCompleteHeader);
 
-    // Per RUFH §4.2.1: If upload length was deferred and the client completes the upload
-    // via Upload-Complete: ?1, derive and set the total length from current offset +
-    // Content-Length.
+    boolean hadLengthInitially = uploadInfo.hasLength();
+    long initialOffset = uploadInfo.getOffset() != null ? uploadInfo.getOffset() : 0L;
     long contentLength = servletRequest.getContentLengthLong();
-    if (Boolean.TRUE.equals(uploadComplete) && !uploadInfo.hasLength() && contentLength >= 0) {
-      long currentOffset = uploadInfo.getOffset() != null ? uploadInfo.getOffset() : 0L;
-      uploadInfo.setLength(currentOffset + contentLength);
+    if (Boolean.TRUE.equals(uploadComplete) && !hadLengthInitially && contentLength >= 0) {
+      uploadInfo.setLength(initialOffset + contentLength);
       uploadStorageService.update(uploadInfo);
     }
 
@@ -103,9 +101,25 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
       }
     }
 
-    boolean isFinished = Boolean.TRUE.equals(uploadComplete) || isUploadCompleted(uploadInfo);
+    // Detect whether stream was prematurely interrupted (e.g. concurrent contention or socket drop)
+    // or fewer bytes arrived than expected by Content-Length.
+    boolean streamInterrupted =
+        (interruptibleStream != null && interruptibleStream.isInterrupted())
+            || (contentLength >= 0 && (uploadInfo.getOffset() - initialOffset) < contentLength);
+
+    // Per RUFH §4.2: An upload must only be marked complete if the stream completed uninterrupted.
+    // If the stream was interrupted, we acknowledge partial progress and allow subsequent PATCH
+    // resumes.
+    boolean isFinished =
+        !streamInterrupted
+            && (Boolean.TRUE.equals(uploadComplete) || isUploadCompleted(uploadInfo));
     if (isFinished) {
       uploadInfo.setLength(uploadInfo.getOffset());
+      uploadStorageService.update(uploadInfo);
+    } else if (streamInterrupted && !hadLengthInitially) {
+      // If the stream was interrupted on an upload whose length was deferred,
+      // reset length to null so that it remains open for subsequent resumes.
+      uploadInfo.setLength(null);
       uploadStorageService.update(uploadInfo);
     }
 

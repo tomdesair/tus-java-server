@@ -3,6 +3,7 @@ package me.desair.tus.server.upload.checksum;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
@@ -28,6 +29,7 @@ public class DeduplicationService {
 
   private final ChecksumIndex checksumIndex;
   private final UploadStorageService storageService;
+  private final Set<UploadId> inFlightDeduplications = ConcurrentHashMap.newKeySet();
   private UploadLockingService lockingService;
 
   /**
@@ -80,22 +82,32 @@ public class DeduplicationService {
     }
 
     UploadId currentId = uploadInfo.getId();
-
-    // 1. Check if a parent is currently registered for this checksum
-    UploadId parentId = checksumIndex.findParent(key);
-
-    if (parentId == null) {
-      // 2. No parent registered. Attempt CAS registration of current upload as parent.
-      return registerAsParent(uploadInfo, key);
-    }
-
-    // Guard: Do not deduplicate an upload against itself
-    if (Objects.equals(parentId, currentId)) {
+    if (currentId == null || !inFlightDeduplications.add(currentId)) {
+      // Re-entrant call detected: updateUploadInfo() calls storageService.update(), which invokes
+      // deduplicate() again. Guarding with inFlightDeduplications prevents infinite recursion
+      // (StackOverflowError) when duplicatesUploadId is still null.
       return uploadInfo;
     }
 
-    // 3. Parent found ($P$). Acquire lock on $P$ to inspect and join.
-    return joinParentUnderLock(uploadInfo, key, parentId, true);
+    try {
+      // 1. Check if a parent is currently registered for this checksum
+      UploadId parentId = checksumIndex.findParent(key);
+
+      if (parentId == null) {
+        // 2. No parent registered. Attempt CAS registration of current upload as parent.
+        return registerAsParent(uploadInfo, key);
+      }
+
+      // Guard: Do not deduplicate an upload against itself
+      if (Objects.equals(parentId, currentId)) {
+        return uploadInfo;
+      }
+
+      // 3. Parent found ($P$). Acquire lock on $P$ to inspect and join.
+      return joinParentUnderLock(uploadInfo, key, parentId, true);
+    } finally {
+      inFlightDeduplications.remove(currentId);
+    }
   }
 
   /** Registers the given upload as the parent for the specified checksum key. */
@@ -173,13 +185,76 @@ public class DeduplicationService {
   }
 
   /**
+   * Acquires the upload lock on the specified parent upload with short bounded retries.
+   *
+   * <p>When a parent completes, registerAsParent publishes the checksum index entry while the
+   * parent's request lock is still held by TusFileUploadService for a few milliseconds (running
+   * final post-handlers). A concurrent child or subsequent child completing milliseconds later
+   * would fail immediately without retry. Retrying up to 10 times with a 50ms pause bridges this
+   * transient completion window without deadlocking.
+   */
+  private UploadLock lockParentWithRetry(UploadId parentId) throws IOException, TusException {
+    int retries = 0;
+    while (true) {
+      try {
+        return lockingService.lockUpload(parentId);
+      } catch (TusException e) {
+        if (++retries >= 10) {
+          throw e;
+        }
+        try {
+          Thread.sleep(50L);
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          throw e;
+        }
+      }
+    }
+  }
+
+  /**
+   * Synchronizes child upload expiration to its parent upload under parent lock.
+   *
+   * <p>Ensures that the parent upload's expiration timestamp is at least as long as any of its
+   * active deduplicated children, preventing the parent data file from being prematurely expired
+   * and purged while active children still depend on it.
+   *
+   * @param childInfo the deduplicated child upload info
+   */
+  public void syncParentExpirationIfChild(UploadInfo childInfo) {
+    if (childInfo == null || childInfo.getDuplicatesUploadId() == null) {
+      return;
+    }
+    UploadId parentId = childInfo.getDuplicatesUploadId();
+    if (!inFlightDeduplications.add(parentId)) {
+      return;
+    }
+    try {
+      try (UploadLock parentLock = lockParentWithRetry(parentId)) {
+        UploadInfo parentInfo = storageService.getUploadInfo(parentId);
+        if (parentInfo != null) {
+          syncParentExpiration(parentInfo, childInfo);
+        }
+      } catch (Exception e) {
+        log.warn(
+            "Failed to sync expiration from child {} to parent {}: {}",
+            childInfo.getId(),
+            parentId,
+            e.getMessage());
+      }
+    } finally {
+      inFlightDeduplications.remove(parentId);
+    }
+  }
+
+  /**
    * Acquires the lock on parent $P$, re-verifies parent state and physical bytes, and links the
    * child.
    */
   private UploadInfo joinParentUnderLock(
       UploadInfo uploadInfo, ChecksumKey key, UploadId expectedParentId, boolean allowRetry)
       throws IOException {
-    try (UploadLock parentLock = lockingService.lockUpload(expectedParentId)) {
+    try (UploadLock parentLock = lockParentWithRetry(expectedParentId)) {
       return doJoinParentUnderLock(uploadInfo, key, expectedParentId, allowRetry);
     } catch (TusException e) {
       // Parent is currently locked by active request. Per design, skip deduplication
@@ -323,15 +398,47 @@ public class DeduplicationService {
     for (ChecksumKey key : allKeys) {
       try {
         UploadId parentId = checksumIndex.findParent(key);
-        if (parentId != null) {
-          boolean parentDataExists = storageService.dataExists(parentId);
-          UploadInfo parentInfo = storageService.getUploadInfo(parentId);
-          boolean isTombstoned = checksumIndex.isParentDeleted(key);
-          boolean hasChildren = checksumIndex.hasChildren(key);
+        if (parentId == null) {
+          continue;
+        }
+
+        // Quick unlocked pre-check
+        boolean parentDataExists = storageService.dataExists(parentId);
+        UploadInfo parentInfo = storageService.getUploadInfo(parentId);
+        boolean isTombstoned = checksumIndex.isParentDeleted(key);
+        boolean hasChildren = checksumIndex.hasChildren(key);
+
+        boolean needsInspection =
+            !parentDataExists
+                || (parentInfo == null && !isTombstoned)
+                || (isTombstoned && !hasChildren);
+
+        if (!needsInspection) {
+          continue;
+        }
+
+        // Acquire lock on parent to prevent racing with concurrent children joining parent
+        try (UploadLock lock = lockingService.lockUpload(parentId)) {
+          // Re-verify under parent lock
+          UploadId currentParent = checksumIndex.findParent(key);
+          if (!Objects.equals(parentId, currentParent)) {
+            continue;
+          }
+          parentDataExists = storageService.dataExists(parentId);
+          parentInfo = storageService.getUploadInfo(parentId);
+          isTombstoned = checksumIndex.isParentDeleted(key);
+          hasChildren = checksumIndex.hasChildren(key);
+
+          // Repair missing tombstone if parent info is gone but data exists and has children
+          if (parentDataExists && parentInfo == null && !isTombstoned && hasChildren) {
+            log.info("Repairing missing tombstone for parent {} with active children", parentId);
+            checksumIndex.markParentDeleted(key);
+            continue;
+          }
 
           boolean orphaned =
               !parentDataExists
-                  || (parentInfo == null && !isTombstoned)
+                  || (parentInfo == null && !hasChildren)
                   || (isTombstoned && !hasChildren);
 
           if (orphaned) {
@@ -344,6 +451,9 @@ public class DeduplicationService {
               storageService.deleteData(parentId);
             }
           }
+        } catch (TusException e) {
+          // Parent is currently locked; skip this key for this sweep
+          log.debug("Parent {} is locked during prune check; skipping", parentId);
         }
       } catch (Exception e) {
         log.warn("Error checking checksum index for key {}: {}", key, e.getMessage());
@@ -403,26 +513,12 @@ public class DeduplicationService {
    * active children.
    */
   private void purgeParentIfUnreferenced(ChecksumKey key, UploadId parentId) throws IOException {
-    try {
-      try (UploadLock parentLock = lockingService.lockUpload(parentId)) {
-        purgeParentUnderLock(key, parentId);
-      } catch (TusException e) {
-        log.warn(
-            "Could not acquire parent lock {} during final child cleanup; skipping immediate purge",
-            parentId);
-      }
-    } finally {
-      cleanupLock(parentId);
-    }
-  }
-
-  private void cleanupLock(UploadId id) {
-    if (id != null) {
-      try {
-        lockingService.cleanupLock(id);
-      } catch (Exception e) {
-        log.warn("Failed to clean up lock for upload {}: {}", id, e.getMessage());
-      }
+    try (UploadLock parentLock = lockParentWithRetry(parentId)) {
+      purgeParentUnderLock(key, parentId);
+    } catch (TusException e) {
+      log.warn(
+          "Could not acquire parent lock {} during final child cleanup; skipping immediate purge",
+          parentId);
     }
   }
 

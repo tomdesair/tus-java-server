@@ -14,11 +14,15 @@ import java.io.OutputStream;
 import java.io.Serializable;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -137,6 +141,40 @@ public class Utils {
   }
 
   /**
+   * Recursively deletes a directory and all of its contents quietly without throwing exceptions. If
+   * the directory is null or does not exist, this method returns false.
+   *
+   * @param directory The directory path to delete recursively
+   * @return {@code true} if deleted successfully, {@code false} otherwise
+   */
+  public static boolean deleteDirectoryQuietly(Path directory) {
+    if (directory == null || !Files.exists(directory)) {
+      return false;
+    }
+    try {
+      Files.walkFileTree(
+          directory,
+          new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+              deletePathQuietly(file);
+              return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
+              deletePathQuietly(dir);
+              return FileVisitResult.CONTINUE;
+            }
+          });
+      return !Files.exists(directory);
+    } catch (IOException e) {
+      log.debug("Failed to delete directory quietly: {}", directory, e);
+      return false;
+    }
+  }
+
+  /**
    * Resolves a unique temporary sibling path for a target destination file path.
    *
    * @param targetPath The destination file path
@@ -164,6 +202,9 @@ public class Utils {
 
   /**
    * Atomically moves a source file to a destination path, replacing any existing destination file.
+   * On network file systems (such as NFS mounts or Kubernetes Persistent Volumes) where {@code
+   * ATOMIC_MOVE} is unsupported by the filesystem driver, this method falls back gracefully to
+   * standard {@code REPLACE_EXISTING} move to prevent unexpected I/O failures.
    *
    * @param source The source file path to move
    * @param destination The target destination file path
@@ -171,8 +212,17 @@ public class Utils {
    */
   public static void atomicMove(Path source, Path destination) throws IOException {
     if (source != null && destination != null) {
-      Files.move(
-          source, destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+      try {
+        Files.move(
+            source,
+            destination,
+            StandardCopyOption.ATOMIC_MOVE,
+            StandardCopyOption.REPLACE_EXISTING);
+      } catch (AtomicMoveNotSupportedException e) {
+        // On network filesystems (e.g. NFS shares or Kubernetes PVs), ATOMIC_MOVE fails with
+        // AtomicMoveNotSupportedException. Fall back to standard REPLACE_EXISTING move.
+        Files.move(source, destination, StandardCopyOption.REPLACE_EXISTING);
+      }
     }
   }
 

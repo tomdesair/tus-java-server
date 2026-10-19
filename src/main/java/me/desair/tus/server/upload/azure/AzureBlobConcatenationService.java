@@ -109,7 +109,18 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
       int sequence = 0;
       for (UploadInfo partialInfo : partialUploads) {
         String blockId = generateBlockId(sequence++);
-        BlobClient partialBlob = containerClient.getBlobClient(uploadPrefix + partialInfo.getId());
+        // Resolve duplicate child uploads dynamically to parent upload blob
+        // per AGENTS.md §7 to prevent referencing a non-existent child blob name.
+        String partialBlobName;
+        if (storageService instanceof AzureBlobStorageService) {
+          partialBlobName =
+              ((AzureBlobStorageService) storageService).getAzureBlobName(partialInfo);
+        } else if (partialInfo.getDuplicatesUploadId() != null) {
+          partialBlobName = uploadPrefix + partialInfo.getDuplicatesUploadId();
+        } else {
+          partialBlobName = uploadPrefix + partialInfo.getId();
+        }
+        BlobClient partialBlob = containerClient.getBlobClient(partialBlobName);
 
         try {
           // 1. Attempt zero-copy server-side block copying on Azure Storage cluster using an

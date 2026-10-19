@@ -48,11 +48,6 @@ public class NoOpUploadLockingService implements UploadLockingService {
   }
 
   @Override
-  public void cleanupLock(UploadId id) throws IOException {
-    // No-op
-  }
-
-  @Override
   public void registerInputStream(String requestUri, InputStream inputStream) {
     // No-op
   }

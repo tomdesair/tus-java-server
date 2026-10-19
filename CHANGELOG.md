@@ -30,13 +30,18 @@ See [docs/UPGRADING.md](docs/UPGRADING.md) for details and code examples.
 - **Azure Blob Storage**: `AzureBlobStorageService`, `AzureBlobLockingService` (Blob Leases with auto-renewal and cross-replica stop signals) and zero-copy `AzureBlobConcatenationService`. See [docs/AZURE_BLOB_STORAGE.md](docs/AZURE_BLOB_STORAGE.md).
 - **`UploadCompletionListener`**: register via `withUploadCompletionListener(...)` / `addUploadCompletionListener(...)`. Listeners run after the lock is released, so they can stream and delete the bytes immediately. Added `getUploadedBytes(UploadInfo)` and `deleteUpload(UploadInfo)` overloads.
 - **`withLockWaitTimeout(Duration)`** (default 60 s): maximum time a request waits for a contended upload lock; also derives the cloud chunk drain timeout (`lockWaitTimeout - 5 s`) and retry budget. See [docs/LOCKING.md](docs/LOCKING.md).
-- **Automatic lock cleanup** on completion, termination (`DELETE`) and expiration across all locking services (`cleanupLock(...)`), plus a fallback sweeper for abandoned locks.
+- **Automatic lock lifecycle cleanup** on release, termination (`DELETE`), and expiration across all locking services, deleting lock artifacts immediately without leaving lingering locks, plus a fallback sweeper for abandoned locks.
 - **JSON serialization**: store `UploadInfo` as JSON with `withJsonSerialization(true)`.
 - **Absolute base URLs**: `withUploadUri(String)` accepts e.g. `https://upload.example.com/files`, returning full `Location` URLs for Tus and RUFH; relative paths keep working.
 - **Multi-Backend Upload Deduplication & Lifecycle Cleanup**: Content-based upload deduplication with `withUploadDeduplication(true)` across Disk, S3, and Azure Blob storage. Features child reference markers, parent tombstoning, and complete index directory cleanup when uploads expire or are deleted. See [docs/DEDUPLICATION.md](docs/DEDUPLICATION.md).
 - **`NoOpUploadLockingService`**: Zero-overhead Null Object implementation of `UploadLockingService` for unit tests and custom environments, making locking service usage mandatory and eliminating defensive null checks across all storage backends, request handlers, and deduplication logic.
 
 ### Fixed
+- **Azure Lock Cleanup**: eliminated lingering `.lock` blobs in Azure Blob Storage by having `AzureBlobUploadLock.release()` delete the actively leased blob directly using lease conditions, and cleaning up lock artifacts in `AzureBlobStorageService.terminateUpload()`.
+- **S3 Upload Performance**: reduced S3 upload latency by over 30% by eliminating sequential multipart part listings on every chunk, optimizing sub-5MB rollback, and lazily writing upload metadata.
+- **Async Chunk Uploading**: hardened `AsyncChunkUploader` against servlet thread pool starvation under `CallerRunsPolicy` and fixed race conditions during temporary chunk file deletions.
+- **Network Filesystem Locking**: prevented `FileChannel.lock()` `ENOLCK` failures on distributed filesystems (NFS, AWS EFS, Kubernetes PVs) by restricting kernel file locks exclusively to legacy `DiskLockingService`.
+- **Deduplication Resilience**: protected deduplication traversal against infinite cyclic recursion (`StackOverflowError`) and handled missing concatenation parts safely.
 - **Content-Type matching**: media types are matched per RFC 9110 and tolerate parameters such as `;charset=UTF-8` (added by Spring `CharacterEncodingFilter`, proxies or clients) instead of returning `406`.
 - **Undertow & other containers**: `Content-Length` is cleared before `sendError(...)` ([#40](https://github.com/tomdesair/tus-java-server/issues/40)).
 - **Disk**: truncate underflow guard in `DiskStorageService`; `FileChannel` leak on lock acquisition errors fixed in `FileBasedLock`.

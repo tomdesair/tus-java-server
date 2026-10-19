@@ -700,10 +700,9 @@ public class DeduplicationServiceTest {
     adapter.put(parentId, parentInfo, true);
     index.tryRegisterParent(checksumKey, parentId);
 
-    // Parent terminates with no children; index is removed but lockingService.cleanupLock is NOT
-    // invoked (delegated to storage service terminateUpload)
+    // Parent terminates with no children; index is removed cleanly
     assertTrue(deduplicationService.removeUploadFromIndex(parentInfo));
-    org.mockito.Mockito.verify(lockingService, org.mockito.Mockito.never()).cleanupLock(parentId);
+    assertNull(index.findParent(checksumKey));
   }
 
   @Test

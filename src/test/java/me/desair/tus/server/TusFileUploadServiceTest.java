@@ -700,7 +700,7 @@ public class TusFileUploadServiceTest {
 
     UploadLock lock = service.acquireUploadLock(HttpMethod.HEAD, "/files/test");
     assertNotNull(lock);
-    verify(mockLockingService, times(2)).requestLockRelease("/files/test");
+    verify(mockLockingService, times(1)).requestLockRelease("/files/test");
   }
 
   @Test
@@ -984,7 +984,7 @@ public class TusFileUploadServiceTest {
 
     service.process(mockReq, mockResp, "owner");
 
-    verify(mockLockingService).cleanupLock(testId);
+    verify(mockLock).close();
   }
 
   @Test

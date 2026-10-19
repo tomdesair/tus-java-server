@@ -4,6 +4,7 @@ import java.io.InputStream;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
@@ -24,7 +25,9 @@ public abstract class AbstractLeaseLock implements UploadLock {
   private static final Logger log = LoggerFactory.getLogger(AbstractLeaseLock.class);
 
   private final LeaseData leaseData;
-  private ScheduledExecutorService heartbeatExecutor;
+  private final ScheduledExecutorService heartbeatExecutor;
+  private final ScheduledFuture<?> heartbeatTask;
+  private final boolean ownsExecutor;
   private final Map<String, InputStream> activeInputStreams;
 
   /**
@@ -40,7 +43,7 @@ public abstract class AbstractLeaseLock implements UploadLock {
   }
 
   /**
-   * Full constructor allowing injection of a custom executor (e.g. for testing).
+   * Full constructor allowing injection of a custom or shared executor.
    *
    * @param leaseData The lease metadata
    * @param activeInputStreams Map of active request input streams in the JVM
@@ -58,6 +61,15 @@ public abstract class AbstractLeaseLock implements UploadLock {
     long leaseDurationMs = leaseData.getLeaseDurationMs();
     if (heartbeatExecutor != null) {
       this.heartbeatExecutor = heartbeatExecutor;
+      this.ownsExecutor = false;
+      if (leaseDurationMs > 0) {
+        long renewalPeriodMs = Math.max(1000L, leaseDurationMs / 3);
+        this.heartbeatTask =
+            heartbeatExecutor.scheduleWithFixedDelay(
+                this::renewLease, renewalPeriodMs, renewalPeriodMs, TimeUnit.MILLISECONDS);
+      } else {
+        this.heartbeatTask = null;
+      }
     } else if (leaseDurationMs > 0 && watchdogThreadName != null) {
       long renewalPeriodMs = Math.max(1000L, leaseDurationMs / 3);
       this.heartbeatExecutor =
@@ -67,6 +79,12 @@ public abstract class AbstractLeaseLock implements UploadLock {
               renewalPeriodMs,
               renewalPeriodMs,
               TimeUnit.MILLISECONDS);
+      this.ownsExecutor = true;
+      this.heartbeatTask = null;
+    } else {
+      this.heartbeatExecutor = null;
+      this.ownsExecutor = false;
+      this.heartbeatTask = null;
     }
   }
 
@@ -110,8 +128,14 @@ public abstract class AbstractLeaseLock implements UploadLock {
 
   @Override
   public void close() {
-    // 1. Terminate heartbeat daemon cleanly via centralized Utils helper
-    Utils.shutdownExecutor(heartbeatExecutor);
+    // 1. Terminate heartbeat daemon cleanly (cancel task if using a shared executor; shut down if
+    // owned)
+    if (heartbeatTask != null) {
+      heartbeatTask.cancel(true);
+    }
+    if (ownsExecutor) {
+      Utils.shutdownExecutor(heartbeatExecutor);
+    }
 
     // 2. Remove active stream registration from JVM heap
     if (activeInputStreams != null && getRequestUri() != null) {
@@ -168,7 +192,12 @@ public abstract class AbstractLeaseLock implements UploadLock {
         Utils.interruptStream(stream);
       }
     }
-    Utils.shutdownExecutor(heartbeatExecutor);
+    if (heartbeatTask != null) {
+      heartbeatTask.cancel(true);
+    }
+    if (ownsExecutor) {
+      Utils.shutdownExecutor(heartbeatExecutor);
+    }
   }
 
   /**
