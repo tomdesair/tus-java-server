@@ -271,29 +271,32 @@ public class ITAzureBlobStorageService {
     storageService.append(created, new ByteArrayInputStream("0123456789".getBytes()));
     assertNotNull(storageService.getUploadInfo(created.getId()));
 
-    // 1. Verify unleased lock blob deletion: create an unleased lock blob and verify it is removed
+    // 1. Verify unleased lock blob: terminateUpload terminates data and metadata; unleased lock
+    // blob is cleaned up via lockingService.cleanupLock
     BlobClient lockBlob = containerClient.getBlobClient("locks/" + created.getId() + ".lock");
     lockBlob.upload(BinaryData.fromBytes("lock".getBytes(StandardCharsets.UTF_8)), true);
     assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
 
     storageService.terminateUpload(created);
     assertNull(storageService.getUploadInfo(created.getId()));
+
+    AzureBlobLockingService lockingService = new AzureBlobLockingService(containerClient);
+    lockingService.cleanupLock(created.getId());
     assertFalse(Boolean.TRUE.equals(lockBlob.exists()));
 
-    // 2. Verify leased lock blob: create upload, hold active lease, and verify terminateUpload
-    // skips deletion so Azure HTTP 412 (LeaseIdMissing) error is never triggered or logged
+    // 2. Verify leased lock blob: create upload, hold active lease, and verify UploadLock release
+    // deletes the active lease blob cleanly upon close
     UploadInfo info2 = new UploadInfo();
     info2.setLength(10L);
     UploadInfo created2 = storageService.create(info2, "owner1");
 
-    AzureBlobLockingService lockingService = new AzureBlobLockingService(containerClient);
-    UploadLock lock = lockingService.lockUploadByUri("/test/upload/" + created2.getId());
-    try {
+    BlobClient lockBlob2 = containerClient.getBlobClient("locks/" + created2.getId() + ".lock");
+    try (UploadLock lock = lockingService.lockUploadByUri("/test/upload/" + created2.getId())) {
+      assertTrue(Boolean.TRUE.equals(lockBlob2.exists()));
       storageService.terminateUpload(created2);
       assertNull(storageService.getUploadInfo(created2.getId()));
-    } finally {
-      lock.release();
     }
+    assertFalse(Boolean.TRUE.equals(lockBlob2.exists()));
   }
 
   @Test
@@ -927,6 +930,11 @@ public class ITAzureBlobStorageService {
     lockBlob.upload(BinaryData.fromString("lock"), true);
 
     storageService.terminateUpload(created);
+    assertNull(storageService.getUploadInfo(created.getId()));
+
+    // Orphaned locks and stop blobs are cleaned up via locking service cleanup
+    AzureBlobLockingService lockingService = new AzureBlobLockingService(containerClient);
+    lockingService.cleanupLock(created.getId());
 
     assertFalse(stopBlob.exists());
     assertFalse(lockBlob.exists());
@@ -1056,6 +1064,11 @@ public class ITAzureBlobStorageService {
     assertTrue(Boolean.TRUE.equals(lockBlob.exists()));
 
     storageService.terminateUpload(created);
+    assertNull(storageService.getUploadInfo(created.getId()));
+
+    // Orphaned unleased lock blob is cleaned up via locking service cleanup
+    AzureBlobLockingService lockingService = new AzureBlobLockingService(containerClient);
+    lockingService.cleanupLock(created.getId());
 
     assertFalse(Boolean.TRUE.equals(lockBlob.exists()));
   }
