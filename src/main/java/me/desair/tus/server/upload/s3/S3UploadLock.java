@@ -116,11 +116,15 @@ public class S3UploadLock extends AbstractLeaseLock {
 
   @Override
   protected void releaseLockResource() {
-    // Owner-Safe Lock Release: only delete .lock lease if it is still owned by this holder.
-    // If ownership was stolen by another node (e.g. heartbeat lost or execution ran too long),
-    // skip deletion entirely so we do not delete another node's lock or any stop signal
-    // potentially intended for that new holder.
-    if (lockKey != null && !doesLockOwnershipMatch(lockKey)) {
+    // Fast-path lock release: if the local lease is still well within its validity window
+    // (taking into account the 2000ms clock skew buffer), we know no other node could have
+    // evicted or acquired it. We can skip the expensive remote GET check, saving 1 network
+    // round trip on normal requests.
+    // Only if local execution ran beyond the lease TTL do we verify remote ownership to
+    // prevent deleting a successor node's lock.
+    if (lockKey != null
+        && getLeaseData().isExpired(System.currentTimeMillis(), -2_000L)
+        && !doesLockOwnershipMatch(lockKey)) {
       log.info(
           "Skipping deletion of S3 lock key {}: lock is currently held by another node", lockKey);
       return;
@@ -209,9 +213,14 @@ public class S3UploadLock extends AbstractLeaseLock {
   /**
    * Verifies that the S3 lock object is still owned by this lock holder.
    *
+   * <p>Fail-closed split-brain protection: returns {@code true} only when the remote lock object
+   * exists and its holder ID matches this lock holder. On missing object, null data, S3 error, or
+   * network failure, returns {@code false} so a partitioned node cannot overwrite or delete a lock
+   * whose ownership it cannot confirm.
+   *
    * @param key The S3 lock object key
-   * @return {@code true} if the lock object does not exist, is unparseable, or matches this
-   *     holder's ID; {@code false} if owned by a different holder
+   * @return {@code true} if the lock object exists and matches this holder's ID; {@code false}
+   *     otherwise
    */
   boolean doesLockOwnershipMatch(String key) {
     if (key == null || minioClient == null || bucket == null) {
@@ -220,14 +229,17 @@ public class S3UploadLock extends AbstractLeaseLock {
     try (InputStream stream =
         minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(key).build())) {
       LeaseData remoteLock = LeaseDataJsonSerializer.deserialize(stream);
-      if (remoteLock != null && !Strings.CS.equals(remoteLock.getHolderId(), getHolderId())) {
-        return false;
-      }
+      return remoteLock != null && Strings.CS.equals(remoteLock.getHolderId(), getHolderId());
     } catch (ErrorResponseException e) {
-      // Object is already gone or missing, safe to proceed
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
+        log.debug("S3 lock object {} does not exist, ownership cannot match", key);
+      } else {
+        log.warn("S3 error checking lock ownership for key {}: {}", key, e.getMessage());
+      }
+      return false;
     } catch (Exception e) {
-      log.debug("Error checking lock ownership for S3 key {}", key, e);
+      log.warn("Error checking lock ownership for S3 key {}", key, e);
+      return false;
     }
-    return true;
   }
 }

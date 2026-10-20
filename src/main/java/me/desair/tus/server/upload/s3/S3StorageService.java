@@ -454,8 +454,15 @@ public class S3StorageService implements UploadStorageService {
   public UploadInfo append(UploadInfo upload, InputStream inputStream)
       throws IOException, TusException {
     // Step 1: Verify upload existence and check configured size limits.
-    UploadInfo info = fetchAndValidateUpload(upload.getId());
-    if (upload.getLength() != null && info.getLength() == null) {
+    // Reuse the caller-provided UploadInfo instance directly when available to avoid an
+    // expensive remote S3 GET (metadata/<id>.info) on every PATCH chunk.
+    UploadInfo info = upload;
+    if (info == null || info.getId() == null || info.getStorageUploadId() == null) {
+      info = fetchAndValidateUpload(upload != null ? upload.getId() : null);
+    } else {
+      validateUploadLimits(info);
+    }
+    if (upload != null && upload.getLength() != null && info.getLength() == null) {
       info.setLength(upload.getLength());
     }
     String objectKey = getS3ObjectKey(info);
@@ -1515,21 +1522,6 @@ public class S3StorageService implements UploadStorageService {
           info.setUploadPartKeys(null);
         } catch (Exception e) {
           throw new IOException("Failed to create empty completed object for ID " + id, e);
-        }
-      }
-
-      // Add checksum index if deduplication is enabled
-      if (isUploadDeduplicationEnabled()
-          && info.getChecksum() != null
-          && info.getDuplicatesUploadId() == null) {
-        try {
-          ChecksumKey key = ChecksumKey.of(info.getChecksum(), info.getChecksumAlgorithm());
-          deduplicate(info, key);
-        } catch (Exception e) {
-          log.warn(
-              "Failed to register checksum index for completed upload {}: {}",
-              info.getId(),
-              e.getMessage());
         }
       }
     }

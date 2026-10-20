@@ -12,7 +12,9 @@ import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.RemoveObjectsArgs;
 import io.minio.Result;
+import io.minio.errors.ErrorResponseException;
 import io.minio.messages.DeleteResult;
+import io.minio.messages.ErrorResponse;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -279,17 +281,47 @@ public class S3UploadLockTest {
             inputStreamMap);
     org.junit.Assert.assertFalse(nullBucketLock.doesLockOwnershipMatch("key"));
 
-    // General exception (non-ErrorResponseException) returns true to allow proceed
+    // General exception returns false (fail-closed split-brain protection)
     Mockito.when(minioClient.getObject(any(io.minio.GetObjectArgs.class)))
         .thenThrow(new RuntimeException("Transient S3 error"));
+    org.junit.Assert.assertFalse(lock.doesLockOwnershipMatch("tus-locks/upload-1.lock"));
+
+    // ErrorResponseException with NoSuchKey returns false
+    ErrorResponse noSuchKeyResponse = Mockito.mock(ErrorResponse.class);
+    Mockito.when(noSuchKeyResponse.code()).thenReturn("NoSuchKey");
+    ErrorResponseException notFoundEx = new ErrorResponseException(noSuchKeyResponse, null, null);
+    Mockito.when(minioClient.getObject(any(io.minio.GetObjectArgs.class))).thenThrow(notFoundEx);
+    org.junit.Assert.assertFalse(lock.doesLockOwnershipMatch("tus-locks/upload-1.lock"));
+
+    // ErrorResponseException with non-NoSuchKey (e.g. AccessDenied) returns false
+    ErrorResponse accessDeniedResponse = Mockito.mock(ErrorResponse.class);
+    Mockito.when(accessDeniedResponse.code()).thenReturn("AccessDenied");
+    ErrorResponseException accessDeniedEx =
+        new ErrorResponseException(accessDeniedResponse, null, null);
+    Mockito.when(minioClient.getObject(any(io.minio.GetObjectArgs.class)))
+        .thenThrow(accessDeniedEx);
+    org.junit.Assert.assertFalse(lock.doesLockOwnershipMatch("tus-locks/upload-1.lock"));
+
+    // Matching holder returns true
+    String matchJson = LeaseDataJsonSerializer.serialize(myLeaseData);
+    io.minio.GetObjectResponse matchResponse =
+        new io.minio.GetObjectResponse(
+            null,
+            "test-bucket",
+            "eu-central-1",
+            "tus-locks/upload-1.lock",
+            new ByteArrayInputStream(matchJson.getBytes(StandardCharsets.UTF_8)));
+    Mockito.when(minioClient.getObject(any(io.minio.GetObjectArgs.class)))
+        .thenReturn(matchResponse);
     org.junit.Assert.assertTrue(lock.doesLockOwnershipMatch("tus-locks/upload-1.lock"));
 
-    // Renew lease with null lockKey or null minioClient
+    // Renew lease and release resource with null lockKey or null minioClient
     nullClientLock.doRenewLease();
     S3UploadLock nullKeyLock =
         new S3UploadLock(
             myLeaseData, defaultUploadId, minioClient, "test-bucket", null, null, inputStreamMap);
     nullKeyLock.doRenewLease();
+    nullKeyLock.close();
   }
 
   @Test
@@ -317,6 +349,8 @@ public class S3UploadLockTest {
     Mockito.when(minioClient.getObject(any(io.minio.GetObjectArgs.class))).thenReturn(response);
 
     LeaseData myLeaseData = createLeaseData("my-holder", "/files/upload-1");
+    // Expire local lease so releaseLockResource triggers remote ownership verification
+    myLeaseData.setExpiresAt(System.currentTimeMillis() - 5000L);
     S3UploadLock lock =
         new S3UploadLock(
             myLeaseData,
@@ -333,6 +367,27 @@ public class S3UploadLockTest {
     // and any stop signal might have been set by a third thread for the new holder
     Mockito.verify(minioClient, Mockito.never()).removeObjects(any(RemoveObjectsArgs.class));
     Mockito.verify(minioClient, Mockito.never()).removeObject(any(RemoveObjectArgs.class));
+  }
+
+  @Test
+  public void testReleaseLockResourceFastPathWhenUnexpired() throws Exception {
+    LeaseData myLeaseData = createLeaseData("my-holder", "/files/upload-1");
+    // Lease is unexpired (60s in future): releaseLockResource must skip remote GET verification
+    S3UploadLock lock =
+        new S3UploadLock(
+            myLeaseData,
+            defaultUploadId,
+            minioClient,
+            "test-bucket",
+            "tus-locks/upload-1.lock",
+            "tus-locks/upload-1.stop",
+            inputStreamMap);
+
+    lock.close();
+
+    // Remote getObject must NEVER be invoked on fast-path release
+    Mockito.verify(minioClient, Mockito.never()).getObject(any(io.minio.GetObjectArgs.class));
+    Mockito.verify(minioClient).removeObjects(any(RemoveObjectsArgs.class));
   }
 
   @Test

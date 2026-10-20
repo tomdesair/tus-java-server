@@ -170,8 +170,8 @@ public class LeaseFileLockingServiceTest {
     lock.close();
   }
 
-  @Test(expected = UploadAlreadyLockedException.class)
-  public void testEmptyLockDirectoryWithinGracePeriodThrowsLocked() throws Exception {
+  @Test
+  public void testEmptyLockDirectoryAcquiresImmediatelyWithoutGracePeriodDelay() throws Exception {
     String uploadIdStr = UUID.randomUUID().toString();
     String uri = UPLOAD_URL + "/" + uploadIdStr;
 
@@ -180,8 +180,34 @@ public class LeaseFileLockingServiceTest {
     // Set directory mtime to now (within 5s grace period)
     Files.setLastModifiedTime(lockDir, FileTime.fromMillis(System.currentTimeMillis()));
 
-    // Must be treated as actively being written by another node
-    lockingService.lockUploadByUri(uri);
+    // Under exclusive sibling mutex, empty directory is acquired immediately without waiting 5
+    // seconds
+    UploadLock lock = lockingService.lockUploadByUri(uri);
+    assertNotNull(lock);
+    lock.close();
+  }
+
+  @Test
+  public void testEmptyLockDirectoryWhenSiblingMutexExistsWithinGracePeriodIsUnexpired()
+      throws Exception {
+    String uploadIdStr = UUID.randomUUID().toString();
+    Path lockDir = storagePath.resolve("locks").resolve(uploadIdStr + ".lock");
+    Files.createDirectories(lockDir);
+    Path mutexDir = storagePath.resolve("locks").resolve(uploadIdStr + ".mutex");
+    Files.createDirectories(mutexDir);
+    Files.setLastModifiedTime(mutexDir, FileTime.fromMillis(System.currentTimeMillis()));
+
+    long now = System.currentTimeMillis();
+    // With active sibling mutex within grace period, empty directory is treated as mid-creation
+    assertFalse(lockingService.isLockDirectoryExpired(lockDir, now));
+
+    // With active sibling mutex older than grace period, empty directory is expired
+    Files.setLastModifiedTime(mutexDir, FileTime.fromMillis(now - 10000L));
+    assertTrue(lockingService.isLockDirectoryExpired(lockDir, now));
+
+    Utils.deleteDirectoryQuietly(mutexDir);
+    // With sibling mutex gone, empty directory is immediately expired
+    assertTrue(lockingService.isLockDirectoryExpired(lockDir, now));
   }
 
   @Test

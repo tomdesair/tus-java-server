@@ -17,7 +17,6 @@ import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.checksum.ChecksumIndex;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.io.FileUtils;
 
 /**
  * Disk-based implementation of {@link ChecksumIndex}.
@@ -152,7 +151,7 @@ public class DiskChecksumIndex implements ChecksumIndex {
     Objects.requireNonNull(key, "key must not be null");
     Path checksumDir = getChecksumDir(key);
     if (Files.exists(checksumDir)) {
-      FileUtils.deleteDirectory(checksumDir.toFile());
+      Utils.deleteDirectoryQuietly(checksumDir);
     }
   }
 

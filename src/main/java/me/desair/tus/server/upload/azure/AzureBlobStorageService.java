@@ -388,11 +388,14 @@ public class AzureBlobStorageService implements UploadStorageService {
 
         boolean finalComplete =
             upload.getLength() != null && upload.getOffset().equals(upload.getLength());
+        boolean deduplicated = false;
         if (finalComplete) {
-          checkAndApplyDeduplication(upload);
+          deduplicated = checkAndApplyDeduplication(upload);
         }
 
-        saveUploadInfo(upload);
+        if (!deduplicated) {
+          saveUploadInfo(upload);
+        }
       } catch (Exception e) {
         log.error(
             "Failed to commit staged blocks or save metadata for upload ID {}", upload.getId(), e);
@@ -1007,20 +1010,22 @@ public class AzureBlobStorageService implements UploadStorageService {
     return Base64.getEncoder().encodeToString(idString.getBytes(StandardCharsets.UTF_8));
   }
 
-  private void checkAndApplyDeduplication(UploadInfo uploadInfo) throws IOException {
+  private boolean checkAndApplyDeduplication(UploadInfo uploadInfo) throws IOException {
     if (!isUploadDeduplicationEnabled()
         || uploadInfo == null
         || uploadInfo.getChecksum() == null
         || uploadInfo.getChecksumAlgorithm() == null) {
-      return;
+      return false;
     }
 
     try {
       ChecksumKey key = ChecksumKey.of(uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm());
       deduplicate(uploadInfo, key);
+      return true;
     } catch (Exception e) {
       log.warn(
           "Failed to apply deduplication for upload {}: {}", uploadInfo.getId(), e.getMessage());
+      return false;
     }
   }
 

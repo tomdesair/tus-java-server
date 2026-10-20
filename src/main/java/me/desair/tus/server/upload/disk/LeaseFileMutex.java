@@ -6,7 +6,6 @@ import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.io.FileUtils;
 
 /**
  * An atomic filesystem mutex directory ({@code <UploadId>.mutex/}) providing mutual exclusion,
@@ -113,7 +112,7 @@ public class LeaseFileMutex implements AutoCloseable {
         long ageMs = System.currentTimeMillis() - mtime.toMillis();
         if (ageMs >= MUTEX_GRACE_PERIOD_MS) {
           // Mutex holder crashed; clean up stale mutex directory and retry once
-          FileUtils.deleteDirectory(mutexDir.toFile());
+          Utils.deleteDirectoryQuietly(mutexDir);
           Files.createDirectory(mutexDir);
           return true;
         }

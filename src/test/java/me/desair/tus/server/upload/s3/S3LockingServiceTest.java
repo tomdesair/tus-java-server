@@ -213,16 +213,17 @@ public class S3LockingServiceTest {
   }
 
   @Test
-  public void testIsLockedReturnsFalseOnGenericMinioException() throws Exception {
+  public void testIsLockedReturnsTrueOnGenericMinioExceptionFailClosed() throws Exception {
     Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class)))
         .thenThrow(new RuntimeException("GetObject failure"));
 
     UploadId uploadId = new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e");
-    assertFalse(lockingService.isLocked(uploadId));
+    // Fail-closed split-brain protection: transient error assumes lock is still active
+    assertTrue(lockingService.isLocked(uploadId));
   }
 
   @Test
-  public void testIsLockedReturnsFalseOnErrorResponseNon404() throws Exception {
+  public void testIsLockedReturnsTrueOnErrorResponseNon404FailClosed() throws Exception {
     ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
     Mockito.when(errorResponse.code()).thenReturn("AccessDenied");
     ErrorResponseException accessDeniedEx = new ErrorResponseException(errorResponse, null, null);
@@ -230,7 +231,8 @@ public class S3LockingServiceTest {
     Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenThrow(accessDeniedEx);
 
     UploadId uploadId = new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e");
-    assertFalse(lockingService.isLocked(uploadId));
+    // Fail-closed split-brain protection: non-404 S3 error assumes lock is still active
+    assertTrue(lockingService.isLocked(uploadId));
   }
 
   @Test
@@ -815,8 +817,35 @@ public class S3LockingServiceTest {
         new ErrorResponseException(errorResponse, null, "InternalError");
     Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenThrow(internalEx);
 
+    // Fail-closed: non-NoSuchKey error assumes lock is still active (not expired)
+    boolean expired = lockingService.isLockExpired("locks/test.lock");
+    assertFalse(expired);
+  }
+
+  @Test
+  public void testIsLockExpiredWhenJsonCorruptedReturnsTrue() throws Exception {
+    byte[] corruptedBytes = "{ corrupt json ]".getBytes(StandardCharsets.UTF_8);
+    GetObjectResponse response =
+        new GetObjectResponse(
+            null,
+            "test-bucket",
+            "eu-central-1",
+            "locks/test.lock",
+            new ByteArrayInputStream(corruptedBytes));
+    Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenReturn(response);
+
     boolean expired = lockingService.isLockExpired("locks/test.lock");
     assertTrue(expired);
+  }
+
+  @Test
+  public void testIsLockExpiredWhenGenericExceptionReturnsFalseFailClosed() throws Exception {
+    Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class)))
+        .thenThrow(new RuntimeException("Network down"));
+
+    // Fail-closed: transient exception assumes lock is still active (not expired)
+    boolean expired = lockingService.isLockExpired("locks/test.lock");
+    assertFalse(expired);
   }
 
   @Test

@@ -1,5 +1,6 @@
 package me.desair.tus.server.upload.s3;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
@@ -492,7 +493,14 @@ public class S3LockingService extends AbstractLeaseLockingService {
     try (InputStream stream =
         minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
 
-      LeaseData lock = LeaseDataJsonSerializer.deserialize(stream);
+      LeaseData lock;
+      try {
+        lock = LeaseDataJsonSerializer.deserialize(stream);
+      } catch (JsonProcessingException | IllegalArgumentException e) {
+        log.warn("Corrupted JSON in lock object {}, treating as expired", lockKey, e);
+        return true;
+      }
+
       if (lock == null) {
         return true;
       }
@@ -503,14 +511,18 @@ public class S3LockingService extends AbstractLeaseLockingService {
       if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
         return true; // Key missing -> Not locked
       }
-      // On non-NoSuchKey error, treat as expired to prevent deadlocks from stuck lock states
+      // Fail-closed split-brain protection: on non-NoSuchKey S3 errors (e.g. 500 InternalError,
+      // 503 SlowDown), assume the lock is still actively held by another node.
       log.warn(
-          "S3 error reading lock object {}, assuming lock is expired: {}", lockKey, e.getMessage());
-      return true;
+          "S3 error reading lock object {}, assuming lock is still active: {}",
+          lockKey,
+          e.getMessage());
+      return false;
     } catch (Exception e) {
-      // Treat as expired to prevent deadlocks from unreadable lock files
-      log.warn("Failed to read lock object {}, assuming lock is expired", lockKey, e);
-      return true;
+      // Fail-closed split-brain protection: on transient network/IO exceptions, assume the lock
+      // is still actively held by another node.
+      log.warn("Failed to read lock object {}, assuming lock is still active", lockKey, e);
+      return false;
     }
   }
 

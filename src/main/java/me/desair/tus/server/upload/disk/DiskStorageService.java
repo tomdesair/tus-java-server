@@ -35,7 +35,6 @@ import me.desair.tus.server.upload.concatenation.VirtualConcatenationService;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.codec.binary.Base64;
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -500,7 +499,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
       Path uploadPath = getPathInStorageDirectory(info.getId());
       if (uploadPath != null && deleteData) {
-        FileUtils.deleteDirectory(uploadPath.toFile());
+        Utils.deleteDirectoryQuietly(uploadPath);
       }
     }
   }
@@ -629,10 +628,10 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
           try {
             terminateUpload(info);
           } catch (UploadNotFoundException e) {
-            FileUtils.deleteDirectory(path.toFile());
+            Utils.deleteDirectoryQuietly(path);
           }
         } else {
-          FileUtils.deleteDirectory(path.toFile());
+          Utils.deleteDirectoryQuietly(path);
         }
         uploadLockingService.cleanupLock(id);
       }

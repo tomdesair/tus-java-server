@@ -12,6 +12,7 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -2907,6 +2908,29 @@ public class S3StorageServiceTest {
     UploadInfo result = storageService.append(appendUpload, new ByteArrayInputStream(new byte[0]));
     assertNotNull(result);
     assertEquals(Long.valueOf(500L), result.getLength());
+  }
+
+  @Test
+  public void testAppendReusesPassedUploadInfoDirectlyWithoutRemoteGet() throws Exception {
+    UploadId uploadId = new UploadId("reusable-upload-id");
+    UploadInfo appendUpload = new UploadInfo();
+    appendUpload.setId(uploadId);
+    appendUpload.setStorageUploadId("storage-upload-123");
+    appendUpload.setLength(1000L);
+    appendUpload.setOffset(0L);
+
+    UploadInfo result = storageService.append(appendUpload, new ByteArrayInputStream(new byte[0]));
+    assertNotNull(result);
+    assertEquals(uploadId, result.getId());
+    assertEquals(Long.valueOf(1000L), result.getLength());
+
+    // Verify remote GET metadata/<id>.info was never invoked because caller provided populated
+    // UploadInfo
+    verify(minioClient, never())
+        .getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && a.object().equals("metadata/reusable-upload-id.info")));
   }
 
   @Test

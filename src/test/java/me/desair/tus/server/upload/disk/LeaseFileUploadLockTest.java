@@ -22,6 +22,7 @@ import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.LeaseDataJsonSerializer;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -432,6 +433,42 @@ public class LeaseFileUploadLockTest {
   }
 
   @Test
+  public void testDoesLockOwnershipMatchWithMissingLeaseFile() throws Exception {
+    Path dir = storagePath.resolve("missing-lease-test-" + UUID.randomUUID() + ".lock");
+    Files.createDirectories(dir);
+
+    LeaseData lease = new LeaseData("h", "/uri", 10000L, 50000L, 40000L, dir.toString(), null);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(lease, defaultUploadId, dir, null, null);
+    // Missing lease.json returns false
+    assertFalse(lock.doesLockOwnershipMatch());
+
+    Utils.deleteDirectoryQuietly(dir);
+  }
+
+  @Test
+  public void testDoesLockOwnershipMatchWithValidAndMismatchedHolder() throws Exception {
+    Path dir = storagePath.resolve("match-lease-test-" + UUID.randomUUID() + ".lock");
+    Files.createDirectories(dir);
+
+    LeaseData lease = new LeaseData("h", "/uri", 10000L, 50000L, 40000L, dir.toString(), null);
+    LeaseFileUploadLock lock = new LeaseFileUploadLock(lease, defaultUploadId, dir, null, null);
+
+    // Matching holder returns true
+    LeaseData matchingLease =
+        new LeaseData("h", "/uri", 10000L, 50000L, 40000L, dir.toString(), null);
+    LeaseDataJsonSerializer.serializeToPath(matchingLease, dir.resolve("lease.json"));
+    assertTrue(lock.doesLockOwnershipMatch());
+
+    // Mismatched holder returns false
+    LeaseData mismatchedLease =
+        new LeaseData("different-holder", "/uri", 10000L, 50000L, 40000L, dir.toString(), null);
+    LeaseDataJsonSerializer.serializeToPath(mismatchedLease, dir.resolve("lease.json"));
+    assertFalse(lock.doesLockOwnershipMatch());
+
+    Utils.deleteDirectoryQuietly(dir);
+  }
+
+  @Test
   public void testDoesLockOwnershipMatchWithCorruptedLeaseFile() throws Exception {
     Path dir = storagePath.resolve("corrupt-ownership-test-" + UUID.randomUUID() + ".lock");
     Files.createDirectories(dir);
@@ -439,8 +476,8 @@ public class LeaseFileUploadLockTest {
 
     LeaseData lease = new LeaseData("h", "/uri", 10000L, 50000L, 40000L, dir.toString(), null);
     LeaseFileUploadLock lock = new LeaseFileUploadLock(lease, defaultUploadId, dir, null, null);
-    // Unparseable or corrupt lease file should be considered owned / proceed
-    assertTrue(lock.doesLockOwnershipMatch());
+    // Fail-closed split-brain protection: unparseable or corrupt lease file must return false
+    assertFalse(lock.doesLockOwnershipMatch());
 
     FileUtils.deleteDirectory(dir.toFile());
   }

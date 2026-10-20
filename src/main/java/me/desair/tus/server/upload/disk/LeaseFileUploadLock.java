@@ -88,15 +88,15 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
         log.warn("Failed to acquire mutex to renew lease for {}", lockDirPath);
         return;
       }
+      Path leaseFile = lockDirPath.resolve("lease.json");
       // If another node took over the lease, abort renewal by throwing IllegalStateException
       // so AbstractLeaseLock terminates the heartbeat and aborts the active stream.
-      if (!doesLockOwnershipMatch()) {
+      if (Files.exists(leaseFile) && !doesLockOwnershipMatch()) {
         log.info("Lease for {} was taken over by another holder. Aborting renewal.", lockDirPath);
         throw new IllegalStateException(
             "Lease for " + lockDirPath + " was taken over by another holder");
       }
 
-      Path leaseFile = lockDirPath.resolve("lease.json");
       getLeaseData().setExpiresAt(getExpiresAt());
       LeaseDataJsonSerializer.serializeToPath(getLeaseData(), leaseFile);
     }
@@ -111,9 +111,12 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
   protected void releaseLockResource() {
     if (lockDirPath != null && Files.exists(lockDirPath)) {
       try (LeaseFileMutex mutex = new LeaseFileMutex(lockDirPath)) {
-        if (mutex.isAcquired() && doesLockOwnershipMatch()) {
-          Utils.deletePathQuietly(lockDirPath.resolve("lease.json"));
-          Utils.deletePathQuietly(lockDirPath);
+        if (mutex.isAcquired()) {
+          Path leaseFile = lockDirPath.resolve("lease.json");
+          if (!Files.exists(leaseFile) || doesLockOwnershipMatch()) {
+            Utils.deletePathQuietly(leaseFile);
+            Utils.deletePathQuietly(lockDirPath);
+          }
         }
       }
     }
@@ -127,25 +130,27 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
   /**
    * Verifies that the on-disk {@code lease.json} file is still owned by this lock holder.
    *
-   * @return {@code true} if the lease file does not exist, is unparseable, or matches this holder's
-   *     ID; {@code false} if owned by a different holder
+   * <p>Fail-closed split-brain protection: returns {@code true} only when the lease file exists, is
+   * parseable, and its holder ID matches this lock holder. Returns {@code false} if the file is
+   * missing, unreadable, or owned by a different holder.
+   *
+   * @return {@code true} if the lease file exists and matches this holder's ID; {@code false}
+   *     otherwise
    */
   boolean doesLockOwnershipMatch() {
     if (lockDirPath == null) {
       return false;
     }
     Path leaseFile = lockDirPath.resolve("lease.json");
-    if (Files.exists(leaseFile)) {
-      try {
-        LeaseData existingLease = LeaseDataJsonSerializer.deserialize(leaseFile);
-        if (existingLease != null
-            && !Strings.CS.equals(existingLease.getHolderId(), getHolderId())) {
-          return false;
-        }
-      } catch (Exception ignored) {
-        // If unparseable or corrupt, consider owned/proceed
-      }
+    if (!Files.exists(leaseFile)) {
+      return false;
     }
-    return true;
+    try {
+      LeaseData existingLease = LeaseDataJsonSerializer.deserialize(leaseFile);
+      return existingLease != null && Strings.CS.equals(existingLease.getHolderId(), getHolderId());
+    } catch (Exception e) {
+      log.warn("Error reading lease file {} for ownership verification", leaseFile, e);
+      return false;
+    }
   }
 }

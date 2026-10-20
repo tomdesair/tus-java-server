@@ -16,7 +16,6 @@ import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -141,7 +140,7 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
           try {
             FileTime mtime = Files.getLastModifiedTime(path);
             if (now - mtime.toMillis() > 10_000L) {
-              FileUtils.deleteDirectory(path.toFile());
+              Utils.deleteDirectoryQuietly(path);
             }
           } catch (IOException ignored) {
             // Ignore transient cleanup error
@@ -229,13 +228,9 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
               return null;
             }
           }
-        } else {
-          // Empty directory: check directory grace period
-          FileTime mtime = Files.getLastModifiedTime(lockDirPath);
-          if (now - mtime.toMillis() < EMPTY_DIR_GRACE_PERIOD_MS) {
-            return null;
-          }
         }
+        // If lease.json does not exist (empty directory), no other node can be mid-creation
+        // because we hold the exclusive sibling LeaseFileMutex. Proceed with acquisition.
       } else {
         Utils.ensureDirectoryExists(lockDirPath);
       }
@@ -346,16 +341,21 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
       }
     }
 
-    // If lease.json is missing or unparseable, check directory mtime against grace period
-    try {
-      FileTime mtime = Files.getLastModifiedTime(lockDirPath);
-      long dirAgeMs = now - mtime.toMillis();
-      // If the directory was created within the last 5 seconds, another node is actively writing
-      return dirAgeMs >= EMPTY_DIR_GRACE_PERIOD_MS;
-    } catch (IOException e) {
-      // If directory is inaccessible or changing, assume active write in progress
-      return false;
+    // If lease.json is missing or unparseable, check if sibling mutex directory exists.
+    // If no sibling mutex is held, no node is mid-creation of lease.json, so the empty
+    // directory is unheld/abandoned (expired = true).
+    Path mutexDir = LeaseFileMutex.resolveMutexDir(lockDirPath);
+    if (mutexDir != null && Files.exists(mutexDir)) {
+      try {
+        FileTime mtime = Files.getLastModifiedTime(mutexDir);
+        long mutexAgeMs = now - mtime.toMillis();
+        // Sibling mutex is actively held within grace window
+        return mutexAgeMs >= EMPTY_DIR_GRACE_PERIOD_MS;
+      } catch (IOException e) {
+        return false;
+      }
     }
+    return true;
   }
 
   /**
@@ -377,9 +377,9 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
       if (!isLockDirectoryExpired(lockDirPath, now)) {
         return false;
       }
-      FileUtils.deleteDirectory(lockDirPath.toFile());
+      Utils.deleteDirectoryQuietly(lockDirPath);
       return true;
-    } catch (IOException e) {
+    } catch (Exception e) {
       return false;
     }
   }
