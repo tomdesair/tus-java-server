@@ -13,6 +13,7 @@ import io.minio.GetObjectResponse;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
 import io.minio.Result;
 import io.minio.StatObjectArgs;
 import io.minio.errors.ErrorResponseException;
@@ -23,6 +24,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
+import java.time.ZonedDateTime;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -298,6 +301,39 @@ public class S3LockingServiceTest {
     Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenReturn(response);
 
     lockingService.cleanupStaleLocks();
+  }
+
+  @Test
+  public void testCleanupStaleLocksHandlesNullItemAndStaleStopSignal() throws Exception {
+    Item nullNameItem = Mockito.mock(Item.class);
+    Mockito.when(nullNameItem.objectName()).thenReturn(null);
+
+    Item staleStopItem = Mockito.mock(Item.class);
+    Mockito.when(staleStopItem.objectName()).thenReturn("tus-locks/stale.stop");
+    Mockito.when(staleStopItem.lastModified()).thenReturn(ZonedDateTime.now().minusMinutes(2));
+
+    Item recentStopItem = Mockito.mock(Item.class);
+    Mockito.when(recentStopItem.objectName()).thenReturn("tus-locks/recent.stop");
+    Mockito.when(recentStopItem.lastModified()).thenReturn(ZonedDateTime.now());
+
+    java.util.List<Result<Item>> items =
+        Arrays.asList(
+            new Result<>(null),
+            new Result<>(nullNameItem),
+            new Result<>(staleStopItem),
+            new Result<>(recentStopItem));
+    Mockito.when(minioClient.listObjects(Mockito.any(ListObjectsArgs.class))).thenReturn(items);
+
+    lockingService.cleanupStaleLocks();
+
+    Mockito.verify(minioClient)
+        .removeObject(
+            Mockito.argThat(
+                (RemoveObjectArgs a) -> a != null && "tus-locks/stale.stop".equals(a.object())));
+    Mockito.verify(minioClient, Mockito.never())
+        .removeObject(
+            Mockito.argThat(
+                (RemoveObjectArgs a) -> a != null && "tus-locks/recent.stop".equals(a.object())));
   }
 
   @Test(expected = IOException.class)

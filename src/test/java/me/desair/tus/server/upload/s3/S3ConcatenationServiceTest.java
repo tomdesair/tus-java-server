@@ -550,4 +550,80 @@ public class S3ConcatenationServiceTest {
     concatenationService.setS3ServerSideComposeHelper(mockHelper);
     assertNotNull(concatenationService);
   }
+
+  @Test
+  public void testMergeResolvesObjectKeysWhenStorageServiceNotS3StorageService() throws Exception {
+    S3ServerSideComposeHelper mockHelper = Mockito.mock(S3ServerSideComposeHelper.class);
+    concatenationService.setS3ServerSideComposeHelper(mockHelper);
+
+    UploadInfo childDup = new UploadInfo();
+    childDup.setId(new UploadId("child-dup"));
+    childDup.setDuplicatesUploadId(new UploadId("parent-dup"));
+    childDup.setStorageUploadId("uploads/child-dup");
+    childDup.setLength(5L * 1024 * 1024);
+    childDup.setOffset(5L * 1024 * 1024);
+
+    UploadInfo childStorage = new UploadInfo();
+    childStorage.setId(new UploadId("child-storage"));
+    childStorage.setStorageUploadId("custom/storage-path");
+    childStorage.setLength(5L * 1024 * 1024);
+    childStorage.setOffset(5L * 1024 * 1024);
+
+    UploadInfo parent = new UploadInfo();
+    parent.setId(new UploadId("final-upload"));
+    parent.setConcatenationPartIds(Arrays.asList("/child-dup", "/child-storage"));
+
+    Mockito.when(storageService.getUploadInfo("/child-dup", null)).thenReturn(childDup);
+    Mockito.when(storageService.getUploadInfo("/child-storage", null)).thenReturn(childStorage);
+
+    concatenationService.merge(parent);
+
+    Mockito.verify(mockHelper)
+        .compose(
+            Mockito.eq("test-bucket"),
+            Mockito.eq("uploads/final-upload"),
+            Mockito.eq(Arrays.asList("uploads/parent-dup", "custom/storage-path")));
+    assertEquals(Long.valueOf(10L * 1024 * 1024), parent.getLength());
+    assertEquals(Long.valueOf(10L * 1024 * 1024), parent.getOffset());
+  }
+
+  @Test
+  public void testMergeResolvesObjectKeysWhenStorageServiceIsS3StorageService() throws Exception {
+    S3StorageService mockS3Storage = Mockito.mock(S3StorageService.class);
+    S3ConcatenationService service =
+        new S3ConcatenationService(
+            minioClient,
+            "test-bucket",
+            "uploads/",
+            mockS3Storage,
+            Paths.get(System.getProperty("java.io.tmpdir")),
+            5242880L,
+            null);
+
+    S3ServerSideComposeHelper mockHelper = Mockito.mock(S3ServerSideComposeHelper.class);
+    service.setS3ServerSideComposeHelper(mockHelper);
+
+    UploadInfo child1 = new UploadInfo();
+    child1.setId(new UploadId("part-1"));
+    child1.setStorageUploadId("uploads/part-1");
+    child1.setLength(5L * 1024 * 1024);
+    child1.setOffset(5L * 1024 * 1024);
+
+    UploadInfo parent = new UploadInfo();
+    parent.setId(new UploadId("final-upload"));
+    parent.setConcatenationPartIds(Collections.singletonList("/part-1"));
+
+    Mockito.when(mockS3Storage.getUploadInfo("/part-1", null)).thenReturn(child1);
+    Mockito.when(mockS3Storage.getS3ObjectKey(child1)).thenReturn("resolved/s3-key-1");
+
+    service.merge(parent);
+
+    Mockito.verify(mockHelper)
+        .compose(
+            Mockito.eq("test-bucket"),
+            Mockito.eq("uploads/final-upload"),
+            Mockito.eq(Collections.singletonList("resolved/s3-key-1")));
+    assertEquals(Long.valueOf(5L * 1024 * 1024), parent.getLength());
+    assertEquals(Long.valueOf(5L * 1024 * 1024), parent.getOffset());
+  }
 }

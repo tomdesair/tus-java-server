@@ -836,6 +836,10 @@ public class AzureBlobStorageService implements UploadStorageService {
     return cloudUploadThreadPoolSize;
   }
 
+  ThreadPoolExecutor getUploadExecutor() {
+    return this.uploadExecutor;
+  }
+
   @Override
   public void setDrainTimeout(Duration drainTimeout) {
     if (drainTimeout != null) {

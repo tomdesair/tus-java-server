@@ -109,17 +109,7 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
       int sequence = 0;
       for (UploadInfo partialInfo : partialUploads) {
         String blockId = generateBlockId(sequence++);
-        // Resolve duplicate child uploads dynamically to the parent upload blob
-        // to prevent referencing a non-existent child blob name on storage.
-        String partialBlobName;
-        if (storageService instanceof AzureBlobStorageService) {
-          partialBlobName =
-              ((AzureBlobStorageService) storageService).getAzureBlobName(partialInfo);
-        } else if (partialInfo.getDuplicatesUploadId() != null) {
-          partialBlobName = uploadPrefix + partialInfo.getDuplicatesUploadId();
-        } else {
-          partialBlobName = uploadPrefix + partialInfo.getId();
-        }
+        String partialBlobName = resolvePartialBlobName(partialInfo);
         BlobClient partialBlob = containerClient.getBlobClient(partialBlobName);
 
         try {
@@ -275,5 +265,23 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
       // or SAS generation is unsupported; fall back to raw blob URL.
     }
     return blobClient.getBlobUrl();
+  }
+
+  /**
+   * Resolves the physical Azure Blob name for a partial upload, resolving duplicate child uploads
+   * dynamically to their parent blob to prevent stitching against non-existent child blob targets.
+   *
+   * @param partialInfo The partial upload info
+   * @return The physical blob name
+   */
+  String resolvePartialBlobName(UploadInfo partialInfo) {
+    if (storageService instanceof AzureBlobStorageService) {
+      return ((AzureBlobStorageService) storageService).getAzureBlobName(partialInfo);
+    } else if (partialInfo != null && partialInfo.getDuplicatesUploadId() != null) {
+      return uploadPrefix + partialInfo.getDuplicatesUploadId();
+    } else if (partialInfo != null) {
+      return uploadPrefix + partialInfo.getId();
+    }
+    return uploadPrefix;
   }
 }

@@ -369,11 +369,16 @@ public class AzureBlobUploadLock implements UploadLock {
 
   void fallbackReleaseLease() {
     try {
-      if (leaseClient != null) {
-        leaseClient.releaseLease();
-      }
+      executeReleaseLease();
     } catch (Exception ex) {
       log.debug("Fallback releaseLease failed for URI {}: {}", uploadUri, ex.getMessage());
+    }
+  }
+
+  /** Performs the actual lease release network call against Azure SDK. */
+  void executeReleaseLease() {
+    if (leaseClient != null) {
+      leaseClient.releaseLease();
     }
   }
 

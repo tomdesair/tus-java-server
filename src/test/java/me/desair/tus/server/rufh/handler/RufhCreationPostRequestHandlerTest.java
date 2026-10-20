@@ -690,4 +690,54 @@ public class RufhCreationPostRequestHandlerTest {
     assertThat(response.getStatus(), is(201));
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("13"));
   }
+
+  @Test
+  public void testProcessCreationInterruptedByLockContentionWhenDeferredLength() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    // Deferred length: Upload-Length header is omitted; Upload-Complete is set to ?1 with body
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    request.setContent("creation body".getBytes());
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("creation-id"));
+    info.setLength(13L); // Tentatively set length from contentLength
+    info.setOffset(0L);
+
+    UploadInfo refreshed = new UploadInfo();
+    refreshed.setId(new UploadId("creation-id"));
+    refreshed.setLength(13L);
+    refreshed.setOffset(5L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+    when(storageService.getUploadInfo("/files/creation-id", "owner")).thenReturn(refreshed);
+
+    when(storageService.append(eq(info), any(InputStream.class)))
+        .thenAnswer(
+            inv -> {
+              Object s = inv.getArgument(1);
+              if (s instanceof InterruptibleInputStream) {
+                ((InterruptibleInputStream) s).interrupt();
+              }
+              throw new IOException("Stream interrupted by locking service contention");
+            });
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("5"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+
+    ArgumentCaptor<UploadInfo> captor = ArgumentCaptor.forClass(UploadInfo.class);
+    verify(storageService, org.mockito.Mockito.atLeastOnce()).update(captor.capture());
+    // The update on interruption must reset length to null so deferred upload can be resumed
+    org.junit.Assert.assertNull(captor.getValue().getLength());
+  }
 }

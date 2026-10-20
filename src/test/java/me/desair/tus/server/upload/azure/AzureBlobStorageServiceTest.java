@@ -5,6 +5,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
@@ -15,6 +20,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.ThreadPoolExecutor;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
@@ -379,5 +389,43 @@ public class AzureBlobStorageServiceTest {
   @Test
   public void testGetUploadLockingServiceReturnsConfiguredInstance() {
     assertNotNull(storageService.getUploadLockingService());
+  }
+
+  @Test
+  public void testUploadExecutorRejectedExecutionHandler() throws Exception {
+    ThreadPoolExecutor executor = storageService.getUploadExecutor();
+    RejectedExecutionHandler handler = executor.getRejectedExecutionHandler();
+    assertNotNull(handler);
+
+    // 1. Rejected when executor is shut down
+    ThreadPoolExecutor mockExecutor = mock(ThreadPoolExecutor.class);
+    when(mockExecutor.isShutdown()).thenReturn(true);
+    try {
+      handler.rejectedExecution(() -> {}, mockExecutor);
+      fail("Expected RejectedExecutionException when shut down");
+    } catch (RejectedExecutionException e) {
+      assertTrue(e.getMessage().contains("shut down"));
+    }
+
+    // 2. Enqueued when executor is active
+    BlockingQueue<Runnable> queue = new LinkedBlockingQueue<>();
+    when(mockExecutor.isShutdown()).thenReturn(false);
+    when(mockExecutor.getQueue()).thenReturn(queue);
+    Runnable task = () -> {};
+    handler.rejectedExecution(task, mockExecutor);
+    assertEquals(1, queue.size());
+
+    // 3. Interrupted while enqueuing
+    @SuppressWarnings("unchecked")
+    BlockingQueue<Runnable> fullQueue = mock(BlockingQueue.class);
+    doThrow(new InterruptedException("interrupted")).when(fullQueue).put(any(Runnable.class));
+    when(mockExecutor.getQueue()).thenReturn(fullQueue);
+    try {
+      handler.rejectedExecution(task, mockExecutor);
+      fail("Expected RejectedExecutionException on interrupt");
+    } catch (RejectedExecutionException e) {
+      assertTrue(e.getMessage().contains("Interrupted"));
+      assertTrue(Thread.interrupted()); // clears interrupted flag
+    }
   }
 }

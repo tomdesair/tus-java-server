@@ -43,6 +43,11 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.ThreadPoolExecutor;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
@@ -2931,6 +2936,59 @@ public class S3StorageServiceTest {
             argThat(
                 (GetObjectArgs a) ->
                     a != null && a.object().equals("metadata/reusable-upload-id.info")));
+  }
+
+  @Test
+  public void testUploadExecutorRejectedExecutionHandler() throws Exception {
+    ThreadPoolExecutor executor = storageService.getUploadExecutor();
+    RejectedExecutionHandler handler = executor.getRejectedExecutionHandler();
+    assertNotNull(handler);
+
+    // 1. Rejected when executor is shut down
+    ThreadPoolExecutor mockExecutor = mock(ThreadPoolExecutor.class);
+    when(mockExecutor.isShutdown()).thenReturn(true);
+    try {
+      handler.rejectedExecution(() -> {}, mockExecutor);
+      fail("Expected RejectedExecutionException when shut down");
+    } catch (RejectedExecutionException e) {
+      assertTrue(e.getMessage().contains("shut down"));
+    }
+
+    // 2. Enqueued when executor is active
+    BlockingQueue<Runnable> queue = new LinkedBlockingQueue<>();
+    when(mockExecutor.isShutdown()).thenReturn(false);
+    when(mockExecutor.getQueue()).thenReturn(queue);
+    Runnable task = () -> {};
+    handler.rejectedExecution(task, mockExecutor);
+    assertEquals(1, queue.size());
+
+    // 3. Interrupted while enqueuing
+    @SuppressWarnings("unchecked")
+    BlockingQueue<Runnable> fullQueue = mock(BlockingQueue.class);
+    doThrow(new InterruptedException("interrupted")).when(fullQueue).put(any(Runnable.class));
+    when(mockExecutor.getQueue()).thenReturn(fullQueue);
+    try {
+      handler.rejectedExecution(task, mockExecutor);
+      fail("Expected RejectedExecutionException on interrupt");
+    } catch (RejectedExecutionException e) {
+      assertTrue(e.getMessage().contains("Interrupted"));
+      assertTrue(Thread.interrupted()); // clears interrupted flag
+    }
+  }
+
+  @Test
+  public void testAppendUpdatesExpirationPeriodWhenConfigured() throws Exception {
+    storageService.setUploadExpirationPeriod(7200L);
+    UploadId uploadId = new UploadId("expire-test-id");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setStorageUploadId("storage-up-1");
+    info.setOffset(0L);
+    info.setLength(100L);
+
+    UploadInfo result = storageService.append(info, new ByteArrayInputStream(new byte[0]));
+    assertNotNull(result);
+    assertNotNull(result.getExpirationTimestamp());
   }
 
   @Test

@@ -525,4 +525,36 @@ public class AzureBlobUploadLockTest {
     lock.fallbackReleaseLease();
     assertNotNull(lock);
   }
+
+  @Test
+  public void testFallbackReleaseLeaseWhenLeaseClientThrows() {
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            null,
+            null,
+            "/test/upload/fallback-throw",
+            (ScheduledExecutorService) null,
+            null,
+            null) {
+          @Override
+          void executeReleaseLease() {
+            throw new RuntimeException("Release failed");
+          }
+        };
+    lock.fallbackReleaseLease();
+    assertNotNull(lock);
+  }
+
+  @Test
+  public void testReleaseHandlesStopBlobExceptionQuietly() {
+    BlobClient mockStop = mock(BlobClient.class);
+    org.mockito.Mockito.when(mockStop.deleteIfExists())
+        .thenThrow(new RuntimeException("Stop delete error"));
+
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            null, null, mockStop, "/test/upload/stop-ex", null, "stop-ex", null, null);
+    lock.release();
+    assertNotNull(lock);
+  }
 }

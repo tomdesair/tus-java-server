@@ -297,4 +297,27 @@ public class AzureBlobConcatenationServiceTest {
     String result = concatenationService.getAuthorizedBlobUrl(mockBlob);
     assertEquals("https://account.blob.core.windows.net/container/blob", result);
   }
+
+  @Test
+  public void testResolvePartialBlobNameVariants() {
+    UploadInfo partialWithDup = new UploadInfo();
+    partialWithDup.setId(new UploadId("child-id"));
+    partialWithDup.setDuplicatesUploadId(new UploadId("parent-id"));
+
+    UploadInfo partialNormal = new UploadInfo();
+    partialNormal.setId(new UploadId("normal-id"));
+
+    assertEquals("uploads/parent-id", concatenationService.resolvePartialBlobName(partialWithDup));
+    assertEquals("uploads/normal-id", concatenationService.resolvePartialBlobName(partialNormal));
+    assertEquals("uploads/", concatenationService.resolvePartialBlobName(null));
+
+    // When storageService is AzureBlobStorageService
+    AzureBlobStorageService mockAzureStorage = mock(AzureBlobStorageService.class);
+    when(mockAzureStorage.getAzureBlobName(partialWithDup)).thenReturn("custom-blob-name");
+    AzureBlobConcatenationService serviceWithAzureStorage =
+        new AzureBlobConcatenationService(containerClient, "uploads/", mockAzureStorage);
+
+    assertEquals(
+        "custom-blob-name", serviceWithAzureStorage.resolvePartialBlobName(partialWithDup));
+  }
 }

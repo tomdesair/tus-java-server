@@ -973,4 +973,49 @@ public class LeaseFileLockingServiceTest {
     lockingService.cleanupLock(id);
     assertFalse(Files.exists(stopFile));
   }
+
+  @Test
+  public void testIsLockDirectoryExpiredMutexMtimeIOException() throws Exception {
+    java.nio.file.spi.FileSystemProvider mockProvider =
+        org.mockito.Mockito.mock(
+            java.nio.file.spi.FileSystemProvider.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+    java.nio.file.FileSystem mockFs = org.mockito.Mockito.mock(java.nio.file.FileSystem.class);
+    when(mockFs.provider()).thenReturn(mockProvider);
+
+    Path mockLockDir = org.mockito.Mockito.mock(Path.class);
+    when(mockLockDir.getFileSystem()).thenReturn(mockFs);
+
+    Path mockLeaseFile = org.mockito.Mockito.mock(Path.class);
+    when(mockLeaseFile.getFileSystem()).thenReturn(mockFs);
+    when(mockLockDir.resolve("lease.json")).thenReturn(mockLeaseFile);
+
+    Path mockFileName = Paths.get("test-upload.lock");
+    when(mockLockDir.getFileName()).thenReturn(mockFileName);
+
+    Path mockMutexDir = org.mockito.Mockito.mock(Path.class);
+    when(mockMutexDir.getFileSystem()).thenReturn(mockFs);
+    when(mockLockDir.resolveSibling(org.mockito.ArgumentMatchers.any(String.class)))
+        .thenReturn(mockMutexDir);
+    when(mockLockDir.resolveSibling(org.mockito.ArgumentMatchers.any(Path.class)))
+        .thenReturn(mockMutexDir);
+
+    // lockDir exists
+    org.mockito.Mockito.doNothing().when(mockProvider).checkAccess(mockLockDir);
+    // leaseFile does not exist
+    org.mockito.Mockito.doThrow(new java.nio.file.NoSuchFileException("lease.json"))
+        .when(mockProvider)
+        .checkAccess(mockLeaseFile);
+    // mutexDir exists
+    org.mockito.Mockito.doNothing().when(mockProvider).checkAccess(mockMutexDir);
+
+    // getLastModifiedTime throws IOException on mutexDir
+    when(mockProvider.readAttributes(
+            org.mockito.ArgumentMatchers.eq(mockMutexDir),
+            org.mockito.ArgumentMatchers.eq(java.nio.file.attribute.BasicFileAttributes.class),
+            org.mockito.ArgumentMatchers.any()))
+        .thenThrow(new IOException("Simulated I/O failure on mutex attributes"));
+
+    // Should catch IOException and return false
+    assertFalse(lockingService.isLockDirectoryExpired(mockLockDir, System.currentTimeMillis()));
+  }
 }

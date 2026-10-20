@@ -1046,6 +1046,27 @@ public class UtilsTest {
     org.junit.Assert.assertFalse(Files.exists(testDir));
   }
 
+  @Test
+  public void testDeleteDirectoryQuietlyIOException() throws Exception {
+    java.nio.file.spi.FileSystemProvider mockProvider =
+        mock(java.nio.file.spi.FileSystemProvider.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+    java.nio.file.FileSystem mockFs = mock(java.nio.file.FileSystem.class);
+    when(mockFs.provider()).thenReturn(mockProvider);
+
+    Path mockPath = mock(Path.class);
+    when(mockPath.getFileSystem()).thenReturn(mockFs);
+
+    org.mockito.Mockito.doNothing().when(mockProvider).checkAccess(mockPath);
+
+    when(mockProvider.readAttributes(
+            org.mockito.ArgumentMatchers.eq(mockPath),
+            org.mockito.ArgumentMatchers.eq(java.nio.file.attribute.BasicFileAttributes.class),
+            org.mockito.ArgumentMatchers.any()))
+        .thenThrow(new IOException("Simulated I/O failure"));
+
+    org.junit.Assert.assertFalse(Utils.deleteDirectoryQuietly(mockPath));
+  }
+
   /** Simple serializable class for testing. */
   public static class TestSerializable implements Serializable {
     private static final long serialVersionUID = 1L;

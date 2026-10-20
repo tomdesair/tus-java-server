@@ -825,6 +825,68 @@ public class DeduplicationServiceTest {
     assertNotNull(service);
   }
 
+  @Test
+  public void testLockParentWithRetryInterruptedThrowsTusException() throws Exception {
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+    when(mockLocking.lockUpload(any(UploadId.class)))
+        .thenThrow(new UploadAlreadyLockedException("locked"));
+
+    DeduplicationService service = new DeduplicationService(index, adapter, mockLocking);
+    UploadInfo childInfo = new UploadInfo();
+    childInfo.setId(new UploadId("child-1"));
+    childInfo.setDuplicatesUploadId(new UploadId("parent-1"));
+
+    Thread.currentThread().interrupt();
+    service.syncParentExpirationIfChild(childInfo);
+    assertTrue(Thread.interrupted()); // verifies thread interrupted flag was re-asserted
+  }
+
+  @Test
+  public void testSyncParentExpirationIfChildNullOrNoParent() {
+    deduplicationService.syncParentExpirationIfChild(null);
+    UploadInfo info = new UploadInfo();
+    deduplicationService.syncParentExpirationIfChild(info);
+    assertNull(info.getDuplicatesUploadId());
+  }
+
+  @Test
+  public void testPruneOrphanedIndicesHandlesNullParentAndLockedParent() throws Exception {
+    ChecksumKey keyWithNullParent =
+        ChecksumKey.of("1111111111111111111111111111111111111111", ChecksumAlgorithm.SHA1);
+    index.tryRegisterParent(keyWithNullParent, null);
+
+    ChecksumKey lockedKey =
+        ChecksumKey.of("2222222222222222222222222222222222222222", ChecksumAlgorithm.SHA1);
+    UploadId lockedParent = new UploadId("locked-parent");
+    index.tryRegisterParent(lockedKey, lockedParent);
+
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+    when(mockLocking.lockUpload(lockedParent))
+        .thenThrow(new UploadAlreadyLockedException("Parent locked"));
+
+    DeduplicationService service = new DeduplicationService(index, adapter, mockLocking);
+    // Should skip null parent and skip locked parent cleanly without throwing
+    service.pruneOrphanedChecksumIndices();
+  }
+
+  @Test
+  public void testPruneOrphanedIndicesRepairsMissingTombstoneWithActiveChildren() throws Exception {
+    ChecksumKey key =
+        ChecksumKey.of("3333333333333333333333333333333333333333", ChecksumAlgorithm.SHA1);
+    UploadId parentId = new UploadId("repair-parent");
+    index.tryRegisterParent(key, parentId);
+    index.addChild(key, new UploadId("child-1"));
+
+    // Parent data exists, but parent info is null, not tombstoned, has children
+    adapter.put(parentId, null, true);
+
+    deduplicationService.pruneOrphanedChecksumIndices();
+
+    // Verify tombstone was repaired
+    assertTrue(index.isParentDeleted(key));
+    assertEquals(parentId, index.findParent(key));
+  }
+
   private UploadInfo createUploadInfo(UploadId id, ChecksumKey key) {
     UploadInfo info = new UploadInfo();
     info.setId(id);

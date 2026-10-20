@@ -431,4 +431,56 @@ public class RufhAppendPatchRequestHandlerTest {
     assertThat(response.getStatus(), is(204));
     assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("1005"));
   }
+
+  @Test
+  public void testProcessInterruptedByLockContentionWhenDeferredLength() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/append-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    request.setContent("hello world".getBytes());
+
+    UploadInfo initial = new UploadInfo();
+    initial.setId(new UploadId("append-id"));
+    initial.setOffset(1000L);
+    initial.setLength(null); // Deferred length initially
+
+    UploadInfo refreshed = new UploadInfo();
+    refreshed.setId(new UploadId("append-id"));
+    refreshed.setOffset(1005L);
+    refreshed.setLength(1011L); // Tentative length from line 66 before interruption
+
+    when(storageService.getUploadInfo("/files/append-id", "owner"))
+        .thenReturn(initial)
+        .thenReturn(refreshed);
+
+    when(storageService.append(eq(initial), any(InputStream.class)))
+        .thenAnswer(
+            inv -> {
+              Object s = inv.getArgument(1);
+              if (s instanceof InterruptibleInputStream) {
+                ((InterruptibleInputStream) s).interrupt();
+              }
+              throw new IOException("Stream interrupted by locking service contention");
+            });
+
+    handler.process(
+        HttpMethod.PATCH,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(response.getStatus(), is(204));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("1005"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+
+    ArgumentCaptor<UploadInfo> captor = ArgumentCaptor.forClass(UploadInfo.class);
+    verify(storageService, org.mockito.Mockito.atLeastOnce()).update(captor.capture());
+    // The last update before returning must reset length back to null for deferred upload resume
+    org.junit.Assert.assertNull(captor.getValue().getLength());
+  }
 }
