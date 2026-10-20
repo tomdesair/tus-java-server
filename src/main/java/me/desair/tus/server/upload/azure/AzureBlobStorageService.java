@@ -582,6 +582,7 @@ public class AzureBlobStorageService implements UploadStorageService {
       deleteData(id);
     }
     deleteMetadata(id);
+    this.uploadLockingService.cleanupLock(id);
 
     log.debug("Terminated upload with ID {}", id);
   }

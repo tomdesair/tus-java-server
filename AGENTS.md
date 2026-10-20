@@ -196,8 +196,9 @@ To maintain a clear separation between fast, offline unit tests and containerize
 - This guarantees timely and reliable lock release upon normal completion or abrupt exceptions without requiring verbose and error-prone `try ... finally { if (lock != null) lock.release(); }` boilerplates.
 
 ### 25. UploadLock Cleanup & Non-Null UploadLockingService Invariant
-- For all storage backends, `terminateUpload` is executed when the corresponding upload is locked by the active request. The `UploadLock` handle itself takes care of lock cleanup upon release/close.
-- The function `uploadLockingService.cleanupLock(uploadId)` MUST ONLY be called explicitly for expired or stale uploads (e.g. within `cleanupExpiredUploads()`).
+- During normal request lifecycles, active uploads are protected by an `UploadLock` whose close/release handle cleans up the active lock upon completion.
+- In `AzureBlobStorageService.terminateUpload`, `uploadLockingService.cleanupLock(uploadId)` is invoked to clean up unleased lock blobs and stop signals.
+- Across all storage backends, `cleanupExpiredUploads()` explicitly calls `uploadLockingService.cleanupLock(uploadId)` to remove orphaned locks and stale index entries.
 - `uploadLockingService` is guaranteed to never be null across storage backends (storage services initialize or fallback to default locking via `Utils.getLockingServiceOrDefault(uploadLockingService)`). Do NOT introduce redundant `if (uploadLockingService != null)` guard checks.
 
 
