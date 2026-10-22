@@ -1156,4 +1156,138 @@ public class S3LockingServiceTest {
     lockingService.cleanupLock(id);
     assertFalse(s3StorageMap.containsKey(stopKey));
   }
+
+  @Test
+  public void testS3LockingServiceThreeArgConstructor() {
+    S3LockingService service = new S3LockingService(minioClient, "test-bucket", "locks/");
+    assertNotNull(service);
+  }
+
+  @Test
+  public void testTryAcquireLockDirectAndNullLeaseData() throws Exception {
+    UploadId uploadId = new UploadId(UUID.randomUUID());
+    assertNull(lockingService.tryAcquireLock(uploadId, null));
+
+    LeaseData leaseData =
+        new LeaseData(
+            "holder",
+            "/files/upload/test",
+            30000L,
+            System.currentTimeMillis() + 30000L,
+            System.currentTimeMillis(),
+            null,
+            null);
+    UploadLock lock = lockingService.tryAcquireLock(uploadId, leaseData);
+    assertNotNull(lock);
+    lock.close();
+  }
+
+  @Test
+  public void testCheckStopSignalForUploadNullAndException() throws Exception {
+    lockingService.checkStopSignalForUpload(null, Mockito.mock(InputStream.class));
+
+    UploadId id = new UploadId(UUID.randomUUID());
+    Mockito.when(minioClient.statObject(Mockito.any(StatObjectArgs.class)))
+        .thenThrow(new RuntimeException("Network error"));
+    lockingService.checkStopSignalForUpload(id, Mockito.mock(InputStream.class));
+  }
+
+  @Test
+  public void testEvictExpiredLockStaleMutexRecovery() throws Exception {
+    UploadId uploadId = new UploadId("test-stale-mutex");
+    String lockKey = "locks/" + uploadId + ".lock";
+    String mutexKey = "locks/" + uploadId + ".mutex";
+
+    LeaseData expiredLock =
+        new LeaseData(
+            "expired-holder",
+            "/files/upload/" + uploadId,
+            30000L,
+            System.currentTimeMillis() - 10_000L,
+            System.currentTimeMillis() - 40_000L,
+            lockKey,
+            null);
+    s3StorageMap.put(
+        lockKey, me.desair.tus.server.util.LeaseDataJsonSerializer.serializeToBytes(expiredLock));
+
+    long staleTime = System.currentTimeMillis() - 10_000L;
+    s3StorageMap.put(
+        mutexKey, String.valueOf(staleTime).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+    boolean evicted = lockingService.evictExpiredLock(uploadId);
+    assertTrue(evicted);
+    assertFalse(s3StorageMap.containsKey(lockKey));
+    assertFalse(s3StorageMap.containsKey(mutexKey));
+  }
+
+  @Test
+  public void testEvictExpiredLockApiNotImplementedDowngradesToNonCas() throws Exception {
+    UploadId uploadId = new UploadId("test-non-cas-downgrade");
+    String lockKey = "locks/" + uploadId + ".lock";
+
+    LeaseData expiredLock =
+        new LeaseData(
+            "expired-holder",
+            "/files/upload/" + uploadId,
+            30000L,
+            System.currentTimeMillis() - 10_000L,
+            System.currentTimeMillis() - 40_000L,
+            lockKey,
+            null);
+    s3StorageMap.put(
+        lockKey, me.desair.tus.server.util.LeaseDataJsonSerializer.serializeToBytes(expiredLock));
+
+    ErrorResponse notImplResponse = Mockito.mock(ErrorResponse.class);
+    Mockito.when(notImplResponse.code()).thenReturn("NotImplemented");
+    ErrorResponseException notImplEx =
+        new ErrorResponseException(notImplResponse, null, "NotImplemented");
+
+    Mockito.doThrow(notImplEx)
+        .doAnswer(
+            invocation -> {
+              PutObjectArgs args = invocation.getArgument(0);
+              try (InputStream stream = args.stream()) {
+                s3StorageMap.put(args.object(), stream.readAllBytes());
+              }
+              return null;
+            })
+        .when(minioClient)
+        .putObject(
+            Mockito.argThat(
+                (PutObjectArgs args) ->
+                    args != null && args.object().equals("locks/" + uploadId + ".mutex")));
+
+    boolean evicted = lockingService.evictExpiredLock(uploadId);
+    assertTrue(evicted);
+  }
+
+  @Test
+  public void testEvictExpiredLockNonCasActiveMutexReturnsFalse() throws Exception {
+    lockingService.withS3ConditionalWritesSupported(false);
+    UploadId uploadId = new UploadId("test-non-cas-active");
+    String mutexKey = "locks/" + uploadId + ".mutex";
+
+    long activeTime = System.currentTimeMillis();
+    s3StorageMap.put(
+        mutexKey, String.valueOf(activeTime).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+    boolean evicted = lockingService.evictExpiredLock(uploadId);
+    assertFalse(evicted);
+  }
+
+  @Test
+  public void testEvictExpiredLockNonCasPutExceptionReturnsFalse() throws Exception {
+    lockingService.withS3ConditionalWritesSupported(false);
+    UploadId uploadId = new UploadId("test-non-cas-put-err");
+
+    Mockito.doThrow(new RuntimeException("Disk full"))
+        .when(minioClient)
+        .putObject(
+            Mockito.argThat(
+                (PutObjectArgs args) ->
+                    args != null && args.object().equals("locks/" + uploadId + ".mutex")));
+
+    boolean evicted = lockingService.evictExpiredLock(uploadId);
+    assertFalse(evicted);
+  }
 }
