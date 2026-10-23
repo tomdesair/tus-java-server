@@ -12,6 +12,7 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -27,6 +28,7 @@ import io.minio.Result;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
 import io.minio.errors.ErrorResponseException;
+import io.minio.messages.DeleteResult;
 import io.minio.messages.ErrorResponse;
 import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
@@ -42,6 +44,11 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.ThreadPoolExecutor;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
@@ -665,6 +672,10 @@ public class S3StorageServiceTest {
     info.setId(new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e"));
     info.setLength(100L);
     info.setOffset(50L);
+    info.setUploadPartKeys(
+        new ArrayList<>(
+            Collections.singletonList(
+                "metadata/24249a5b-01a4-4bf8-b67a-364273bb5a2e.part.00001_50")));
 
     String jsonBefore = UploadInfoJsonSerializer.serialize(info);
     info.setOffset(100L);
@@ -1103,7 +1114,6 @@ public class S3StorageServiceTest {
     when(mockLocking.isLocked(expiredId)).thenReturn(false);
 
     storageService.cleanupExpiredUploads(mockLocking);
-    verify(mockLocking).cleanupLock(expiredId);
   }
 
   @Test
@@ -1131,7 +1141,6 @@ public class S3StorageServiceTest {
     storageService.setUploadLockingService(mockLocking);
 
     storageService.cleanupExpiredUploads();
-    verify(mockLocking).cleanupLock(expiredId);
   }
 
   @Test(expected = IOException.class)
@@ -1455,9 +1464,13 @@ public class S3StorageServiceTest {
   @Test(expected = IOException.class)
   public void testFinalizeCompletedUploadSinglePartComposeException() throws Exception {
     UploadInfo info = new UploadInfo();
+    long fiveMb = 5L * 1024L * 1024L;
     info.setId(new UploadId("single-compose-err"));
-    info.setLength(10L);
-    info.setOffset(0L);
+    info.setLength(fiveMb);
+    info.setOffset(fiveMb);
+    info.setUploadPartKeys(
+        new ArrayList<>(
+            Collections.singletonList("metadata/single-compose-err.part.00001_" + fiveMb)));
 
     ErrorResponse noSuchKeyErr = mock(ErrorResponse.class);
     when(noSuchKeyErr.code()).thenReturn("NoSuchKey");
@@ -1474,7 +1487,7 @@ public class S3StorageServiceTest {
             });
 
     StatObjectResponse statRes = mock(StatObjectResponse.class);
-    when(statRes.size()).thenReturn(10L);
+    when(statRes.size()).thenReturn(fiveMb);
 
     when(minioClient.statObject(any(StatObjectArgs.class)))
         .thenAnswer(
@@ -1487,7 +1500,7 @@ public class S3StorageServiceTest {
             });
 
     Item item1 = mock(Item.class);
-    when(item1.objectName()).thenReturn("uploads/single-compose-err.part.00001");
+    when(item1.objectName()).thenReturn("uploads/single-compose-err.part.00001_" + fiveMb);
     when(minioClient.listObjects(any(ListObjectsArgs.class)))
         .thenReturn(Arrays.asList(new Result<>(item1)));
 
@@ -1495,15 +1508,22 @@ public class S3StorageServiceTest {
         .when(minioClient)
         .composeObject(any(io.minio.ComposeObjectArgs.class));
 
-    storageService.append(info, new ByteArrayInputStream(new byte[10]));
+    storageService.append(info, new ByteArrayInputStream(new byte[0]));
   }
 
   @Test(expected = IOException.class)
   public void testFinalizeCompletedUploadMultipartComposeException() throws Exception {
     UploadInfo info = new UploadInfo();
+    long fiveMb = 5L * 1024L * 1024L;
+    long totalLength = fiveMb * 2;
     info.setId(new UploadId("multi-compose-err"));
-    info.setLength(20L);
-    info.setOffset(0L);
+    info.setLength(totalLength);
+    info.setOffset(totalLength);
+    info.setUploadPartKeys(
+        new ArrayList<>(
+            Arrays.asList(
+                "metadata/multi-compose-err.part.00001_" + fiveMb,
+                "metadata/multi-compose-err.part.00002_" + fiveMb)));
 
     ErrorResponse noSuchKeyErr = mock(ErrorResponse.class);
     when(noSuchKeyErr.code()).thenReturn("NoSuchKey");
@@ -1520,7 +1540,7 @@ public class S3StorageServiceTest {
             });
 
     StatObjectResponse statRes = mock(StatObjectResponse.class);
-    when(statRes.size()).thenReturn(10L);
+    when(statRes.size()).thenReturn(fiveMb);
 
     when(minioClient.statObject(any(StatObjectArgs.class)))
         .thenAnswer(
@@ -1533,9 +1553,9 @@ public class S3StorageServiceTest {
             });
 
     Item item1 = mock(Item.class);
-    when(item1.objectName()).thenReturn("uploads/multi-compose-err.part.00001");
+    when(item1.objectName()).thenReturn("uploads/multi-compose-err.part.00001_" + fiveMb);
     Item item2 = mock(Item.class);
-    when(item2.objectName()).thenReturn("uploads/multi-compose-err.part.00002");
+    when(item2.objectName()).thenReturn("uploads/multi-compose-err.part.00002_" + fiveMb);
 
     when(minioClient.listObjects(any(ListObjectsArgs.class)))
         .thenReturn(Arrays.asList(new Result<>(item1), new Result<>(item2)));
@@ -1544,7 +1564,7 @@ public class S3StorageServiceTest {
         .when(minioClient)
         .composeObject(any(ComposeObjectArgs.class));
 
-    storageService.append(info, new ByteArrayInputStream(new byte[20]));
+    storageService.append(info, new ByteArrayInputStream(new byte[0]));
   }
 
   @Test(expected = IOException.class)
@@ -2075,6 +2095,51 @@ public class S3StorageServiceTest {
   }
 
   @Test
+  public void testCleanupExpiredUploadsWithNullInfoCleansLock() throws Exception {
+    Item item = mock(Item.class);
+    when(item.objectName()).thenReturn("metadata/corrupt-456.info");
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(java.util.Collections.singletonList(new Result<>(item)));
+
+    ErrorResponse errorResponse =
+        new ErrorResponse("NoSuchKey", "Not found", null, null, null, null, null);
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenThrow(new ErrorResponseException(errorResponse, null, null));
+
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+    storageService.cleanupExpiredUploads(mockLocking);
+
+    verify(mockLocking).cleanupLock(new UploadId("corrupt-456"));
+  }
+
+  @Test
+  public void testCleanupExpiredUploadsCleansLockForExpiredInProgressUpload() throws Exception {
+    UploadInfo expiredInfo = new UploadInfo();
+    UploadId id = new UploadId("expired-456");
+    expiredInfo.setId(id);
+    expiredInfo.setLength(100L);
+    expiredInfo.setOffset(50L);
+    expiredInfo.setExpirationTimestamp(System.currentTimeMillis() - 10000L);
+
+    String json = UploadInfoJsonSerializer.serialize(expiredInfo);
+
+    Item item = mock(Item.class);
+    when(item.objectName()).thenReturn("metadata/expired-456.info");
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(java.util.Collections.singletonList(new Result<>(item)));
+
+    when(minioClient.getObject(any(GetObjectArgs.class)))
+        .thenAnswer(invocation -> mockGetObjectResponse(json.getBytes()));
+
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+    when(mockLocking.isLocked(id)).thenReturn(false);
+
+    storageService.cleanupExpiredUploads(mockLocking);
+
+    verify(mockLocking).cleanupLock(id);
+  }
+
+  @Test
   public void testCleanupExpiredUploadsPrunesStaleTempFilesAndChecksumIndices() throws Exception {
     java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("s3-cleanup-test");
     try {
@@ -2359,16 +2424,14 @@ public class S3StorageServiceTest {
 
   @Test
   public void testDeleteS3ObjectsBatchFailureFallback() throws Exception {
-    assertTrue(storageService.isSupportsBatchDelete());
-    UploadId uploadId = new UploadId("batch-del-fallback");
     List<String> keys = Arrays.asList("metadata/batch.part.00001", "metadata/batch.part.00002");
 
-    io.minio.messages.DeleteResult.Error delErr = mock(io.minio.messages.DeleteResult.Error.class);
+    DeleteResult.Error delErr = mock(DeleteResult.Error.class);
     when(delErr.objectName()).thenReturn("metadata/batch.part.00001");
     when(delErr.message()).thenReturn("AccessDenied");
 
     @SuppressWarnings("unchecked")
-    Result<io.minio.messages.DeleteResult.Error> errResult = mock(Result.class);
+    Result<DeleteResult.Error> errResult = mock(Result.class);
     when(errResult.get()).thenReturn(delErr);
 
     when(minioClient.removeObjects(any(RemoveObjectsArgs.class)))
@@ -2382,25 +2445,10 @@ public class S3StorageServiceTest {
     verify(minioClient)
         .removeObject(
             argThat((RemoveObjectArgs args) -> args.object().equals("metadata/batch.part.00002")));
-    assertFalse(storageService.isSupportsBatchDelete());
-
-    // Subsequent batch delete should bypass removeObjects directly
-    storageService.deleteS3ObjectsQuietly(Collections.singletonList("metadata/batch.part.00003"));
-    verify(minioClient)
-        .removeObject(
-            argThat((RemoveObjectArgs args) -> args.object().equals("metadata/batch.part.00003")));
-    // removeObjects was only called once (for the first attempt)
-    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.times(1))
-        .removeObjects(any(RemoveObjectsArgs.class));
-
-    // Reset flag for subsequent tests
-    storageService.setSupportsBatchDelete(true);
   }
 
   @Test
   public void testDeleteS3ObjectsThrowsExceptionFallsBackToIndividualDelete() throws Exception {
-    assertTrue(storageService.isSupportsBatchDelete());
-    UploadId uploadId = new UploadId("batch-del-ex");
     List<String> keys = Collections.singletonList("metadata/batch-ex.part.00001");
 
     when(minioClient.removeObjects(any(RemoveObjectsArgs.class)))
@@ -2412,15 +2460,11 @@ public class S3StorageServiceTest {
         .removeObject(
             argThat(
                 (RemoveObjectArgs args) -> args.object().equals("metadata/batch-ex.part.00001")));
-    assertFalse(storageService.isSupportsBatchDelete());
 
     // Null or empty handling
     storageService.deleteS3ObjectsQuietly(null);
     storageService.deleteS3ObjectsQuietly(Collections.emptyList());
     storageService.deleteS3ObjectsQuietly(Collections.singletonList(null));
-
-    // Reset flag
-    storageService.setSupportsBatchDelete(true);
   }
 
   @Test
@@ -2544,15 +2588,6 @@ public class S3StorageServiceTest {
 
     storageService.removeLastNumberOfBytes(info, 3L);
     assertEquals(7L, info.getOffset().longValue());
-  }
-
-  @Test
-  public void testSupportsBatchDeleteConfiguration() {
-    assertTrue(storageService.isSupportsBatchDelete());
-    storageService.setSupportsBatchDelete(false);
-    assertFalse(storageService.isSupportsBatchDelete());
-    storageService.setSupportsBatchDelete(true);
-    assertTrue(storageService.isSupportsBatchDelete());
   }
 
   @Test
@@ -2796,7 +2831,10 @@ public class S3StorageServiceTest {
                     a != null && "metadata/orphan-test-id.part.".equals(a.prefix()))))
         .thenReturn(Arrays.asList(res1, res2));
 
-    storageService.append(info, new ByteArrayInputStream(new byte[0]));
+    storageService.pruneOrphanParts(
+        info.getId(),
+        Collections.singletonList("metadata/orphan-test-id.part.00001"),
+        Collections.emptyList());
 
     verify(minioClient)
         .removeObject(
@@ -2846,6 +2884,82 @@ public class S3StorageServiceTest {
     UploadInfo result = storageService.append(appendUpload, new ByteArrayInputStream(new byte[0]));
     assertNotNull(result);
     assertEquals(Long.valueOf(500L), result.getLength());
+  }
+
+  @Test
+  public void testAppendReusesPassedUploadInfoDirectlyWithoutRemoteGet() throws Exception {
+    UploadId uploadId = new UploadId("reusable-upload-id");
+    UploadInfo appendUpload = new UploadInfo();
+    appendUpload.setId(uploadId);
+    appendUpload.setStorageUploadId("storage-upload-123");
+    appendUpload.setLength(1000L);
+    appendUpload.setOffset(0L);
+
+    UploadInfo result = storageService.append(appendUpload, new ByteArrayInputStream(new byte[0]));
+    assertNotNull(result);
+    assertEquals(uploadId, result.getId());
+    assertEquals(Long.valueOf(1000L), result.getLength());
+
+    // Verify remote GET metadata/<id>.info was never invoked because caller provided populated
+    // UploadInfo
+    verify(minioClient, never())
+        .getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && a.object().equals("metadata/reusable-upload-id.info")));
+  }
+
+  @Test
+  public void testUploadExecutorRejectedExecutionHandler() throws Exception {
+    ThreadPoolExecutor executor = storageService.getUploadExecutor();
+    RejectedExecutionHandler handler = executor.getRejectedExecutionHandler();
+    assertNotNull(handler);
+
+    // 1. Rejected when executor is shut down
+    ThreadPoolExecutor mockExecutor = mock(ThreadPoolExecutor.class);
+    when(mockExecutor.isShutdown()).thenReturn(true);
+    try {
+      handler.rejectedExecution(() -> {}, mockExecutor);
+      fail("Expected RejectedExecutionException when shut down");
+    } catch (RejectedExecutionException e) {
+      assertTrue(e.getMessage().contains("shut down"));
+    }
+
+    // 2. Enqueued when executor is active
+    BlockingQueue<Runnable> queue = new LinkedBlockingQueue<>();
+    when(mockExecutor.isShutdown()).thenReturn(false);
+    when(mockExecutor.getQueue()).thenReturn(queue);
+    Runnable task = () -> {};
+    handler.rejectedExecution(task, mockExecutor);
+    assertEquals(1, queue.size());
+
+    // 3. Interrupted while enqueuing
+    @SuppressWarnings("unchecked")
+    BlockingQueue<Runnable> fullQueue = mock(BlockingQueue.class);
+    doThrow(new InterruptedException("interrupted")).when(fullQueue).put(any(Runnable.class));
+    when(mockExecutor.getQueue()).thenReturn(fullQueue);
+    try {
+      handler.rejectedExecution(task, mockExecutor);
+      fail("Expected RejectedExecutionException on interrupt");
+    } catch (RejectedExecutionException e) {
+      assertTrue(e.getMessage().contains("Interrupted"));
+      assertTrue(Thread.interrupted()); // clears interrupted flag
+    }
+  }
+
+  @Test
+  public void testAppendUpdatesExpirationPeriodWhenConfigured() throws Exception {
+    storageService.setUploadExpirationPeriod(7200L);
+    UploadId uploadId = new UploadId("expire-test-id");
+    UploadInfo info = new UploadInfo();
+    info.setId(uploadId);
+    info.setStorageUploadId("storage-up-1");
+    info.setOffset(0L);
+    info.setLength(100L);
+
+    UploadInfo result = storageService.append(info, new ByteArrayInputStream(new byte[0]));
+    assertNotNull(result);
+    assertNotNull(result.getExpirationTimestamp());
   }
 
   @Test
@@ -2919,7 +3033,7 @@ public class S3StorageServiceTest {
 
     storageService.cleanupExpiredUploads(null);
 
-    verify(minioClient).removeObjects(any(RemoveObjectsArgs.class));
+    verify(minioClient, atLeastOnce()).removeObjects(any(RemoveObjectsArgs.class));
     verify(minioClient)
         .removeObject(
             argThat((RemoveObjectArgs a) -> a != null && a.object().equals("uploads/parent-123")));
@@ -2978,7 +3092,7 @@ public class S3StorageServiceTest {
 
     storageService.cleanupExpiredUploads(null);
 
-    verify(minioClient).removeObjects(any(RemoveObjectsArgs.class));
+    verify(minioClient, atLeastOnce()).removeObjects(any(RemoveObjectsArgs.class));
     verify(minioClient)
         .removeObject(
             argThat(

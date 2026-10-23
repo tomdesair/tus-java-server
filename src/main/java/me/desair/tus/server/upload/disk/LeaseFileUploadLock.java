@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import me.desair.tus.server.upload.AbstractLeaseLock;
 import me.desair.tus.server.upload.LeaseData;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.lang3.Strings;
@@ -26,29 +27,31 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
 
   private final Path lockDirPath;
   private final Path stopFilePath;
-  private final LeaseData leaseData;
 
   /**
    * Constructs an active {@link LeaseFileUploadLock} and starts the background heartbeat lease
    * renewal daemon.
    *
    * @param leaseData The lease metadata
+   * @param uploadId The upload identifier associated with this lock
    * @param lockDirPath Dedicated lock directory path
    * @param stopFilePath Lock contention stop signal file path
    * @param activeInputStreams Map of active request input streams in the JVM
    */
   public LeaseFileUploadLock(
       LeaseData leaseData,
+      UploadId uploadId,
       Path lockDirPath,
       Path stopFilePath,
-      Map<String, InputStream> activeInputStreams) {
-    this(leaseData, lockDirPath, stopFilePath, activeInputStreams, null);
+      Map<UploadId, InputStream> activeInputStreams) {
+    this(leaseData, uploadId, lockDirPath, stopFilePath, activeInputStreams, null);
   }
 
   /**
    * Testing constructor allowing injection of a custom heartbeat executor.
    *
    * @param leaseData The lease metadata
+   * @param uploadId The upload identifier associated with this lock
    * @param lockDirPath Dedicated lock directory path
    * @param stopFilePath Lock contention stop signal file path
    * @param activeInputStreams Map of active request input streams in the JVM
@@ -56,18 +59,14 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
    */
   LeaseFileUploadLock(
       LeaseData leaseData,
+      UploadId uploadId,
       Path lockDirPath,
       Path stopFilePath,
-      Map<String, InputStream> activeInputStreams,
+      Map<UploadId, InputStream> activeInputStreams,
       ScheduledExecutorService heartbeatExecutor) {
-    super(leaseData, activeInputStreams, heartbeatExecutor, "lease-file-lock-heartbeat");
-    this.leaseData = leaseData;
+    super(leaseData, uploadId, activeInputStreams, heartbeatExecutor);
     this.lockDirPath = lockDirPath;
     this.stopFilePath = stopFilePath;
-  }
-
-  public LeaseData getLeaseData() {
-    return leaseData;
   }
 
   public String getStoragePath() {
@@ -89,17 +88,17 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
         log.warn("Failed to acquire mutex to renew lease for {}", lockDirPath);
         return;
       }
+      Path leaseFile = lockDirPath.resolve("lease.json");
       // If another node took over the lease, abort renewal by throwing IllegalStateException
       // so AbstractLeaseLock terminates the heartbeat and aborts the active stream.
-      if (!doesLockOwnershipMatch()) {
+      if (Files.exists(leaseFile) && !doesLockOwnershipMatch()) {
         log.info("Lease for {} was taken over by another holder. Aborting renewal.", lockDirPath);
         throw new IllegalStateException(
             "Lease for " + lockDirPath + " was taken over by another holder");
       }
 
-      Path leaseFile = lockDirPath.resolve("lease.json");
-      leaseData.setExpiresAt(getExpiresAt());
-      LeaseDataJsonSerializer.serializeToPath(leaseData, leaseFile);
+      getLeaseData().setExpiresAt(getExpiresAt());
+      LeaseDataJsonSerializer.serializeToPath(getLeaseData(), leaseFile);
     }
   }
 
@@ -112,9 +111,12 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
   protected void releaseLockResource() {
     if (lockDirPath != null && Files.exists(lockDirPath)) {
       try (LeaseFileMutex mutex = new LeaseFileMutex(lockDirPath)) {
-        if (mutex.isAcquired() && doesLockOwnershipMatch()) {
-          Utils.deletePathQuietly(lockDirPath.resolve("lease.json"));
-          Utils.deletePathQuietly(lockDirPath);
+        if (mutex.isAcquired()) {
+          Path leaseFile = lockDirPath.resolve("lease.json");
+          if (!Files.exists(leaseFile) || doesLockOwnershipMatch()) {
+            Utils.deletePathQuietly(leaseFile);
+            Utils.deletePathQuietly(lockDirPath);
+          }
         }
       }
     }
@@ -128,25 +130,27 @@ public class LeaseFileUploadLock extends AbstractLeaseLock {
   /**
    * Verifies that the on-disk {@code lease.json} file is still owned by this lock holder.
    *
-   * @return {@code true} if the lease file does not exist, is unparseable, or matches this holder's
-   *     ID; {@code false} if owned by a different holder
+   * <p>Fail-closed split-brain protection: returns {@code true} only when the lease file exists, is
+   * parseable, and its holder ID matches this lock holder. Returns {@code false} if the file is
+   * missing, unreadable, or owned by a different holder.
+   *
+   * @return {@code true} if the lease file exists and matches this holder's ID; {@code false}
+   *     otherwise
    */
   boolean doesLockOwnershipMatch() {
     if (lockDirPath == null) {
       return false;
     }
     Path leaseFile = lockDirPath.resolve("lease.json");
-    if (Files.exists(leaseFile)) {
-      try {
-        LeaseData existingLease = LeaseDataJsonSerializer.deserialize(leaseFile);
-        if (existingLease != null
-            && !Strings.CS.equals(existingLease.getHolderId(), getHolderId())) {
-          return false;
-        }
-      } catch (Exception ignored) {
-        // If unparseable or corrupt, consider owned/proceed
-      }
+    if (!Files.exists(leaseFile)) {
+      return false;
     }
-    return true;
+    try {
+      LeaseData existingLease = LeaseDataJsonSerializer.deserialize(leaseFile);
+      return existingLease != null && Strings.CS.equals(existingLease.getHolderId(), getHolderId());
+    } catch (Exception e) {
+      log.warn("Error reading lease file {} for ownership verification", leaseFile, e);
+      return false;
+    }
   }
 }

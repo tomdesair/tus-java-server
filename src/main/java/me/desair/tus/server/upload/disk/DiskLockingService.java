@@ -7,7 +7,6 @@ import java.lang.ref.WeakReference;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,11 +35,11 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
   private static final String LOCK_SUB_DIRECTORY = "locks";
 
   /** Registry tracking active request input streams in the current JVM. */
-  private static final ConcurrentHashMap<String, WeakReference<InterruptibleInputStream>>
-      activeLocks = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, WeakReference<InterruptibleInputStream>> activeLocks =
+      new ConcurrentHashMap<>();
 
-  private static Thread watchdogThread = null;
-  private static final Object watchdogLock = new Object();
+  private Thread watchdogThread = null;
+  private final Object watchdogLock = new Object();
 
   private UploadIdFactory idFactory;
 
@@ -58,7 +57,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
   @Override
   protected void cleanupOnClose() throws IOException {
     synchronized (watchdogLock) {
-      Utils.interruptThread(watchdogThread);
+      DiskUtils.interruptThread(watchdogThread);
       watchdogThread = null;
     }
     for (WeakReference<InterruptibleInputStream> streamRef : activeLocks.values()) {
@@ -106,49 +105,20 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
   public void cleanupStaleLocks() throws IOException {
     try (DirectoryStream<Path> locksStream = Files.newDirectoryStream(getStoragePath())) {
       for (Path path : locksStream) {
-        if (Files.exists(path)) {
-          FileTime lastModifiedTime = Files.getLastModifiedTime(path);
-          if (lastModifiedTime.toMillis() < System.currentTimeMillis() - 10000L) {
-            String fileName = path.getFileName().toString();
-            if (fileName.endsWith(".stop")) {
+        if (Files.exists(path) && DiskUtils.isPathOlderThan(path, 10000L)) {
+          String fileName = path.getFileName().toString();
+          if (fileName.endsWith(".stop")) {
+            Files.deleteIfExists(path);
+          } else {
+            UploadId id = new UploadId(fileName);
+            if (!isLocked(id)) {
               Files.deleteIfExists(path);
-            } else {
-              UploadId id = new UploadId(fileName);
-              if (!isLocked(id)) {
-                Files.deleteIfExists(path);
-                Files.deleteIfExists(path.resolveSibling(fileName + ".stop"));
-              }
+              Files.deleteIfExists(path.resolveSibling(fileName + ".stop"));
             }
           }
         }
       }
     }
-  }
-
-  @Override
-  public void cleanupLock(UploadId id) throws IOException {
-    if (id == null) {
-      return;
-    }
-    // Only delete lock file if it exists and is not actively locked by another process/request.
-    // Notice we check Files.exists first because calling isLocked on a non-existent lock path
-    // would open a FileChannel with CREATE and instantiate a lock file on disk unnecessarily.
-    Path lockPath = getLockPath(id);
-    if (lockPath != null && Files.exists(lockPath)) {
-      if (!isLocked(id)) {
-        Files.deleteIfExists(lockPath);
-      }
-    }
-    Path stopPath = getStopPath(id);
-    if (stopPath != null) {
-      Files.deleteIfExists(stopPath);
-    }
-  }
-
-  @Override
-  public void cleanupLock(String uploadUri) throws IOException {
-    UploadId id = idFactory != null ? idFactory.readUploadId(uploadUri) : null;
-    cleanupLock(id);
   }
 
   /** Checks whether the upload is locked by attempting to obtain a short-lived file lock. */
@@ -158,6 +128,9 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
     Path lockPath = getLockPath(id);
 
     if (lockPath != null) {
+      if (!Files.exists(lockPath)) {
+        return false;
+      }
       // Try to obtain a lock to see if the upload is currently locked
       try (UploadLock lock = new FileBasedLock(id.toString(), lockPath)) {
 

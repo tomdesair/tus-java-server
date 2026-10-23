@@ -245,10 +245,11 @@ public class AsyncChunkUploader implements AutoCloseable {
       } catch (Exception ignored) {
       }
     }
-    if (inFlightFile != null) {
-      FileUtils.deleteQuietly(inFlightFile);
-      inFlightFile = null;
-    }
+    // Note: Do NOT delete inFlightFile here. Ownership of inFlightFile belongs exclusively
+    // to the background worker thread's finally block in submitToSlot3(), avoiding race conditions
+    // where abort() deletes the file while the cloud SDK is still actively reading from it.
+    inFlightFile = null;
+
     if (waitingChunkFile != null) {
       FileUtils.deleteQuietly(waitingChunkFile);
       waitingChunkFile = null;
@@ -278,19 +279,28 @@ public class AsyncChunkUploader implements AutoCloseable {
     this.inFlightFile = tempFile;
     this.inFlightKey = preassignedKey;
 
-    // Wrap the upload action so temp file cleanup is guaranteed on the worker thread
-    this.inFlightUpload =
-        executor.submit(
-            () -> {
-              try {
-                uploadAction.upload();
-              } finally {
-                // The worker owns tempFile once submitted; delete it immediately upon upload
-                // completion
-                FileUtils.deleteQuietly(tempFile);
-              }
-              return null;
-            });
+    try {
+      // Wrap the upload action so temp file cleanup is guaranteed on the worker thread
+      this.inFlightUpload =
+          executor.submit(
+              () -> {
+                try {
+                  uploadAction.upload();
+                } finally {
+                  // The worker owns tempFile once submitted; delete it immediately upon upload
+                  // completion or interruption
+                  FileUtils.deleteQuietly(tempFile);
+                }
+                return null;
+              });
+    } catch (Throwable t) {
+      // If submitting to executor fails (e.g. RejectedExecutionException), delete tempFile
+      // immediately
+      FileUtils.deleteQuietly(tempFile);
+      this.inFlightFile = null;
+      this.inFlightKey = null;
+      throw t;
+    }
   }
 
   void checkAndConfirmInFlight() throws IOException {

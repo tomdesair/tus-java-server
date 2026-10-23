@@ -1153,6 +1153,65 @@ class TestResumableUploadLifecycle:
         assert resp2.get(UPLOAD_OFFSET) == "92"
         assert resp2.get(UPLOAD_COMPLETE) == TRUE
 
+    def test_interrupted_upload_complete_patch_does_not_prematurely_complete(self, target_url, request):
+        """
+        §4.2 & §5: Interrupted upload-completing PATCH must not prematurely finalize upload.
+        When a client sends a PATCH with Upload-Complete: ?1 and Content-Length: 100, but the
+        connection is prematurely closed after sending only 40 bytes, the server must persist the
+        partial 40 bytes, must NOT mark the upload as completed, and must leave the length
+        deferred so subsequent PATCH requests can resume and complete the upload.
+        """
+        upload_uri = create_partial_upload(target_url, test_name=request.node.name)
+
+        parsed = urlparse(upload_uri)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 80
+        path = parsed.path + ("?" + parsed.query if parsed.query else "")
+
+        s = socket.create_connection((host, port), timeout=10)
+        try:
+            req_lines = [
+                f"PATCH {path} HTTP/1.1",
+                f"Host: {host}:{port}",
+                f"{UPLOAD_OFFSET}: 0",
+                f"{UPLOAD_COMPLETE}: {TRUE}",
+                f"{CONTENT_TYPE}: {APPLICATION_PARTIAL_UPLOAD}",
+                "Content-Length: 100",
+                "Connection: close",
+                "",
+                ""
+            ]
+            req_data = "\r\n".join(req_lines).encode("latin1")
+            s.sendall(req_data)
+            # Send only 40 bytes out of the 100 bytes declared in Content-Length
+            s.sendall(b"0123456789" * 4)
+            time.sleep(0.1)
+            # Abruptly close the socket to interrupt the stream
+            s.close()
+        except Exception:
+            pass
+
+        # Give server a brief moment to commit partial data
+        time.sleep(0.5)
+
+        # Check upload status via HEAD
+        status_h, h_headers, _, _ = http_request("HEAD", upload_uri, test_name=request.node.name)
+        assert status_h in (200, 204)
+        assert h_headers.get(UPLOAD_OFFSET) == "40", "Server must have saved the 40 received bytes"
+        assert h_headers.get(UPLOAD_COMPLETE) == FALSE, "Interrupted upload must NOT be marked complete"
+
+        # Now resume from offset 40 and complete the remaining 60 bytes
+        status_resume, resp_resume, _, _ = http_request(
+            "PATCH",
+            upload_uri,
+            headers={UPLOAD_OFFSET: "40", UPLOAD_COMPLETE: TRUE, CONTENT_TYPE: APPLICATION_PARTIAL_UPLOAD},
+            body=b"abcdefghij" * 6,  # 60 bytes
+            test_name=request.node.name,
+        )
+        assert status_resume in (200, 201, 204)
+        assert resp_resume.get(UPLOAD_OFFSET) == "100"
+        assert resp_resume.get(UPLOAD_COMPLETE) == TRUE
+
 
 class TestHttpDigests:
     """Tests for HTTP Digests (RFC 9530)."""
@@ -1266,6 +1325,45 @@ class TestHttpDigests:
         assert get_status == 200
         assert get_body == payload
         http_request("DELETE", new_loc, test_name=request.node.name)
+
+    def test_content_digest_deduplication_active_child_preserved(self, target_url, request):
+        """
+        RFC 9530 & RUFH: Deduplication Active Child Verification.
+        Uploads parent P and duplicate child C with identical Content-Digest.
+        Verifies both stream the exact payload. Preserves the active child and parent
+        in storage so that checksum index entries with children remain present for inspection.
+        """
+        payload = b"Preserved active RUFH deduplicated child test payload: " + str(time.time()).encode("ascii")
+        sha256_b64 = base64.b64encode(hashlib.sha256(payload).digest()).decode("ascii")
+        headers = {
+            UPLOAD_COMPLETE: TRUE,
+            UPLOAD_LENGTH: str(len(payload)),
+            "Content-Digest": f"sha-256=:{sha256_b64}:",
+            "Repr-Digest": f"sha-256=:{sha256_b64}:",
+            CONTENT_TYPE: "text/plain",
+        }
+
+        def make_abs(loc):
+            if not loc.startswith("http"):
+                parsed = urlparse(target_url)
+                return f"{parsed.scheme}://{parsed.netloc}{loc}"
+            return loc
+
+        # 1. Create parent upload P
+        status1, resp1, _, _ = http_request("POST", target_url, headers=headers, body=payload, test_name=request.node.name)
+        assert status1 in (200, 201)
+        p_loc = make_abs(resp1.get(LOCATION))
+
+        # 2. Create child duplicate upload C
+        status2, resp2, _, _ = http_request("POST", target_url, headers=headers, body=payload, test_name=request.node.name)
+        assert status2 in (200, 201)
+        c_loc = make_abs(resp2.get(LOCATION))
+
+        # 3. Verify GET on P and C returns identical payload bytes
+        for loc in (p_loc, c_loc):
+            get_status, _, get_body, _ = http_request("GET", loc, test_name=request.node.name)
+            assert get_status == 200, f"GET {loc} must return 200, got {get_status}"
+            assert get_body == payload, "Child must stream full payload from shared parent data"
 
 
 # CLI Entry Point & Custom Formatted Summary Reporter

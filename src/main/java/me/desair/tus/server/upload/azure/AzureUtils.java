@@ -1,12 +1,141 @@
 package me.desair.tus.server.upload.azure;
 
+import com.azure.storage.blob.BlobClient;
+import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.blob.specialized.BlockBlobClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/** Utility helper methods for parsing and evaluating Azure Blob Storage error responses. */
+/**
+ * Utility helper methods for interacting with Azure Blob Storage and evaluating error responses.
+ */
 public final class AzureUtils {
+
+  private static final Logger log = LoggerFactory.getLogger(AzureUtils.class);
 
   private AzureUtils() {
     // Utility class
+  }
+
+  /**
+   * Sanitizes a blob name prefix, stripping leading slashes, collapsing trailing slashes, and
+   * ensuring exactly one trailing slash.
+   *
+   * @param prefix Raw prefix string
+   * @return Normalized prefix ending with a slash, or empty string if null, empty, or only slashes
+   */
+  public static String sanitizePrefix(String prefix) {
+    if (prefix == null || prefix.trim().isEmpty()) {
+      return "";
+    }
+    String result = prefix.trim();
+    while (result.startsWith("/")) {
+      result = result.substring(1);
+    }
+    if (result.isEmpty()) {
+      return "";
+    }
+    while (result.endsWith("/")) {
+      result = result.substring(0, result.length() - 1);
+    }
+    return result + "/";
+  }
+
+  /**
+   * Checks whether a blob exists in Azure Blob Storage.
+   *
+   * @param blobClient The {@link BlobClient} to inspect
+   * @return {@code true} if the blob exists; {@code false} if it does not exist, argument is null,
+   *     or an error occurs
+   */
+  public static boolean blobExists(BlobClient blobClient) {
+    if (blobClient == null) {
+      return false;
+    }
+    try {
+      return Boolean.TRUE.equals(blobClient.exists());
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /**
+   * Checks whether a block blob exists in Azure Blob Storage.
+   *
+   * @param blobClient The {@link BlockBlobClient} to inspect
+   * @return {@code true} if the blob exists; {@code false} if it does not exist, argument is null,
+   *     or an error occurs
+   */
+  public static boolean blobExists(BlockBlobClient blobClient) {
+    if (blobClient == null) {
+      return false;
+    }
+    try {
+      return Boolean.TRUE.equals(blobClient.exists());
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /**
+   * Checks whether a blob with the given name exists in the specified container.
+   *
+   * @param containerClient The {@link BlobContainerClient}
+   * @param blobName The blob name to check
+   * @return {@code true} if the blob exists; {@code false} if it does not exist, any argument is
+   *     null, or an error occurs
+   */
+  public static boolean blobExists(BlobContainerClient containerClient, String blobName) {
+    if (containerClient == null || blobName == null) {
+      return false;
+    }
+    return blobExists(containerClient.getBlobClient(blobName));
+  }
+
+  /**
+   * Quietly deletes a blob if it exists without throwing exceptions, logging errors at debug level.
+   *
+   * @param blobClient The {@link BlobClient} to remove
+   */
+  public static void deleteBlobQuietly(BlobClient blobClient) {
+    if (blobClient == null) {
+      return;
+    }
+    try {
+      blobClient.deleteIfExists();
+    } catch (Exception e) {
+      log.debug("Failed to delete Azure blob quietly: {}", e.getMessage());
+    }
+  }
+
+  /**
+   * Quietly deletes a block blob if it exists without throwing exceptions.
+   *
+   * @param blobClient The {@link BlockBlobClient} to remove
+   */
+  public static void deleteBlobQuietly(BlockBlobClient blobClient) {
+    if (blobClient == null) {
+      return;
+    }
+    try {
+      blobClient.deleteIfExists();
+    } catch (Exception e) {
+      log.debug("Failed to delete Azure block blob quietly: {}", e.getMessage());
+    }
+  }
+
+  /**
+   * Quietly deletes a blob with the given name from the container without throwing exceptions.
+   *
+   * @param containerClient The {@link BlobContainerClient}
+   * @param blobName The blob name to remove
+   */
+  public static void deleteBlobQuietly(BlobContainerClient containerClient, String blobName) {
+    if (containerClient == null || blobName == null) {
+      return;
+    }
+    deleteBlobQuietly(containerClient.getBlobClient(blobName));
   }
 
   /**

@@ -170,8 +170,8 @@ public class LeaseFileLockingServiceTest {
     lock.close();
   }
 
-  @Test(expected = UploadAlreadyLockedException.class)
-  public void testEmptyLockDirectoryWithinGracePeriodThrowsLocked() throws Exception {
+  @Test
+  public void testEmptyLockDirectoryAcquiresImmediatelyWithoutGracePeriodDelay() throws Exception {
     String uploadIdStr = UUID.randomUUID().toString();
     String uri = UPLOAD_URL + "/" + uploadIdStr;
 
@@ -180,8 +180,34 @@ public class LeaseFileLockingServiceTest {
     // Set directory mtime to now (within 5s grace period)
     Files.setLastModifiedTime(lockDir, FileTime.fromMillis(System.currentTimeMillis()));
 
-    // Must be treated as actively being written by another node
-    lockingService.lockUploadByUri(uri);
+    // Under exclusive sibling mutex, empty directory is acquired immediately without waiting 5
+    // seconds
+    UploadLock lock = lockingService.lockUploadByUri(uri);
+    assertNotNull(lock);
+    lock.close();
+  }
+
+  @Test
+  public void testEmptyLockDirectoryWhenSiblingMutexExistsWithinGracePeriodIsUnexpired()
+      throws Exception {
+    String uploadIdStr = UUID.randomUUID().toString();
+    Path lockDir = storagePath.resolve("locks").resolve(uploadIdStr + ".lock");
+    Files.createDirectories(lockDir);
+    Path mutexDir = storagePath.resolve("locks").resolve(uploadIdStr + ".mutex");
+    Files.createDirectories(mutexDir);
+    Files.setLastModifiedTime(mutexDir, FileTime.fromMillis(System.currentTimeMillis()));
+
+    long now = System.currentTimeMillis();
+    // With active sibling mutex within grace period, empty directory is treated as mid-creation
+    assertFalse(lockingService.isLockDirectoryExpired(lockDir, now));
+
+    // With active sibling mutex older than grace period, empty directory is expired
+    Files.setLastModifiedTime(mutexDir, FileTime.fromMillis(now - 10000L));
+    assertTrue(lockingService.isLockDirectoryExpired(lockDir, now));
+
+    DiskUtils.deleteDirectoryQuietly(mutexDir);
+    // With sibling mutex gone, empty directory is immediately expired
+    assertTrue(lockingService.isLockDirectoryExpired(lockDir, now));
   }
 
   @Test
@@ -582,7 +608,7 @@ public class LeaseFileLockingServiceTest {
     LeaseFileLockingService service = new LeaseFileLockingService(storagePath.toString());
     InterruptibleInputStream stream =
         new InterruptibleInputStream(new ByteArrayInputStream("data".getBytes()));
-    service.registerInputStream(UPLOAD_URL + "/close-test", stream);
+    service.registerInputStream(UPLOAD_URL + "/" + UUID.randomUUID(), stream);
 
     service.close();
 
@@ -921,59 +947,9 @@ public class LeaseFileLockingServiceTest {
   }
 
   @Test
-  public void testCleanupLockNullAndInvalid() throws Exception {
-    lockingService.cleanupLock((UploadId) null);
-    lockingService.cleanupLock((String) null);
-    // KISS: verifying method executes cleanly without throwing an exception
-    assertTrue(true);
-  }
-
-  @Test
-  public void testCleanupLockDeletesExpiredLockDirAndStopFile() throws Exception {
-    String uploadIdStr = UUID.randomUUID().toString();
-    UploadId id = new UploadId(uploadIdStr);
-    Path lockDir = storagePath.resolve("locks").resolve(uploadIdStr + ".lock");
-    Path stopFile = storagePath.resolve("locks").resolve(uploadIdStr + ".stop");
-    Files.createDirectories(lockDir);
-    Files.write(stopFile, new byte[0]);
-
-    long now = System.currentTimeMillis();
-    LeaseData expiredLease =
-        createExpiredLease(
-            "old-node", UPLOAD_URL + "/" + uploadIdStr, lockDir.toString(), now - 5000L);
-    LeaseDataJsonSerializer.serializeToPath(expiredLease, lockDir.resolve("lease.json"));
-
-    assertTrue(Files.exists(lockDir));
-    assertTrue(Files.exists(stopFile));
-
-    lockingService.cleanupLock(id);
-
-    assertFalse(Files.exists(lockDir));
-    assertFalse(Files.exists(stopFile));
-  }
-
-  @Test
-  public void testCleanupLockByUri() throws Exception {
+  public void testLockReleaseDeletesLockDirectory() throws Exception {
     String uploadIdStr = UUID.randomUUID().toString();
     String uri = UPLOAD_URL + "/" + uploadIdStr;
-    Path lockDir = storagePath.resolve("locks").resolve(uploadIdStr + ".lock");
-    Files.createDirectories(lockDir);
-
-    long now = System.currentTimeMillis();
-    LeaseData expiredLease = createExpiredLease("old-node", uri, lockDir.toString(), now - 5000L);
-    LeaseDataJsonSerializer.serializeToPath(expiredLease, lockDir.resolve("lease.json"));
-    assertTrue(Files.exists(lockDir));
-
-    lockingService.cleanupLock(uri);
-
-    assertFalse(Files.exists(lockDir));
-  }
-
-  @Test
-  public void testCleanupLockPreservesActivelyHeldLease() throws Exception {
-    String uploadIdStr = UUID.randomUUID().toString();
-    String uri = UPLOAD_URL + "/" + uploadIdStr;
-    UploadId id = new UploadId(uploadIdStr);
 
     UploadLock lock = lockingService.lockUploadByUri(uri);
     assertNotNull(lock);
@@ -981,11 +957,65 @@ public class LeaseFileLockingServiceTest {
     Path lockDir = storagePath.resolve("locks").resolve(uploadIdStr + ".lock");
     assertTrue(Files.exists(lockDir));
 
-    // Actively held lock must not be deleted by cleanupLock
-    lockingService.cleanupLock(id);
-    assertTrue(Files.exists(lockDir));
-
     lock.release();
     assertFalse(Files.exists(lockDir));
+  }
+
+  @Test
+  public void testCleanupLockClearsStopSignal() throws Exception {
+    UploadId id = new UploadId(UUID.randomUUID().toString());
+    Path stopFile = storagePath.resolve("locks").resolve(id + ".stop");
+    Utils.ensureDirectoryExists(stopFile.getParent());
+    Files.write(stopFile, new byte[0]);
+    assertTrue(Files.exists(stopFile));
+
+    lockingService.cleanupLock(null);
+    lockingService.cleanupLock(id);
+    assertFalse(Files.exists(stopFile));
+  }
+
+  @Test
+  public void testIsLockDirectoryExpiredMutexMtimeIOException() throws Exception {
+    java.nio.file.spi.FileSystemProvider mockProvider =
+        org.mockito.Mockito.mock(
+            java.nio.file.spi.FileSystemProvider.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+    java.nio.file.FileSystem mockFs = org.mockito.Mockito.mock(java.nio.file.FileSystem.class);
+    when(mockFs.provider()).thenReturn(mockProvider);
+
+    Path mockLockDir = org.mockito.Mockito.mock(Path.class);
+    when(mockLockDir.getFileSystem()).thenReturn(mockFs);
+
+    Path mockLeaseFile = org.mockito.Mockito.mock(Path.class);
+    when(mockLeaseFile.getFileSystem()).thenReturn(mockFs);
+    when(mockLockDir.resolve("lease.json")).thenReturn(mockLeaseFile);
+
+    Path mockFileName = Paths.get("test-upload.lock");
+    when(mockLockDir.getFileName()).thenReturn(mockFileName);
+
+    Path mockMutexDir = org.mockito.Mockito.mock(Path.class);
+    when(mockMutexDir.getFileSystem()).thenReturn(mockFs);
+    when(mockLockDir.resolveSibling(org.mockito.ArgumentMatchers.any(String.class)))
+        .thenReturn(mockMutexDir);
+    when(mockLockDir.resolveSibling(org.mockito.ArgumentMatchers.any(Path.class)))
+        .thenReturn(mockMutexDir);
+
+    // lockDir exists
+    org.mockito.Mockito.doNothing().when(mockProvider).checkAccess(mockLockDir);
+    // leaseFile does not exist
+    org.mockito.Mockito.doThrow(new java.nio.file.NoSuchFileException("lease.json"))
+        .when(mockProvider)
+        .checkAccess(mockLeaseFile);
+    // mutexDir exists
+    org.mockito.Mockito.doNothing().when(mockProvider).checkAccess(mockMutexDir);
+
+    // getLastModifiedTime throws IOException on mutexDir
+    when(mockProvider.readAttributes(
+            org.mockito.ArgumentMatchers.eq(mockMutexDir),
+            org.mockito.ArgumentMatchers.eq(java.nio.file.attribute.BasicFileAttributes.class),
+            org.mockito.ArgumentMatchers.any()))
+        .thenThrow(new IOException("Simulated I/O failure on mutex attributes"));
+
+    // Should catch IOException and return false
+    assertFalse(lockingService.isLockDirectoryExpired(mockLockDir, System.currentTimeMillis()));
   }
 }

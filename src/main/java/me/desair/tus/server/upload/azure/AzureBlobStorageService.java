@@ -24,10 +24,12 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -49,9 +51,9 @@ import me.desair.tus.server.upload.util.AsyncChunkUploader;
 import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.BoundedInputStream;
-import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -148,10 +150,10 @@ public class AzureBlobStorageService implements UploadStorageService {
       Path tempBufferDir) {
     this.containerClient =
         Objects.requireNonNull(containerClient, "containerClient must not be null");
-    this.uploadPrefix = sanitizePrefix(uploadPrefix);
-    this.metadataPrefix = sanitizePrefix(metadataPrefix);
-    this.checksumsPrefix = sanitizePrefix(checksumsPrefix);
-    this.locksPrefix = sanitizePrefix(locksPrefix);
+    this.uploadPrefix = AzureUtils.sanitizePrefix(uploadPrefix);
+    this.metadataPrefix = AzureUtils.sanitizePrefix(metadataPrefix);
+    this.checksumsPrefix = AzureUtils.sanitizePrefix(checksumsPrefix);
+    this.locksPrefix = AzureUtils.sanitizePrefix(locksPrefix);
     this.tempBufferDir = Objects.requireNonNull(tempBufferDir, "tempBufferDir must not be null");
 
     try {
@@ -162,19 +164,36 @@ public class AzureBlobStorageService implements UploadStorageService {
     Utils.cleanupTempFiles(this.tempBufferDir, "tus-azure-chunk-*.tmp", 24L * 3600_000L);
 
     AtomicInteger threadNum = new AtomicInteger(1);
-    this.uploadExecutor =
+    ThreadPoolExecutor pool =
         new ThreadPoolExecutor(
             cloudUploadThreadPoolSize,
             cloudUploadThreadPoolSize,
             60L,
             TimeUnit.SECONDS,
-            new SynchronousQueue<>(),
+            new LinkedBlockingQueue<>(cloudUploadThreadPoolSize * 2),
             r -> {
               Thread t = new Thread(r, "tus-azure-upload-" + threadNum.getAndIncrement());
               t.setDaemon(true);
               return t;
             },
-            new ThreadPoolExecutor.CallerRunsPolicy());
+            (r, executor) -> {
+              // CallerRunsPolicy must not be used: executing a multi-megabyte cloud upload
+              // synchronously on the servlet thread blocks the request thread from polling lock
+              // contention (waitForInFlight), preventing concurrent HEAD/DELETE interruptions.
+              // Instead, block on the queue until a worker thread becomes available or interrupt
+              // occurs.
+              try {
+                if (executor.isShutdown()) {
+                  throw new RejectedExecutionException("Upload executor is shut down");
+                }
+                executor.getQueue().put(r);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RejectedExecutionException("Interrupted while enqueuing upload task", e);
+              }
+            });
+    pool.allowCoreThreadTimeOut(true);
+    this.uploadExecutor = pool;
 
     this.concatenationService =
         new AzureBlobConcatenationService(containerClient, this.uploadPrefix, this);
@@ -204,12 +223,13 @@ public class AzureBlobStorageService implements UploadStorageService {
     info.setId(id);
     info.setOwnerKey(ownerKey);
     info.setOffset(0L);
+    info.setUploadPartKeys(new ArrayList<>());
 
     // Set storageUploadId to the actual Azure Blob identifier (e.g. "uploads/<id>")
     info.setStorageUploadId(getAzureBlobName(info));
 
     if (uploadExpirationPeriod != null && uploadExpirationPeriod > 0) {
-      info.setExpirationTimestamp(System.currentTimeMillis() + uploadExpirationPeriod);
+      info.updateExpiration(uploadExpirationPeriod);
     }
 
     // 2. Persist JSON metadata object to Azure (.info blob)
@@ -231,6 +251,10 @@ public class AzureBlobStorageService implements UploadStorageService {
     Objects.requireNonNull(upload, "UploadInfo must not be null");
     Objects.requireNonNull(inputStream, "InputStream must not be null");
 
+    if (uploadExpirationPeriod != null && uploadExpirationPeriod > 0) {
+      upload.updateExpiration(uploadExpirationPeriod);
+    }
+
     // 1. Obtain Azure Block Blob client and fetch pre-existing committed block list
     BlockBlobClient blockBlobClient =
         containerClient.getBlobClient(getAzureBlobName(upload)).getBlockBlobClient();
@@ -239,8 +263,10 @@ public class AzureBlobStorageService implements UploadStorageService {
     // If metadata records committed uploadPartKeys, ensure the blob's committed blocks do not
     // exceed the authoritative metadata offset (e.g. if a prior commitBlockList succeeded
     // but updating UploadInfo metadata failed or was interrupted).
-    if (upload.getUploadPartKeys() != null && blockIds.size() > upload.getUploadPartKeys().size()) {
-      blockIds = new ArrayList<>(upload.getUploadPartKeys());
+    List<String> recordedPartKeys =
+        upload.getUploadPartKeys() != null ? upload.getUploadPartKeys() : Collections.emptyList();
+    if (blockIds.size() > recordedPartKeys.size()) {
+      blockIds = new ArrayList<>(recordedPartKeys);
       blockBlobClient.commitBlockList(blockIds, true);
     }
 
@@ -321,7 +347,7 @@ public class AzureBlobStorageService implements UploadStorageService {
           break;
         } finally {
           if (!handedOff) {
-            deleteFileQuietly(chunkFile);
+            FileUtils.deleteQuietly(chunkFile);
           }
         }
       }
@@ -363,11 +389,14 @@ public class AzureBlobStorageService implements UploadStorageService {
 
         boolean finalComplete =
             upload.getLength() != null && upload.getOffset().equals(upload.getLength());
+        boolean deduplicated = false;
         if (finalComplete) {
-          checkAndApplyDeduplication(upload);
+          deduplicated = checkAndApplyDeduplication(upload);
         }
 
-        saveUploadInfo(upload);
+        if (!deduplicated) {
+          saveUploadInfo(upload);
+        }
       } catch (Exception e) {
         log.error(
             "Failed to commit staged blocks or save metadata for upload ID {}", upload.getId(), e);
@@ -487,7 +516,7 @@ public class AzureBlobStorageService implements UploadStorageService {
         containerClient.getBlobClient(targetBlobName).getBlockBlobClient();
 
     try {
-      if (Boolean.TRUE.equals(blockBlobClient.exists())) {
+      if (AzureUtils.blobExists(blockBlobClient)) {
         return blockBlobClient.openInputStream();
       }
     } catch (Exception ignored) {
@@ -554,7 +583,6 @@ public class AzureBlobStorageService implements UploadStorageService {
       deleteData(id);
     }
     deleteMetadata(id);
-    uploadLockingService.cleanupLock(id);
 
     log.debug("Terminated upload with ID {}", id);
   }
@@ -575,7 +603,8 @@ public class AzureBlobStorageService implements UploadStorageService {
         containerClient.getBlobClient(getAzureBlobName(uploadInfo)).getBlockBlobClient();
 
     if (targetOffset == 0) {
-      blockBlobClient.deleteIfExists();
+      AzureUtils.deleteBlobQuietly(blockBlobClient);
+      uploadInfo.setUploadPartKeys(new ArrayList<>());
     } else {
       File tempFile = Files.createTempFile(tempBufferDir, "tus-azure-block-trim-", ".tmp").toFile();
       try {
@@ -592,8 +621,9 @@ public class AzureBlobStorageService implements UploadStorageService {
           blockBlobClient.stageBlock(newBlockId, is, tempFile.length());
         }
         blockBlobClient.commitBlockList(List.of(newBlockId), true);
+        uploadInfo.setUploadPartKeys(new ArrayList<>(Collections.singletonList(newBlockId)));
       } finally {
-        deleteFileQuietly(tempFile);
+        FileUtils.deleteQuietly(tempFile);
       }
     }
 
@@ -621,6 +651,10 @@ public class AzureBlobStorageService implements UploadStorageService {
     Objects.requireNonNull(uploadInfo, "UploadInfo must not be null");
     saveUploadInfo(uploadInfo);
 
+    if (uploadInfo.getDuplicatesUploadId() != null && deduplicationService != null) {
+      deduplicationService.syncParentExpirationIfChild(uploadInfo);
+    }
+
     if (isUploadDeduplicationEnabled()
         && uploadInfo.getChecksum() != null
         && !uploadInfo.isUploadInProgress()
@@ -634,19 +668,19 @@ public class AzureBlobStorageService implements UploadStorageService {
     if (id == null) {
       return false;
     }
-    return Boolean.TRUE.equals(containerClient.getBlobClient(uploadPrefix + id).exists());
+    return AzureUtils.blobExists(containerClient, uploadPrefix + id);
   }
 
   @Override
   public void deleteData(UploadId id) {
     if (id != null) {
-      containerClient.getBlobClient(uploadPrefix + id).deleteIfExists();
+      AzureUtils.deleteBlobQuietly(containerClient, uploadPrefix + id);
     }
   }
 
   private void deleteMetadata(UploadId id) {
     if (id != null) {
-      containerClient.getBlobClient(metadataPrefix + id + ".info").deleteIfExists();
+      AzureUtils.deleteBlobQuietly(containerClient, metadataPrefix + id + ".info");
     }
   }
 
@@ -671,8 +705,12 @@ public class AzureBlobStorageService implements UploadStorageService {
           try {
             terminateUpload(info);
           } catch (UploadNotFoundException ignored) {
-            // Upload was already terminated or deleted concurrently
+            // Upload was already terminated or deleted concurrently; still ensure lock is cleaned
           }
+          this.uploadLockingService.cleanupLock(id);
+        } else if (info == null) {
+          // Corrupted or missing metadata object: clean up any orphaned lock
+          this.uploadLockingService.cleanupLock(id);
         }
       }
     }
@@ -799,6 +837,10 @@ public class AzureBlobStorageService implements UploadStorageService {
     return cloudUploadThreadPoolSize;
   }
 
+  ThreadPoolExecutor getUploadExecutor() {
+    return this.uploadExecutor;
+  }
+
   @Override
   public void setDrainTimeout(Duration drainTimeout) {
     if (drainTimeout != null) {
@@ -838,7 +880,7 @@ public class AzureBlobStorageService implements UploadStorageService {
   /** Saves UploadInfo object as JSON in .info metadata blob. */
   private void saveUploadInfo(UploadInfo info) throws IOException {
     String infoAsString = UploadInfoJsonSerializer.serialize(info);
-    if (StringUtils.isEmpty(infoAsString)) {
+    if (infoAsString == null || infoAsString.isEmpty()) {
       throw new IOException("Failed to serialize UploadInfo to JSON");
     }
     byte[] jsonBytes = infoAsString.getBytes(StandardCharsets.UTF_8);
@@ -973,30 +1015,23 @@ public class AzureBlobStorageService implements UploadStorageService {
     return Base64.getEncoder().encodeToString(idString.getBytes(StandardCharsets.UTF_8));
   }
 
-  private void checkAndApplyDeduplication(UploadInfo uploadInfo) throws IOException {
+  private boolean checkAndApplyDeduplication(UploadInfo uploadInfo) throws IOException {
     if (!isUploadDeduplicationEnabled()
         || uploadInfo == null
         || uploadInfo.getChecksum() == null
         || uploadInfo.getChecksumAlgorithm() == null) {
-      return;
+      return false;
     }
 
     try {
       ChecksumKey key = ChecksumKey.of(uploadInfo.getChecksum(), uploadInfo.getChecksumAlgorithm());
       deduplicate(uploadInfo, key);
+      return true;
     } catch (Exception e) {
       log.warn(
           "Failed to apply deduplication for upload {}: {}", uploadInfo.getId(), e.getMessage());
+      return false;
     }
-  }
-
-  /** Sanitizes object key prefix format. */
-  private String sanitizePrefix(String prefix) {
-    if (prefix == null || prefix.isEmpty()) {
-      return "";
-    }
-    String result = prefix.startsWith("/") ? prefix.substring(1) : prefix;
-    return result.endsWith("/") ? result : result + "/";
   }
 
   /** Deletes local file suppressing exceptions. */

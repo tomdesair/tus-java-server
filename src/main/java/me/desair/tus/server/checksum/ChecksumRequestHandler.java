@@ -64,20 +64,7 @@ public class ChecksumRequestHandler extends AbstractRequestHandler {
           if (uploadInfo != null && !uploadInfo.isUploadInProgress()) {
             uploadInfo.setChecksum(expectedValue);
             uploadInfo.setChecksumAlgorithm(checksumAlgorithm);
-            if (uploadStorageService.isUploadDeduplicationEnabled()
-                && uploadInfo.getDuplicatesUploadId() == null) {
-              try {
-                ChecksumKey key = ChecksumKey.of(expectedValue, checksumAlgorithm);
-                UploadInfo deduped = uploadStorageService.deduplicate(uploadInfo, key);
-                if (deduped != null) {
-                  uploadInfo = deduped;
-                }
-              } catch (Exception e) {
-                uploadStorageService.update(uploadInfo);
-              }
-            } else {
-              uploadStorageService.update(uploadInfo);
-            }
+            uploadStorageService.update(uploadInfo);
           }
         }
       }

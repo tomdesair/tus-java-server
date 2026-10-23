@@ -272,10 +272,42 @@ To guarantee waterproof single-winner lock exclusivity across cloud providers an
      | **Wasabi** | Silently ignored (last-write-wins overwrite) | Layer 2 jitter arbitration or `withS3ConditionalWritesSupported(false)` |
    - On backends without conditional write support, contender nodes sleep for a brief randomized jitter (default: 20–60ms) to allow competing writes to settle, then re-read `GetObject`.
    - If the remote `holderId` does not match its own, the node detects that it was overtaken, rejects the acquisition, and leaves the winner's lock intact.
-3. **Safe Expired Lock Eviction**:
-   - When evicting an expired lock, the lock object's expiration is verified again immediately before deletion to prevent evicting a fresh lock created by a winning peer.
+3. **Safe Expired Lock Eviction with Sibling Mutex**:
+   - Evicting an expired lock requires a dedicated sibling mutex (`locks/<uploadId>.mutex`) using atomic conditional write (`If-None-Match: *`) to serialize eviction and prevent split-brain race conditions (see detailed explanation below).
 4. **Owner-Safe Lock Release**:
    - In `S3UploadLock.close()`, the node verifies that the remote lock is still owned by its own `holderId` before deleting it. If its lease expired while the process was paused and another node took over ownership, the previous node will never delete the new owner's active lock.
+
+### Why Was the Mutex Required in evictExpiredLock? (Preventing Split-Brain on Eviction)
+
+Unlike Azure Blob Storage (which supports conditional lease deletion via `x-ms-lease-id`), AWS S3 **does not support conditional `DELETE` operations** (such as `DeleteObject If-Match: <etag>`). S3's `DeleteObject` is always unconditional.
+
+This limitation introduces a critical concurrency hazard when multiple cluster nodes concurrently discover that an existing lock has expired:
+
+```
+Thread / Node A                           Thread / Node B
+----------------                          ----------------
+1. Reads expired lock L1.                 1. Reads expired lock L1.
+2. Evicts L1 (unconditional DELETE).
+3. Writes new active lock L2 via
+   conditional PUT (If-None-Match: *).
+4. Now holds active lock L2!
+                                          2. Executes its delayed unconditional DELETE for L1,
+                                             BLOWING AWAY Thread A's active lock L2!
+                                          3. Thread C arrives, sees no lock, and acquires L3.
+                                          ==> SPLIT-BRAIN: Both A and C believe they hold the lock!
+```
+
+#### How the Mutex Solves This
+To eliminate this race condition, `S3LockingService` introduces an ephemeral **sibling mutex object** (`locks/<uploadId>.mutex`):
+1. **Contender Mutex Election**: Before performing eviction, every contender attempts to conditionally create `locks/<uploadId>.mutex` using `If-None-Match: *`.
+2. **Single Evictor**: Exactly one contender successfully writes the mutex. All other contenders fail with `412 Precondition Failed` and immediately back off with `false`, abandoning eviction.
+3. **Protected Eviction**: Under the protection of the mutex, the winning node re-inspects the lock in S3. If it is still expired, the winner deletes the expired lock object and immediately releases the mutex.
+4. **Self-Healing TTL**: If a node crashes mid-eviction while holding the mutex, the mutex contains a creation timestamp with a 5-second grace period (`MUTEX_GRACE_PERIOD_MS = 5000L`). Subsequent eviction attempts can automatically reclaim a stale mutex without deadlocks.
+
+#### Why `tryAcquireLock` Does NOT Require a Mutex
+On the normal (uncontended or active) acquisition path, `tryAcquireLock` writes the lock lease directly using S3 atomic conditional `PUT` (`If-None-Match: *`). S3 natively guarantees that only one request creates the object, returning `HTTP 412 Precondition Failed` to all concurrent contenders.
+
+Because S3's conditional write provides atomic Compare-And-Swap (CAS) for `PUT`, **normal lock acquisition does not require any mutex**, preserving maximum throughput and single-roundtrip performance. The mutex is solely required to serialize the unconditional `DELETE` during expired lease eviction.
 
 ### Jitter Configuration & Zero-Jitter Performance Tuning
 

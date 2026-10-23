@@ -74,7 +74,7 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
       UploadStorageService storageService) {
     this.containerClient =
         Objects.requireNonNull(containerClient, "containerClient must not be null");
-    this.uploadPrefix = sanitizePrefix(uploadPrefix);
+    this.uploadPrefix = AzureUtils.sanitizePrefix(uploadPrefix);
     this.storageService = Objects.requireNonNull(storageService, "storageService must not be null");
   }
 
@@ -109,7 +109,8 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
       int sequence = 0;
       for (UploadInfo partialInfo : partialUploads) {
         String blockId = generateBlockId(sequence++);
-        BlobClient partialBlob = containerClient.getBlobClient(uploadPrefix + partialInfo.getId());
+        String partialBlobName = resolvePartialBlobName(partialInfo);
+        BlobClient partialBlob = containerClient.getBlobClient(partialBlobName);
 
         try {
           // 1. Attempt zero-copy server-side block copying on Azure Storage cluster using an
@@ -226,14 +227,6 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
     return Base64.getEncoder().encodeToString(idString.getBytes(StandardCharsets.UTF_8));
   }
 
-  private String sanitizePrefix(String prefix) {
-    if (prefix == null || prefix.isEmpty()) {
-      return "";
-    }
-    String result = prefix.startsWith("/") ? prefix.substring(1) : prefix;
-    return result.endsWith("/") ? result : result + "/";
-  }
-
   void stageBlockFromUrl(BlockBlobClient finalBlockBlob, String blockId, String sourceUrl) {
     finalBlockBlob.stageBlockFromUrl(blockId, sourceUrl, null);
   }
@@ -264,5 +257,23 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
       // or SAS generation is unsupported; fall back to raw blob URL.
     }
     return blobClient.getBlobUrl();
+  }
+
+  /**
+   * Resolves the physical Azure Blob name for a partial upload, resolving duplicate child uploads
+   * dynamically to their parent blob to prevent stitching against non-existent child blob targets.
+   *
+   * @param partialInfo The partial upload info
+   * @return The physical blob name
+   */
+  String resolvePartialBlobName(UploadInfo partialInfo) {
+    if (storageService instanceof AzureBlobStorageService) {
+      return ((AzureBlobStorageService) storageService).getAzureBlobName(partialInfo);
+    } else if (partialInfo != null && partialInfo.getDuplicatesUploadId() != null) {
+      return uploadPrefix + partialInfo.getDuplicatesUploadId();
+    } else if (partialInfo != null) {
+      return uploadPrefix + partialInfo.getId();
+    }
+    return uploadPrefix;
   }
 }

@@ -3,10 +3,8 @@ package me.desair.tus.server.upload.disk;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.io.FileUtils;
 
 /**
  * An atomic filesystem mutex directory ({@code <UploadId>.mutex/}) providing mutual exclusion,
@@ -47,12 +45,11 @@ public class LeaseFileMutex implements AutoCloseable {
    */
   public LeaseFileMutex(final Path storagePath, final UploadId uploadId) {
     if (storagePath != null && uploadId != null) {
-      Path path = storagePath.resolve(uploadId.toString() + ".mutex");
-      if (!path.normalize().toAbsolutePath().startsWith(storagePath.normalize().toAbsolutePath())) {
-        throw new IllegalArgumentException(
-            "Upload ID is not valid and would result in a path traversal");
-      }
-      this.mutexDir = path;
+      this.mutexDir =
+          DiskUtils.resolveSafePath(
+              storagePath,
+              uploadId.toString() + ".mutex",
+              "Upload ID is not valid and would result in a path traversal");
     } else {
       this.mutexDir = null;
     }
@@ -109,11 +106,9 @@ public class LeaseFileMutex implements AutoCloseable {
       return true;
     } catch (FileAlreadyExistsException e) {
       try {
-        FileTime mtime = Files.getLastModifiedTime(mutexDir);
-        long ageMs = System.currentTimeMillis() - mtime.toMillis();
-        if (ageMs >= MUTEX_GRACE_PERIOD_MS) {
+        if (DiskUtils.isPathOlderThan(mutexDir, MUTEX_GRACE_PERIOD_MS)) {
           // Mutex holder crashed; clean up stale mutex directory and retry once
-          FileUtils.deleteDirectory(mutexDir.toFile());
+          DiskUtils.deleteDirectoryQuietly(mutexDir);
           Files.createDirectory(mutexDir);
           return true;
         }

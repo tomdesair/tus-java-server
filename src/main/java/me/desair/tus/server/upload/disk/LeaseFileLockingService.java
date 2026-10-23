@@ -6,7 +6,6 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.attribute.FileTime;
 import me.desair.tus.server.upload.AbstractLeaseLockingService;
 import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.upload.UploadId;
@@ -16,7 +15,6 @@ import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -138,43 +136,15 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
             atomicEvictExpiredLock(path);
           }
         } else if (fileName.endsWith(".mutex") && Files.isDirectory(path)) {
-          try {
-            FileTime mtime = Files.getLastModifiedTime(path);
-            if (now - mtime.toMillis() > 10_000L) {
-              FileUtils.deleteDirectory(path.toFile());
-            }
-          } catch (IOException ignored) {
-            // Ignore transient cleanup error
+          if (DiskUtils.isPathOlderThan(path, 10_000L, now)) {
+            DiskUtils.deleteDirectoryQuietly(path);
           }
         } else if (fileName.endsWith(".stop") && Files.isRegularFile(path)) {
-          try {
-            FileTime mtime = Files.getLastModifiedTime(path);
-            if (now - mtime.toMillis() > 10_000L) {
-              Utils.deletePathQuietly(path);
-            }
-          } catch (IOException ignored) {
-            // Ignore transient cleanup error
+          if (DiskUtils.isPathOlderThan(path, 10_000L, now)) {
+            Utils.deletePathQuietly(path);
           }
         }
       }
-    }
-  }
-
-  @Override
-  public void cleanupLock(UploadId id) throws IOException {
-    if (id == null) {
-      return;
-    }
-    Path lockDirPath = getLockDirPath(id);
-    if (lockDirPath != null && Files.exists(lockDirPath)) {
-      // Safe eviction under sibling mutex to prevent deleting an active successor's lease
-      if (isLockExpired(id)) {
-        atomicEvictExpiredLock(lockDirPath);
-      }
-    }
-    Path stopFilePath = getStopFilePath(id);
-    if (stopFilePath != null) {
-      Utils.deletePathQuietly(stopFilePath);
     }
   }
 
@@ -242,18 +212,13 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
             }
           } catch (Exception e) {
             // Corrupted lease: check directory grace period
-            FileTime mtime = Files.getLastModifiedTime(lockDirPath);
-            if (now - mtime.toMillis() < EMPTY_DIR_GRACE_PERIOD_MS) {
+            if (!DiskUtils.isPathOlderThan(lockDirPath, EMPTY_DIR_GRACE_PERIOD_MS, now)) {
               return null;
             }
           }
-        } else {
-          // Empty directory: check directory grace period
-          FileTime mtime = Files.getLastModifiedTime(lockDirPath);
-          if (now - mtime.toMillis() < EMPTY_DIR_GRACE_PERIOD_MS) {
-            return null;
-          }
         }
+        // If lease.json does not exist (empty directory), no other node can be mid-creation
+        // because we hold the exclusive sibling LeaseFileMutex. Proceed with acquisition.
       } else {
         Utils.ensureDirectoryExists(lockDirPath);
       }
@@ -270,7 +235,8 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
         Utils.deletePathQuietly(stopFilePath);
       }
 
-      return new LeaseFileUploadLock(leaseData, lockDirPath, stopFilePath, activeInputStreams);
+      return new LeaseFileUploadLock(
+          leaseData, uploadId, lockDirPath, stopFilePath, activeInputStreams, watchdogExecutor);
     } catch (Exception e) {
       log.debug("Error acquiring lease for upload {}", uploadId, e);
       return null;
@@ -309,8 +275,7 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
   }
 
   @Override
-  protected void checkStopSignalForEntry(String uri, InputStream inputStream) {
-    UploadId uploadId = idFactory.readUploadId(uri);
+  protected void checkStopSignalForUpload(UploadId uploadId, InputStream inputStream) {
     if (uploadId == null) {
       return;
     }
@@ -319,8 +284,18 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
     if (stopFilePath != null && Files.exists(stopFilePath)) {
       log.info("Watchdog detected stop file for upload ID {}. Interrupting stream.", uploadId);
       Utils.interruptStream(inputStream);
-      activeInputStreams.remove(uri);
+      activeInputStreams.remove(uploadId);
       Utils.deletePathQuietly(stopFilePath);
+    }
+  }
+
+  @Override
+  protected void clearStopSignal(UploadId uploadId) {
+    if (uploadId != null) {
+      Path stopFilePath = getStopFilePath(uploadId);
+      if (stopFilePath != null) {
+        Utils.deletePathQuietly(stopFilePath);
+      }
     }
   }
 
@@ -354,16 +329,15 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
       }
     }
 
-    // If lease.json is missing or unparseable, check directory mtime against grace period
-    try {
-      FileTime mtime = Files.getLastModifiedTime(lockDirPath);
-      long dirAgeMs = now - mtime.toMillis();
-      // If the directory was created within the last 5 seconds, another node is actively writing
-      return dirAgeMs >= EMPTY_DIR_GRACE_PERIOD_MS;
-    } catch (IOException e) {
-      // If directory is inaccessible or changing, assume active write in progress
-      return false;
+    // If lease.json is missing or unparseable, check if sibling mutex directory exists.
+    // If no sibling mutex is held, no node is mid-creation of lease.json, so the empty
+    // directory is unheld/abandoned (expired = true).
+    Path mutexDir = LeaseFileMutex.resolveMutexDir(lockDirPath);
+    if (mutexDir != null && Files.exists(mutexDir)) {
+      // Sibling mutex is actively held within grace window
+      return DiskUtils.isPathOlderThan(mutexDir, EMPTY_DIR_GRACE_PERIOD_MS, now);
     }
+    return true;
   }
 
   /**
@@ -385,9 +359,9 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
       if (!isLockDirectoryExpired(lockDirPath, now)) {
         return false;
       }
-      FileUtils.deleteDirectory(lockDirPath.toFile());
+      DiskUtils.deleteDirectoryQuietly(lockDirPath);
       return true;
-    } catch (IOException e) {
+    } catch (Exception e) {
       return false;
     }
   }
@@ -396,34 +370,23 @@ public class LeaseFileLockingService extends AbstractLeaseLockingService {
     if (id == null) {
       return null;
     }
-    Path path = storagePath.resolve(id.toString() + ".lock");
-    if (!path.normalize().toAbsolutePath().startsWith(storagePath.normalize().toAbsolutePath())) {
-      throw new IllegalArgumentException(
-          "Upload ID is not valid and would result in a path traversal");
-    }
-    return path;
+    return DiskUtils.resolveSafePath(
+        storagePath,
+        id.toString() + ".lock",
+        "Upload ID is not valid and would result in a path traversal");
   }
 
   Path getStopFilePath(final UploadId id) {
     if (id == null) {
       return null;
     }
-    Path path = storagePath.resolve(id.toString() + ".stop");
-    if (!path.normalize().toAbsolutePath().startsWith(storagePath.normalize().toAbsolutePath())) {
-      throw new IllegalArgumentException(
-          "Upload ID is not valid and would result in a path traversal");
-    }
-    return path;
+    return DiskUtils.resolveSafePath(
+        storagePath,
+        id.toString() + ".stop",
+        "Upload ID is not valid and would result in a path traversal");
   }
 
   private synchronized void initStoragePath() {
-    try {
-      Utils.ensureDirectoryExists(storagePath);
-    } catch (IOException e) {
-      String message =
-          "Unable to create the directory specified by the storage path " + storagePath;
-      log.error(message, e);
-      throw new StoragePathNotAvailableException(message, e);
-    }
+    DiskUtils.initStorageDirectory(storagePath);
   }
 }

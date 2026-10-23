@@ -832,19 +832,23 @@ public class CoverageGapTest {
 
   @Test
   public void testDiskStorageServiceUnsafePathComponent() throws Exception {
-    DiskStorageService storage = new DiskStorageService("/tmp");
-    java.lang.reflect.Method isSafe =
-        DiskStorageService.class.getDeclaredMethod("isSafePathComponent", String.class);
-    isSafe.setAccessible(true);
-
-    assertThat((Boolean) isSafe.invoke(storage, "safe-name"), is(true));
-    assertThat((Boolean) isSafe.invoke(storage, "path/with/slash"), is(false));
-    assertThat((Boolean) isSafe.invoke(storage, "path\\with\\backslash"), is(false));
-    assertThat((Boolean) isSafe.invoke(storage, "../dotdot"), is(false));
-    assertThat((Boolean) isSafe.invoke(storage, "question?mark"), is(false));
-    assertThat((Boolean) isSafe.invoke(storage, "asterisk*file"), is(false));
-    assertThat((Boolean) isSafe.invoke(storage, ""), is(false));
-    assertThat((Boolean) isSafe.invoke(storage, (String) null), is(false));
+    assertThat(
+        me.desair.tus.server.upload.disk.DiskUtils.isSafePathComponent("safe-name"), is(true));
+    assertThat(
+        me.desair.tus.server.upload.disk.DiskUtils.isSafePathComponent("path/with/slash"),
+        is(false));
+    assertThat(
+        me.desair.tus.server.upload.disk.DiskUtils.isSafePathComponent("path\\with\\backslash"),
+        is(false));
+    assertThat(
+        me.desair.tus.server.upload.disk.DiskUtils.isSafePathComponent("../dotdot"), is(false));
+    assertThat(
+        me.desair.tus.server.upload.disk.DiskUtils.isSafePathComponent("question?mark"), is(false));
+    assertThat(
+        me.desair.tus.server.upload.disk.DiskUtils.isSafePathComponent("asterisk*file"), is(false));
+    assertThat(me.desair.tus.server.upload.disk.DiskUtils.isSafePathComponent(""), is(false));
+    assertThat(
+        me.desair.tus.server.upload.disk.DiskUtils.isSafePathComponent((String) null), is(false));
   }
 
   @Test

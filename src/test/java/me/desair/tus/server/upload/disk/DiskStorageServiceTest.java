@@ -18,6 +18,8 @@ import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.ByteArrayOutputStream;
@@ -542,7 +544,7 @@ public class DiskStorageServiceTest {
 
     assertFalse(Files.exists(getUploadInfoPath(info.getId())));
     assertFalse(Files.exists(getStoragePath(info.getId())));
-    org.mockito.Mockito.verify(uploadLockingService).cleanupLock(info.getId());
+    verify(uploadLockingService).cleanupLock(info.getId());
   }
 
   @Test
@@ -564,7 +566,58 @@ public class DiskStorageServiceTest {
 
     assertFalse(Files.exists(getUploadInfoPath(info.getId())));
     assertFalse(Files.exists(getStoragePath(info.getId())));
-    org.mockito.Mockito.verify(uploadLockingService).cleanupLock(info.getId());
+    verify(uploadLockingService).cleanupLock(info.getId());
+  }
+
+  @Test
+  public void testCleanupExpiredUploadsHandlesUploadNotFoundException() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(100L);
+    info.updateExpiration(100L);
+
+    info = storageService.create(info, null);
+    UploadId uploadId = info.getId();
+    assertTrue(Files.exists(getUploadInfoPath(uploadId)));
+
+    when(uploadLockingService.isLocked(any(UploadId.class))).thenReturn(false);
+    storageService.setUploadLockingService(uploadLockingService);
+
+    Utils.sleep(500L);
+
+    DiskStorageService spyService = spy(storageService);
+    doThrow(new UploadNotFoundException("Concurrent termination"))
+        .when(spyService)
+        .terminateUpload(any(UploadInfo.class));
+
+    spyService.cleanupExpiredUploads();
+
+    assertFalse(Files.exists(getStoragePath(uploadId)));
+    verify(uploadLockingService).cleanupLock(uploadId);
+  }
+
+  @Test
+  public void testCleanupExpiredUploadsHandlesNullInfoDuringIteration() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(100L);
+    info.updateExpiration(100L);
+
+    info = storageService.create(info, null);
+    UploadId uploadId = info.getId();
+    assertTrue(Files.exists(getUploadInfoPath(uploadId)));
+
+    when(uploadLockingService.isLocked(any(UploadId.class))).thenReturn(false);
+    storageService.setUploadLockingService(uploadLockingService);
+
+    Utils.sleep(500L);
+
+    DiskStorageService spyService = spy(storageService);
+    // ExpiredUploadFilter accepts upload, but subsequent getUploadInfo returns null inside loop
+    when(spyService.getUploadInfo(uploadId)).thenReturn(info).thenReturn(null);
+
+    spyService.cleanupExpiredUploads();
+
+    assertFalse(Files.exists(getStoragePath(uploadId)));
+    verify(uploadLockingService).cleanupLock(uploadId);
   }
 
   @Test

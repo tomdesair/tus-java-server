@@ -46,7 +46,7 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
   protected long jitterMinMs = DEFAULT_JITTER_MIN_MS;
   protected long jitterMaxMs = DEFAULT_JITTER_MAX_MS;
 
-  protected final Map<String, InputStream> activeInputStreams = new ConcurrentHashMap<>();
+  protected final Map<UploadId, InputStream> activeInputStreams = new ConcurrentHashMap<>();
   protected final ScheduledExecutorService watchdogExecutor;
 
   /**
@@ -85,13 +85,40 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
     this.leaseDurationMs = leaseDurationMs;
     this.pollIntervalMs = pollIntervalMs;
 
+    // Use a multi-threaded daemon scheduled executor (scaling from 2 to 8 threads based on
+    // available processors) so that stop signal polling and lease heartbeats across concurrent
+    // uploads do not suffer head-of-line blocking during cloud network I/O.
+    int poolSize = Math.max(2, Math.min(Runtime.getRuntime().availableProcessors(), 8));
     this.watchdogExecutor =
         Utils.scheduleWatchdog(
             watchdogThreadName,
+            poolSize,
             this::checkStopSignals,
             pollIntervalMs,
             pollIntervalMs,
             TimeUnit.MILLISECONDS);
+  }
+
+  /**
+   * Constructor allowing injection of a custom or null watchdog executor (e.g. for testing).
+   *
+   * @param idFactory The factory used to parse and generate upload identifiers
+   * @param leaseDurationMs Lock lease duration in milliseconds
+   * @param pollIntervalMs Watchdog polling interval in milliseconds
+   * @param shutdownHookName Name of the JVM shutdown hook thread, or null if none
+   * @param watchdogExecutor Custom executor service, or null
+   */
+  protected AbstractLeaseLockingService(
+      UploadIdFactory idFactory,
+      long leaseDurationMs,
+      long pollIntervalMs,
+      String shutdownHookName,
+      ScheduledExecutorService watchdogExecutor) {
+    super(shutdownHookName);
+    this.idFactory = Objects.requireNonNull(idFactory, "The idFactory cannot be null");
+    this.leaseDurationMs = leaseDurationMs;
+    this.pollIntervalMs = pollIntervalMs;
+    this.watchdogExecutor = watchdogExecutor;
   }
 
   @Override
@@ -140,7 +167,10 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
   @Override
   public void registerInputStream(String requestUri, InputStream inputStream) {
     if (requestUri != null && inputStream != null) {
-      activeInputStreams.put(requestUri, inputStream);
+      UploadId uploadId = idFactory.readUploadId(requestUri);
+      if (uploadId != null) {
+        activeInputStreams.put(uploadId, inputStream);
+      }
     }
   }
 
@@ -150,17 +180,40 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
       return;
     }
 
-    // 1. Interrupt active local input stream in this JVM
-    InputStream activeStream = activeInputStreams.remove(requestUri);
-    if (activeStream != null) {
-      Utils.interruptStream(activeStream);
-    }
-
-    // 2. Write a .stop signal to notify remote cluster replicas / pods
     UploadId uploadId = idFactory.readUploadId(requestUri);
     if (uploadId != null) {
+      // 1. Interrupt active local input stream in this JVM directly by UploadId
+      InputStream activeStream = activeInputStreams.remove(uploadId);
+      if (activeStream != null) {
+        Utils.interruptStream(activeStream);
+      }
+
+      // 2. Write a .stop signal to notify remote cluster replicas / pods
       writeStopSignal(uploadId);
     }
+  }
+
+  @Override
+  public void cleanupLock(UploadId id) throws IOException {
+    if (id != null) {
+      clearStopSignal(id);
+    }
+  }
+
+  /**
+   * Clears any lingering contention stop signal for the given upload ID.
+   *
+   * @param uploadId The upload identifier
+   */
+  protected void clearStopSignal(UploadId uploadId) {}
+
+  /**
+   * Returns the shared scheduled executor used for background watchdog polling.
+   *
+   * @return The scheduled executor service
+   */
+  public ScheduledExecutorService getWatchdogExecutor() {
+    return watchdogExecutor;
   }
 
   @Override
@@ -198,7 +251,7 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
     LeaseData leaseData =
         new LeaseData(holderId, requestUri, leaseDurationMs, expiresAt, now, null, null);
 
-    UploadLock lock = tryAcquireLock(uploadId, leaseData);
+    UploadLock lock = tryAcquireLock(uploadId, leaseData, false);
     if (lock != null) {
       return lock;
     }
@@ -211,13 +264,29 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
         now = System.currentTimeMillis();
         leaseData.setAcquiredAt(now);
         leaseData.setExpiresAt(now + leaseDurationMs);
-        lock = tryAcquireLock(uploadId, leaseData);
+        lock = tryAcquireLock(uploadId, leaseData, true);
         if (lock != null) {
           return lock;
         }
       }
     }
     return null;
+  }
+
+  /**
+   * Subclass implementation of primary lock acquisition, indicating whether this call is an
+   * eviction retry after deleting an expired lock. Default implementation delegates to {@link
+   * #tryAcquireLock(UploadId, LeaseData)}.
+   *
+   * @param uploadId The upload identifier
+   * @param leaseData The lease metadata describing the lock to acquire
+   * @param isEvictionRetry True if this acquisition follows an expired lock eviction
+   * @return Acquired {@link UploadLock}, or null if already held
+   * @throws IOException If an I/O error occurs
+   */
+  protected UploadLock tryAcquireLock(
+      UploadId uploadId, LeaseData leaseData, boolean isEvictionRetry) throws IOException {
+    return tryAcquireLock(uploadId, leaseData);
   }
 
   /**
@@ -255,17 +324,17 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
   protected abstract void writeStopSignal(UploadId uploadId);
 
   /**
-   * Checks for a contention interrupt stop signal for an active input stream entry.
+   * Checks for a contention interrupt stop signal for an active input stream.
    *
-   * @param uri The upload request URI
+   * @param uploadId The upload identifier
    * @param inputStream The active request input stream
    */
-  protected abstract void checkStopSignalForEntry(String uri, InputStream inputStream);
+  protected abstract void checkStopSignalForUpload(UploadId uploadId, InputStream inputStream);
 
   /** Polls active streams against stop signals across replicas. */
   public void checkStopSignals() {
-    for (Map.Entry<String, InputStream> entry : activeInputStreams.entrySet()) {
-      checkStopSignalForEntry(entry.getKey(), entry.getValue());
+    for (Map.Entry<UploadId, InputStream> entry : activeInputStreams.entrySet()) {
+      checkStopSignalForUpload(entry.getKey(), entry.getValue());
     }
   }
 
@@ -336,10 +405,5 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
     }
     this.jitterMinMs = minMs;
     this.jitterMaxMs = maxMs;
-  }
-
-  @Override
-  public void cleanupLock(String uploadUri) throws IOException {
-    cleanupLock(uploadUri != null && idFactory != null ? idFactory.readUploadId(uploadUri) : null);
   }
 }

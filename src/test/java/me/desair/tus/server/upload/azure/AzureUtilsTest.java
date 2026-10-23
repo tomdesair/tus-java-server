@@ -1,14 +1,26 @@
 package me.desair.tus.server.upload.azure;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.azure.core.http.HttpClient;
 import com.azure.core.http.HttpHeaders;
 import com.azure.core.http.HttpResponse;
+import com.azure.storage.blob.BlobClient;
+import com.azure.storage.blob.BlobContainerClient;
+import com.azure.storage.blob.BlobContainerClientBuilder;
 import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.blob.specialized.BlockBlobClient;
 import org.junit.Test;
+import reactor.core.publisher.Mono;
 
 public class AzureUtilsTest {
 
@@ -21,6 +33,97 @@ public class AzureUtilsTest {
     }
     when(response.getHeaders()).thenReturn(headers);
     return new BlobStorageException("Test exception", response, errorCode);
+  }
+
+  @Test
+  public void testSanitizePrefix() {
+    assertEquals("", AzureUtils.sanitizePrefix(null));
+    assertEquals("", AzureUtils.sanitizePrefix(""));
+    assertEquals("", AzureUtils.sanitizePrefix("   "));
+    assertEquals("", AzureUtils.sanitizePrefix("///"));
+    assertEquals("locks/", AzureUtils.sanitizePrefix("locks"));
+    assertEquals("locks/", AzureUtils.sanitizePrefix("/locks"));
+    assertEquals("locks/", AzureUtils.sanitizePrefix("locks/"));
+    assertEquals("locks/", AzureUtils.sanitizePrefix("/locks/"));
+    assertEquals("a/b/c/", AzureUtils.sanitizePrefix("/a/b/c"));
+    assertEquals("custom/", AzureUtils.sanitizePrefix("/custom///"));
+  }
+
+  @Test
+  public void testBlobExists() {
+    // Null checks
+    assertFalse(AzureUtils.blobExists((BlobClient) null));
+    assertFalse(AzureUtils.blobExists((BlobContainerClient) null, "test-blob"));
+
+    HttpClient httpClient = mock(HttpClient.class);
+    when(httpClient.send(any())).thenReturn(Mono.error(new RuntimeException("Connection error")));
+    BlobContainerClient containerClient =
+        new BlobContainerClientBuilder()
+            .endpoint("https://dummyaccount.blob.core.windows.net")
+            .containerName("dummy-container")
+            .httpClient(httpClient)
+            .buildClient();
+
+    assertFalse(AzureUtils.blobExists(containerClient, null));
+
+    // Blob exists == true
+    BlobClient blobClient = mock(BlobClient.class);
+    when(blobClient.exists()).thenReturn(true);
+    assertTrue(AzureUtils.blobExists(blobClient));
+
+    // Blob exists == false
+    when(blobClient.exists()).thenReturn(false);
+    assertFalse(AzureUtils.blobExists(blobClient));
+
+    // Blob exists throws exception
+    when(blobClient.exists()).thenThrow(new RuntimeException("Connection error"));
+    assertFalse(AzureUtils.blobExists(blobClient));
+
+    // BlockBlobClient overloads
+    assertFalse(AzureUtils.blobExists((BlockBlobClient) null));
+    BlockBlobClient blockBlobClient =
+        containerClient.getBlobClient("test-blob").getBlockBlobClient();
+    assertFalse(AzureUtils.blobExists(blockBlobClient));
+
+    // Delegating method with mock HTTP client throwing exception
+    assertFalse(AzureUtils.blobExists(containerClient, "test-blob"));
+  }
+
+  @Test
+  public void testDeleteBlobQuietly() {
+    // Null checks (should not throw)
+    AzureUtils.deleteBlobQuietly((BlobClient) null);
+    AzureUtils.deleteBlobQuietly((BlobContainerClient) null, "test-blob");
+
+    HttpClient httpClient = mock(HttpClient.class);
+    when(httpClient.send(any())).thenReturn(Mono.error(new RuntimeException("Connection error")));
+    BlobContainerClient containerClient =
+        new BlobContainerClientBuilder()
+            .endpoint("https://dummyaccount.blob.core.windows.net")
+            .containerName("dummy-container")
+            .httpClient(httpClient)
+            .buildClient();
+
+    AzureUtils.deleteBlobQuietly(containerClient, null);
+
+    // Normal deletion on BlobClient mock
+    BlobClient blobClient = mock(BlobClient.class);
+    AzureUtils.deleteBlobQuietly(blobClient);
+    verify(blobClient, times(1)).deleteIfExists();
+
+    // Exception handled quietly on BlobClient mock
+    doThrow(new RuntimeException("Azure delete failed")).when(blobClient).deleteIfExists();
+    AzureUtils.deleteBlobQuietly(blobClient);
+    verify(blobClient, times(2)).deleteIfExists();
+
+    // BlockBlobClient overloads
+    AzureUtils.deleteBlobQuietly((BlockBlobClient) null);
+    BlockBlobClient blockBlobClient =
+        containerClient.getBlobClient("test-blob").getBlockBlobClient();
+    AzureUtils.deleteBlobQuietly(blockBlobClient);
+
+    // Delegating method on container client with mock HTTP client throwing exception
+    AzureUtils.deleteBlobQuietly(containerClient, "test-blob");
   }
 
   @Test

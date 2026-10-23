@@ -1,17 +1,19 @@
 package me.desair.tus.server.upload.s3;
 
-import io.minio.GetObjectArgs;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import io.minio.RemoveObjectArgs;
 import io.minio.Result;
-import io.minio.StatObjectArgs;
 import io.minio.errors.ErrorResponseException;
 import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.time.ZonedDateTime;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Objects;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -59,6 +61,7 @@ public class S3LockingService extends AbstractLeaseLockingService {
   public static final String DEFAULT_LOCKS_PREFIX = "locks/";
   public static final long DEFAULT_LEASE_DURATION_MS = 30_000L; // 30 seconds
   public static final long DEFAULT_POLL_INTERVAL_MS = 2_000L; // 2 seconds
+  public static final long MUTEX_GRACE_PERIOD_MS = 5_000L; // 5 seconds for stale eviction mutexes
 
   private final MinioClient minioClient;
   private final String bucket;
@@ -232,9 +235,22 @@ public class S3LockingService extends AbstractLeaseLockingService {
 
       for (Result<Item> result : results) {
         Item item = result.get();
-        // Remove expired .lock lease objects
-        if (item.objectName().endsWith(".lock") && isLockExpired(item.objectName())) {
-          deleteObjectQuietly(item.objectName());
+        if (item == null || item.objectName() == null) {
+          continue;
+        }
+        String name = item.objectName();
+        // 1. Remove expired .lock lease objects
+        if (name.endsWith(".lock") && isLockExpired(name)) {
+          deleteObjectQuietly(name);
+        }
+        // 2. Remove stale .stop signal objects older than 30s
+        else if (name.endsWith(".stop")) {
+          ZonedDateTime lastModified = item.lastModified();
+          if (lastModified != null
+              && lastModified.isBefore(ZonedDateTime.now().minusSeconds(30L))) {
+            deleteObjectQuietly(name);
+            log.info("Cleaned up stale S3 stop signal object: {}", name);
+          }
         }
       }
     } catch (Exception e) {
@@ -243,22 +259,13 @@ public class S3LockingService extends AbstractLeaseLockingService {
   }
 
   @Override
-  public void cleanupLock(UploadId id) throws IOException {
-    if (id == null) {
-      return;
-    }
-    String lockKey = buildLockKey(id);
-    String stopKey = buildStopKey(id);
-
-    // Only delete the lock object if it is expired or already absent
-    if (isLockExpired(lockKey)) {
-      deleteObjectQuietly(lockKey);
-    }
-    deleteObjectQuietly(stopKey);
+  protected UploadLock tryAcquireLock(UploadId uploadId, LeaseData leaseData) {
+    return tryAcquireLock(uploadId, leaseData, false);
   }
 
   @Override
-  protected UploadLock tryAcquireLock(UploadId uploadId, LeaseData leaseData) {
+  protected UploadLock tryAcquireLock(
+      UploadId uploadId, LeaseData leaseData, boolean isEvictionRetry) {
     if (leaseData == null) {
       return null;
     }
@@ -287,11 +294,11 @@ public class S3LockingService extends AbstractLeaseLockingService {
         thisObjectLock.readLock().unlock();
       }
 
+      boolean conditionalWriteUsed = false;
       if (conditionalSupported) {
         // Layer 1: Optimistic Conditional PutObject with "If-None-Match: *"
         // AWS S3 and compliant servers reject this with 412 Precondition Failed if the object
-        // already
-        // exists
+        // already exists
         try {
           minioClient.putObject(
               PutObjectArgs.builder()
@@ -303,6 +310,7 @@ public class S3LockingService extends AbstractLeaseLockingService {
                       (long) lockContentBytes.length,
                       -1L)
                   .build());
+          conditionalWriteUsed = true;
         } catch (ErrorResponseException e) {
           S3ErrorType errorType = S3Utils.parseErrorResponse(e);
           if (errorType == S3ErrorType.API_NOT_IMPLEMENTED) {
@@ -336,16 +344,29 @@ public class S3LockingService extends AbstractLeaseLockingService {
         writeUnconditionalLockObject(lockKey, lockContentBytes);
       }
 
-      // Layer 2: Jittered Read-After-Write Verification
-      // For non-CAS backends or backends where If-None-Match is not strictly enforced,
-      // pause for a randomized jitter duration to allow competing writes to settle,
-      // then verify our holderId is still the owner
-      applyJitter();
-      if (!verifyLockOwnership(lockKey, leaseData.getHolderId())) {
-        return null;
+      // If conditional write is supported and was used, S3 guarantees atomic CAS creation
+      // on the happy path where no eviction occurred (a competing write fails immediately
+      // with 412 PreconditionFailed). We can skip the sleep jitter and extra GET verification,
+      // saving 20-60ms latency and 1 network RTT.
+      // However, if an expired lock eviction occurred (isEvictionRetry == true) or on non-CAS
+      // backends (conditionalWriteUsed == false), multiple contenders may have raced during
+      // eviction deletion. We must apply jitter and verify ownership to prevent TOCTOU split-brain.
+      if (!conditionalWriteUsed || isEvictionRetry) {
+        applyJitter();
+        if (!verifyLockOwnership(lockKey, leaseData.getHolderId())) {
+          return null;
+        }
       }
 
-      return new S3UploadLock(leaseData, minioClient, bucket, lockKey, stopKey, activeInputStreams);
+      return new S3UploadLock(
+          leaseData,
+          uploadId,
+          minioClient,
+          bucket,
+          lockKey,
+          stopKey,
+          activeInputStreams,
+          watchdogExecutor);
     } catch (ErrorResponseException e) {
       S3ErrorType errorType = S3Utils.parseErrorResponse(e);
       if (errorType == S3ErrorType.PRECONDITION_FAILED || errorType == S3ErrorType.CONFLICT) {
@@ -382,27 +403,40 @@ public class S3LockingService extends AbstractLeaseLockingService {
       return false;
     }
     String lockKey = buildLockKey(uploadId);
-    try (InputStream stream =
-        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
-      LeaseData lock = LeaseDataJsonSerializer.deserialize(stream);
-      if (!isLeaseExpired(lock, System.currentTimeMillis())) {
+    String mutexKey = buildMutexKey(uploadId);
+
+    // Acquire atomic S3 eviction mutex to serialize concurrent contenders across pods/threads.
+    // Without mutual exclusion, multiple contenders can inspect an expired lock simultaneously,
+    // and a lagging contender's unconditioned removeObject call would delete a newly acquired,
+    // active lock written by the winning contender (causing split-brain lock collisions).
+    if (!tryAcquireMutex(mutexKey)) {
+      return false;
+    }
+
+    try {
+      // Under exclusive mutex, inspect the lease in S3 to ensure it is still expired
+      try (InputStream stream = S3Utils.getObjectInputStream(minioClient, bucket, lockKey)) {
+        LeaseData lock = LeaseDataJsonSerializer.deserialize(stream);
+        if (!isLeaseExpired(lock, System.currentTimeMillis())) {
+          return false;
+        }
+        // Actual expired lock found in S3: delete it so next tryAcquireLock() can succeed
+        S3Utils.deleteS3Object(minioClient, bucket, lockKey);
+        log.info("Evicted expired S3 lock for key {}", lockKey);
+        return true;
+      } catch (ErrorResponseException e) {
+        if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
+          // Lock key was already evicted or released normally; resource is clear
+          return true;
+        }
+        log.warn("Failed checking S3 lock expiration for key {}", lockKey, e);
         return false;
       }
-      // Actual expired lock found in S3: delete it so next tryAcquireLock() can succeed
-      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(lockKey).build());
-      log.info("Evicted expired S3 lock for key {}", lockKey);
-      return true;
-    } catch (ErrorResponseException e) {
-      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
-        // Lock key was already released normally and removed from S3.
-        // Return true to indicate the resource is clear without emitting false eviction logs.
-        return true;
-      }
-      log.warn("Failed checking S3 lock expiration for key {}", lockKey, e);
-      return false;
     } catch (Exception e) {
       log.warn("Failed to evict expired S3 lock for key {}", lockKey, e);
       return false;
+    } finally {
+      deleteObjectQuietly(mutexKey);
     }
   }
 
@@ -420,34 +454,31 @@ public class S3LockingService extends AbstractLeaseLockingService {
   }
 
   @Override
-  protected void checkStopSignalForEntry(String uri, InputStream inputStream) {
-    UploadId uploadId = idFactory.readUploadId(uri);
+  protected void checkStopSignalForUpload(UploadId uploadId, InputStream inputStream) {
     if (uploadId == null) {
       return;
     }
 
     String stopKey = buildStopKey(uploadId);
-    try {
-      // Check if a .stop signal object was written by another pod requesting lock release
-      minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(stopKey).build());
+    // Check if a .stop signal object was written by another pod requesting lock release
+    if (S3Utils.objectExists(minioClient, bucket, stopKey)) {
       // Remote stop signal object found! Interrupt local byte stream immediately
       Utils.interruptStream(inputStream);
       // Clean up the stream registration and delete the stop signal to avoid duplicate interrupts
-      activeInputStreams.remove(uri);
+      activeInputStreams.remove(uploadId);
       deleteObjectQuietly(stopKey);
-    } catch (ErrorResponseException e) {
-      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
-        // Normal state: no stop signal object in S3
-        return;
-      }
-    } catch (Exception e) {
-      log.debug("Error checking stop signal for {}", stopKey, e);
+    }
+  }
+
+  @Override
+  protected void clearStopSignal(UploadId uploadId) {
+    if (uploadId != null) {
+      deleteS3ObjectsQuietly(Arrays.asList(buildStopKey(uploadId), buildMutexKey(uploadId)));
     }
   }
 
   boolean verifyLockOwnership(String lockKey, String expectedHolderId) {
-    try (InputStream stream =
-        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
+    try (InputStream stream = S3Utils.getObjectInputStream(minioClient, bucket, lockKey)) {
       LeaseData remoteLock = LeaseDataJsonSerializer.deserialize(stream);
       return remoteLock != null
           && Strings.CS.equals(remoteLock.getHolderId(), expectedHolderId)
@@ -460,10 +491,19 @@ public class S3LockingService extends AbstractLeaseLockingService {
   }
 
   boolean isLockExpired(String lockKey) {
-    try (InputStream stream =
-        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(lockKey).build())) {
+    try (InputStream stream = S3Utils.getObjectInputStream(minioClient, bucket, lockKey)) {
 
-      LeaseData lock = LeaseDataJsonSerializer.deserialize(stream);
+      LeaseData lock;
+      try {
+        lock = LeaseDataJsonSerializer.deserialize(stream);
+      } catch (JsonProcessingException | IllegalArgumentException e) {
+        log.warn("Corrupted JSON in lock object {}, treating as expired", lockKey, e);
+        return true;
+      }
+
+      if (lock == null) {
+        return true;
+      }
       // Add a 2000ms safety buffer beyond expiration time to absorb NTP clock
       // drift between distributed pods before considering a lease expired.
       return isLeaseExpired(lock, System.currentTimeMillis());
@@ -471,19 +511,35 @@ public class S3LockingService extends AbstractLeaseLockingService {
       if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
         return true; // Key missing -> Not locked
       }
-      return true;
+      // Fail-closed split-brain protection: on non-NoSuchKey S3 errors (e.g. 500 InternalError,
+      // 503 SlowDown), assume the lock is still actively held by another node.
+      log.warn(
+          "S3 error reading lock object {}, assuming lock is still active: {}",
+          lockKey,
+          e.getMessage());
+      return false;
     } catch (Exception e) {
-      log.debug("Failed to read lock object {}, treating as expired", lockKey, e);
-      return true;
+      // Fail-closed split-brain protection: on transient network/IO exceptions, assume the lock
+      // is still actively held by another node.
+      log.warn("Failed to read lock object {}, assuming lock is still active", lockKey, e);
+      return false;
     }
   }
 
+  /**
+   * Quietly deletes multiple S3 objects in a single batch request using S3 Multi-Object Delete.
+   *
+   * <p>If multi-object delete encounters an error (e.g. bucket policy restriction), falls back to
+   * individual deletions quietly.
+   *
+   * @param keys The S3 object keys to delete
+   */
+  void deleteS3ObjectsQuietly(Collection<String> keys) {
+    S3Utils.deleteS3ObjectsQuietly(minioClient, bucket, keys);
+  }
+
   private void deleteObjectQuietly(String key) {
-    try {
-      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
-    } catch (Exception e) {
-      log.debug("Failed to delete S3 object key {}", key, e);
-    }
+    S3Utils.deleteS3ObjectQuietly(minioClient, bucket, key);
   }
 
   @Override
@@ -492,11 +548,7 @@ public class S3LockingService extends AbstractLeaseLockingService {
   }
 
   private String sanitizePrefix(String prefix) {
-    if (prefix == null || prefix.isEmpty()) {
-      return "";
-    }
-    String result = prefix.startsWith("/") ? prefix.substring(1) : prefix;
-    return result.endsWith("/") ? result : result + "/";
+    return S3Utils.sanitizePrefix(prefix);
   }
 
   private String buildLockKey(UploadId uploadId) {
@@ -507,13 +559,165 @@ public class S3LockingService extends AbstractLeaseLockingService {
     return locksPrefix + uploadId.toString() + ".stop";
   }
 
+  private String buildMutexKey(UploadId uploadId) {
+    return locksPrefix + uploadId.toString() + ".mutex";
+  }
+
+  /**
+   * Attempts to acquire the exclusive S3 eviction mutex for an upload.
+   *
+   * <p>Eviction mutex prevents TOCTOU race conditions where multiple pods concurrently inspect an
+   * expired lock and subsequent lagging contenders delete an active lock newly written by the
+   * winning contender.
+   *
+   * @param mutexKey S3 object key for the eviction mutex
+   * @return {@code true} if mutex acquired; {@code false} if actively held by another contender
+   */
+  private boolean tryAcquireMutex(String mutexKey) {
+    if (mutexKey == null) {
+      return false;
+    }
+
+    // Step 1: On S3 backends supporting atomic conditional writes, attempt CAS acquisition
+    if (isS3ConditionalWritesSupported()) {
+      return tryAcquireConditionalMutex(mutexKey);
+    }
+
+    // Step 2: On non-CAS backends (e.g. Wasabi, Ceph), fall back to safe pre-checked write
+    return tryAcquireNonCasMutex(mutexKey);
+  }
+
+  /**
+   * Attempts atomic eviction mutex acquisition using an S3 conditional write (If-None-Match: *).
+   *
+   * <p>If the mutex object already exists (HTTP 412/409), checks whether the existing mutex was
+   * abandoned by a crashed contender and attempts stale recovery.
+   *
+   * @param mutexKey S3 object key for the eviction mutex
+   * @return {@code true} if acquired or recovered; {@code false} if held by a live contender
+   */
+  private boolean tryAcquireConditionalMutex(String mutexKey) {
+    byte[] nowBytes = createMutexPayload();
+    try {
+      writeConditionalMutexObject(mutexKey, nowBytes);
+      return true;
+    } catch (ErrorResponseException e) {
+      S3ErrorType errorType = S3Utils.parseErrorResponse(e);
+
+      // S3 endpoint does not support conditional writes: downgrade and fall back to non-CAS
+      if (errorType == S3ErrorType.API_NOT_IMPLEMENTED) {
+        handleConditionalWriteNotImplemented(mutexKey);
+        return tryAcquireNonCasMutex(mutexKey);
+      }
+
+      // Mutex collision: another pod holds the mutex. Inspect age for crash recovery
+      if (errorType == S3ErrorType.PRECONDITION_FAILED || errorType == S3ErrorType.CONFLICT) {
+        return recoverStaleConditionalMutex(mutexKey, nowBytes);
+      }
+
+      // Unexpected error response (e.g. AccessDenied): fail closed to prevent split-brain
+      return false;
+    } catch (Exception e) {
+      // Network or I/O failure: fail closed to prevent split-brain
+      return false;
+    }
+  }
+
+  /**
+   * Attempts to recover an eviction mutex abandoned by a crashed or hung contender.
+   *
+   * <p>If the existing mutex object is older than {@link #MUTEX_GRACE_PERIOD_MS} (5 seconds), it is
+   * treated as abandoned, deleted, and re-acquired atomically.
+   *
+   * @param mutexKey S3 object key for the eviction mutex
+   * @param nowBytes Current timestamp payload
+   * @return {@code true} if stale mutex was recovered; {@code false} if actively held
+   */
+  private boolean recoverStaleConditionalMutex(String mutexKey, byte[] nowBytes) {
+    if (!isMutexStale(mutexKey)) {
+      // Mutex was created within grace period: active contender is mid-eviction
+      return false;
+    }
+
+    // Mutex is older than 5s grace period: previous holder crashed or hung; clear and retry
+    deleteObjectQuietly(mutexKey);
+    try {
+      writeConditionalMutexObject(mutexKey, nowBytes);
+      return true;
+    } catch (Exception retryEx) {
+      // Lost race against another recovering node
+      return false;
+    }
+  }
+
+  /**
+   * Attempts eviction mutex acquisition on S3 backends lacking conditional writes.
+   *
+   * @param mutexKey S3 object key for the eviction mutex
+   * @return {@code true} if acquired; {@code false} if actively held or I/O fails
+   */
+  private boolean tryAcquireNonCasMutex(String mutexKey) {
+    if (!isMutexStale(mutexKey)) {
+      // Existing mutex is active within grace period
+      return false;
+    }
+    try {
+      writeUnconditionalMutexObject(mutexKey, createMutexPayload());
+      return true;
+    } catch (Exception e) {
+      log.debug("Failed writing non-CAS eviction mutex for key {}", mutexKey, e);
+      return false;
+    }
+  }
+
+  private void writeConditionalMutexObject(String mutexKey, byte[] payload) throws Exception {
+    minioClient.putObject(
+        PutObjectArgs.builder()
+            .bucket(bucket)
+            .object(mutexKey)
+            .extraHeaders(Collections.singletonMap("If-None-Match", "*"))
+            .stream(new ByteArrayInputStream(payload), (long) payload.length, -1L)
+            .build());
+  }
+
+  private void writeUnconditionalMutexObject(String mutexKey, byte[] payload) throws Exception {
+    minioClient.putObject(
+        PutObjectArgs.builder().bucket(bucket).object(mutexKey).stream(
+                new ByteArrayInputStream(payload), (long) payload.length, -1L)
+            .build());
+  }
+
+  private byte[] createMutexPayload() {
+    return String.valueOf(System.currentTimeMillis()).getBytes(StandardCharsets.UTF_8);
+  }
+
+  private void handleConditionalWriteNotImplemented(String mutexKey) {
+    log.info(
+        "S3 endpoint does not support conditional writes on mutex. "
+            + "Downgrading to non-CAS arbitration for mutex {}",
+        mutexKey);
+    thisObjectLock.writeLock().lock();
+    try {
+      s3ConditionalWritesSupported = false;
+    } finally {
+      thisObjectLock.writeLock().unlock();
+    }
+  }
+
+  private boolean isMutexStale(String mutexKey) {
+    try (InputStream stream = S3Utils.getObjectInputStream(minioClient, bucket, mutexKey)) {
+      byte[] bytes = stream.readAllBytes();
+      long createdTime = Long.parseLong(new String(bytes, StandardCharsets.UTF_8).trim());
+      return (System.currentTimeMillis() - createdTime) >= MUTEX_GRACE_PERIOD_MS;
+    } catch (ErrorResponseException e) {
+      return S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY;
+    } catch (Exception e) {
+      return true;
+    }
+  }
+
   private static MinioClient buildMinioClient(
       String endpoint, String region, String accessKey, String secretKey) {
-    String effectiveRegion = (region != null && !region.isEmpty()) ? region : "local";
-    return MinioClient.builder()
-        .endpoint(endpoint)
-        .credentials(accessKey, secretKey)
-        .region(effectiveRegion)
-        .build();
+    return S3Utils.buildMinioClient(endpoint, region, accessKey, secretKey);
   }
 }

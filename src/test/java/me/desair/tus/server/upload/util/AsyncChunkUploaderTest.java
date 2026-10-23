@@ -4,6 +4,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -12,9 +15,11 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -44,9 +49,10 @@ public class AsyncChunkUploaderTest {
   public void tearDown() throws Exception {
     if (executor != null) {
       executor.shutdownNow();
+      executor.awaitTermination(2, TimeUnit.SECONDS);
     }
     if (tempDir != null && tempDir.exists()) {
-      org.apache.commons.io.FileUtils.deleteDirectory(tempDir);
+      org.apache.commons.io.FileUtils.deleteQuietly(tempDir);
     }
   }
 
@@ -748,7 +754,17 @@ public class AsyncChunkUploaderTest {
     uploader.abort();
 
     hangLatch.countDown();
-    assertFalse("File should be cleaned up by abort", f1.exists());
+    // Allow up to 3 seconds for asynchronous background worker thread to execute its finally
+    // cleanup
+    boolean deleted = false;
+    for (int i = 0; i < 60; i++) {
+      if (!f1.exists()) {
+        deleted = true;
+        break;
+      }
+      Thread.sleep(50);
+    }
+    assertTrue("File should be cleaned up by worker thread finally block", deleted);
   }
 
   @Test
@@ -779,6 +795,27 @@ public class AsyncChunkUploaderTest {
       // on the 50ms tick before succeeding on the 3rd tick.
       uploader.submitChunk(f3, 1, "k-poll-3", () -> {});
       uploader.drainAndComplete(3000);
+    }
+  }
+
+  @Test
+  public void testSubmitChunkThrowsDeletesTempFileImmediately() throws Exception {
+    ExecutorService mockExecutor = mock(ExecutorService.class);
+    @SuppressWarnings("unchecked")
+    java.util.concurrent.Future<Void> future = mock(java.util.concurrent.Future.class);
+    when(mockExecutor.submit(any(Callable.class)))
+        .thenThrow(new RejectedExecutionException("Executor saturated"));
+
+    File f = new File(tempDir, "reject-f.tmp");
+    Files.write(f.toPath(), new byte[] {1, 2, 3});
+    assertTrue(f.exists());
+
+    try (AsyncChunkUploader uploader = new AsyncChunkUploader(mockExecutor)) {
+      uploader.submitChunk(f, 3, "k-rej", () -> {});
+      fail("Expected RejectedExecutionException");
+    } catch (RejectedExecutionException e) {
+      // Temp file must be immediately deleted upon submit failure
+      assertFalse(f.exists());
     }
   }
 

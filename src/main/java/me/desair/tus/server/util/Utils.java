@@ -1,32 +1,24 @@
 package me.desair.tus.server.util;
 
-import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
-import static java.nio.file.StandardOpenOption.WRITE;
-
 import jakarta.servlet.http.HttpServletRequest;
-import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.ObjectOutput;
-import java.io.ObjectOutputStream;
-import java.io.OutputStream;
 import java.io.Serializable;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
-import java.util.UUID;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -36,7 +28,7 @@ import me.desair.tus.server.upload.NoOpUploadLockingService;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
-import org.apache.commons.io.serialization.ValidatingObjectInputStream;
+import me.desair.tus.server.upload.disk.DiskUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
@@ -46,8 +38,6 @@ import org.slf4j.LoggerFactory;
 public class Utils {
 
   private static final Logger log = LoggerFactory.getLogger(Utils.class);
-  private static final int LOCK_FILE_RETRY_COUNT = 3;
-  private static final long LOCK_FILE_SLEEP_TIME = 500;
   private static final Pattern CHECKSUM_VALUE_PATTERN = Pattern.compile("^[a-zA-Z0-9+/=\\-_]+$");
 
   private Utils() {
@@ -102,19 +92,7 @@ public class Utils {
    * @throws IOException If file access fails
    */
   public static <T> T readSerializable(Path path, Class<T> clazz) throws IOException {
-    T info = null;
-    if (path != null && Files.exists(path)) {
-      try (InputStream is = Files.newInputStream(path);
-          ValidatingObjectInputStream ois = new ValidatingObjectInputStream(is)) {
-        ois.accept("java.lang.*", "java.util.*", "me.desair.tus.server.*");
-        info = clazz.cast(ois.readObject());
-      } catch (ClassNotFoundException | java.io.EOFException | java.io.StreamCorruptedException e) {
-        // File may be corrupted due to unexpected server shutdown
-        log.warn("Unable to read serializable file {}: {}", path, e.getMessage());
-        info = null;
-      }
-    }
-    return info;
+    return DiskUtils.readSerializable(path, clazz);
   }
 
   /**
@@ -137,46 +115,6 @@ public class Utils {
   }
 
   /**
-   * Resolves a unique temporary sibling path for a target destination file path.
-   *
-   * @param targetPath The destination file path
-   * @return A temporary sibling path with a unique UUID suffix, or null if targetPath is null
-   */
-  public static Path createTempSiblingPath(Path targetPath) {
-    if (targetPath == null) {
-      return null;
-    }
-    Path parent = targetPath.getParent();
-    String tempFileName = targetPath.getFileName().toString() + ".tmp." + UUID.randomUUID();
-    return parent != null ? parent.resolve(tempFileName) : Paths.get(tempFileName);
-  }
-
-  /**
-   * Creates an {@link AutoCloseable} {@link TempPath} that generates a unique temporary sibling
-   * path and automatically deletes it upon closing if it still exists.
-   *
-   * @param targetPath The destination file path
-   * @return An AutoCloseable TempPath instance
-   */
-  public static TempPath createTempSibling(Path targetPath) {
-    return new TempPath(targetPath);
-  }
-
-  /**
-   * Atomically moves a source file to a destination path, replacing any existing destination file.
-   *
-   * @param source The source file path to move
-   * @param destination The target destination file path
-   * @throws IOException If moving the file fails
-   */
-  public static void atomicMove(Path source, Path destination) throws IOException {
-    if (source != null && destination != null) {
-      Files.move(
-          source, destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-    }
-  }
-
-  /**
    * Writes a serializable object to a file on disk atomically via a temporary file rename.
    *
    * @param object The serializable object to write
@@ -184,57 +122,15 @@ public class Utils {
    * @throws IOException If file access or move fails
    */
   public static void writeSerializable(Serializable object, Path path) throws IOException {
-    if (path != null && object != null) {
-      try (TempPath tempPath = new TempPath(path)) {
-        try (OutputStream os =
-                Files.newOutputStream(tempPath.getPath(), WRITE, CREATE, TRUNCATE_EXISTING);
-            OutputStream buffer = new BufferedOutputStream(os);
-            ObjectOutput output = new ObjectOutputStream(buffer)) {
-
-          output.writeObject(object);
-        }
-        atomicMove(tempPath.getPath(), path);
-      }
-    }
-  }
-
-  /**
-   * AutoCloseable temporary sibling path that automatically cleans up (deletes) the temporary file
-   * upon closing if it still exists.
-   */
-  public static class TempPath implements AutoCloseable {
-    private final Path path;
-
-    /**
-     * Constructs a TempPath resolving a unique sibling path for the given target path.
-     *
-     * @param targetPath The destination file path
-     */
-    public TempPath(Path targetPath) {
-      this.path = createTempSiblingPath(targetPath);
-    }
-
-    /**
-     * Returns the underlying temporary sibling {@link Path}.
-     *
-     * @return The temporary path, or null if targetPath was null
-     */
-    public Path getPath() {
-      return path;
-    }
-
-    @Override
-    public void close() {
-      deletePathQuietly(path);
-    }
+    DiskUtils.writeSerializable(object, path);
   }
 
   public static FileLock lockFileExclusively(FileChannel channel) throws IOException {
-    return lockFile(channel, false);
+    return DiskUtils.lockFileExclusively(channel);
   }
 
   public static FileLock lockFileShared(FileChannel channel) throws IOException {
-    return lockFile(channel, true);
+    return DiskUtils.lockFileShared(channel);
   }
 
   /**
@@ -250,22 +146,6 @@ public class Utils {
       // Restore interrupted state...
       Thread.currentThread().interrupt();
     }
-  }
-
-  private static FileLock lockFile(FileChannel channel, boolean shared) throws IOException {
-    int i = 0;
-    FileLock lock = null;
-    do {
-      if (i > 0) {
-        sleep(LOCK_FILE_SLEEP_TIME);
-      }
-
-      lock = channel.tryLock(0L, Long.MAX_VALUE, shared);
-
-      i++;
-    } while (lock == null && i < LOCK_FILE_RETRY_COUNT);
-
-    return lock;
   }
 
   /** Helper class to store parsed checksum header information. */
@@ -563,12 +443,38 @@ public class Utils {
    * @return A new single-thread ScheduledExecutorService
    */
   public static ScheduledExecutorService createScheduledDaemonExecutor(String threadName) {
-    return Executors.newSingleThreadScheduledExecutor(
-        runnable -> {
-          Thread thread = new Thread(runnable, threadName);
-          thread.setDaemon(true);
-          return thread;
-        });
+    return createScheduledDaemonExecutor(threadName, 1);
+  }
+
+  /**
+   * Creates a scheduled thread pool executor with the specified core pool size and daemon threads.
+   * Enables immediate task removal upon cancellation to prevent memory buildup in long-running
+   * services.
+   *
+   * @param threadName The name prefix for the background daemon threads
+   * @param corePoolSize The number of threads to keep in the pool
+   * @return A new ScheduledExecutorService
+   */
+  public static ScheduledExecutorService createScheduledDaemonExecutor(
+      String threadName, int corePoolSize) {
+    int poolSize = Math.max(1, corePoolSize);
+    ScheduledThreadPoolExecutor executor =
+        new ScheduledThreadPoolExecutor(
+            poolSize,
+            new ThreadFactory() {
+              private final AtomicInteger threadCounter = new AtomicInteger(1);
+
+              @Override
+              public Thread newThread(Runnable runnable) {
+                String name =
+                    poolSize > 1 ? threadName + "-" + threadCounter.getAndIncrement() : threadName;
+                Thread thread = new Thread(runnable, name);
+                thread.setDaemon(true);
+                return thread;
+              }
+            });
+    executor.setRemoveOnCancelPolicy(true);
+    return executor;
   }
 
   /**
@@ -584,7 +490,29 @@ public class Utils {
    */
   public static ScheduledExecutorService scheduleWatchdog(
       String threadName, Runnable task, long initialDelay, long period, TimeUnit unit) {
-    ScheduledExecutorService executor = createScheduledDaemonExecutor(threadName);
+    return scheduleWatchdog(threadName, 1, task, initialDelay, period, unit);
+  }
+
+  /**
+   * Creates a multi-threaded daemon scheduled executor and immediately schedules a task to run
+   * periodically at a fixed rate.
+   *
+   * @param threadName The name for the background daemon thread
+   * @param corePoolSize The number of threads in the executor pool
+   * @param task The task to execute periodically
+   * @param initialDelay The initial delay before the first execution
+   * @param period The period between successive executions
+   * @param unit The time unit of the initialDelay and period parameters
+   * @return The created ScheduledExecutorService
+   */
+  public static ScheduledExecutorService scheduleWatchdog(
+      String threadName,
+      int corePoolSize,
+      Runnable task,
+      long initialDelay,
+      long period,
+      TimeUnit unit) {
+    ScheduledExecutorService executor = createScheduledDaemonExecutor(threadName, corePoolSize);
     if (period > 0 && task != null) {
       executor.scheduleAtFixedRate(task, initialDelay, period, unit);
     }
@@ -592,12 +520,12 @@ public class Utils {
   }
 
   /**
-   * Safely shuts down a ScheduledExecutorService using {@link
-   * ScheduledExecutorService#shutdownNow()}.
+   * Safely shuts down an {@link ExecutorService} using {@link ExecutorService#shutdownNow()}.
+   * Handles null or already shut down executors safely as a no-op.
    *
-   * @param executor The ScheduledExecutorService to shut down
+   * @param executor The ExecutorService to shut down, or null
    */
-  public static void shutdownExecutor(ScheduledExecutorService executor) {
+  public static void shutdownExecutor(ExecutorService executor) {
     if (executor != null && !executor.isShutdown()) {
       try {
         executor.shutdownNow();
@@ -644,21 +572,6 @@ public class Utils {
       }
     } catch (Throwable t) {
       log.warn("Error interrupting input stream: {}", t.getMessage(), t);
-    }
-  }
-
-  /**
-   * Safely interrupts and stops a thread, catching and logging any exceptions that occur.
-   *
-   * @param thread The Thread to interrupt
-   */
-  public static void interruptThread(Thread thread) {
-    if (thread != null) {
-      try {
-        thread.interrupt();
-      } catch (Exception e) {
-        log.debug("Error interrupting thread {}: {}", thread.getName(), e.getMessage());
-      }
     }
   }
 

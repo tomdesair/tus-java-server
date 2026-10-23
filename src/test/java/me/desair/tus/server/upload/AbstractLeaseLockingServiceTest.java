@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -31,17 +32,15 @@ public class AbstractLeaseLockingServiceTest {
     private boolean isExpired = false;
     private boolean evictShouldSucceed = true;
     private final List<UploadId> stopSignalsWritten = new ArrayList<>();
-    private final List<String> stopSignalsChecked = new ArrayList<>();
+    private final List<UploadId> stopSignalsChecked = new ArrayList<>();
     private final AtomicBoolean cleanedUp = new AtomicBoolean(false);
-    private final List<UploadId> cleanedUpLocks = new ArrayList<>();
 
     public TestLeaseLockingService() {
       super(new UuidUploadIdFactory(), 30000L, 1000L, null, "test-lease-locking-service-watchdog");
     }
 
-    @Override
-    public void cleanupLock(UploadId id) throws IOException {
-      cleanedUpLocks.add(id);
+    public TestLeaseLockingService(java.util.concurrent.ScheduledExecutorService watchdogExecutor) {
+      super(new UuidUploadIdFactory(), 30000L, 1000L, "test-shutdown-hook", watchdogExecutor);
     }
 
     @Override
@@ -68,8 +67,8 @@ public class AbstractLeaseLockingServiceTest {
     }
 
     @Override
-    protected void checkStopSignalForEntry(String uri, InputStream inputStream) {
-      stopSignalsChecked.add(uri);
+    protected void checkStopSignalForUpload(UploadId uploadId, InputStream inputStream) {
+      stopSignalsChecked.add(uploadId);
     }
 
     @Override
@@ -224,18 +223,23 @@ public class AbstractLeaseLockingServiceTest {
 
     service.requestLockRelease(uri);
     assertThat(service.stopSignalsWritten.size(), is(1));
+
+    service.cleanupLock(null);
+    service.cleanupLock(new UploadId(UUID.randomUUID().toString()));
   }
 
   @Test
   public void testCheckStopSignalsIteratesActiveStreams() {
     String uri1 = "/files/" + UUID.randomUUID();
     String uri2 = "/files/" + UUID.randomUUID();
+    UploadId id1 = new UuidUploadIdFactory().readUploadId(uri1);
+    UploadId id2 = new UuidUploadIdFactory().readUploadId(uri2);
     service.registerInputStream(uri1, new ByteArrayInputStream("1".getBytes()));
     service.registerInputStream(uri2, new ByteArrayInputStream("2".getBytes()));
 
     service.testCheckStopSignals();
-    assertTrue(service.stopSignalsChecked.contains(uri1));
-    assertTrue(service.stopSignalsChecked.contains(uri2));
+    assertTrue(service.stopSignalsChecked.contains(id1));
+    assertTrue(service.stopSignalsChecked.contains(id2));
   }
 
   @Test
@@ -305,21 +309,30 @@ public class AbstractLeaseLockingServiceTest {
     service.close();
 
     assertTrue(service.cleanedUp.get());
-    assertTrue(service.isClosed());
   }
 
   @Test
-  public void testCleanupLockByUriDelegatesToUploadId() throws Exception {
-    UUID uuid = UUID.randomUUID();
-    UploadId id = new UploadId(uuid);
-    String uri = "/files/" + uuid;
-    service.cleanupLock(uri);
+  public void testCustomWatchdogExecutorConstructorAndGetters() throws Exception {
+    java.util.concurrent.ScheduledExecutorService mockExec =
+        mock(java.util.concurrent.ScheduledExecutorService.class);
+    TestLeaseLockingService customExecService = new TestLeaseLockingService(mockExec);
+    assertEquals(mockExec, customExecService.getWatchdogExecutor());
+    customExecService.close();
+  }
 
-    assertEquals(1, service.cleanedUpLocks.size());
-    assertEquals(id, service.cleanedUpLocks.get(0));
+  @Test
+  public void testLockUploadById() throws Exception {
+    org.junit.Assert.assertNull(service.lockUpload(null));
+    UploadId id = new UploadId(UUID.randomUUID().toString());
+    UploadLock lock = service.lockUpload(id);
+    assertNotNull(lock);
+  }
 
-    service.cleanupLock((String) null);
-    assertEquals(2, service.cleanedUpLocks.size());
-    assertThat(service.cleanedUpLocks.get(1), is(nullValue()));
+  @Test(expected = UploadAlreadyLockedException.class)
+  public void testLockUploadByIdThrowsWhenLocked() throws Exception {
+    service.acquireShouldSucceed = false;
+    service.isExpired = false;
+    UploadId id = new UploadId(UUID.randomUUID().toString());
+    service.lockUpload(id);
   }
 }

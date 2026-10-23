@@ -14,6 +14,7 @@ import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,7 +41,12 @@ public class CreationWithUploadPostRequestHandler extends AbstractRequestHandler
       throws IOException, TusException {
 
     Long contentLength = Utils.getLongHeader(servletRequest, HttpHeader.CONTENT_LENGTH);
-    if (contentLength != null && contentLength > 0) {
+    // Allow chunked transfer encoding where Content-Length is omitted or negative
+    boolean hasContent =
+        (contentLength != null && contentLength > 0)
+            || Strings.CI.contains(
+                servletRequest.getHeader(HttpHeader.TRANSFER_ENCODING), "chunked");
+    if (hasContent) {
       String location = servletResponse.getHeader(HttpHeader.LOCATION);
       if (location != null) {
         UploadInfo uploadInfo = uploadStorageService.getUploadInfo(location, ownerKey);

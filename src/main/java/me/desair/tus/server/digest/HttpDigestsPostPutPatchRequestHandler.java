@@ -9,7 +9,6 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
-import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.digest.validation.HttpDigestsValidator;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadDigestMismatchException;
@@ -180,21 +179,7 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
               // Always save verified checksum on the uploadInfo
               uploadInfo.setChecksum(expectedValue);
               uploadInfo.setChecksumAlgorithm(alg);
-
-              if (uploadStorageService.isUploadDeduplicationEnabled()
-                  && uploadInfo.getDuplicatesUploadId() == null) {
-                try {
-                  ChecksumKey key = ChecksumKey.of(expectedValue, alg);
-                  UploadInfo deduped = uploadStorageService.deduplicate(uploadInfo, key);
-                  if (deduped != null) {
-                    uploadInfo = deduped;
-                  }
-                } catch (Exception e) {
-                  uploadStorageService.update(uploadInfo);
-                }
-              } else {
-                uploadStorageService.update(uploadInfo);
-              }
+              uploadStorageService.update(uploadInfo);
             }
           }
         }

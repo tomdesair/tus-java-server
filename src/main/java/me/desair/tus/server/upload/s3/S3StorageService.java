@@ -1,17 +1,10 @@
 package me.desair.tus.server.upload.s3;
 
-import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import io.minio.RemoveObjectArgs;
-import io.minio.RemoveObjectsArgs;
 import io.minio.Result;
-import io.minio.StatObjectArgs;
-import io.minio.StatObjectResponse;
 import io.minio.errors.ErrorResponseException;
-import io.minio.messages.DeleteRequest;
-import io.minio.messages.DeleteResult;
 import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -27,7 +20,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -35,12 +27,15 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
@@ -64,6 +59,7 @@ import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.input.BoundedInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -137,7 +133,6 @@ public class S3StorageService implements UploadStorageService {
   private UploadConcatenationService concatenationService;
   private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
   private boolean s3ComposeObjectSupported = true;
-  private boolean supportsBatchDelete = true;
   private S3ServerSideComposeHelper s3ComposeHelper;
 
   /**
@@ -231,10 +226,10 @@ public class S3StorageService implements UploadStorageService {
       S3ServerSideComposeHelper s3ComposeHelper) {
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
-    this.objectPrefix = sanitizePrefix(objectPrefix);
-    this.metadataPrefix = sanitizePrefix(metadataPrefix);
-    this.checksumsPrefix = sanitizePrefix(checksumsPrefix);
-    this.locksPrefix = sanitizePrefix(locksPrefix);
+    this.objectPrefix = S3Utils.sanitizePrefix(objectPrefix);
+    this.metadataPrefix = S3Utils.sanitizePrefix(metadataPrefix);
+    this.checksumsPrefix = S3Utils.sanitizePrefix(checksumsPrefix);
+    this.locksPrefix = S3Utils.sanitizePrefix(locksPrefix);
     this.temporaryDirectory =
         temporaryDirectory != null
             ? temporaryDirectory
@@ -249,19 +244,36 @@ public class S3StorageService implements UploadStorageService {
     }
 
     AtomicInteger threadNum = new AtomicInteger(1);
-    this.uploadExecutor =
+    ThreadPoolExecutor pool =
         new ThreadPoolExecutor(
             cloudUploadThreadPoolSize,
             cloudUploadThreadPoolSize,
             60L,
             TimeUnit.SECONDS,
-            new SynchronousQueue<>(),
+            new LinkedBlockingQueue<>(cloudUploadThreadPoolSize * 2),
             r -> {
               Thread t = new Thread(r, "tus-s3-upload-" + threadNum.getAndIncrement());
               t.setDaemon(true);
               return t;
             },
-            new ThreadPoolExecutor.CallerRunsPolicy());
+            (r, executor) -> {
+              // CallerRunsPolicy must not be used: executing a multi-megabyte cloud upload
+              // synchronously on the servlet thread blocks the request thread from polling lock
+              // contention (waitForInFlight), preventing concurrent HEAD/DELETE interruptions.
+              // Instead, block on the queue until a worker thread becomes available or interrupt
+              // occurs.
+              try {
+                if (executor.isShutdown()) {
+                  throw new RejectedExecutionException("Upload executor is shut down");
+                }
+                executor.getQueue().put(r);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RejectedExecutionException("Interrupted while enqueuing upload task", e);
+              }
+            });
+    pool.allowCoreThreadTimeOut(true);
+    this.uploadExecutor = pool;
 
     this.s3ComposeHelper =
         s3ComposeHelper != null ? s3ComposeHelper : new S3ServerSideComposeHelper(this.minioClient);
@@ -284,12 +296,7 @@ public class S3StorageService implements UploadStorageService {
 
   private static MinioClient buildMinioClient(
       String endpoint, String region, String accessKey, String secretKey) {
-    String effectiveRegion = (region != null && !region.isEmpty()) ? region : "local";
-    return MinioClient.builder()
-        .endpoint(endpoint)
-        .credentials(accessKey, secretKey)
-        .region(effectiveRegion)
-        .build();
+    return S3Utils.buildMinioClient(endpoint, region, accessKey, secretKey);
   }
 
   /**
@@ -304,7 +311,7 @@ public class S3StorageService implements UploadStorageService {
       return null;
     }
 
-    // Resolve duplicate child upload dynamically to parent S3 object key per AGENTS.md §7
+    // Resolve duplicate child upload dynamically to parent S3 object key
     if (uploadInfo.getDuplicatesUploadId() != null) {
       return buildObjectKey(uploadInfo.getDuplicatesUploadId());
     }
@@ -369,8 +376,7 @@ public class S3StorageService implements UploadStorageService {
     String metadataKey = buildMetadataKey(id);
     String json;
     // Step 1: Read JSON metadata object from S3 (<metadataPrefix>/<UploadId>.info)
-    try (InputStream stream =
-        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(metadataKey).build())) {
+    try (InputStream stream = S3Utils.getObjectInputStream(minioClient, bucket, metadataKey)) {
       json = IOUtils.toString(stream, StandardCharsets.UTF_8);
     } catch (ErrorResponseException e) {
       // Return null if key does not exist in S3
@@ -417,6 +423,12 @@ public class S3StorageService implements UploadStorageService {
       info.setOffset(0L);
     }
 
+    // Pre-calculate expiration if configured so initial metadata write already includes it,
+    // avoiding a duplicate PUT metadata round-trip in ExpirationRequestHandler.
+    if (uploadExpirationPeriod != null && uploadExpirationPeriod > 0) {
+      info.updateExpiration(uploadExpirationPeriod);
+    }
+
     // Persist initial UploadInfo metadata object (.info) to S3
     try {
       update(info);
@@ -429,13 +441,27 @@ public class S3StorageService implements UploadStorageService {
   @Override
   public UploadInfo append(UploadInfo upload, InputStream inputStream)
       throws IOException, TusException {
-    // Step 1: Verify upload existence and check configured size limits
-    UploadInfo info = fetchAndValidateUpload(upload.getId());
-    if (upload.getLength() != null && info.getLength() == null) {
+    // Step 1: Verify upload existence and check configured size limits.
+    // Reuse the caller-provided UploadInfo instance directly when available to avoid an
+    // expensive remote S3 GET (metadata/<id>.info) on every PATCH chunk.
+    UploadInfo info = upload;
+    if (info == null || info.getId() == null || info.getStorageUploadId() == null) {
+      info = fetchAndValidateUpload(upload != null ? upload.getId() : null);
+    } else {
+      validateUploadLimits(info);
+    }
+    if (upload != null && upload.getLength() != null && info.getLength() == null) {
       info.setLength(upload.getLength());
     }
     String objectKey = getS3ObjectKey(info);
     InterruptibleInputStream interruptibleStream = Utils.toInterruptibleStream(inputStream);
+
+    // Pre-calculate expiration if configured so updated metadata already reflects the renewed
+    // expiration, avoiding an extra remote PUT metadata round-trip in ExpirationRequestHandler.
+    if (uploadExpirationPeriod != null && uploadExpirationPeriod > 0) {
+      info.updateExpiration(uploadExpirationPeriod);
+      upload.updateExpiration(uploadExpirationPeriod);
+    }
 
     // Step 2: If the last part is sub-5MB, download & prepend its bytes to the incoming stream.
     // The previous tail part is intentionally kept in S3 as a staleTailKey and is ONLY deleted
@@ -448,9 +474,13 @@ public class S3StorageService implements UploadStorageService {
     validateRemainingPartBudget(info, preparedStream.remainingPartKeys.size());
 
     // Clean up any unmanifested orphan part objects left in S3 from earlier aborted attempts.
-    // Pruning unmanifested parts under the upload lock prevents listing delays and ensures
-    // that only parts explicitly tracked in the manifest are considered valid.
-    pruneOrphanParts(info.getId(), preparedStream.remainingPartKeys, preparedStream.staleTailKeys);
+    // Only prune orphaned unmanifested parts if prior aborted tail parts need replacement.
+    // Skipping unmanifested part listing on clean, healthy sequential chunks eliminates an
+    // expensive S3 ListObjectsV2 network round-trip per chunk.
+    if (!preparedStream.staleTailKeys.isEmpty()) {
+      pruneOrphanParts(
+          info.getId(), preparedStream.remainingPartKeys, preparedStream.staleTailKeys);
+    }
 
     // Step 3: Process payload stream in optimal chunk parts and upload to S3.
     AppendResult appendResult = processPayloadChunks(info, preparedStream, info.getId());
@@ -473,7 +503,13 @@ public class S3StorageService implements UploadStorageService {
       upload.setOffset(newOffset);
       info.setUploadPartKeys(new ArrayList<>(appendResult.allPartKeys));
       upload.setUploadPartKeys(new ArrayList<>(appendResult.allPartKeys));
-      update(info);
+
+      // If multi-part parts need to be composed later, persist manifest once before compose
+      // so crash-recovery metadata is durable in S3. For single-chunk direct uploads (where
+      // allPartKeys is empty), defer metadata persistence until after the chunk is confirmed.
+      if (!appendResult.allPartKeys.isEmpty()) {
+        update(info);
+      }
 
       // Safe transactional cleanup: Delete old tail parts only AFTER the new manifest is saved.
       // If the upload was interrupted earlier, staleTailKeys were untouched, preserving bytes.
@@ -510,8 +546,12 @@ public class S3StorageService implements UploadStorageService {
     }
 
     // Step 6: If all expected bytes are uploaded, compose all part chunks into final S3 object
-    finalizeCompletedUploadIfFinished(info, objectKey, info.getId(), currentOffset);
-    update(info);
+    if (isCompletingOrEmpty) {
+      finalizeCompletedUploadIfFinished(info, objectKey, info.getId(), currentOffset);
+      update(info);
+    } else if (appendResult.allPartKeys.isEmpty() && hasNewParts) {
+      update(info);
+    }
     return info;
   }
 
@@ -538,7 +578,29 @@ public class S3StorageService implements UploadStorageService {
 
   @Override
   public void update(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
+    if (uploadInfo == null) {
+      return;
+    }
+
+    // Finalize deferred-length S3 uploads when completed via update().
+    // When length is announced after append (e.g. Tus 1.0.0 Upload-Defer-Length: 1 or RUFH chunked
+    // requests with Upload-Complete: ?1), finalizeCompletedUploadIfFinished composes parts into the
+    // final destination object (uploads/<id>) so dataExists() and downloads succeed.
+    if (!uploadInfo.isUploadInProgress()
+        && uploadInfo.getDuplicatesUploadId() == null
+        && uploadInfo.getUploadPartKeys() != null
+        && !uploadInfo.getUploadPartKeys().isEmpty()) {
+      String objectKey = getS3ObjectKey(uploadInfo);
+      long currentOffset = uploadInfo.getOffset() != null ? uploadInfo.getOffset() : 0L;
+      finalizeCompletedUploadIfFinished(uploadInfo, objectKey, uploadInfo.getId(), currentOffset);
+    }
+
     writeMetadataObject(uploadInfo);
+
+    // Sync parent expiration if this is a deduplicated child upload
+    if (uploadInfo.getDuplicatesUploadId() != null && deduplicationService != null) {
+      deduplicationService.syncParentExpirationIfChild(uploadInfo);
+    }
 
     // Index checksum for deduplication if upload is completed and deduplication is enabled
     if (isUploadDeduplicationEnabled()
@@ -621,6 +683,10 @@ public class S3StorageService implements UploadStorageService {
               && info.isExpired()
               && !this.uploadLockingService.isLocked(id)) {
             terminateUpload(info);
+            this.uploadLockingService.cleanupLock(id);
+          } else if (info == null) {
+            // Corrupted or missing metadata object: clean up any orphaned lock
+            this.uploadLockingService.cleanupLock(id);
           }
         }
       }
@@ -726,8 +792,6 @@ public class S3StorageService implements UploadStorageService {
       deleteData(uploadInfo.getId());
     }
     deleteMetadata(uploadInfo.getId());
-
-    uploadLockingService.cleanupLock(uploadInfo.getId());
   }
 
   @Override
@@ -907,6 +971,10 @@ public class S3StorageService implements UploadStorageService {
     return cloudUploadThreadPoolSize;
   }
 
+  ThreadPoolExecutor getUploadExecutor() {
+    return this.uploadExecutor;
+  }
+
   @Override
   public void setDrainTimeout(Duration drainTimeout) {
     if (drainTimeout != null) {
@@ -943,24 +1011,6 @@ public class S3StorageService implements UploadStorageService {
    */
   public long getPreferredPartSize() {
     return preferredPartSize;
-  }
-
-  boolean isSupportsBatchDelete() {
-    thisObjectLock.readLock().lock();
-    try {
-      return supportsBatchDelete;
-    } finally {
-      thisObjectLock.readLock().unlock();
-    }
-  }
-
-  void setSupportsBatchDelete(boolean supportsBatchDelete) {
-    thisObjectLock.writeLock().lock();
-    try {
-      this.supportsBatchDelete = supportsBatchDelete;
-    } finally {
-      thisObjectLock.writeLock().unlock();
-    }
   }
 
   @Override
@@ -1032,29 +1082,42 @@ public class S3StorageService implements UploadStorageService {
     // 2. Roll back any existing sub-5MB numbered parts into the stream buffer so they can grow
     if (!existingPartKeys.isEmpty()) {
       String lastPartKey = existingPartKeys.get(existingPartKeys.size() - 1);
-      try {
-        StatObjectResponse stat =
-            minioClient.statObject(
-                StatObjectArgs.builder().bucket(bucket).object(lastPartKey).build());
-        if (stat.size() < minPartSize) {
-          log.info(
-              "Rolling back sub-5MB part {} (size: {}) into stream buffer",
-              lastPartKey,
-              stat.size());
+      long lastPartSize = getPartSize(lastPartKey);
+      if (lastPartSize > 0 && lastPartSize < minPartSize) {
+        log.info(
+            "Rolling back sub-5MB part {} (size: {}) into stream buffer",
+            lastPartKey,
+            lastPartSize);
+        // Stream into a secure temp file instead of buffering up to 5 MB directly in JVM heap
+        File tempPrepFile =
+            Files.createTempFile(temporaryDirectory, "tus-s3-prep-", ".tmp").toFile();
+        try {
           try (InputStream lastPartStream =
-              minioClient.getObject(
-                  GetObjectArgs.builder().bucket(bucket).object(lastPartKey).build())) {
-            byte[] lastPartBytes = IOUtils.toByteArray(lastPartStream);
-            prependedBytes += lastPartBytes.length;
-            combinedStream =
-                new SequenceInputStream(new ByteArrayInputStream(lastPartBytes), combinedStream);
-            staleTailKeys.add(lastPartKey);
-            existingPartsTotalSize -= lastPartBytes.length;
-            existingPartKeys.remove(existingPartKeys.size() - 1);
+                  S3Utils.getObjectInputStream(minioClient, bucket, lastPartKey);
+              FileOutputStream fos = new FileOutputStream(tempPrepFile)) {
+            IOUtils.copyLarge(lastPartStream, fos);
           }
+          long tempPrepLength = tempPrepFile.length();
+          prependedBytes += tempPrepLength;
+          InputStream prependedStream =
+              new FileInputStream(tempPrepFile) {
+                @Override
+                public void close() throws IOException {
+                  try {
+                    super.close();
+                  } finally {
+                    FileUtils.deleteQuietly(tempPrepFile);
+                  }
+                }
+              };
+          combinedStream = new SequenceInputStream(prependedStream, combinedStream);
+          staleTailKeys.add(lastPartKey);
+          existingPartsTotalSize -= tempPrepLength;
+          existingPartKeys.remove(existingPartKeys.size() - 1);
+        } catch (Exception e) {
+          FileUtils.deleteQuietly(tempPrepFile);
+          log.debug("Error inspecting last part key {}: {}", lastPartKey, e.getMessage());
         }
-      } catch (Exception e) {
-        log.debug("Error inspecting last part key {}: {}", lastPartKey, e.getMessage());
       }
     }
 
@@ -1067,19 +1130,36 @@ public class S3StorageService implements UploadStorageService {
         staleTailKeys);
   }
 
+  /**
+   * Calculates total size across committed parts in O(1) time per part key by reading the size
+   * encoded in the part key name, avoiding O(N) sequential S3 statObject HTTP calls.
+   */
   private long calculateTotalPartsSize(List<String> partKeys) {
     long totalSize = 0L;
     for (String key : partKeys) {
-      try {
-        StatObjectResponse stat =
-            minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(key).build());
-        if (stat != null) {
-          totalSize += stat.size();
-        }
-      } catch (Exception ignored) {
-      }
+      totalSize += getPartSize(key);
     }
     return totalSize;
+  }
+
+  /**
+   * Resolves the byte size of an S3 part key. If the key encodes its size suffix (_<size>), it is
+   * extracted in O(1) time without any network calls; otherwise falls back to statObject.
+   */
+  private long getPartSize(String partKey) {
+    if (partKey == null) {
+      return 0L;
+    }
+    int underscoreIdx = partKey.lastIndexOf('_');
+    if (underscoreIdx >= 0 && underscoreIdx < partKey.length() - 1) {
+      try {
+        return Long.parseLong(partKey.substring(underscoreIdx + 1));
+      } catch (NumberFormatException ignored) {
+        // Fall back to statObject if suffix is not numeric
+      }
+    }
+    long size = S3Utils.getObjectSize(minioClient, bucket, partKey);
+    return size >= 0 ? size : 0L;
   }
 
   /**
@@ -1089,8 +1169,7 @@ public class S3StorageService implements UploadStorageService {
    * @param manifestedParts Parts actively tracked in the manifest
    * @param staleTailKeys Stale tail parts pending replacement in this request
    */
-  private void pruneOrphanParts(
-      UploadId id, List<String> manifestedParts, List<String> staleTailKeys) {
+  void pruneOrphanParts(UploadId id, List<String> manifestedParts, List<String> staleTailKeys) {
     List<String> s3Parts = fetchExistingPartKeys(id);
     for (String s3Part : s3Parts) {
       if (!manifestedParts.contains(s3Part) && !staleTailKeys.contains(s3Part)) {
@@ -1185,12 +1264,39 @@ public class S3StorageService implements UploadStorageService {
             plannedPartKeys.clear();
             plannedChunkSizes.clear();
 
-            String chunkKey = buildChunkPartKey(id, nextPartNumber++);
+            String chunkKey = buildChunkPartKey(id, nextPartNumber++, chunkBytesWritten);
             uploadChunkToS3(chunkKey, tempChunkFile, chunkBytesWritten);
             allPartKeys.add(chunkKey);
             confirmedBytesAppended += chunkBytesWritten;
             handedOff = true;
             streamFinished = true;
+            break;
+          }
+
+          // Single-chunk direct upload fast-path:
+          // If this is the first chunk of the upload, the stream finished cleanly, and this chunk
+          // covers 100% of the declared upload length, stream directly into the final destination
+          // object key (uploads/<id>). This bypasses multi-step S3 multipart upload and
+          // eliminates 5 sequential S3 HTTP calls (PUT .part, HEAD .part, CreateMultipartUpload,
+          // UploadPartCopy, CompleteMultipartUpload, DELETE .part).
+          boolean isFirstChunk = allPartKeys.isEmpty() && plannedPartKeys.isEmpty();
+          boolean isCleanFinished =
+              streamFinished
+                  && readException == null
+                  && maxAppendSizeException == null
+                  && !preparedStream.isInterrupted();
+          boolean isFullSingleChunk =
+              isFirstChunk
+                  && isCleanFinished
+                  && info.hasLength()
+                  && chunkBytesWritten == info.getLength();
+
+          if (isFullSingleChunk) {
+            String targetKey = getS3ObjectKey(info);
+            uploadChunkToS3(targetKey, tempChunkFile, chunkBytesWritten);
+            info.setStorageUploadId(targetKey);
+            confirmedBytesAppended += chunkBytesWritten;
+            handedOff = true;
             break;
           }
 
@@ -1206,7 +1312,7 @@ public class S3StorageService implements UploadStorageService {
           if (chunkBytesWritten >= minPartSize) {
             // Full part chunk (>= 5 MB): Submit to AsyncChunkUploader pipeline for background
             // upload
-            String chunkKey = buildChunkPartKey(id, nextPartNumber++);
+            String chunkKey = buildChunkPartKey(id, nextPartNumber++, chunkBytesWritten);
             plannedPartKeys.add(chunkKey);
             plannedChunkSizes.add(chunkBytesWritten);
             File fileToUpload = tempChunkFile;
@@ -1231,7 +1337,7 @@ public class S3StorageService implements UploadStorageService {
             plannedPartKeys.clear();
             plannedChunkSizes.clear();
 
-            String chunkKey = buildChunkPartKey(id, nextPartNumber++);
+            String chunkKey = buildChunkPartKey(id, nextPartNumber++, chunkBytesWritten);
             uploadChunkToS3(chunkKey, tempChunkFile, chunkBytesWritten);
             allPartKeys.add(chunkKey);
             confirmedBytesAppended += chunkBytesWritten;
@@ -1330,17 +1436,10 @@ public class S3StorageService implements UploadStorageService {
         boolean canUseServerSideCompose = true;
         if (partKeys.size() > 1) {
           // AWS S3 requires all parts except the last to be >= 5 MB (5,242,880 bytes) for
-          // composeObject
+          // composeObject. We check sizes using getPartSize() in O(1) time without statObject.
           for (int i = 0; i < partKeys.size() - 1; i++) {
-            try {
-              StatObjectResponse stat =
-                  minioClient.statObject(
-                      StatObjectArgs.builder().bucket(bucket).object(partKeys.get(i)).build());
-              if (stat.size() < minPartSize) {
-                canUseServerSideCompose = false;
-                break;
-              }
-            } catch (Exception e) {
+            long size = getPartSize(partKeys.get(i));
+            if (size < minPartSize) {
               canUseServerSideCompose = false;
               break;
             }
@@ -1393,21 +1492,6 @@ public class S3StorageService implements UploadStorageService {
           throw new IOException("Failed to create empty completed object for ID " + id, e);
         }
       }
-
-      // Add checksum index if deduplication is enabled
-      if (isUploadDeduplicationEnabled()
-          && info.getChecksum() != null
-          && info.getDuplicatesUploadId() == null) {
-        try {
-          ChecksumKey key = ChecksumKey.of(info.getChecksum(), info.getChecksumAlgorithm());
-          deduplicate(info, key);
-        } catch (Exception e) {
-          log.warn(
-              "Failed to register checksum index for completed upload {}: {}",
-              info.getId(),
-              e.getMessage());
-        }
-      }
     }
   }
 
@@ -1436,8 +1520,7 @@ public class S3StorageService implements UploadStorageService {
 
     try {
       // Step 1: Attempt to read from completed object key in S3
-      return minioClient.getObject(
-          GetObjectArgs.builder().bucket(bucket).object(objectKey).build());
+      return S3Utils.getObjectInputStream(minioClient, bucket, objectKey);
     } catch (ErrorResponseException e) {
       if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
         // Step 2: Fallback to reading from manifest part objects if upload is in-progress
@@ -1484,9 +1567,7 @@ public class S3StorageService implements UploadStorageService {
     while (!partKeys.isEmpty() && bytesToRemoveRemaining > 0) {
       String lastKey = partKeys.get(partKeys.size() - 1);
       try {
-        StatObjectResponse stat =
-            minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(lastKey).build());
-        long partSize = stat.size();
+        long partSize = getPartSize(lastKey);
 
         if (bytesToRemoveRemaining >= partSize) {
           // The entire part is subsumed by the truncation; delete it and adjust remaining budget
@@ -1495,7 +1576,8 @@ public class S3StorageService implements UploadStorageService {
           bytesToRemoveRemaining -= partSize;
         } else {
           // Only a fraction of this part is being removed; rewrite the remaining prefix
-          truncateSinglePart(lastKey, partSize, bytesToRemoveRemaining);
+          String newKey = truncateSinglePart(lastKey, partSize, bytesToRemoveRemaining);
+          partKeys.set(partKeys.size() - 1, newKey);
           bytesToRemoveRemaining = 0;
         }
       } catch (Exception e) {
@@ -1507,28 +1589,38 @@ public class S3StorageService implements UploadStorageService {
   }
 
   /**
-   * Partially truncates an individual S3 part object by downloading its content and overwriting it
-   * in S3 with only the remaining byte prefix.
+   * Partially truncates an individual S3 part object by streaming only the remaining byte prefix
+   * into a new S3 object key with an updated size suffix, deleting the old part object.
    *
    * @param partKey S3 object key of the part to partially truncate
    * @param partSize Current total size of the part object
    * @param bytesToRemove Number of tail bytes to remove from this specific part
+   * @return The updated S3 part key with the new size suffix
    * @throws IOException If reading or re-uploading the truncated part fails
    */
-  private void truncateSinglePart(String partKey, long partSize, long bytesToRemove)
+  private String truncateSinglePart(String partKey, long partSize, long bytesToRemove)
       throws IOException {
-    try (InputStream partStream =
-        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(partKey).build())) {
-      byte[] bytes = IOUtils.toByteArray(partStream);
-      int newLength = (int) (partSize - bytesToRemove);
-      byte[] remaining = Arrays.copyOf(bytes, newLength);
+    long newLength = partSize - bytesToRemove;
+    int underscoreIdx = partKey.lastIndexOf('_');
+    String newPartKey =
+        underscoreIdx >= 0 ? partKey.substring(0, underscoreIdx + 1) + newLength : partKey;
+
+    // Stream-based truncation without buffering entire part into JVM heap
+    try (InputStream partStream = S3Utils.getObjectInputStream(minioClient, bucket, partKey)) {
+      BoundedInputStream boundedStream =
+          BoundedInputStream.builder().setInputStream(partStream).setMaxCount(newLength).get();
       minioClient.putObject(
-          PutObjectArgs.builder().bucket(bucket).object(partKey).stream(
-                  new ByteArrayInputStream(remaining), (long) remaining.length, -1L)
+          PutObjectArgs.builder().bucket(bucket).object(newPartKey).stream(
+                  boundedStream, newLength, -1L)
               .build());
     } catch (Exception e) {
       throw new IOException("Failed to partially truncate S3 part object " + partKey, e);
     }
+
+    if (!newPartKey.equals(partKey)) {
+      deleteObjectQuietly(partKey);
+    }
+    return newPartKey;
   }
 
   /**
@@ -1543,14 +1635,14 @@ public class S3StorageService implements UploadStorageService {
   private void truncateCompletedObject(UploadInfo uploadInfo, String objectKey, long newOffset)
       throws IOException {
     if (newOffset > 0) {
-      try (InputStream objStream =
-          minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(objectKey).build())) {
-        byte[] remainingBytes = new byte[(int) newOffset];
-        IOUtils.readFully(objStream, remainingBytes);
-        String chunkKey = buildChunkPartKey(uploadInfo.getId(), 1);
+      String chunkKey = buildChunkPartKey(uploadInfo.getId(), 1, newOffset);
+      // Stream-based truncation without buffering full completed object into JVM heap
+      try (InputStream objStream = S3Utils.getObjectInputStream(minioClient, bucket, objectKey)) {
+        BoundedInputStream boundedStream =
+            BoundedInputStream.builder().setInputStream(objStream).setMaxCount(newOffset).get();
         minioClient.putObject(
             PutObjectArgs.builder().bucket(bucket).object(chunkKey).stream(
-                    new ByteArrayInputStream(remainingBytes), (long) remainingBytes.length, -1L)
+                    boundedStream, newOffset, -1L)
                 .build());
         uploadInfo.setUploadPartKeys(new ArrayList<>(Collections.singletonList(chunkKey)));
       } catch (Exception e) {
@@ -1567,17 +1659,10 @@ public class S3StorageService implements UploadStorageService {
       return;
     }
     String objectKey = getS3ObjectKey(info);
-    if (objectExists(objectKey)) {
-      try {
-        StatObjectResponse head =
-            minioClient.statObject(
-                StatObjectArgs.builder().bucket(bucket).object(objectKey).build());
-        if (head != null) {
-          info.setOffset(head.size());
-          return;
-        }
-      } catch (Exception ignored) {
-      }
+    long size = S3Utils.getObjectSize(minioClient, bucket, objectKey);
+    if (size >= 0) {
+      info.setOffset(size);
+      return;
     }
 
     List<String> partKeys =
@@ -1588,17 +1673,17 @@ public class S3StorageService implements UploadStorageService {
 
   private List<String> fetchExistingPartKeys(UploadId id) {
     String prefix = metadataPrefix + Objects.toString(id) + ".part.";
-    List<String> partKeys = new ArrayList<>();
     try {
       Iterable<Result<Item>> results =
           minioClient.listObjects(ListObjectsArgs.builder().bucket(bucket).prefix(prefix).build());
-      for (Result<Item> res : results) {
-        partKeys.add(res.get().objectName());
-      }
+      return StreamSupport.stream(results.spliterator(), false)
+          .map(S3Utils::extractObjectName)
+          .filter(Objects::nonNull)
+          .sorted()
+          .collect(Collectors.toList());
     } catch (Exception ignored) {
+      return Collections.emptyList();
     }
-    Collections.sort(partKeys);
-    return partKeys;
   }
 
   private void deleteAllPartObjectsQuietly(UploadId id) {
@@ -1607,77 +1692,12 @@ public class S3StorageService implements UploadStorageService {
   }
 
   /**
-   * Deletes multiple S3 objects efficiently using batch Multi-Object Delete (POST /?delete), with
-   * automatic fallback to individual single-object DELETE requests if batch delete is unsupported
-   * or rejected by bucket IAM permissions.
-   *
-   * <p>If batch delete fails once, it is permanently disabled for this storage service instance to
-   * avoid unnecessary failing S3 API round-trips.
+   * Quietly deletes multiple S3 objects, delegating to {@link S3Utils#deleteS3ObjectsQuietly}.
    *
    * @param keys The S3 object keys to delete
    */
   void deleteS3ObjectsQuietly(Collection<String> keys) {
-    if (keys == null || keys.isEmpty()) {
-      return;
-    }
-
-    if (!isSupportsBatchDelete()) {
-      deleteObjectsIndividually(keys);
-      return;
-    }
-
-    List<DeleteRequest.Object> objects = toDeleteRequestObjects(keys);
-    if (objects.isEmpty()) {
-      return;
-    }
-
-    boolean batchFailed = false;
-    try {
-      Iterable<Result<DeleteResult.Error>> results =
-          minioClient.removeObjects(
-              RemoveObjectsArgs.builder().bucket(bucket).objects(objects).build());
-      if (results != null) {
-        for (Result<DeleteResult.Error> res : results) {
-          if (res != null) {
-            DeleteResult.Error error = res.get();
-            if (error != null) {
-              log.debug(
-                  "Batch delete reported error for key {}: {}; switching to individual delete",
-                  error.objectName(),
-                  error.message());
-              batchFailed = true;
-              break;
-            }
-          }
-        }
-      }
-    } catch (Exception e) {
-      log.info(
-          "Batch multi-delete failed; permanently switching to individual delete: {}",
-          e.getMessage());
-      batchFailed = true;
-    }
-
-    if (batchFailed) {
-      setSupportsBatchDelete(false);
-      deleteObjectsIndividually(keys);
-    }
-  }
-
-  private List<DeleteRequest.Object> toDeleteRequestObjects(Collection<String> keys) {
-    List<DeleteRequest.Object> objects = new ArrayList<>();
-    for (String key : keys) {
-      if (key != null) {
-        objects.add(new DeleteRequest.Object(key));
-      }
-    }
-    return objects;
-  }
-
-  private void deleteObjectsIndividually(Collection<String> keys) {
-    for (String key : keys) {
-      deleteObjectQuietly(key);
-    }
+    S3Utils.deleteS3ObjectsQuietly(minioClient, bucket, keys);
   }
 
   /**
@@ -1719,36 +1739,11 @@ public class S3StorageService implements UploadStorageService {
   }
 
   private boolean objectExists(String key) {
-    try {
-      minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(key).build());
-      return true;
-    } catch (ErrorResponseException e) {
-      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
-        return false;
-      }
-      return false;
-    } catch (Exception e) {
-      return false;
-    }
+    return S3Utils.objectExists(minioClient, bucket, key);
   }
 
   private void deleteObjectQuietly(String key) {
-    if (key == null) {
-      return;
-    }
-    try {
-      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
-    } catch (Exception e) {
-      log.debug("Failed to delete S3 object key {}", key, e);
-    }
-  }
-
-  private String sanitizePrefix(String prefix) {
-    if (prefix == null || prefix.isEmpty()) {
-      return "";
-    }
-    String result = prefix.startsWith("/") ? prefix.substring(1) : prefix;
-    return result.endsWith("/") ? result : result + "/";
+    S3Utils.deleteS3ObjectQuietly(minioClient, bucket, key);
   }
 
   private String buildObjectKey(UploadId id) {
@@ -1759,11 +1754,12 @@ public class S3StorageService implements UploadStorageService {
     return metadataPrefix + Objects.toString(id) + ".info";
   }
 
-  private String buildChunkPartKey(UploadId id, int partNumber) {
+  private String buildChunkPartKey(UploadId id, int partNumber, long partSize) {
     return metadataPrefix
         + Objects.toString(id)
         + ".part."
-        + String.format("%05d-%s", partNumber, UUID.randomUUID().toString().substring(0, 8));
+        + String.format(
+            "%05d-%s_%d", partNumber, UUID.randomUUID().toString().substring(0, 8), partSize);
   }
 
   private static class AppendResult {
@@ -1852,7 +1848,7 @@ public class S3StorageService implements UploadStorageService {
       }
       String key = partKeys.get(index++);
       try {
-        return minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(key).build());
+        return S3Utils.getObjectInputStream(minioClient, bucket, key);
       } catch (Exception e) {
         throw new RuntimeException("Failed to read part " + key + " for streaming merge", e);
       }

@@ -4,18 +4,22 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import me.desair.tus.server.util.InterruptibleInputStream;
 import org.junit.Test;
 
 public class AbstractLeaseLockTest {
@@ -26,17 +30,15 @@ public class AbstractLeaseLockTest {
 
     public TestLeaseLock(
         LeaseData leaseData,
-        Map<String, InputStream> activeInputStreams,
-        String watchdogThreadName) {
-      super(leaseData, activeInputStreams, watchdogThreadName);
+        UploadId uploadId,
+        Map<UploadId, InputStream> activeInputStreams,
+        ScheduledExecutorService heartbeatExecutor) {
+      super(leaseData, uploadId, activeInputStreams, heartbeatExecutor);
     }
 
     public TestLeaseLock(
-        LeaseData leaseData,
-        Map<String, InputStream> activeInputStreams,
-        ScheduledExecutorService heartbeatExecutor,
-        String watchdogThreadName) {
-      super(leaseData, activeInputStreams, heartbeatExecutor, watchdogThreadName);
+        LeaseData leaseData, UploadId uploadId, Map<UploadId, InputStream> activeInputStreams) {
+      this(leaseData, uploadId, activeInputStreams, null);
     }
 
     @Override
@@ -52,11 +54,13 @@ public class AbstractLeaseLockTest {
 
   @Test
   public void testGettersAndSetters() {
+    UploadId uploadId = new UploadId("upload-1");
     LeaseData leaseData =
         new LeaseData("holder-1", "/files/upload-1", 30000L, 100000L, 50000L, "/path", "/stop");
-    TestLeaseLock lock = new TestLeaseLock(leaseData, null, null);
+    TestLeaseLock lock = new TestLeaseLock(leaseData, uploadId, null, null);
 
     assertThat(lock.getHolderId(), is("holder-1"));
+    assertThat(lock.getUploadId(), is(uploadId));
     assertThat(lock.getRequestUri(), is("/files/upload-1"));
     assertThat(lock.getUploadUri(), is("/files/upload-1"));
     assertThat(lock.getLeaseDurationMs(), is(30000L));
@@ -69,13 +73,19 @@ public class AbstractLeaseLockTest {
   }
 
   @Test
-  public void testActiveLockConstructorWithAutoWatchdog() throws Exception {
-    Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
-    activeStreams.put("/files/upload-3", new ByteArrayInputStream("test".getBytes()));
+  public void testActiveLockConstructorWithExecutor() throws Exception {
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    ScheduledFuture mockFuture = mock(ScheduledFuture.class);
+    when(mockExecutor.scheduleWithFixedDelay(any(), anyLong(), anyLong(), any()))
+        .thenReturn(mockFuture);
+
+    UploadId uploadId = new UploadId("upload-3");
+    Map<UploadId, InputStream> activeStreams = new ConcurrentHashMap<>();
+    activeStreams.put(uploadId, new ByteArrayInputStream("test".getBytes()));
 
     LeaseData leaseData =
         new LeaseData("holder-3", "/files/upload-3", 10000L, System.currentTimeMillis() + 10000L);
-    TestLeaseLock lock = new TestLeaseLock(leaseData, activeStreams, "test-watchdog");
+    TestLeaseLock lock = new TestLeaseLock(leaseData, uploadId, activeStreams, mockExecutor);
 
     assertThat(lock.getHolderId(), is("holder-3"));
     assertThat(lock.getLeaseDurationMs(), is(10000L));
@@ -91,69 +101,61 @@ public class AbstractLeaseLockTest {
     lock.release();
 
     assertTrue(lock.released.get());
-    assertFalse(activeStreams.containsKey("/files/upload-3"));
-  }
-
-  @Test
-  public void testActiveLockConstructorWithCustomExecutor() {
-    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
-    Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
-
-    LeaseData leaseData =
-        new LeaseData("holder-4", "/files/upload-4", 10000L, System.currentTimeMillis() + 10000L);
-    TestLeaseLock lock = new TestLeaseLock(leaseData, activeStreams, mockExecutor, "test-watchdog");
-
-    assertNotNull(lock);
-    lock.close();
-
-    verify(mockExecutor).shutdownNow();
-    assertTrue(lock.released.get());
+    assertFalse(activeStreams.containsKey(uploadId));
+    verify(mockFuture).cancel(true);
   }
 
   @Test
   public void testActiveLockConstructorWithZeroLeaseDurationDoesNotSchedule() {
+    UploadId uploadId = new UploadId("upload-5");
     LeaseData leaseData = new LeaseData("holder-5", "/files/upload-5", 0L, 0L);
-    TestLeaseLock lock = new TestLeaseLock(leaseData, null, "test-watchdog");
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    TestLeaseLock lock = new TestLeaseLock(leaseData, uploadId, null, mockExecutor);
 
     lock.close();
     assertTrue(lock.released.get());
+    org.mockito.Mockito.verifyNoInteractions(mockExecutor);
 
     LeaseData leaseData2 = new LeaseData("holder-5b", "/files/upload-5b", 10000L, 10000L);
-    TestLeaseLock lockNullWatchdog = new TestLeaseLock(leaseData2, null, null);
-    lockNullWatchdog.close();
-    assertTrue(lockNullWatchdog.released.get());
+    TestLeaseLock lockNullExecutor = new TestLeaseLock(leaseData2, uploadId, null, null);
+    lockNullExecutor.close();
+    assertTrue(lockNullExecutor.released.get());
   }
 
   @Test
-  public void testCloseWithNullStreamsOrNullUri() {
+  public void testCloseWithNullStreamsOrNullUploadId() {
+    UploadId uploadId = new UploadId("upload-6");
     LeaseData leaseData = new LeaseData("holder-6", "/files/upload-6", 10000L, 10000L);
-    TestLeaseLock lockNullStreams = new TestLeaseLock(leaseData, null, "test-watchdog");
+    TestLeaseLock lockNullStreams = new TestLeaseLock(leaseData, uploadId, null);
     lockNullStreams.close();
     assertTrue(lockNullStreams.released.get());
 
-    Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
-    LeaseData leaseDataNullUri = new LeaseData("holder-7", null, 10000L, 10000L);
-    TestLeaseLock lockNullUri = new TestLeaseLock(leaseDataNullUri, activeStreams, "test-watchdog");
-    lockNullUri.close();
-    assertTrue(lockNullUri.released.get());
+    Map<UploadId, InputStream> activeStreams = new ConcurrentHashMap<>();
+    LeaseData leaseDataNullId = new LeaseData("holder-7", null, 10000L, 10000L);
+    TestLeaseLock lockNullUploadId = new TestLeaseLock(leaseDataNullId, null, activeStreams);
+    lockNullUploadId.close();
+    assertTrue(lockNullUploadId.released.get());
   }
 
   @Test
-  public void testRenewLeaseFailureInterruptsActiveStreamAndShutsDownExecutor() {
+  public void testRenewLeaseFailureInterruptsActiveStreamAndCancelsHeartbeat() {
     ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
-    Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
+    ScheduledFuture mockFuture = mock(ScheduledFuture.class);
+    when(mockExecutor.scheduleWithFixedDelay(any(), anyLong(), anyLong(), any()))
+        .thenReturn(mockFuture);
+    UploadId uploadId = new UploadId("upload-failing");
+    Map<UploadId, InputStream> activeStreams = new ConcurrentHashMap<>();
 
-    me.desair.tus.server.util.InterruptibleInputStream stream =
-        new me.desair.tus.server.util.InterruptibleInputStream(
-            new ByteArrayInputStream("test".getBytes()));
-    activeStreams.put("/files/upload-failing", stream);
+    InterruptibleInputStream stream =
+        new InterruptibleInputStream(new ByteArrayInputStream("test".getBytes()));
+    activeStreams.put(uploadId, stream);
 
     LeaseData leaseData =
         new LeaseData(
             "holder-fail", "/files/upload-failing", 10000L, System.currentTimeMillis() - 1000L);
 
     TestLeaseLock lock =
-        new TestLeaseLock(leaseData, activeStreams, mockExecutor, "test-watchdog") {
+        new TestLeaseLock(leaseData, uploadId, activeStreams, mockExecutor) {
           @Override
           protected void doRenewLease() {
             throw new RuntimeException("Simulated S3 network failure during lease renewal");
@@ -161,29 +163,32 @@ public class AbstractLeaseLockTest {
         };
 
     // Trigger renewLease and verify that active streaming input stream was interrupted
-    // immediately to prevent un-locked writes, and heartbeat daemon stopped.
+    // immediately to prevent un-locked writes, and heartbeat daemon cancelled.
     lock.renewLease();
 
     assertTrue(stream.isInterrupted());
-    verify(mockExecutor).shutdownNow();
+    verify(mockFuture).cancel(true);
   }
 
   @Test
   public void testRenewLeaseTransientFailureDoesNotInterruptActiveStreamIfLeaseValid() {
     ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
-    Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
+    ScheduledFuture mockFuture = mock(ScheduledFuture.class);
+    when(mockExecutor.scheduleWithFixedDelay(any(), anyLong(), anyLong(), any()))
+        .thenReturn(mockFuture);
+    UploadId uploadId = new UploadId("upload-transient");
+    Map<UploadId, InputStream> activeStreams = new ConcurrentHashMap<>();
 
-    me.desair.tus.server.util.InterruptibleInputStream stream =
-        new me.desair.tus.server.util.InterruptibleInputStream(
-            new ByteArrayInputStream("test".getBytes()));
-    activeStreams.put("/files/upload-failing", stream);
+    InterruptibleInputStream stream =
+        new InterruptibleInputStream(new ByteArrayInputStream("test".getBytes()));
+    activeStreams.put(uploadId, stream);
 
     LeaseData leaseData =
         new LeaseData(
             "holder-fail", "/files/upload-failing", 10000L, System.currentTimeMillis() + 10000L);
 
     TestLeaseLock lock =
-        new TestLeaseLock(leaseData, activeStreams, mockExecutor, "test-watchdog") {
+        new TestLeaseLock(leaseData, uploadId, activeStreams, mockExecutor) {
           @Override
           protected void doRenewLease() {
             throw new RuntimeException("Simulated transient network glitch");
@@ -195,24 +200,28 @@ public class AbstractLeaseLockTest {
 
     org.junit.Assert.assertFalse(stream.isInterrupted());
     org.mockito.Mockito.verify(mockExecutor, org.mockito.Mockito.never()).shutdownNow();
+    org.mockito.Mockito.verify(mockFuture, org.mockito.Mockito.never()).cancel(true);
   }
 
   @Test
-  public void testRenewLeaseOwnershipLostInterruptsActiveStreamAndShutsDownExecutor() {
+  public void testRenewLeaseOwnershipLostInterruptsActiveStreamAndCancelsHeartbeat() {
     ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
-    Map<String, InputStream> activeStreams = new ConcurrentHashMap<>();
+    ScheduledFuture mockFuture = mock(ScheduledFuture.class);
+    when(mockExecutor.scheduleWithFixedDelay(any(), anyLong(), anyLong(), any()))
+        .thenReturn(mockFuture);
+    UploadId uploadId = new UploadId("upload-lost");
+    Map<UploadId, InputStream> activeStreams = new ConcurrentHashMap<>();
 
-    me.desair.tus.server.util.InterruptibleInputStream stream =
-        new me.desair.tus.server.util.InterruptibleInputStream(
-            new ByteArrayInputStream("test".getBytes()));
-    activeStreams.put("/files/upload-lost", stream);
+    InterruptibleInputStream stream =
+        new InterruptibleInputStream(new ByteArrayInputStream("test".getBytes()));
+    activeStreams.put(uploadId, stream);
 
     LeaseData leaseData =
         new LeaseData(
             "holder-lost", "/files/upload-lost", 10000L, System.currentTimeMillis() + 10000L);
 
     TestLeaseLock lock =
-        new TestLeaseLock(leaseData, activeStreams, mockExecutor, "test-watchdog") {
+        new TestLeaseLock(leaseData, uploadId, activeStreams, mockExecutor) {
           @Override
           protected void doRenewLease() {
             throw new IllegalStateException("Lease taken over by rival holder");
@@ -222,6 +231,6 @@ public class AbstractLeaseLockTest {
     lock.renewLease();
 
     assertTrue(stream.isInterrupted());
-    verify(mockExecutor).shutdownNow();
+    verify(mockFuture).cancel(true);
   }
 }

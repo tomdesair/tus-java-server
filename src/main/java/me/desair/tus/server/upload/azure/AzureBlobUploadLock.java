@@ -1,13 +1,17 @@
 package me.desair.tus.server.upload.azure;
 
+import com.azure.core.util.Context;
 import com.azure.storage.blob.BlobClient;
+import com.azure.storage.blob.models.BlobRequestConditions;
 import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.blob.models.DeleteSnapshotsOptionType;
 import com.azure.storage.blob.specialized.BlobLeaseClient;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -32,11 +36,12 @@ public class AzureBlobUploadLock implements UploadLock {
 
   private final BlobLeaseClient leaseClient;
   private final BlobClient lockBlob;
+  private final BlobClient stopBlob;
   private final String uploadUri;
   private final String uploadId;
   private final Map<String, WeakReference<InterruptibleInputStream>> activeStreams;
   private final Map<String, AzureBlobUploadLock> activeLocks;
-  private final ScheduledExecutorService renewalExecutor;
+  private final ScheduledFuture<?> renewalTask;
   private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
   private boolean released = false;
   private boolean blobDeleted = false;
@@ -137,30 +142,51 @@ public class AzureBlobUploadLock implements UploadLock {
       String uploadId,
       Map<String, WeakReference<InterruptibleInputStream>> activeStreams,
       Map<String, AzureBlobUploadLock> activeLocks) {
+    this(
+        leaseClient,
+        lockBlob,
+        null,
+        uploadUri,
+        renewalExecutor,
+        uploadId,
+        activeStreams,
+        activeLocks);
+  }
+
+  AzureBlobUploadLock(
+      BlobLeaseClient leaseClient,
+      BlobClient lockBlob,
+      BlobClient stopBlob,
+      String uploadUri,
+      ScheduledExecutorService renewalExecutor,
+      String uploadId,
+      Map<String, WeakReference<InterruptibleInputStream>> activeStreams,
+      Map<String, AzureBlobUploadLock> activeLocks) {
     this.leaseClient = leaseClient;
     this.lockBlob = lockBlob;
+    this.stopBlob = stopBlob;
     this.uploadUri = Objects.requireNonNull(uploadUri, "uploadUri must not be null");
     this.uploadId = uploadId;
     this.activeStreams = activeStreams;
     this.activeLocks = activeLocks;
 
     if (renewalExecutor != null) {
-      this.renewalExecutor = renewalExecutor;
-    } else if (leaseClient != null) {
-      // Initialize background daemon thread to renew lease periodically during upload
-      this.renewalExecutor =
-          Utils.scheduleWatchdog(
-              "azure-lease-renewal-" + uploadUri,
+      this.renewalTask =
+          renewalExecutor.scheduleWithFixedDelay(
               this::renewLease,
               RENEWAL_INTERVAL_SECONDS,
               RENEWAL_INTERVAL_SECONDS,
               TimeUnit.SECONDS);
     } else {
-      this.renewalExecutor = null;
+      this.renewalTask = null;
     }
   }
 
-  private static final long LEASE_DURATION_MS = 60000L;
+  // Azure Blob leases have a 30-second duration on the server. We track local expiration as
+  // 28 seconds (30s minus a 2s clock-drift safety margin) so that if connectivity to Azure is lost
+  // or renewal requests fail, we treat the lease as expired before Azure expires the lease on the
+  // server and grants it to another contender, preventing split-brain concurrent writes.
+  private static final long LEASE_DURATION_MS = 28000L;
   private long leaseExpiresAt = System.currentTimeMillis() + LEASE_DURATION_MS;
 
   BlobLeaseClient getLeaseClient() {
@@ -216,10 +242,13 @@ public class AzureBlobUploadLock implements UploadLock {
     } catch (Exception e) {
       boolean leaseLost = false;
       if (e instanceof BlobStorageException) {
-        AzureErrorType errorType = AzureUtils.parseErrorResponse((BlobStorageException) e);
+        BlobStorageException bse = (BlobStorageException) e;
+        AzureErrorType errorType = AzureUtils.parseErrorResponse(bse);
         if (errorType == AzureErrorType.LEASE_ALREADY_PRESENT
             || errorType == AzureErrorType.LEASE_NOT_PRESENT
-            || errorType == AzureErrorType.CONFLICT) {
+            || errorType == AzureErrorType.CONFLICT
+            || bse.getStatusCode() == 409
+            || bse.getStatusCode() == 412) {
           leaseLost = true;
         }
       }
@@ -243,7 +272,7 @@ public class AzureBlobUploadLock implements UploadLock {
         } finally {
           thisObjectLock.writeLock().unlock();
         }
-        shutdownExecutor();
+        cancelRenewalTask();
         // If lease renewal fails definitively, abort any active input stream immediately
         // so the upload thread does not continue writing un-locked data to Azure.
         if (activeStreams != null && uploadId != null) {
@@ -282,7 +311,7 @@ public class AzureBlobUploadLock implements UploadLock {
     } finally {
       thisObjectLock.writeLock().unlock();
     }
-    shutdownExecutor();
+    cancelRenewalTask();
     // Remove active stream and lock registrations from service maps upon release
     // to avoid stale references lingering in heap.
     if (activeStreams != null && uploadId != null) {
@@ -298,16 +327,52 @@ public class AzureBlobUploadLock implements UploadLock {
     } finally {
       thisObjectLock.readLock().unlock();
     }
-    if (leaseClient != null && !alreadyDeleted) {
+
+    // Atomically delete the lock blob using the active lease ID. This guarantees that:
+    // 1. The lock blob is cleaned up immediately with a single HTTP round-trip (no leftover locks).
+    // 2. We are fenced against stale takeovers via Azure server-side condition (412
+    // LeaseIdMismatch).
+    // 3. If deletion fails for any reason, we fall back to releasing the lease cleanly.
+    if (leaseClient != null && !alreadyDeleted && lockBlob != null) {
       try {
-        leaseClient.releaseLease();
-        log.trace("Released Azure blob lease for upload URI {}", uploadUri);
+        lockBlob.deleteWithResponse(
+            DeleteSnapshotsOptionType.INCLUDE,
+            new BlobRequestConditions().setLeaseId(leaseClient.getLeaseId()),
+            null,
+            Context.NONE);
+        log.trace("Deleted Azure lock blob for upload URI {}", uploadUri);
+      } catch (BlobStorageException e) {
+        if (e.getStatusCode() != 404) {
+          log.debug(
+              "Azure lock blob delete failed (falling back to releaseLease) for URI {}: {}",
+              uploadUri,
+              e.getMessage());
+          fallbackReleaseLease();
+        }
       } catch (Exception e) {
         log.debug(
-            "Azure blob lease release failed (may have already expired/broken) for URI {}: {}",
+            "Azure lock blob delete failed (falling back to releaseLease) for URI {}: {}",
             uploadUri,
             e.getMessage());
+        fallbackReleaseLease();
       }
+    }
+
+    AzureUtils.deleteBlobQuietly(stopBlob);
+  }
+
+  void fallbackReleaseLease() {
+    try {
+      executeReleaseLease();
+    } catch (Exception ex) {
+      log.debug("Fallback releaseLease failed for URI {}: {}", uploadUri, ex.getMessage());
+    }
+  }
+
+  /** Performs the actual lease release network call against Azure SDK. */
+  void executeReleaseLease() {
+    if (leaseClient != null) {
+      leaseClient.releaseLease();
     }
   }
 
@@ -321,8 +386,10 @@ public class AzureBlobUploadLock implements UploadLock {
     return uploadUri;
   }
 
-  /** Shuts down the renewal executor cleanly. */
-  private void shutdownExecutor() {
-    Utils.shutdownExecutor(renewalExecutor);
+  /** Cancels the periodic lease renewal task. */
+  private void cancelRenewalTask() {
+    if (renewalTask != null) {
+      renewalTask.cancel(true);
+    }
   }
 }

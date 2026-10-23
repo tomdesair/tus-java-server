@@ -28,6 +28,7 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
@@ -2842,6 +2843,74 @@ public abstract class AbstractITTusFileUploadService {
     servletRequest.setRequestURI(child2Uri);
     tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
     assertResponseStatus(HttpServletResponse.SC_NOT_FOUND);
+  }
+
+  @Test
+  public void testChecksumIndexChildRegistrationEndToEnd() throws Exception {
+    tusFileUploadService.withUploadDeduplication(true);
+
+    String content = "Test Child Index Registration " + UUID.randomUUID();
+    byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+    String sha1Base64 =
+        org.apache.commons.codec.binary.Base64.encodeBase64String(
+            org.apache.commons.codec.digest.DigestUtils.sha1(contentBytes));
+
+    // 1. Create and complete parent upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String parentUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(parentUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo parentInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(parentInfo);
+    assertNull(parentInfo.getDuplicatesUploadId());
+
+    // 2. Create and complete child upload
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, contentBytes.length);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String childUri = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    reset();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(childUri);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+    servletRequest.addHeader(HttpHeader.UPLOAD_CHECKSUM, "sha1 " + sha1Base64);
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.setContent(contentBytes);
+    UploadInfo childInfo = tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(childInfo);
+    assertEquals(parentInfo.getId(), childInfo.getDuplicatesUploadId());
+
+    // 3. Verify getUploadInfoByChecksum retrieves the parent
+    UploadInfo found =
+        tusFileUploadService
+            .getUploadStorageService()
+            .getUploadInfoByChecksum(
+                org.apache.commons.codec.digest.DigestUtils.sha1Hex(contentBytes),
+                ChecksumAlgorithm.SHA1);
+    assertNotNull(found);
+    assertEquals(parentInfo.getId(), found.getId());
   }
 
   @Test

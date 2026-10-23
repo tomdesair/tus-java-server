@@ -1,24 +1,16 @@
 package me.desair.tus.server.upload.s3;
 
-import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import io.minio.RemoveObjectArgs;
-import io.minio.RemoveObjectsArgs;
-import io.minio.Result;
 import io.minio.errors.ErrorResponseException;
-import io.minio.messages.DeleteRequest;
-import io.minio.messages.DeleteResult;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.util.List;
+import java.util.Arrays;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import me.desair.tus.server.upload.AbstractLeaseLock;
 import me.desair.tus.server.upload.LeaseData;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import org.apache.commons.lang3.Strings;
@@ -46,6 +38,7 @@ public class S3UploadLock extends AbstractLeaseLock {
    * daemon.
    *
    * @param leaseData The lease metadata
+   * @param uploadId The upload identifier associated with this lock
    * @param minioClient The MinIO client
    * @param bucket The S3 bucket
    * @param lockKey The S3 object key for the lock lease
@@ -54,23 +47,25 @@ public class S3UploadLock extends AbstractLeaseLock {
    */
   S3UploadLock(
       LeaseData leaseData,
+      UploadId uploadId,
       MinioClient minioClient,
       String bucket,
       String lockKey,
       String stopKey,
-      Map<String, InputStream> inputStreamMap) {
-    this(leaseData, minioClient, bucket, lockKey, stopKey, inputStreamMap, null);
+      Map<UploadId, InputStream> inputStreamMap) {
+    this(leaseData, uploadId, minioClient, bucket, lockKey, stopKey, inputStreamMap, null);
   }
 
   S3UploadLock(
       LeaseData leaseData,
+      UploadId uploadId,
       MinioClient minioClient,
       String bucket,
       String lockKey,
       String stopKey,
-      Map<String, InputStream> inputStreamMap,
+      Map<UploadId, InputStream> inputStreamMap,
       ScheduledExecutorService heartbeatExecutor) {
-    super(leaseData, inputStreamMap, heartbeatExecutor, "s3-lock-heartbeat");
+    super(leaseData, uploadId, inputStreamMap, heartbeatExecutor);
     this.minioClient = minioClient;
     this.bucket = bucket;
     this.lockKey = lockKey;
@@ -112,11 +107,15 @@ public class S3UploadLock extends AbstractLeaseLock {
 
   @Override
   protected void releaseLockResource() {
-    // Owner-Safe Lock Release: only delete .lock lease if it is still owned by this holder.
-    // If ownership was stolen by another node (e.g. heartbeat lost or execution ran too long),
-    // skip deletion entirely so we do not delete another node's lock or any stop signal
-    // potentially intended for that new holder.
-    if (lockKey != null && !doesLockOwnershipMatch(lockKey)) {
+    // Fast-path lock release: if the local lease is still well within its validity window
+    // (taking into account the 2000ms clock skew buffer), we know no other node could have
+    // evicted or acquired it. We can skip the expensive remote GET check, saving 1 network
+    // round trip on normal requests.
+    // Only if local execution ran beyond the lease TTL do we verify remote ownership to
+    // prevent deleting a successor node's lock.
+    if (lockKey != null
+        && getLeaseData().isExpired(System.currentTimeMillis(), -2_000L)
+        && !doesLockOwnershipMatch(lockKey)) {
       log.info(
           "Skipping deletion of S3 lock key {}: lock is currently held by another node", lockKey);
       return;
@@ -129,101 +128,42 @@ public class S3UploadLock extends AbstractLeaseLock {
   }
 
   void deleteS3Objects(String firstKey, String secondKey) {
-    if (minioClient == null || bucket == null) {
-      return;
-    }
-    List<String> keysToDelete =
-        Stream.of(firstKey, secondKey).filter(Objects::nonNull).collect(Collectors.toList());
-    if (keysToDelete.isEmpty()) {
-      return;
-    }
-
-    boolean batchFailed = false;
-    List<DeleteRequest.Object> objects =
-        keysToDelete.stream().map(DeleteRequest.Object::new).collect(Collectors.toList());
-
-    try {
-      // First attempt fast S3 Multi-Object Delete (POST /?delete) in a single round trip.
-      // Supported by MinIO and compliant S3 endpoints where bucket policies permit multi-delete.
-      Iterable<Result<DeleteResult.Error>> results =
-          minioClient.removeObjects(
-              RemoveObjectsArgs.builder().bucket(bucket).objects(objects).build());
-      if (results != null) {
-        for (Result<DeleteResult.Error> result : results) {
-          try {
-            if (result != null) {
-              DeleteResult.Error error = result.get();
-              if (error != null) {
-                // S3 returned an error for an object (e.g. AccessDenied on multi-delete POST
-                // /?delete)
-                log.debug(
-                    "Batch delete reported error for S3 object {}: {}; falling back to individual"
-                        + " delete",
-                    error.objectName(),
-                    error.message());
-                batchFailed = true;
-                break;
-              }
-            }
-          } catch (Exception e) {
-            log.debug(
-                "Exception iterating batch delete results; falling back to individual delete", e);
-            batchFailed = true;
-            break;
-          }
-        }
-      }
-    } catch (Exception e) {
-      log.debug(
-          "Batch multi-delete failed for keys {}; falling back to individual single-object DELETE",
-          keysToDelete,
-          e);
-      batchFailed = true;
-    }
-
-    // Fall back to resilient individual single-object DELETE calls (DELETE /bucket/key).
-    // Standard AWS IAM policies often grant s3:DeleteObject exclusively on arn:aws:s3:::bucket/*,
-    // which allows individual object deletions while rejecting bucket-level multi-object delete.
-    if (batchFailed) {
-      for (String key : keysToDelete) {
-        deleteSingleObject(key);
-      }
-    }
+    S3Utils.deleteS3ObjectsQuietly(minioClient, bucket, Arrays.asList(firstKey, secondKey));
   }
 
   void deleteSingleObject(String key) {
-    if (minioClient == null || bucket == null || key == null) {
-      return;
-    }
-    try {
-      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
-    } catch (Exception e) {
-      log.warn("Failed to delete S3 lock object key {} in bucket {}", key, bucket, e);
-    }
+    S3Utils.deleteS3ObjectQuietly(minioClient, bucket, key);
   }
 
   /**
    * Verifies that the S3 lock object is still owned by this lock holder.
    *
+   * <p>Fail-closed split-brain protection: returns {@code true} only when the remote lock object
+   * exists and its holder ID matches this lock holder. On missing object, null data, S3 error, or
+   * network failure, returns {@code false} so a partitioned node cannot overwrite or delete a lock
+   * whose ownership it cannot confirm.
+   *
    * @param key The S3 lock object key
-   * @return {@code true} if the lock object is missing or owned by this holder; {@code false} if
-   *     owned by a different holder or arguments are invalid
+   * @return {@code true} if the lock object exists and matches this holder's ID; {@code false}
+   *     otherwise
    */
   boolean doesLockOwnershipMatch(String key) {
     if (key == null || minioClient == null || bucket == null) {
       return false;
     }
-    try (InputStream stream =
-        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(key).build())) {
+    try (InputStream stream = S3Utils.getObjectInputStream(minioClient, bucket, key)) {
       LeaseData remoteLock = LeaseDataJsonSerializer.deserialize(stream);
-      if (remoteLock != null && !Strings.CS.equals(remoteLock.getHolderId(), getHolderId())) {
-        return false;
-      }
+      return remoteLock != null && Strings.CS.equals(remoteLock.getHolderId(), getHolderId());
     } catch (ErrorResponseException e) {
-      // Object is already gone or missing, safe to proceed
+      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
+        log.debug("S3 lock object {} does not exist, ownership cannot match", key);
+      } else {
+        log.warn("S3 error checking lock ownership for key {}: {}", key, e.getMessage());
+      }
+      return false;
     } catch (Exception e) {
-      log.debug("Error checking lock ownership for S3 key {}", key, e);
+      log.warn("Error checking lock ownership for S3 key {}", key, e);
+      return false;
     }
-    return true;
   }
 }

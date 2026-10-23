@@ -36,7 +36,6 @@ public class NoOpUploadLockingServiceTest {
 
     // KISS: verifying method executes cleanly without throwing an exception
     service.cleanupStaleLocks();
-    service.cleanupLock(id);
     service.registerInputStream("/files/123", new ByteArrayInputStream(new byte[0]));
     service.requestLockRelease("/files/123");
     service.setIdFactory(new UuidUploadIdFactory());

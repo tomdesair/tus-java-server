@@ -48,7 +48,7 @@ public class FileBasedLock implements UploadLock {
     try {
       // Try to acquire a lock
       fileChannel = createFileChannel();
-      FileLock fileLock = Utils.lockFileExclusively(fileChannel);
+      FileLock fileLock = DiskUtils.lockFileExclusively(fileChannel);
 
       // If the upload is already locked, our lock will be null
       if (fileLock == null) {
@@ -92,9 +92,12 @@ public class FileBasedLock implements UploadLock {
   @Override
   public void release() {
     try {
-      // Closing the channel will also release the lock
-      fileChannel.close();
+      // On POSIX, delete the path before closing the channel so contenders do not lock an inode
+      // about to be unlinked.
       Utils.deletePathQuietly(lockPath);
+      if (fileChannel != null) {
+        fileChannel.close();
+      }
     } catch (IOException e) {
       log.warn("Unable to release file lock for URI " + getUploadUri(), e);
     }

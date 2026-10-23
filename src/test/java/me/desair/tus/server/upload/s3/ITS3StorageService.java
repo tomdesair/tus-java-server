@@ -17,6 +17,8 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import me.desair.tus.server.TestUtils;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.IOUtils;
@@ -264,6 +266,53 @@ public class ITS3StorageService {
     // Verify both the parent pointer and tombstone marker are pruned from S3
     assertFalse(objectExists(parentKey));
     assertFalse(objectExists(parentDeletedKey));
+  }
+
+  @Test
+  public void testS3ChecksumIndexDirectly() throws Exception {
+    S3ChecksumIndex index = new S3ChecksumIndex(minioClient, BUCKET, "test-checksums");
+    ChecksumKey key =
+        ChecksumKey.of("1122334455667788990011223344556677889900", ChecksumAlgorithm.SHA1);
+    UploadId parentId = new UploadId("parent-upload-id");
+    UploadId competingId = new UploadId("competing-upload-id");
+
+    // 1. Initial lookup returns null
+    assertNull(index.findParent(key));
+    assertFalse(index.isParentDeleted(key));
+    assertFalse(index.hasChildren(key));
+
+    // 2. First registration succeeds
+    assertTrue(index.tryRegisterParent(key, parentId));
+    assertEquals(parentId, index.findParent(key));
+
+    // 3. Second registration fails due to CAS (precondition failed) or duplicate parent
+    assertFalse(index.tryRegisterParent(key, competingId));
+    assertEquals(parentId, index.findParent(key));
+
+    // 4. Add and remove child
+    UploadId childId = new UploadId("child-upload-id");
+    index.addChild(key, childId);
+    assertTrue(index.hasChildren(key));
+    index.removeChild(key, childId);
+    assertFalse(index.hasChildren(key));
+
+    // 5. Mark parent deleted (preserves parent file for active children and new joiners)
+    index.markParentDeleted(key);
+    assertTrue(index.isParentDeleted(key));
+    assertEquals(parentId, index.findParent(key));
+
+    // 6. Registration after tombstone returns false
+    assertFalse(index.tryRegisterParent(key, competingId));
+
+    // 7. Empty parent object returns null
+    ChecksumKey emptyKey =
+        ChecksumKey.of("2233445566778899001122334455667788990011", ChecksumAlgorithm.SHA1);
+    putObject("test-checksums/sha1/2233445566778899001122334455667788990011/parent", new byte[0]);
+    assertNull(index.findParent(emptyKey));
+
+    // 8. Delete entire index
+    index.deleteIndex(key);
+    assertNull(index.findParent(key));
   }
 
   private void putObject(String objectKey, byte[] data) throws Exception {

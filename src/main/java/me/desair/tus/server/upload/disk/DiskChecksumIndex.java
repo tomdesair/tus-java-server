@@ -17,7 +17,6 @@ import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.checksum.ChecksumIndex;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.io.FileUtils;
 
 /**
  * Disk-based implementation of {@link ChecksumIndex}.
@@ -152,7 +151,7 @@ public class DiskChecksumIndex implements ChecksumIndex {
     Objects.requireNonNull(key, "key must not be null");
     Path checksumDir = getChecksumDir(key);
     if (Files.exists(checksumDir)) {
-      FileUtils.deleteDirectory(checksumDir.toFile());
+      DiskUtils.deleteDirectoryQuietly(checksumDir);
     }
   }
 
@@ -194,21 +193,17 @@ public class DiskChecksumIndex implements ChecksumIndex {
   }
 
   private Path getChecksumDir(ChecksumKey key) {
-    Path path = storagePath.resolve(key.toString());
-    if (!path.normalize().toAbsolutePath().startsWith(storagePath.normalize().toAbsolutePath())) {
-      throw new IllegalArgumentException(
-          "Checksum key is not valid and would result in a path traversal");
-    }
-    return path;
+    return DiskUtils.resolveSafePath(
+        storagePath,
+        key.toString(),
+        "Checksum key is not valid and would result in a path traversal");
   }
 
   private Path getChildMarker(Path childrenDir, UploadId childId) {
     Objects.requireNonNull(childId, "childId must not be null");
-    Path path = childrenDir.resolve(childId.toString());
-    if (!path.normalize().toAbsolutePath().startsWith(childrenDir.normalize().toAbsolutePath())) {
-      throw new IllegalArgumentException(
-          "Child upload ID is not valid and would result in a path traversal");
-    }
-    return path;
+    return DiskUtils.resolveSafePath(
+        childrenDir,
+        childId.toString(),
+        "Child upload ID is not valid and would result in a path traversal");
   }
 }

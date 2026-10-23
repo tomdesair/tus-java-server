@@ -195,6 +195,11 @@ To maintain a clear separation between fast, offline unit tests and containerize
 - Whenever acquiring an `UploadLock` (e.g. via `lockingService.lockUpload(uploadId)` or `lockingService.lockUploadByUri(uri)`), always manage the lock lifecycle using a `try-with-resources` block (e.g. `try (UploadLock lock = lockingService.lockUpload(id)) { ... }`).
 - This guarantees timely and reliable lock release upon normal completion or abrupt exceptions without requiring verbose and error-prone `try ... finally { if (lock != null) lock.release(); }` boilerplates.
 
+### 25. UploadLock Cleanup & Non-Null UploadLockingService Invariant
+- For all storage backends (Disk, S3, Azure), `terminateUpload` strictly manages storage resources (data, metadata, deduplication index) and does not perform lock cleanup. Active uploads are protected by an `UploadLock` whose close/release handle cleans up the active lock upon completion.
+- Across all storage backends, `cleanupExpiredUploads()` explicitly calls `uploadLockingService.cleanupLock(uploadId)` to remove orphaned locks and stale index entries.
+- `uploadLockingService` is guaranteed to never be null across storage backends (storage services initialize or fallback to default locking via `Utils.getLockingServiceOrDefault(uploadLockingService)`). Do NOT introduce redundant `if (uploadLockingService != null)` guard checks.
+
 
 ## IETF Resumable Uploads for HTTP (RUFH) Spec Maintenance & Update Playbook
 

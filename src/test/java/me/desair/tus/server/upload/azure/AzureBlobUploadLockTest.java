@@ -2,7 +2,11 @@ package me.desair.tus.server.upload.azure;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.azure.core.http.HttpHeaders;
@@ -15,6 +19,7 @@ import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.specialized.BlobLeaseClient;
 import com.azure.storage.blob.specialized.BlobLeaseClientBuilder;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -56,13 +61,19 @@ public class AzureBlobUploadLockTest {
   @Test
   public void testLockGettersAndReleaseWithExecutor() throws Exception {
     ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    ScheduledFuture<?> mockFuture = mock(ScheduledFuture.class);
+    doReturn(mockFuture)
+        .when(mockExecutor)
+        .scheduleWithFixedDelay(any(), anyLong(), anyLong(), any());
+
     AzureBlobUploadLock lock =
         new AzureBlobUploadLock(null, null, "/test/upload/12345", mockExecutor);
 
     assertEquals("/test/upload/12345", lock.getUploadUri());
 
     lock.release();
-    verify(mockExecutor).shutdownNow();
+    verify(mockFuture).cancel(true);
+    verify(mockExecutor, never()).shutdownNow();
 
     // Secondary release or close should be idempotent
     lock.release();
@@ -119,6 +130,10 @@ public class AzureBlobUploadLockTest {
   @Test
   public void testRenewLeaseFailureInterruptsActiveStream() {
     ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    ScheduledFuture<?> mockFuture = mock(ScheduledFuture.class);
+    doReturn(mockFuture)
+        .when(mockExecutor)
+        .scheduleWithFixedDelay(any(), anyLong(), anyLong(), any());
     java.util.Map<
             String, java.lang.ref.WeakReference<me.desair.tus.server.util.InterruptibleInputStream>>
         activeStreams = new java.util.concurrent.ConcurrentHashMap<>();
@@ -150,7 +165,8 @@ public class AzureBlobUploadLockTest {
 
     org.junit.Assert.assertTrue(stream.isInterrupted());
     org.junit.Assert.assertFalse(activeStreams.containsKey("upload-failing"));
-    verify(mockExecutor).shutdownNow();
+    verify(mockFuture).cancel(true);
+    verify(mockExecutor, never()).shutdownNow();
   }
 
   @Test
@@ -191,6 +207,10 @@ public class AzureBlobUploadLockTest {
   @Test
   public void testRenewLeaseLostInterruptsActiveStream() {
     ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    ScheduledFuture<?> mockFuture = mock(ScheduledFuture.class);
+    doReturn(mockFuture)
+        .when(mockExecutor)
+        .scheduleWithFixedDelay(any(), anyLong(), anyLong(), any());
     java.util.Map<
             String, java.lang.ref.WeakReference<me.desair.tus.server.util.InterruptibleInputStream>>
         activeStreams = new java.util.concurrent.ConcurrentHashMap<>();
@@ -225,12 +245,17 @@ public class AzureBlobUploadLockTest {
 
     org.junit.Assert.assertTrue(stream.isInterrupted());
     org.junit.Assert.assertFalse(activeStreams.containsKey("upload-lost"));
-    verify(mockExecutor).shutdownNow();
+    verify(mockFuture).cancel(true);
+    verify(mockExecutor, never()).shutdownNow();
   }
 
   @Test
   public void testRenewLeaseConflictErrorInterruptsStream() {
     ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    ScheduledFuture<?> mockFuture = mock(ScheduledFuture.class);
+    doReturn(mockFuture)
+        .when(mockExecutor)
+        .scheduleWithFixedDelay(any(), anyLong(), anyLong(), any());
     java.util.Map<
             String, java.lang.ref.WeakReference<me.desair.tus.server.util.InterruptibleInputStream>>
         activeStreams = new java.util.concurrent.ConcurrentHashMap<>();
@@ -267,12 +292,17 @@ public class AzureBlobUploadLockTest {
 
     org.junit.Assert.assertTrue(stream.isInterrupted());
     org.junit.Assert.assertFalse(activeStreams.containsKey("upload-conflict"));
-    verify(mockExecutor).shutdownNow();
+    verify(mockFuture).cancel(true);
+    verify(mockExecutor, never()).shutdownNow();
   }
 
   @Test
   public void testRenewLeaseLostWithoutActiveStreamHandlesCleanly() {
     ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    ScheduledFuture<?> mockFuture = mock(ScheduledFuture.class);
+    doReturn(mockFuture)
+        .when(mockExecutor)
+        .scheduleWithFixedDelay(any(), anyLong(), anyLong(), any());
 
     // activeStreams and uploadId both null
     AzureBlobUploadLock lockWithoutStreams =
@@ -285,13 +315,18 @@ public class AzureBlobUploadLockTest {
 
     lockWithoutStreams.setLeaseExpiresAt(System.currentTimeMillis() - 1000L);
     lockWithoutStreams.renewLease();
-    verify(mockExecutor).shutdownNow();
+    verify(mockFuture).cancel(true);
+    verify(mockExecutor, never()).shutdownNow();
 
     // activeStreams present but no stream registered for uploadId
     java.util.Map<
             String, java.lang.ref.WeakReference<me.desair.tus.server.util.InterruptibleInputStream>>
         activeStreams = new java.util.concurrent.ConcurrentHashMap<>();
     ScheduledExecutorService mockExecutor2 = mock(ScheduledExecutorService.class);
+    ScheduledFuture<?> mockFuture2 = mock(ScheduledFuture.class);
+    doReturn(mockFuture2)
+        .when(mockExecutor2)
+        .scheduleWithFixedDelay(any(), anyLong(), anyLong(), any());
 
     AzureBlobUploadLock lockWithEmptyStreams =
         new AzureBlobUploadLock(
@@ -304,7 +339,8 @@ public class AzureBlobUploadLockTest {
 
     lockWithEmptyStreams.setLeaseExpiresAt(System.currentTimeMillis() - 1000L);
     lockWithEmptyStreams.renewLease();
-    verify(mockExecutor2).shutdownNow();
+    verify(mockFuture2).cancel(true);
+    verify(mockExecutor2, never()).shutdownNow();
   }
 
   @Test
@@ -337,5 +373,188 @@ public class AzureBlobUploadLockTest {
 
     // Verify activeLocks is cleared
     org.junit.Assert.assertFalse(activeLocks.containsKey("lock-deleted-test"));
+  }
+
+  @Test
+  public void testConstructors5ArgAnd6Arg() {
+    AzureBlobUploadLock lock5 =
+        new AzureBlobUploadLock(
+            leaseClient,
+            lockBlob,
+            "/test/upload/5",
+            "5",
+            new java.util.concurrent.ConcurrentHashMap<>());
+    assertNotNull(lock5);
+
+    AzureBlobUploadLock lock6 =
+        new AzureBlobUploadLock(
+            leaseClient,
+            lockBlob,
+            "/test/upload/6",
+            "6",
+            new java.util.concurrent.ConcurrentHashMap<>(),
+            new java.util.concurrent.ConcurrentHashMap<>());
+    assertNotNull(lock6);
+  }
+
+  @Test
+  public void testReleaseLockResourceBlobStorageExceptionFallbackToReleaseLease() {
+    BlobClient mockBlob = mock(BlobClient.class);
+    BlobClient mockStopBlob = mock(BlobClient.class);
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+
+    HttpResponse response = mock(HttpResponse.class);
+    org.mockito.Mockito.when(response.getStatusCode()).thenReturn(500);
+    BlobStorageException bse = new BlobStorageException("Server error", response, null);
+    org.mockito.Mockito.doThrow(bse).when(mockBlob).deleteWithResponse(any(), any(), any(), any());
+
+    boolean[] fallbackCalled = new boolean[] {false};
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            leaseClient,
+            mockBlob,
+            mockStopBlob,
+            "/test/upload/fallback-test",
+            mockExecutor,
+            "fallback-test",
+            null,
+            null) {
+          @Override
+          void fallbackReleaseLease() {
+            fallbackCalled[0] = true;
+          }
+        };
+
+    lock.release();
+    org.junit.Assert.assertTrue(fallbackCalled[0]);
+    verify(mockStopBlob).deleteIfExists();
+  }
+
+  @Test
+  public void testReleaseLockResourceGenericExceptionFallbackToReleaseLease() {
+    BlobClient mockBlob = mock(BlobClient.class);
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+
+    org.mockito.Mockito.doThrow(new RuntimeException("Network error"))
+        .when(mockBlob)
+        .deleteWithResponse(any(), any(), any(), any());
+
+    boolean[] fallbackCalled = new boolean[] {false};
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            leaseClient,
+            mockBlob,
+            "/test/upload/generic-fallback",
+            mockExecutor,
+            "generic-fallback",
+            null,
+            null) {
+          @Override
+          void fallbackReleaseLease() {
+            fallbackCalled[0] = true;
+          }
+        };
+
+    lock.release();
+    org.junit.Assert.assertTrue(fallbackCalled[0]);
+  }
+
+  @Test
+  public void testReleaseLockResourceBlobStorageException404DoesNotFallback() {
+    BlobClient mockBlob = mock(BlobClient.class);
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+
+    HttpResponse response = mock(HttpResponse.class);
+    org.mockito.Mockito.when(response.getStatusCode()).thenReturn(404);
+    BlobStorageException bse = new BlobStorageException("Not found", response, null);
+    org.mockito.Mockito.doThrow(bse).when(mockBlob).deleteWithResponse(any(), any(), any(), any());
+
+    boolean[] fallbackCalled = new boolean[] {false};
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            leaseClient, mockBlob, "/test/upload/404-test", mockExecutor, "404-test", null, null) {
+          @Override
+          void fallbackReleaseLease() {
+            fallbackCalled[0] = true;
+          }
+        };
+
+    lock.release();
+    org.junit.Assert.assertFalse(fallbackCalled[0]);
+  }
+
+  @Test
+  public void testRenewLeaseStatus412InterruptsStream() {
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    java.util.Map<
+            String, java.lang.ref.WeakReference<me.desair.tus.server.util.InterruptibleInputStream>>
+        activeStreams = new java.util.concurrent.ConcurrentHashMap<>();
+
+    me.desair.tus.server.util.InterruptibleInputStream stream =
+        new me.desair.tus.server.util.InterruptibleInputStream(
+            new java.io.ByteArrayInputStream("test".getBytes()));
+    activeStreams.put("upload-412", new java.lang.ref.WeakReference<>(stream));
+
+    HttpResponse response = mock(HttpResponse.class);
+    org.mockito.Mockito.when(response.getStatusCode()).thenReturn(412);
+    BlobStorageException status412Ex =
+        new BlobStorageException("Precondition failed", response, null);
+
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            null, null, "/test/upload/upload-412", mockExecutor, "upload-412", activeStreams) {
+          @Override
+          void executeRenew() {
+            throw status412Ex;
+          }
+        };
+
+    lock.setLeaseExpiresAt(System.currentTimeMillis() + 30000L);
+    lock.renewLease();
+
+    org.junit.Assert.assertTrue(stream.isInterrupted());
+    org.junit.Assert.assertFalse(activeStreams.containsKey("upload-412"));
+  }
+
+  @Test
+  public void testFallbackReleaseLeaseWhenLeaseClientNull() {
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            null, null, "/test/upload/fallback-null", (ScheduledExecutorService) null, null, null);
+    // KISS: leaseClient is null, verifies method executes cleanly without network calls
+    lock.fallbackReleaseLease();
+    assertNotNull(lock);
+  }
+
+  @Test
+  public void testFallbackReleaseLeaseWhenLeaseClientThrows() {
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            null,
+            null,
+            "/test/upload/fallback-throw",
+            (ScheduledExecutorService) null,
+            null,
+            null) {
+          @Override
+          void executeReleaseLease() {
+            throw new RuntimeException("Release failed");
+          }
+        };
+    lock.fallbackReleaseLease();
+    assertNotNull(lock);
+  }
+
+  @Test
+  public void testReleaseHandlesStopBlobExceptionQuietly() {
+    BlobClient mockStop = mock(BlobClient.class);
+    org.mockito.Mockito.when(mockStop.deleteIfExists())
+        .thenThrow(new RuntimeException("Stop delete error"));
+
+    AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(
+            null, null, mockStop, "/test/upload/stop-ex", null, "stop-ex", null, null);
+    lock.release();
+    assertNotNull(lock);
   }
 }

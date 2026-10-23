@@ -262,9 +262,6 @@ public interface UploadStorageService {
    *   <li>Delete the metadata record ({@code .info}) for this upload.
    *   <li>If upload deduplication is enabled, coordinate index removal or tombstoning via {@link
    *       me.desair.tus.server.upload.checksum.DeduplicationService#removeUploadFromIndex(UploadInfo)}.
-   *   <li>Clean up any associated upload lock or contention artifacts (e.g. by delegating to {@link
-   *       UploadLockingService#cleanupLock(UploadId)}) to ensure no orphaned lock files, stop
-   *       signals, or lease objects remain in the locking layer.
    * </ul>
    *
    * @param uploadInfo The upload to terminate

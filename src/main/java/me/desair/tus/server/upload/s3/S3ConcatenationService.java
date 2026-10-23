@@ -145,7 +145,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
       S3ServerSideComposeHelper s3ComposeHelper) {
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
-    this.objectPrefix = objectPrefix != null ? objectPrefix : "";
+    this.objectPrefix = S3Utils.sanitizePrefix(objectPrefix);
     this.uploadStorageService =
         Objects.requireNonNull(uploadStorageService, "UploadStorageService must not be null");
     this.temporaryDirectory =
@@ -159,12 +159,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
 
   private static MinioClient buildMinioClient(
       String endpoint, String region, String accessKey, String secretKey) {
-    String effectiveRegion = (region != null && !region.isEmpty()) ? region : "local";
-    return MinioClient.builder()
-        .endpoint(endpoint)
-        .credentials(accessKey, secretKey)
-        .region(effectiveRegion)
-        .build();
+    return S3Utils.buildMinioClient(endpoint, region, accessKey, secretKey);
   }
 
   @Override
@@ -289,7 +284,19 @@ public class S3ConcatenationService implements UploadConcatenationService {
     try {
       List<String> partKeys = new ArrayList<>();
       for (UploadInfo partial : partialUploads) {
-        partKeys.add(partial.getStorageUploadId());
+        // Resolve duplicate child uploads dynamically to the parent upload's physical S3 object
+        // key to prevent composing against non-existent child blob targets.
+        String key;
+        if (uploadStorageService instanceof S3StorageService) {
+          key = ((S3StorageService) uploadStorageService).getS3ObjectKey(partial);
+        } else if (partial.getDuplicatesUploadId() != null) {
+          key = objectPrefix + partial.getDuplicatesUploadId();
+        } else if (partial.getStorageUploadId() != null) {
+          key = partial.getStorageUploadId();
+        } else {
+          key = objectPrefix + partial.getId();
+        }
+        partKeys.add(key);
       }
 
       // Execute S3 server-side object composition via native S3 multipart copy helper.

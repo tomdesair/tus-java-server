@@ -90,28 +90,16 @@ public interface UploadLockingService {
   }
 
   /**
-   * Cleans up the lock file or resources associated with a specific completed, terminated, or
-   * expired upload identifier.
+   * Cleans up lock artifacts and stop signals associated with the given upload.
    *
-   * <p>This method is invoked automatically when an upload completes successfully, is terminated
-   * via DELETE, or is cleaned up during expiration sweeps, freeing underlying lock storage (such as
-   * Azure Blob Lease lock blobs or on-disk lock files).
+   * <p>Called upon upload termination (e.g. DELETE) or expiration cleanup so that locking
+   * implementations can delete backend-specific lock files, blobs, or contention signals without
+   * storage services needing awareness of locking internals.
    *
-   * @param id The upload identifier of the completed, terminated, or expired upload
-   * @throws IOException If cleaning up lock resources fails
+   * @param id The ID of the upload to clean up
+   * @throws IOException If cleanup fails
    */
   default void cleanupLock(UploadId id) throws IOException {
-    // No-op by default for backwards compatibility
-  }
-
-  /**
-   * Cleans up the lock file or resources associated with a specific completed, terminated, or
-   * expired upload URI.
-   *
-   * @param uploadUri The request URI of the completed, terminated, or expired upload
-   * @throws IOException If cleaning up lock resources fails
-   */
-  default void cleanupLock(String uploadUri) throws IOException {
     // No-op by default for backwards compatibility
   }
 }

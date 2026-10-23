@@ -234,8 +234,12 @@ public class HttpChunkedEncodingInputStream extends InputStream {
   }
 
   /**
-   * Upon close, this reads the remainder of the chunked message, leaving the underlying socket at a
-   * position to start reading the next response without scanning.
+   * Closes the stream and the underlying input stream immediately.
+   *
+   * <p>When an upload stream is closed (for example, upon client disconnect, interruption, or
+   * cancellation), attempting to drain remaining chunks over the socket until EOF causes thread
+   * hangs or wasted network I/O. Closing the underlying stream immediately aborts the connection
+   * cleanly.
    *
    * @throws IOException If an IO problem occurs.
    */
@@ -243,33 +247,10 @@ public class HttpChunkedEncodingInputStream extends InputStream {
   public void close() throws IOException {
     if (!closed) {
       try {
-        if (!eof) {
-          exhaustInputStream();
-        }
-      } finally {
         eof = true;
+        in.close();
+      } finally {
         closed = true;
-      }
-    }
-  }
-
-  /**
-   * Exhaust our input stream, reading until EOF has been encountered.
-   *
-   * <p>Note that this function is intended as a non-public utility. This is a little weird, but it
-   * seemed silly to make a utility class for this one function, so instead it is just static and
-   * shared that way.
-   *
-   * @throws IOException If an IO problem occurs
-   */
-  private void exhaustInputStream() throws IOException {
-    // read and discard the remainder of the message
-    byte[] buffer = new byte[1024];
-
-    log.trace("Clearing underlying input stream, this is what was left:");
-    while (in.read(buffer) >= 0) {
-      if (log.isTraceEnabled()) {
-        log.trace(new String(buffer, StandardCharsets.UTF_8));
       }
     }
   }

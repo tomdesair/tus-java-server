@@ -13,25 +13,44 @@ import io.minio.GetObjectResponse;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
+import io.minio.RemoveObjectsArgs;
 import io.minio.Result;
 import io.minio.StatObjectArgs;
+import io.minio.StatObjectResponse;
 import io.minio.errors.ErrorResponseException;
+import io.minio.messages.DeleteRequest;
 import io.minio.messages.ErrorResponse;
 import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
+import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import me.desair.tus.server.upload.LeaseData;
+import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.util.InterruptibleInputStream;
+import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -60,16 +79,18 @@ public class S3LockingServiceTest {
             invocation -> {
               PutObjectArgs args = invocation.getArgument(0);
               var headers = args.extraHeaders();
-              if (headers != null
-                  && "*".equals(headers.get("If-None-Match"))
-                  && s3StorageMap.containsKey(args.object())) {
-                ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
-                Mockito.when(errorResponse.code()).thenReturn("PreconditionFailed");
-                throw new ErrorResponseException(errorResponse, null, "PreconditionFailed");
-              }
               try (InputStream stream = args.stream()) {
                 byte[] bytes = stream.readAllBytes();
-                s3StorageMap.put(args.object(), bytes);
+                synchronized (s3StorageMap) {
+                  if (headers != null
+                      && "*".equals(headers.getFirst("If-None-Match"))
+                      && s3StorageMap.containsKey(args.object())) {
+                    ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
+                    Mockito.when(errorResponse.code()).thenReturn("PreconditionFailed");
+                    throw new ErrorResponseException(errorResponse, null, "PreconditionFailed");
+                  }
+                  s3StorageMap.put(args.object(), bytes);
+                }
               }
               return null;
             });
@@ -78,7 +99,10 @@ public class S3LockingServiceTest {
         .thenAnswer(
             invocation -> {
               GetObjectArgs args = invocation.getArgument(0);
-              byte[] bytes = s3StorageMap.get(args.object());
+              byte[] bytes;
+              synchronized (s3StorageMap) {
+                bytes = s3StorageMap.get(args.object());
+              }
               if (bytes == null) {
                 ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
                 Mockito.when(errorResponse.code()).thenReturn("NoSuchKey");
@@ -94,21 +118,22 @@ public class S3LockingServiceTest {
 
     Mockito.doAnswer(
             invocation -> {
-              io.minio.RemoveObjectArgs args = invocation.getArgument(0);
-              s3StorageMap.remove(args.object());
+              RemoveObjectArgs args = invocation.getArgument(0);
+              synchronized (s3StorageMap) {
+                s3StorageMap.remove(args.object());
+              }
               return null;
             })
         .when(minioClient)
-        .removeObject(Mockito.any(io.minio.RemoveObjectArgs.class));
+        .removeObject(Mockito.any(RemoveObjectArgs.class));
 
     Mockito.doAnswer(
             invocation -> {
-              io.minio.RemoveObjectsArgs args = invocation.getArgument(0);
+              RemoveObjectsArgs args = invocation.getArgument(0);
               if (args != null && args.objects() != null) {
-                for (io.minio.messages.DeleteRequest.Object obj : args.objects()) {
+                for (DeleteRequest.Object obj : args.objects()) {
                   try {
-                    java.lang.reflect.Field field =
-                        io.minio.messages.DeleteRequest.Object.class.getDeclaredField("name");
+                    Field field = DeleteRequest.Object.class.getDeclaredField("name");
                     field.setAccessible(true);
                     String name = (String) field.get(obj);
                     s3StorageMap.remove(name);
@@ -116,10 +141,10 @@ public class S3LockingServiceTest {
                   }
                 }
               }
-              return java.util.Collections.emptyList();
+              return Collections.emptyList();
             })
         .when(minioClient)
-        .removeObjects(Mockito.any(io.minio.RemoveObjectsArgs.class));
+        .removeObjects(Mockito.any(RemoveObjectsArgs.class));
   }
 
   @Test
@@ -165,7 +190,7 @@ public class S3LockingServiceTest {
             "locks/",
             30000L,
             2000L,
-            new me.desair.tus.server.upload.UuidUploadIdFactory());
+            new UuidUploadIdFactory());
     assertNotNull(fullServiceWithParams);
 
     S3LockingService defaultRegionService =
@@ -206,16 +231,17 @@ public class S3LockingServiceTest {
   }
 
   @Test
-  public void testIsLockedReturnsFalseOnGenericMinioException() throws Exception {
+  public void testIsLockedReturnsTrueOnGenericMinioExceptionFailClosed() throws Exception {
     Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class)))
         .thenThrow(new RuntimeException("GetObject failure"));
 
     UploadId uploadId = new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e");
-    assertFalse(lockingService.isLocked(uploadId));
+    // Fail-closed split-brain protection: transient error assumes lock is still active
+    assertTrue(lockingService.isLocked(uploadId));
   }
 
   @Test
-  public void testIsLockedReturnsFalseOnErrorResponseNon404() throws Exception {
+  public void testIsLockedReturnsTrueOnErrorResponseNon404FailClosed() throws Exception {
     ErrorResponse errorResponse = Mockito.mock(ErrorResponse.class);
     Mockito.when(errorResponse.code()).thenReturn("AccessDenied");
     ErrorResponseException accessDeniedEx = new ErrorResponseException(errorResponse, null, null);
@@ -223,7 +249,8 @@ public class S3LockingServiceTest {
     Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenThrow(accessDeniedEx);
 
     UploadId uploadId = new UploadId("24249a5b-01a4-4bf8-b67a-364273bb5a2e");
-    assertFalse(lockingService.isLocked(uploadId));
+    // Fail-closed split-brain protection: non-404 S3 error assumes lock is still active
+    assertTrue(lockingService.isLocked(uploadId));
   }
 
   @Test
@@ -240,7 +267,7 @@ public class S3LockingServiceTest {
 
   @Test
   public void testRegisterInputStreamAndRequestLockReleaseWithInterruption() throws Exception {
-    lockingService.setIdFactory(new me.desair.tus.server.upload.UuidUploadIdFactory());
+    lockingService.setIdFactory(new UuidUploadIdFactory());
 
     // Test with InterruptibleInputStream
     InterruptibleInputStream interruptibleStream = Mockito.mock(InterruptibleInputStream.class);
@@ -250,7 +277,7 @@ public class S3LockingServiceTest {
 
     // Mock statObject to succeed (stop key exists)
     Mockito.when(minioClient.statObject(Mockito.any(StatObjectArgs.class)))
-        .thenReturn(Mockito.mock(io.minio.StatObjectResponse.class));
+        .thenReturn(Mockito.mock(StatObjectResponse.class));
 
     lockingService.requestLockRelease("/files/upload/24249a5b-01a4-4bf8-b67a-364273bb5a2e");
     Mockito.verify(interruptibleStream).interrupt();
@@ -271,7 +298,7 @@ public class S3LockingServiceTest {
     Mockito.when(item.objectName()).thenReturn("tus-locks/expired.lock");
 
     Result<Item> result = new Result<>(item);
-    Iterable<Result<Item>> results = java.util.Collections.singletonList(result);
+    Iterable<Result<Item>> results = Collections.singletonList(result);
 
     Mockito.when(minioClient.listObjects(Mockito.any(ListObjectsArgs.class))).thenReturn(results);
 
@@ -289,6 +316,39 @@ public class S3LockingServiceTest {
     Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenReturn(response);
 
     lockingService.cleanupStaleLocks();
+  }
+
+  @Test
+  public void testCleanupStaleLocksHandlesNullItemAndStaleStopSignal() throws Exception {
+    Item nullNameItem = Mockito.mock(Item.class);
+    Mockito.when(nullNameItem.objectName()).thenReturn(null);
+
+    Item staleStopItem = Mockito.mock(Item.class);
+    Mockito.when(staleStopItem.objectName()).thenReturn("tus-locks/stale.stop");
+    Mockito.when(staleStopItem.lastModified()).thenReturn(ZonedDateTime.now().minusMinutes(2));
+
+    Item recentStopItem = Mockito.mock(Item.class);
+    Mockito.when(recentStopItem.objectName()).thenReturn("tus-locks/recent.stop");
+    Mockito.when(recentStopItem.lastModified()).thenReturn(ZonedDateTime.now());
+
+    java.util.List<Result<Item>> items =
+        Arrays.asList(
+            new Result<>(null),
+            new Result<>(nullNameItem),
+            new Result<>(staleStopItem),
+            new Result<>(recentStopItem));
+    Mockito.when(minioClient.listObjects(Mockito.any(ListObjectsArgs.class))).thenReturn(items);
+
+    lockingService.cleanupStaleLocks();
+
+    Mockito.verify(minioClient)
+        .removeObject(
+            Mockito.argThat(
+                (RemoveObjectArgs a) -> a != null && "tus-locks/stale.stop".equals(a.object())));
+    Mockito.verify(minioClient, Mockito.never())
+        .removeObject(
+            Mockito.argThat(
+                (RemoveObjectArgs a) -> a != null && "tus-locks/recent.stop".equals(a.object())));
   }
 
   @Test(expected = IOException.class)
@@ -545,7 +605,7 @@ public class S3LockingServiceTest {
     service.cleanupStaleLocks();
 
     // Expired lock object is deleted
-    Mockito.verify(mockClient).removeObject(Mockito.any(io.minio.RemoveObjectArgs.class));
+    Mockito.verify(mockClient).removeObject(Mockito.any(RemoveObjectArgs.class));
   }
 
   @Test
@@ -561,8 +621,7 @@ public class S3LockingServiceTest {
         .thenThrow(new RuntimeException("S3 Put error"));
 
     S3LockingService service = createLockingService(mockClient, "test-bucket");
-    me.desair.tus.server.upload.TimeBasedUploadIdFactory idFactory =
-        new me.desair.tus.server.upload.TimeBasedUploadIdFactory();
+    TimeBasedUploadIdFactory idFactory = new TimeBasedUploadIdFactory();
     idFactory.setUploadUri("/files/upload");
     service.setIdFactory(idFactory);
 
@@ -614,6 +673,8 @@ public class S3LockingServiceTest {
 
   @Test(expected = UploadAlreadyLockedException.class)
   public void testLockUploadByUriWithContentionOnPostPutVerificationThrows() throws Exception {
+    lockingService.withS3ConditionalWritesSupported(false);
+
     // Simulate a TOCTOU race where PutObject succeeds, but another contender overwrote the lock
     // before our read-after-write verification
     Mockito.when(minioClient.putObject(Mockito.any(PutObjectArgs.class))).thenReturn(null);
@@ -627,7 +688,7 @@ public class S3LockingServiceTest {
             System.currentTimeMillis(),
             "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.lock",
             "locks/24249a5b-01a4-4bf8-b67a-364273bb5a2e.stop");
-    String rivalJson = me.desair.tus.server.util.LeaseDataJsonSerializer.serialize(rivalLock);
+    String rivalJson = LeaseDataJsonSerializer.serialize(rivalLock);
 
     // PutObject succeeds, but post-put read-after-write verification sees rival holder
     Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class)))
@@ -657,15 +718,12 @@ public class S3LockingServiceTest {
     String uri = "/files/upload/" + uploadIdStr;
 
     int threadCount = 15;
-    java.util.concurrent.ExecutorService executor =
-        java.util.concurrent.Executors.newFixedThreadPool(threadCount);
-    java.util.List<java.util.concurrent.Callable<Boolean>> tasks = new java.util.ArrayList<>();
-    java.util.concurrent.atomic.AtomicInteger successCount =
-        new java.util.concurrent.atomic.AtomicInteger(0);
-    java.util.concurrent.atomic.AtomicInteger lockedExceptionCount =
-        new java.util.concurrent.atomic.AtomicInteger(0);
-    java.util.List<UploadLock> acquiredLocks = new java.util.concurrent.CopyOnWriteArrayList<>();
-    java.util.concurrent.CountDownLatch startLatch = new java.util.concurrent.CountDownLatch(1);
+    ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+    List<Callable<Boolean>> tasks = new ArrayList<>();
+    AtomicInteger successCount = new AtomicInteger(0);
+    AtomicInteger lockedExceptionCount = new AtomicInteger(0);
+    List<UploadLock> acquiredLocks = new CopyOnWriteArrayList<>();
+    CountDownLatch startLatch = new CountDownLatch(1);
 
     for (int i = 0; i < threadCount; i++) {
       tasks.add(
@@ -714,20 +772,16 @@ public class S3LockingServiceTest {
             System.currentTimeMillis() - 40_000L,
             lockKey,
             "locks/" + uploadIdStr + ".stop");
-    byte[] expiredBytes =
-        me.desair.tus.server.util.LeaseDataJsonSerializer.serializeToBytes(expiredLock);
+    byte[] expiredBytes = LeaseDataJsonSerializer.serializeToBytes(expiredLock);
     s3StorageMap.put(lockKey, expiredBytes);
 
     int threadCount = 10;
-    java.util.concurrent.ExecutorService executor =
-        java.util.concurrent.Executors.newFixedThreadPool(threadCount);
-    java.util.List<java.util.concurrent.Callable<Boolean>> tasks = new java.util.ArrayList<>();
-    java.util.concurrent.atomic.AtomicInteger successCount =
-        new java.util.concurrent.atomic.AtomicInteger(0);
-    java.util.concurrent.atomic.AtomicInteger lockedExceptionCount =
-        new java.util.concurrent.atomic.AtomicInteger(0);
-    java.util.List<UploadLock> acquiredLocks = new java.util.concurrent.CopyOnWriteArrayList<>();
-    java.util.concurrent.CountDownLatch startLatch = new java.util.concurrent.CountDownLatch(1);
+    ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+    List<Callable<Boolean>> tasks = new ArrayList<>();
+    AtomicInteger successCount = new AtomicInteger(0);
+    AtomicInteger lockedExceptionCount = new AtomicInteger(0);
+    List<UploadLock> acquiredLocks = new CopyOnWriteArrayList<>();
+    CountDownLatch startLatch = new CountDownLatch(1);
 
     for (int i = 0; i < threadCount; i++) {
       tasks.add(
@@ -806,8 +860,35 @@ public class S3LockingServiceTest {
         new ErrorResponseException(errorResponse, null, "InternalError");
     Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenThrow(internalEx);
 
+    // Fail-closed: non-NoSuchKey error assumes lock is still active (not expired)
+    boolean expired = lockingService.isLockExpired("locks/test.lock");
+    assertFalse(expired);
+  }
+
+  @Test
+  public void testIsLockExpiredWhenJsonCorruptedReturnsTrue() throws Exception {
+    byte[] corruptedBytes = "{ corrupt json ]".getBytes(StandardCharsets.UTF_8);
+    GetObjectResponse response =
+        new GetObjectResponse(
+            null,
+            "test-bucket",
+            "eu-central-1",
+            "locks/test.lock",
+            new ByteArrayInputStream(corruptedBytes));
+    Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class))).thenReturn(response);
+
     boolean expired = lockingService.isLockExpired("locks/test.lock");
     assertTrue(expired);
+  }
+
+  @Test
+  public void testIsLockExpiredWhenGenericExceptionReturnsFalseFailClosed() throws Exception {
+    Mockito.when(minioClient.getObject(Mockito.any(GetObjectArgs.class)))
+        .thenThrow(new RuntimeException("Network down"));
+
+    // Fail-closed: transient exception assumes lock is still active (not expired)
+    boolean expired = lockingService.isLockExpired("locks/test.lock");
+    assertFalse(expired);
   }
 
   @Test
@@ -869,8 +950,7 @@ public class S3LockingServiceTest {
     Mockito.verify(minioClient, Mockito.times(1))
         .removeObject(
             Mockito.argThat(
-                (io.minio.RemoveObjectArgs args) ->
-                    "locks/test-expired-upload.lock".equals(args.object())));
+                (RemoveObjectArgs args) -> "locks/test-expired-upload.lock".equals(args.object())));
   }
 
   @Test
@@ -986,10 +1066,10 @@ public class S3LockingServiceTest {
                 throw notImplementedEx;
               }
               // Unconditional fallback write stores bytes in our in-memory map
-              java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+              ByteArrayOutputStream baos = new ByteArrayOutputStream();
               byte[] buf = new byte[1024];
               int read;
-              java.io.InputStream is = args.stream();
+              InputStream is = args.stream();
               while ((read = is.read(buf)) != -1) {
                 baos.write(buf, 0, read);
               }
@@ -1059,67 +1139,7 @@ public class S3LockingServiceTest {
   }
 
   @Test
-  public void testCleanupLockNullAndInvalid() throws Exception {
-    lockingService.cleanupLock((UploadId) null);
-    lockingService.cleanupLock((String) null);
-    // KISS: verifying method executes cleanly without throwing an exception
-    assertTrue(true);
-  }
-
-  @Test
-  public void testCleanupLockDeletesExpiredLockAndStopObjects() throws Exception {
-    UploadId id = new UploadId(UUID.randomUUID());
-    String lockKey = "locks/" + id + ".lock";
-    String stopKey = "locks/" + id + ".stop";
-
-    LeaseData expiredLock =
-        new LeaseData(
-            "old-holder",
-            "/files/upload/" + id,
-            30000L,
-            System.currentTimeMillis() - 5000L,
-            System.currentTimeMillis() - 35000L,
-            lockKey,
-            stopKey);
-    s3StorageMap.put(
-        lockKey, me.desair.tus.server.util.LeaseDataJsonSerializer.serializeToBytes(expiredLock));
-    s3StorageMap.put(stopKey, new byte[0]);
-
-    assertTrue(s3StorageMap.containsKey(lockKey));
-    assertTrue(s3StorageMap.containsKey(stopKey));
-
-    lockingService.cleanupLock(id);
-
-    assertFalse(s3StorageMap.containsKey(lockKey));
-    assertFalse(s3StorageMap.containsKey(stopKey));
-  }
-
-  @Test
-  public void testCleanupLockByUri() throws Exception {
-    UploadId id = new UploadId(UUID.randomUUID());
-    String uri = "/files/upload/" + id;
-    String lockKey = "locks/" + id + ".lock";
-
-    LeaseData expiredLock =
-        new LeaseData(
-            "old-holder",
-            uri,
-            30000L,
-            System.currentTimeMillis() - 5000L,
-            System.currentTimeMillis() - 35000L,
-            lockKey,
-            null);
-    s3StorageMap.put(
-        lockKey, me.desair.tus.server.util.LeaseDataJsonSerializer.serializeToBytes(expiredLock));
-    assertTrue(s3StorageMap.containsKey(lockKey));
-
-    lockingService.cleanupLock(uri);
-
-    assertFalse(s3StorageMap.containsKey(lockKey));
-  }
-
-  @Test
-  public void testCleanupLockPreservesActivelyHeldLock() throws Exception {
+  public void testLockCloseDeletesLockObject() throws Exception {
     UploadId id = new UploadId(UUID.randomUUID());
     String uri = "/files/upload/" + id;
     String lockKey = "locks/" + id + ".lock";
@@ -1128,11 +1148,213 @@ public class S3LockingServiceTest {
     assertNotNull(lock);
     assertTrue(s3StorageMap.containsKey(lockKey));
 
-    // Actively held unexpired lock must not be deleted by cleanupLock
-    lockingService.cleanupLock(id);
-    assertTrue(s3StorageMap.containsKey(lockKey));
-
     lock.close();
     assertFalse(s3StorageMap.containsKey(lockKey));
+  }
+
+  @Test
+  public void testCleanupLockClearsStopSignal() throws Exception {
+    UploadId id = new UploadId(UUID.randomUUID());
+    String stopKey = "locks/" + id + ".stop";
+    s3StorageMap.put(stopKey, new byte[0]);
+
+    lockingService.cleanupLock(null);
+    lockingService.cleanupLock(id);
+    assertFalse(s3StorageMap.containsKey(stopKey));
+  }
+
+  @Test
+  public void testS3LockingServiceThreeArgConstructor() {
+    S3LockingService service = new S3LockingService(minioClient, "test-bucket", "locks/");
+    assertNotNull(service);
+  }
+
+  @Test
+  public void testTryAcquireLockDirectAndNullLeaseData() throws Exception {
+    UploadId uploadId = new UploadId(UUID.randomUUID());
+    assertNull(lockingService.tryAcquireLock(uploadId, null));
+
+    LeaseData leaseData =
+        new LeaseData(
+            "holder",
+            "/files/upload/test",
+            30000L,
+            System.currentTimeMillis() + 30000L,
+            System.currentTimeMillis(),
+            null,
+            null);
+    UploadLock lock = lockingService.tryAcquireLock(uploadId, leaseData);
+    assertNotNull(lock);
+    lock.close();
+  }
+
+  @Test
+  public void testCheckStopSignalForUploadNullAndException() throws Exception {
+    lockingService.checkStopSignalForUpload(null, Mockito.mock(InputStream.class));
+
+    UploadId id = new UploadId(UUID.randomUUID());
+    Mockito.when(minioClient.statObject(Mockito.any(StatObjectArgs.class)))
+        .thenThrow(new RuntimeException("Network error"));
+    lockingService.checkStopSignalForUpload(id, Mockito.mock(InputStream.class));
+  }
+
+  @Test
+  public void testEvictExpiredLockStaleMutexRecovery() throws Exception {
+    UploadId uploadId = new UploadId("test-stale-mutex");
+    String lockKey = "locks/" + uploadId + ".lock";
+    String mutexKey = "locks/" + uploadId + ".mutex";
+
+    LeaseData expiredLock =
+        new LeaseData(
+            "expired-holder",
+            "/files/upload/" + uploadId,
+            30000L,
+            System.currentTimeMillis() - 10_000L,
+            System.currentTimeMillis() - 40_000L,
+            lockKey,
+            null);
+    s3StorageMap.put(lockKey, LeaseDataJsonSerializer.serializeToBytes(expiredLock));
+
+    long staleTime = System.currentTimeMillis() - 10_000L;
+    s3StorageMap.put(mutexKey, String.valueOf(staleTime).getBytes(StandardCharsets.UTF_8));
+
+    boolean evicted = lockingService.evictExpiredLock(uploadId);
+    assertTrue(evicted);
+    assertFalse(s3StorageMap.containsKey(lockKey));
+    assertFalse(s3StorageMap.containsKey(mutexKey));
+  }
+
+  @Test
+  public void testEvictExpiredLockApiNotImplementedDowngradesToNonCas() throws Exception {
+    UploadId uploadId = new UploadId("test-non-cas-downgrade");
+    String lockKey = "locks/" + uploadId + ".lock";
+
+    LeaseData expiredLock =
+        new LeaseData(
+            "expired-holder",
+            "/files/upload/" + uploadId,
+            30000L,
+            System.currentTimeMillis() - 10_000L,
+            System.currentTimeMillis() - 40_000L,
+            lockKey,
+            null);
+    s3StorageMap.put(lockKey, LeaseDataJsonSerializer.serializeToBytes(expiredLock));
+
+    ErrorResponse notImplResponse = Mockito.mock(ErrorResponse.class);
+    Mockito.when(notImplResponse.code()).thenReturn("NotImplemented");
+    ErrorResponseException notImplEx =
+        new ErrorResponseException(notImplResponse, null, "NotImplemented");
+
+    Mockito.doThrow(notImplEx)
+        .doAnswer(
+            invocation -> {
+              PutObjectArgs args = invocation.getArgument(0);
+              try (InputStream stream = args.stream()) {
+                s3StorageMap.put(args.object(), stream.readAllBytes());
+              }
+              return null;
+            })
+        .when(minioClient)
+        .putObject(
+            Mockito.argThat(
+                (PutObjectArgs args) ->
+                    args != null && args.object().equals("locks/" + uploadId + ".mutex")));
+
+    boolean evicted = lockingService.evictExpiredLock(uploadId);
+    assertTrue(evicted);
+  }
+
+  @Test
+  public void testEvictExpiredLockNonCasActiveMutexReturnsFalse() throws Exception {
+    lockingService.withS3ConditionalWritesSupported(false);
+    UploadId uploadId = new UploadId("test-non-cas-active");
+    String mutexKey = "locks/" + uploadId + ".mutex";
+
+    long activeTime = System.currentTimeMillis();
+    s3StorageMap.put(mutexKey, String.valueOf(activeTime).getBytes(StandardCharsets.UTF_8));
+
+    boolean evicted = lockingService.evictExpiredLock(uploadId);
+    assertFalse(evicted);
+  }
+
+  @Test
+  public void testEvictExpiredLockNonCasPutExceptionReturnsFalse() throws Exception {
+    lockingService.withS3ConditionalWritesSupported(false);
+    UploadId uploadId = new UploadId("test-non-cas-put-err");
+
+    Mockito.doThrow(new RuntimeException("Disk full"))
+        .when(minioClient)
+        .putObject(
+            Mockito.argThat(
+                (PutObjectArgs args) ->
+                    args != null && args.object().equals("locks/" + uploadId + ".mutex")));
+
+    boolean evicted = lockingService.evictExpiredLock(uploadId);
+    assertFalse(evicted);
+  }
+
+  @Test
+  public void testHighConcurrencyEvictionContentionS3() throws Exception {
+    String uploadIdStr = UUID.randomUUID().toString();
+    String uri = "/files/upload/" + uploadIdStr;
+
+    // Seed an expired lock in simulated S3 storage
+    String lockKey = "locks/" + uploadIdStr + ".lock";
+    LeaseData expiredLock =
+        new LeaseData(
+            "expired-holder",
+            uri,
+            30000L,
+            System.currentTimeMillis() - 10_000L,
+            System.currentTimeMillis() - 40_000L,
+            lockKey,
+            "locks/" + uploadIdStr + ".stop");
+    byte[] expiredBytes = LeaseDataJsonSerializer.serializeToBytes(expiredLock);
+    s3StorageMap.put(lockKey, expiredBytes);
+
+    int threadCount = 40;
+    ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+    List<Callable<Boolean>> tasks = new ArrayList<>();
+    AtomicInteger successCount = new AtomicInteger(0);
+    AtomicInteger lockedExceptionCount = new AtomicInteger(0);
+    List<UploadLock> acquiredLocks = new CopyOnWriteArrayList<>();
+    CountDownLatch startLatch = new CountDownLatch(1);
+
+    for (int i = 0; i < threadCount; i++) {
+      tasks.add(
+          () -> {
+            try {
+              startLatch.await();
+              UploadLock lock = lockingService.lockUploadByUri(uri);
+              if (lock != null) {
+                successCount.incrementAndGet();
+                acquiredLocks.add(lock);
+                return true;
+              }
+            } catch (UploadAlreadyLockedException e) {
+              lockedExceptionCount.incrementAndGet();
+            }
+            return false;
+          });
+    }
+
+    startLatch.countDown();
+    executor.invokeAll(tasks);
+    executor.shutdown();
+
+    assertEquals(1, successCount.get());
+    assertEquals(threadCount - 1, lockedExceptionCount.get());
+    assertEquals(1, acquiredLocks.size());
+
+    for (UploadLock lock : acquiredLocks) {
+      lock.close();
+    }
+  }
+
+  @Test
+  public void testDeleteS3ObjectsQuietlyViaService() {
+    lockingService.deleteS3ObjectsQuietly(null);
+    lockingService.deleteS3ObjectsQuietly(Collections.emptyList());
+    lockingService.deleteS3ObjectsQuietly(Collections.singletonList("locks/test.key"));
   }
 }
