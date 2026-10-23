@@ -10,6 +10,7 @@ import java.io.OutputStream;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import me.desair.tus.server.upload.LeaseData;
+import me.desair.tus.server.upload.disk.DiskUtils;
 
 /**
  * Utility class responsible for serializing and deserializing {@link LeaseData} objects to and from
@@ -98,9 +99,9 @@ public class LeaseDataJsonSerializer {
    */
   public static void serializeToPath(LeaseData data, Path path) throws IOException {
     if (data != null && path != null) {
-      try (Utils.TempPath tempPath = new Utils.TempPath(path)) {
+      try (DiskUtils.TempPath tempPath = new DiskUtils.TempPath(path)) {
         serializeToFile(data, tempPath.getPath().toFile());
-        Utils.atomicMove(tempPath.getPath(), path);
+        DiskUtils.atomicMove(tempPath.getPath(), path);
       }
     }
   }

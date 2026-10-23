@@ -145,7 +145,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
       S3ServerSideComposeHelper s3ComposeHelper) {
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
-    this.objectPrefix = objectPrefix != null ? objectPrefix : "";
+    this.objectPrefix = S3Utils.sanitizePrefix(objectPrefix);
     this.uploadStorageService =
         Objects.requireNonNull(uploadStorageService, "UploadStorageService must not be null");
     this.temporaryDirectory =
@@ -159,12 +159,7 @@ public class S3ConcatenationService implements UploadConcatenationService {
 
   private static MinioClient buildMinioClient(
       String endpoint, String region, String accessKey, String secretKey) {
-    String effectiveRegion = (region != null && !region.isEmpty()) ? region : "local";
-    return MinioClient.builder()
-        .endpoint(endpoint)
-        .credentials(accessKey, secretKey)
-        .region(effectiveRegion)
-        .build();
+    return S3Utils.buildMinioClient(endpoint, region, accessKey, secretKey);
   }
 
   @Override

@@ -34,7 +34,6 @@ import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.concatenation.VirtualConcatenationService;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -189,8 +188,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     if (checksum == null || algorithm == null) {
       return null;
     }
-    String normalized = normalizeChecksum(checksum);
-    if (!isSafePathComponent(normalized) || !isSafePathComponent(algorithm.toString())) {
+    String normalized = DiskUtils.normalizeChecksum(checksum);
+    if (!DiskUtils.isSafePathComponent(normalized)
+        || !DiskUtils.isSafePathComponent(algorithm.toString())) {
       throw new IOException("The checksum contains an unsafe value.");
     }
     try {
@@ -246,7 +246,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     if (isJsonSerializationEnabled()) {
       UploadInfoJsonSerializer.serializeToPath(info, path);
     } else {
-      Utils.writeSerializable(info, path);
+      DiskUtils.writeSerializable(info, path);
     }
   }
 
@@ -262,9 +262,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
             e.getMessage());
         info = null;
       }
-      return info != null ? info : Utils.readSerializable(path, UploadInfo.class);
+      return info != null ? info : DiskUtils.readSerializable(path, UploadInfo.class);
     } else {
-      return Utils.readSerializable(path, UploadInfo.class);
+      return DiskUtils.readSerializable(path, UploadInfo.class);
     }
   }
 
@@ -327,9 +327,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
           && uploadInfo.getChecksum() != null
           && uploadInfo.getChecksumAlgorithm() != null
           && uploadInfo.getDuplicatesUploadId() == null) {
-        String normalized = normalizeChecksum(uploadInfo.getChecksum());
-        if (!isSafePathComponent(normalized)
-            || !isSafePathComponent(uploadInfo.getChecksumAlgorithm().toString())) {
+        String normalized = DiskUtils.normalizeChecksum(uploadInfo.getChecksum());
+        if (!DiskUtils.isSafePathComponent(normalized)
+            || !DiskUtils.isSafePathComponent(uploadInfo.getChecksumAlgorithm().toString())) {
           throw new IOException("The checksum contains an unsafe value.");
         }
         try {
@@ -480,9 +480,9 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   public void terminateUpload(UploadInfo info) throws UploadNotFoundException, IOException {
     if (info != null) {
       if (info.getChecksum() != null && info.getChecksumAlgorithm() != null) {
-        String normalized = normalizeChecksum(info.getChecksum());
-        if (!isSafePathComponent(normalized)
-            || !isSafePathComponent(info.getChecksumAlgorithm().toString())) {
+        String normalized = DiskUtils.normalizeChecksum(info.getChecksum());
+        if (!DiskUtils.isSafePathComponent(normalized)
+            || !DiskUtils.isSafePathComponent(info.getChecksumAlgorithm().toString())) {
           throw new IOException("The checksum contains an unsafe value.");
         }
       }
@@ -499,7 +499,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
       Path uploadPath = getPathInStorageDirectory(info.getId());
       if (uploadPath != null && deleteData) {
-        Utils.deleteDirectoryQuietly(uploadPath);
+        DiskUtils.deleteDirectoryQuietly(uploadPath);
       }
     }
   }
@@ -628,10 +628,10 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
           try {
             terminateUpload(info);
           } catch (UploadNotFoundException e) {
-            Utils.deleteDirectoryQuietly(path);
+            DiskUtils.deleteDirectoryQuietly(path);
           }
         } else {
-          Utils.deleteDirectoryQuietly(path);
+          DiskUtils.deleteDirectoryQuietly(path);
         }
         uploadLockingService.cleanupLock(id);
       }
@@ -671,62 +671,6 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     return getPathInUploadDir(id, INFO_FILE);
   }
 
-  private String normalizeChecksum(String checksum) {
-    String filename = checksum;
-    if (filename != null) {
-      if (!filename.matches("^[0-9a-fA-F]+$")) {
-        byte[] bytes = Base64.decodeBase64(filename);
-        if (bytes != null && bytes.length > 0) {
-          StringBuilder sb = new StringBuilder();
-          for (byte b : bytes) {
-            sb.append(String.format("%02x", b));
-          }
-          filename = sb.toString();
-        }
-      }
-    }
-    return filename;
-  }
-
-  /**
-   * Checks whether a given path component string is safe for use as a file or directory name on
-   * disk.
-   *
-   * <p>OS differences in path component restrictions:
-   *
-   * <ul>
-   *   <li><b>POSIX / Linux / macOS:</b> Strict path separators are {@code /} and NUL ({@code \0}).
-   *       Characters such as {@code ?}, {@code *}, {@code :}, {@code <}, {@code >}, {@code "}, and
-   *       {@code |} are allowed in Linux filenames.
-   *   <li><b>Windows (NTFS / FAT32):</b> Reserved characters prohibited in file/directory names are
-   *       {@code \}, {@code /}, {@code :}, {@code *}, {@code ?}, {@code "}, {@code <}, {@code >},
-   *       {@code |}, and ASCII control characters (0-31). Attempting to resolve paths containing
-   *       these characters on Windows triggers an OS-level {@link
-   *       java.nio.file.InvalidPathException}.
-   * </ul>
-   *
-   * To guarantee portable, cross-platform safety and prevent OS-dependent runtime exceptions on
-   * Windows, this method enforces validation against reserved characters from both Linux and
-   * Windows specifications, as well as relative path traversal sequences ({@code ..}).
-   *
-   * @param component the path component to validate
-   * @return {@code true} if the component is safe for cross-platform file system operations; {@code
-   *     false} otherwise
-   */
-  private boolean isSafePathComponent(String component) {
-    if (component == null || component.trim().isEmpty() || component.contains("..")) {
-      return false;
-    }
-    for (int i = 0; i < component.length(); i++) {
-      char c = component.charAt(i);
-      if (c < 32 || c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"'
-          || c == '<' || c == '>' || c == '|') {
-        return false;
-      }
-    }
-    return true;
-  }
-
   private Path createUploadDirectory(UploadId id) throws IOException {
     Path dir = getPathInStorageDirectory(id);
     Utils.ensureDirectoryExists(dir);
@@ -737,7 +681,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     // Get the upload directory
     Path uploadDir = getPathInStorageDirectory(id);
     if (uploadDir != null && Files.exists(uploadDir)) {
-      if (!isSafePathComponent(fileName)) {
+      if (!DiskUtils.isSafePathComponent(fileName)) {
         throw new IllegalArgumentException("The file name contains an unsafe value.");
       }
       return uploadDir.resolve(fileName);

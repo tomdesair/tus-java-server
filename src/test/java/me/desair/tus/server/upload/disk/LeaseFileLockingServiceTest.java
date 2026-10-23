@@ -205,7 +205,7 @@ public class LeaseFileLockingServiceTest {
     Files.setLastModifiedTime(mutexDir, FileTime.fromMillis(now - 10000L));
     assertTrue(lockingService.isLockDirectoryExpired(lockDir, now));
 
-    Utils.deleteDirectoryQuietly(mutexDir);
+    DiskUtils.deleteDirectoryQuietly(mutexDir);
     // With sibling mutex gone, empty directory is immediately expired
     assertTrue(lockingService.isLockDirectoryExpired(lockDir, now));
   }

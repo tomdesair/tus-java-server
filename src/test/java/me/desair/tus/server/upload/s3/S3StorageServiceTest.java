@@ -28,6 +28,7 @@ import io.minio.Result;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
 import io.minio.errors.ErrorResponseException;
+import io.minio.messages.DeleteResult;
 import io.minio.messages.ErrorResponse;
 import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
@@ -2423,16 +2424,14 @@ public class S3StorageServiceTest {
 
   @Test
   public void testDeleteS3ObjectsBatchFailureFallback() throws Exception {
-    assertTrue(storageService.isSupportsBatchDelete());
-    UploadId uploadId = new UploadId("batch-del-fallback");
     List<String> keys = Arrays.asList("metadata/batch.part.00001", "metadata/batch.part.00002");
 
-    io.minio.messages.DeleteResult.Error delErr = mock(io.minio.messages.DeleteResult.Error.class);
+    DeleteResult.Error delErr = mock(DeleteResult.Error.class);
     when(delErr.objectName()).thenReturn("metadata/batch.part.00001");
     when(delErr.message()).thenReturn("AccessDenied");
 
     @SuppressWarnings("unchecked")
-    Result<io.minio.messages.DeleteResult.Error> errResult = mock(Result.class);
+    Result<DeleteResult.Error> errResult = mock(Result.class);
     when(errResult.get()).thenReturn(delErr);
 
     when(minioClient.removeObjects(any(RemoveObjectsArgs.class)))
@@ -2446,25 +2445,10 @@ public class S3StorageServiceTest {
     verify(minioClient)
         .removeObject(
             argThat((RemoveObjectArgs args) -> args.object().equals("metadata/batch.part.00002")));
-    assertFalse(storageService.isSupportsBatchDelete());
-
-    // Subsequent batch delete should bypass removeObjects directly
-    storageService.deleteS3ObjectsQuietly(Collections.singletonList("metadata/batch.part.00003"));
-    verify(minioClient)
-        .removeObject(
-            argThat((RemoveObjectArgs args) -> args.object().equals("metadata/batch.part.00003")));
-    // removeObjects was only called once (for the first attempt)
-    org.mockito.Mockito.verify(minioClient, org.mockito.Mockito.times(1))
-        .removeObjects(any(RemoveObjectsArgs.class));
-
-    // Reset flag for subsequent tests
-    storageService.setSupportsBatchDelete(true);
   }
 
   @Test
   public void testDeleteS3ObjectsThrowsExceptionFallsBackToIndividualDelete() throws Exception {
-    assertTrue(storageService.isSupportsBatchDelete());
-    UploadId uploadId = new UploadId("batch-del-ex");
     List<String> keys = Collections.singletonList("metadata/batch-ex.part.00001");
 
     when(minioClient.removeObjects(any(RemoveObjectsArgs.class)))
@@ -2476,15 +2460,11 @@ public class S3StorageServiceTest {
         .removeObject(
             argThat(
                 (RemoveObjectArgs args) -> args.object().equals("metadata/batch-ex.part.00001")));
-    assertFalse(storageService.isSupportsBatchDelete());
 
     // Null or empty handling
     storageService.deleteS3ObjectsQuietly(null);
     storageService.deleteS3ObjectsQuietly(Collections.emptyList());
     storageService.deleteS3ObjectsQuietly(Collections.singletonList(null));
-
-    // Reset flag
-    storageService.setSupportsBatchDelete(true);
   }
 
   @Test
@@ -2608,15 +2588,6 @@ public class S3StorageServiceTest {
 
     storageService.removeLastNumberOfBytes(info, 3L);
     assertEquals(7L, info.getOffset().longValue());
-  }
-
-  @Test
-  public void testSupportsBatchDeleteConfiguration() {
-    assertTrue(storageService.isSupportsBatchDelete());
-    storageService.setSupportsBatchDelete(false);
-    assertFalse(storageService.isSupportsBatchDelete());
-    storageService.setSupportsBatchDelete(true);
-    assertTrue(storageService.isSupportsBatchDelete());
   }
 
   @Test

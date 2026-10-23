@@ -17,6 +17,7 @@ import java.io.OutputStream;
 import java.nio.file.Path;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.disk.DiskUtils;
 
 /**
  * Utility class responsible for serializing and deserializing {@link UploadInfo} and other domain
@@ -132,9 +133,9 @@ public class UploadInfoJsonSerializer {
    */
   public static void serializeToPath(Object object, Path path) throws IOException {
     if (object != null && path != null) {
-      try (Utils.TempPath tempPath = new Utils.TempPath(path)) {
+      try (DiskUtils.TempPath tempPath = new DiskUtils.TempPath(path)) {
         serializeToFile(object, tempPath.getPath().toFile());
-        Utils.atomicMove(tempPath.getPath(), path);
+        DiskUtils.atomicMove(tempPath.getPath(), path);
       }
     }
   }

@@ -48,7 +48,7 @@ public class FileBasedLock implements UploadLock {
     try {
       // Try to acquire a lock
       fileChannel = createFileChannel();
-      FileLock fileLock = Utils.lockFileExclusively(fileChannel);
+      FileLock fileLock = DiskUtils.lockFileExclusively(fileChannel);
 
       // If the upload is already locked, our lock will be null
       if (fileLock == null) {

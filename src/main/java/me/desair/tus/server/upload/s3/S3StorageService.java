@@ -1,17 +1,10 @@
 package me.desair.tus.server.upload.s3;
 
-import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import io.minio.RemoveObjectArgs;
-import io.minio.RemoveObjectsArgs;
 import io.minio.Result;
-import io.minio.StatObjectArgs;
-import io.minio.StatObjectResponse;
 import io.minio.errors.ErrorResponseException;
-import io.minio.messages.DeleteRequest;
-import io.minio.messages.DeleteResult;
 import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -41,6 +34,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
@@ -138,7 +133,6 @@ public class S3StorageService implements UploadStorageService {
   private UploadConcatenationService concatenationService;
   private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
   private boolean s3ComposeObjectSupported = true;
-  private boolean supportsBatchDelete = true;
   private S3ServerSideComposeHelper s3ComposeHelper;
 
   /**
@@ -232,10 +226,10 @@ public class S3StorageService implements UploadStorageService {
       S3ServerSideComposeHelper s3ComposeHelper) {
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
-    this.objectPrefix = sanitizePrefix(objectPrefix);
-    this.metadataPrefix = sanitizePrefix(metadataPrefix);
-    this.checksumsPrefix = sanitizePrefix(checksumsPrefix);
-    this.locksPrefix = sanitizePrefix(locksPrefix);
+    this.objectPrefix = S3Utils.sanitizePrefix(objectPrefix);
+    this.metadataPrefix = S3Utils.sanitizePrefix(metadataPrefix);
+    this.checksumsPrefix = S3Utils.sanitizePrefix(checksumsPrefix);
+    this.locksPrefix = S3Utils.sanitizePrefix(locksPrefix);
     this.temporaryDirectory =
         temporaryDirectory != null
             ? temporaryDirectory
@@ -302,12 +296,7 @@ public class S3StorageService implements UploadStorageService {
 
   private static MinioClient buildMinioClient(
       String endpoint, String region, String accessKey, String secretKey) {
-    String effectiveRegion = (region != null && !region.isEmpty()) ? region : "local";
-    return MinioClient.builder()
-        .endpoint(endpoint)
-        .credentials(accessKey, secretKey)
-        .region(effectiveRegion)
-        .build();
+    return S3Utils.buildMinioClient(endpoint, region, accessKey, secretKey);
   }
 
   /**
@@ -387,8 +376,7 @@ public class S3StorageService implements UploadStorageService {
     String metadataKey = buildMetadataKey(id);
     String json;
     // Step 1: Read JSON metadata object from S3 (<metadataPrefix>/<UploadId>.info)
-    try (InputStream stream =
-        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(metadataKey).build())) {
+    try (InputStream stream = S3Utils.getObjectInputStream(minioClient, bucket, metadataKey)) {
       json = IOUtils.toString(stream, StandardCharsets.UTF_8);
     } catch (ErrorResponseException e) {
       // Return null if key does not exist in S3
@@ -1025,24 +1013,6 @@ public class S3StorageService implements UploadStorageService {
     return preferredPartSize;
   }
 
-  boolean isSupportsBatchDelete() {
-    thisObjectLock.readLock().lock();
-    try {
-      return supportsBatchDelete;
-    } finally {
-      thisObjectLock.readLock().unlock();
-    }
-  }
-
-  void setSupportsBatchDelete(boolean supportsBatchDelete) {
-    thisObjectLock.writeLock().lock();
-    try {
-      this.supportsBatchDelete = supportsBatchDelete;
-    } finally {
-      thisObjectLock.writeLock().unlock();
-    }
-  }
-
   @Override
   public void close() throws IOException {
     uploadExecutor.shutdown();
@@ -1123,8 +1093,7 @@ public class S3StorageService implements UploadStorageService {
             Files.createTempFile(temporaryDirectory, "tus-s3-prep-", ".tmp").toFile();
         try {
           try (InputStream lastPartStream =
-                  minioClient.getObject(
-                      GetObjectArgs.builder().bucket(bucket).object(lastPartKey).build());
+                  S3Utils.getObjectInputStream(minioClient, bucket, lastPartKey);
               FileOutputStream fos = new FileOutputStream(tempPrepFile)) {
             IOUtils.copyLarge(lastPartStream, fos);
           }
@@ -1189,13 +1158,8 @@ public class S3StorageService implements UploadStorageService {
         // Fall back to statObject if suffix is not numeric
       }
     }
-    try {
-      StatObjectResponse stat =
-          minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(partKey).build());
-      return stat != null ? stat.size() : 0L;
-    } catch (Exception e) {
-      return 0L;
-    }
+    long size = S3Utils.getObjectSize(minioClient, bucket, partKey);
+    return size >= 0 ? size : 0L;
   }
 
   /**
@@ -1556,8 +1520,7 @@ public class S3StorageService implements UploadStorageService {
 
     try {
       // Step 1: Attempt to read from completed object key in S3
-      return minioClient.getObject(
-          GetObjectArgs.builder().bucket(bucket).object(objectKey).build());
+      return S3Utils.getObjectInputStream(minioClient, bucket, objectKey);
     } catch (ErrorResponseException e) {
       if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
         // Step 2: Fallback to reading from manifest part objects if upload is in-progress
@@ -1643,8 +1606,7 @@ public class S3StorageService implements UploadStorageService {
         underscoreIdx >= 0 ? partKey.substring(0, underscoreIdx + 1) + newLength : partKey;
 
     // Stream-based truncation without buffering entire part into JVM heap
-    try (InputStream partStream =
-        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(partKey).build())) {
+    try (InputStream partStream = S3Utils.getObjectInputStream(minioClient, bucket, partKey)) {
       BoundedInputStream boundedStream =
           BoundedInputStream.builder().setInputStream(partStream).setMaxCount(newLength).get();
       minioClient.putObject(
@@ -1675,8 +1637,7 @@ public class S3StorageService implements UploadStorageService {
     if (newOffset > 0) {
       String chunkKey = buildChunkPartKey(uploadInfo.getId(), 1, newOffset);
       // Stream-based truncation without buffering full completed object into JVM heap
-      try (InputStream objStream =
-          minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(objectKey).build())) {
+      try (InputStream objStream = S3Utils.getObjectInputStream(minioClient, bucket, objectKey)) {
         BoundedInputStream boundedStream =
             BoundedInputStream.builder().setInputStream(objStream).setMaxCount(newOffset).get();
         minioClient.putObject(
@@ -1698,17 +1659,10 @@ public class S3StorageService implements UploadStorageService {
       return;
     }
     String objectKey = getS3ObjectKey(info);
-    if (objectExists(objectKey)) {
-      try {
-        StatObjectResponse head =
-            minioClient.statObject(
-                StatObjectArgs.builder().bucket(bucket).object(objectKey).build());
-        if (head != null) {
-          info.setOffset(head.size());
-          return;
-        }
-      } catch (Exception ignored) {
-      }
+    long size = S3Utils.getObjectSize(minioClient, bucket, objectKey);
+    if (size >= 0) {
+      info.setOffset(size);
+      return;
     }
 
     List<String> partKeys =
@@ -1719,17 +1673,17 @@ public class S3StorageService implements UploadStorageService {
 
   private List<String> fetchExistingPartKeys(UploadId id) {
     String prefix = metadataPrefix + Objects.toString(id) + ".part.";
-    List<String> partKeys = new ArrayList<>();
     try {
       Iterable<Result<Item>> results =
           minioClient.listObjects(ListObjectsArgs.builder().bucket(bucket).prefix(prefix).build());
-      for (Result<Item> res : results) {
-        partKeys.add(res.get().objectName());
-      }
+      return StreamSupport.stream(results.spliterator(), false)
+          .map(S3Utils::extractObjectName)
+          .filter(Objects::nonNull)
+          .sorted()
+          .collect(Collectors.toList());
     } catch (Exception ignored) {
+      return Collections.emptyList();
     }
-    Collections.sort(partKeys);
-    return partKeys;
   }
 
   private void deleteAllPartObjectsQuietly(UploadId id) {
@@ -1738,77 +1692,12 @@ public class S3StorageService implements UploadStorageService {
   }
 
   /**
-   * Deletes multiple S3 objects efficiently using batch Multi-Object Delete (POST /?delete), with
-   * automatic fallback to individual single-object DELETE requests if batch delete is unsupported
-   * or rejected by bucket IAM permissions.
-   *
-   * <p>If batch delete fails once, it is permanently disabled for this storage service instance to
-   * avoid unnecessary failing S3 API round-trips.
+   * Quietly deletes multiple S3 objects, delegating to {@link S3Utils#deleteS3ObjectsQuietly}.
    *
    * @param keys The S3 object keys to delete
    */
   void deleteS3ObjectsQuietly(Collection<String> keys) {
-    if (keys == null || keys.isEmpty()) {
-      return;
-    }
-
-    if (!isSupportsBatchDelete()) {
-      deleteObjectsIndividually(keys);
-      return;
-    }
-
-    List<DeleteRequest.Object> objects = toDeleteRequestObjects(keys);
-    if (objects.isEmpty()) {
-      return;
-    }
-
-    boolean batchFailed = false;
-    try {
-      Iterable<Result<DeleteResult.Error>> results =
-          minioClient.removeObjects(
-              RemoveObjectsArgs.builder().bucket(bucket).objects(objects).build());
-      if (results != null) {
-        for (Result<DeleteResult.Error> res : results) {
-          if (res != null) {
-            DeleteResult.Error error = res.get();
-            if (error != null) {
-              log.debug(
-                  "Batch delete reported error for key {}: {}; switching to individual delete",
-                  error.objectName(),
-                  error.message());
-              batchFailed = true;
-              break;
-            }
-          }
-        }
-      }
-    } catch (Exception e) {
-      log.info(
-          "Batch multi-delete failed; permanently switching to individual delete: {}",
-          e.getMessage());
-      batchFailed = true;
-    }
-
-    if (batchFailed) {
-      setSupportsBatchDelete(false);
-      deleteObjectsIndividually(keys);
-    }
-  }
-
-  private List<DeleteRequest.Object> toDeleteRequestObjects(Collection<String> keys) {
-    List<DeleteRequest.Object> objects = new ArrayList<>();
-    for (String key : keys) {
-      if (key != null) {
-        objects.add(new DeleteRequest.Object(key));
-      }
-    }
-    return objects;
-  }
-
-  private void deleteObjectsIndividually(Collection<String> keys) {
-    for (String key : keys) {
-      deleteObjectQuietly(key);
-    }
+    S3Utils.deleteS3ObjectsQuietly(minioClient, bucket, keys);
   }
 
   /**
@@ -1850,36 +1739,11 @@ public class S3StorageService implements UploadStorageService {
   }
 
   private boolean objectExists(String key) {
-    try {
-      minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(key).build());
-      return true;
-    } catch (ErrorResponseException e) {
-      if (S3Utils.parseErrorResponse(e) == S3ErrorType.NO_SUCH_KEY) {
-        return false;
-      }
-      return false;
-    } catch (Exception e) {
-      return false;
-    }
+    return S3Utils.objectExists(minioClient, bucket, key);
   }
 
   private void deleteObjectQuietly(String key) {
-    if (key == null) {
-      return;
-    }
-    try {
-      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
-    } catch (Exception e) {
-      log.debug("Failed to delete S3 object key {}", key, e);
-    }
-  }
-
-  private String sanitizePrefix(String prefix) {
-    if (prefix == null || prefix.isEmpty()) {
-      return "";
-    }
-    String result = prefix.startsWith("/") ? prefix.substring(1) : prefix;
-    return result.endsWith("/") ? result : result + "/";
+    S3Utils.deleteS3ObjectQuietly(minioClient, bucket, key);
   }
 
   private String buildObjectKey(UploadId id) {
@@ -1984,7 +1848,7 @@ public class S3StorageService implements UploadStorageService {
       }
       String key = partKeys.get(index++);
       try {
-        return minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(key).build());
+        return S3Utils.getObjectInputStream(minioClient, bucket, key);
       } catch (Exception e) {
         throw new RuntimeException("Failed to read part " + key + " for streaming merge", e);
       }

@@ -1,22 +1,13 @@
 package me.desair.tus.server.upload.s3;
 
-import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import io.minio.RemoveObjectArgs;
-import io.minio.RemoveObjectsArgs;
-import io.minio.Result;
 import io.minio.errors.ErrorResponseException;
-import io.minio.messages.DeleteRequest;
-import io.minio.messages.DeleteResult;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.util.List;
+import java.util.Arrays;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import me.desair.tus.server.upload.AbstractLeaseLock;
 import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.upload.UploadId;
@@ -137,77 +128,11 @@ public class S3UploadLock extends AbstractLeaseLock {
   }
 
   void deleteS3Objects(String firstKey, String secondKey) {
-    if (minioClient == null || bucket == null) {
-      return;
-    }
-    List<String> keysToDelete =
-        Stream.of(firstKey, secondKey).filter(Objects::nonNull).collect(Collectors.toList());
-    if (keysToDelete.isEmpty()) {
-      return;
-    }
-
-    boolean batchFailed = false;
-    List<DeleteRequest.Object> objects =
-        keysToDelete.stream().map(DeleteRequest.Object::new).collect(Collectors.toList());
-
-    try {
-      // First attempt fast S3 Multi-Object Delete (POST /?delete) in a single round trip.
-      // Supported by MinIO and compliant S3 endpoints where bucket policies permit multi-delete.
-      Iterable<Result<DeleteResult.Error>> results =
-          minioClient.removeObjects(
-              RemoveObjectsArgs.builder().bucket(bucket).objects(objects).build());
-      if (results != null) {
-        for (Result<DeleteResult.Error> result : results) {
-          try {
-            if (result != null) {
-              DeleteResult.Error error = result.get();
-              if (error != null) {
-                // S3 returned an error for an object (e.g. AccessDenied on multi-delete POST
-                // /?delete)
-                log.debug(
-                    "Batch delete reported error for S3 object {}: {}; falling back to individual"
-                        + " delete",
-                    error.objectName(),
-                    error.message());
-                batchFailed = true;
-                break;
-              }
-            }
-          } catch (Exception e) {
-            log.debug(
-                "Exception iterating batch delete results; falling back to individual delete", e);
-            batchFailed = true;
-            break;
-          }
-        }
-      }
-    } catch (Exception e) {
-      log.debug(
-          "Batch multi-delete failed for keys {}; falling back to individual single-object DELETE",
-          keysToDelete,
-          e);
-      batchFailed = true;
-    }
-
-    // Fall back to resilient individual single-object DELETE calls (DELETE /bucket/key).
-    // Standard AWS IAM policies often grant s3:DeleteObject exclusively on arn:aws:s3:::bucket/*,
-    // which allows individual object deletions while rejecting bucket-level multi-object delete.
-    if (batchFailed) {
-      for (String key : keysToDelete) {
-        deleteSingleObject(key);
-      }
-    }
+    S3Utils.deleteS3ObjectsQuietly(minioClient, bucket, Arrays.asList(firstKey, secondKey));
   }
 
   void deleteSingleObject(String key) {
-    if (minioClient == null || bucket == null || key == null) {
-      return;
-    }
-    try {
-      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
-    } catch (Exception e) {
-      log.warn("Failed to delete S3 lock object key {} in bucket {}", key, bucket, e);
-    }
+    S3Utils.deleteS3ObjectQuietly(minioClient, bucket, key);
   }
 
   /**
@@ -226,8 +151,7 @@ public class S3UploadLock extends AbstractLeaseLock {
     if (key == null || minioClient == null || bucket == null) {
       return false;
     }
-    try (InputStream stream =
-        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(key).build())) {
+    try (InputStream stream = S3Utils.getObjectInputStream(minioClient, bucket, key)) {
       LeaseData remoteLock = LeaseDataJsonSerializer.deserialize(stream);
       return remoteLock != null && Strings.CS.equals(remoteLock.getHolderId(), getHolderId());
     } catch (ErrorResponseException e) {

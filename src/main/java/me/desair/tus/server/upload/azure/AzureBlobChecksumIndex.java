@@ -62,7 +62,7 @@ public class AzureBlobChecksumIndex implements ChecksumIndex {
   public AzureBlobChecksumIndex(BlobContainerClient containerClient, String checksumsPrefix) {
     this.containerClient =
         Objects.requireNonNull(containerClient, "containerClient must not be null");
-    this.checksumsPrefix = sanitizePrefix(checksumsPrefix);
+    this.checksumsPrefix = AzureUtils.sanitizePrefix(checksumsPrefix);
   }
 
   @Override
@@ -123,7 +123,7 @@ public class AzureBlobChecksumIndex implements ChecksumIndex {
   @Override
   public boolean isParentDeleted(ChecksumKey key) throws IOException {
     Objects.requireNonNull(key, "key must not be null");
-    return blobExists(buildKey(key, PARENT_DELETED_OBJECT));
+    return AzureUtils.blobExists(containerClient, buildKey(key, PARENT_DELETED_OBJECT));
   }
 
   @Override
@@ -140,8 +140,7 @@ public class AzureBlobChecksumIndex implements ChecksumIndex {
     Objects.requireNonNull(key, "key must not be null");
     Objects.requireNonNull(childId, "childId must not be null");
     String childKey = buildKey(key, CHILDREN_PREFIX + childId);
-    BlobClient childBlob = containerClient.getBlobClient(childKey);
-    childBlob.deleteIfExists();
+    AzureUtils.deleteBlobQuietly(containerClient, childKey);
   }
 
   @Override
@@ -165,7 +164,7 @@ public class AzureBlobChecksumIndex implements ChecksumIndex {
     try {
       ListBlobsOptions options = new ListBlobsOptions().setPrefix(prefix);
       for (BlobItem item : containerClient.listBlobs(options, null)) {
-        containerClient.getBlobClient(item.getName()).deleteIfExists();
+        AzureUtils.deleteBlobQuietly(containerClient, item.getName());
       }
     } catch (Exception e) {
       throw new IOException(
@@ -209,27 +208,5 @@ public class AzureBlobChecksumIndex implements ChecksumIndex {
 
   private String buildKey(ChecksumKey key, String subPath) {
     return checksumsPrefix + key + (subPath.isEmpty() ? "" : "/" + subPath);
-  }
-
-  private boolean blobExists(String blobKey) {
-    try {
-      return Boolean.TRUE.equals(containerClient.getBlobClient(blobKey).exists());
-    } catch (Exception e) {
-      return false;
-    }
-  }
-
-  private static String sanitizePrefix(String prefix) {
-    if (prefix == null || prefix.trim().isEmpty()) {
-      return "";
-    }
-    String trimmed = prefix.trim();
-    while (trimmed.startsWith("/")) {
-      trimmed = trimmed.substring(1);
-    }
-    if (!trimmed.isEmpty() && !trimmed.endsWith("/")) {
-      trimmed = trimmed + "/";
-    }
-    return trimmed;
   }
 }

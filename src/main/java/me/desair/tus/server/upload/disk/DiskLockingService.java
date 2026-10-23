@@ -7,7 +7,6 @@ import java.lang.ref.WeakReference;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -58,7 +57,7 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
   @Override
   protected void cleanupOnClose() throws IOException {
     synchronized (watchdogLock) {
-      Utils.interruptThread(watchdogThread);
+      DiskUtils.interruptThread(watchdogThread);
       watchdogThread = null;
     }
     for (WeakReference<InterruptibleInputStream> streamRef : activeLocks.values()) {
@@ -106,18 +105,15 @@ public class DiskLockingService extends AbstractDiskBasedService implements Uplo
   public void cleanupStaleLocks() throws IOException {
     try (DirectoryStream<Path> locksStream = Files.newDirectoryStream(getStoragePath())) {
       for (Path path : locksStream) {
-        if (Files.exists(path)) {
-          FileTime lastModifiedTime = Files.getLastModifiedTime(path);
-          if (lastModifiedTime.toMillis() < System.currentTimeMillis() - 10000L) {
-            String fileName = path.getFileName().toString();
-            if (fileName.endsWith(".stop")) {
+        if (Files.exists(path) && DiskUtils.isPathOlderThan(path, 10000L)) {
+          String fileName = path.getFileName().toString();
+          if (fileName.endsWith(".stop")) {
+            Files.deleteIfExists(path);
+          } else {
+            UploadId id = new UploadId(fileName);
+            if (!isLocked(id)) {
               Files.deleteIfExists(path);
-            } else {
-              UploadId id = new UploadId(fileName);
-              if (!isLocked(id)) {
-                Files.deleteIfExists(path);
-                Files.deleteIfExists(path.resolveSibling(fileName + ".stop"));
-              }
+              Files.deleteIfExists(path.resolveSibling(fileName + ".stop"));
             }
           }
         }

@@ -202,22 +202,6 @@ public class UtilsTest {
   }
 
   @Test
-  public void testCreateTempSiblingPath() {
-    assertThat(Utils.createTempSiblingPath(null), is(nullValue()));
-
-    Path absPath = Paths.get("target", "test-dir", "data.json").toAbsolutePath();
-    Path tempAbs = Utils.createTempSiblingPath(absPath);
-    assertThat(tempAbs, is(notNullValue()));
-    assertThat(tempAbs.getParent(), is(absPath.getParent()));
-    assertThat(tempAbs.getFileName().toString().startsWith("data.json.tmp."), is(true));
-
-    Path relPathNoParent = Paths.get("data.json");
-    Path tempRelNoParent = Utils.createTempSiblingPath(relPathNoParent);
-    assertThat(tempRelNoParent, is(notNullValue()));
-    assertThat(tempRelNoParent.getFileName().toString().startsWith("data.json.tmp."), is(true));
-  }
-
-  @Test
   public void testDeletePathQuietly() throws Exception {
     assertThat(Utils.deletePathQuietly(null), is(false));
     assertThat(Utils.deletePathQuietly(Paths.get("non-existent-" + UUID.randomUUID())), is(false));
@@ -225,48 +209,6 @@ public class UtilsTest {
     Path tempFile = Files.createTempFile("tus-delete-quietly", ".tmp");
     assertThat(Utils.deletePathQuietly(tempFile), is(true));
     assertThat(Files.exists(tempFile), is(false));
-  }
-
-  @Test
-  public void testTempPathAutoCloseable() throws Exception {
-    Path targetFile = Paths.get("target", "temp-target-" + UUID.randomUUID() + ".json");
-    Path tempFilePath;
-
-    try (Utils.TempPath tempPath = Utils.createTempSibling(targetFile)) {
-      tempFilePath = tempPath.getPath();
-      assertThat(tempFilePath, is(notNullValue()));
-      Files.write(tempFilePath, "temp data".getBytes());
-      assertThat(Files.exists(tempFilePath), is(true));
-    }
-
-    // AutoCloseable should have automatically deleted the temp file
-    assertThat(Files.exists(tempFilePath), is(false));
-
-    // Null path handling
-    try (Utils.TempPath nullTempPath = new Utils.TempPath(null)) {
-      assertThat(nullTempPath.getPath(), is(nullValue()));
-    }
-  }
-
-  @Test
-  public void testAtomicMove() throws Exception {
-    // Null inputs should not throw exception
-    Utils.atomicMove(null, Paths.get("dest"));
-    Utils.atomicMove(Paths.get("src"), null);
-
-    Path src = Files.createTempFile("tus-atomic-src", ".tmp");
-    Path dst = Files.createTempFile("tus-atomic-dst", ".tmp");
-    try {
-      Files.write(src, "atomic test content".getBytes());
-      Utils.atomicMove(src, dst);
-
-      assertThat(Files.exists(src), is(false));
-      assertThat(Files.exists(dst), is(true));
-      assertThat(new String(Files.readAllBytes(dst)), is("atomic test content"));
-    } finally {
-      Files.deleteIfExists(src);
-      Files.deleteIfExists(dst);
-    }
   }
 
   @Test
@@ -832,44 +774,6 @@ public class UtilsTest {
   }
 
   @Test
-  public void testInterruptThreadNull() {
-    // Should do nothing without exception
-    Utils.interruptThread(null);
-  }
-
-  @Test
-  public void testInterruptThreadAlive() throws Exception {
-    java.util.concurrent.atomic.AtomicBoolean wasInterrupted =
-        new java.util.concurrent.atomic.AtomicBoolean(false);
-    Thread thread =
-        new Thread(
-            () -> {
-              try {
-                Thread.sleep(5000L);
-              } catch (InterruptedException e) {
-                wasInterrupted.set(true);
-              }
-            },
-            "test-interruptible-thread");
-    thread.start();
-
-    // Give the thread a moment to start
-    Thread.sleep(50L);
-
-    Utils.interruptThread(thread);
-    thread.join(2000L);
-
-    assertThat(wasInterrupted.get(), is(true));
-  }
-
-  @Test
-  public void testInterruptThreadDead() {
-    Thread unstartedThread = new Thread(() -> {}, "test-unstarted");
-    // Should handle cleanly without exception
-    Utils.interruptThread(unstartedThread);
-  }
-
-  @Test
   public void ensureDirectoryExistsWithNullPathShouldDoNothing() throws Exception {
     Utils.ensureDirectoryExists(null);
   }
@@ -1029,42 +933,6 @@ public class UtilsTest {
         is(true));
     assertThat(
         Utils.getLockingServiceOrDefault(null, null) instanceof NoOpUploadLockingService, is(true));
-  }
-
-  @Test
-  public void testDeleteDirectoryQuietly() throws Exception {
-    org.junit.Assert.assertFalse(Utils.deleteDirectoryQuietly(null));
-    Path nonExistent = storagePath.resolve("non-existent-" + UUID.randomUUID());
-    org.junit.Assert.assertFalse(Utils.deleteDirectoryQuietly(nonExistent));
-
-    Path testDir = storagePath.resolve("delete-dir-test-" + UUID.randomUUID());
-    Path subDir = testDir.resolve("sub");
-    Files.createDirectories(subDir);
-    Files.write(subDir.resolve("test.txt"), "hello".getBytes());
-
-    org.junit.Assert.assertTrue(Utils.deleteDirectoryQuietly(testDir));
-    org.junit.Assert.assertFalse(Files.exists(testDir));
-  }
-
-  @Test
-  public void testDeleteDirectoryQuietlyIOException() throws Exception {
-    java.nio.file.spi.FileSystemProvider mockProvider =
-        mock(java.nio.file.spi.FileSystemProvider.class, org.mockito.Mockito.CALLS_REAL_METHODS);
-    java.nio.file.FileSystem mockFs = mock(java.nio.file.FileSystem.class);
-    when(mockFs.provider()).thenReturn(mockProvider);
-
-    Path mockPath = mock(Path.class);
-    when(mockPath.getFileSystem()).thenReturn(mockFs);
-
-    org.mockito.Mockito.doNothing().when(mockProvider).checkAccess(mockPath);
-
-    when(mockProvider.readAttributes(
-            org.mockito.ArgumentMatchers.eq(mockPath),
-            org.mockito.ArgumentMatchers.eq(java.nio.file.attribute.BasicFileAttributes.class),
-            org.mockito.ArgumentMatchers.any()))
-        .thenThrow(new IOException("Simulated I/O failure"));
-
-    org.junit.Assert.assertFalse(Utils.deleteDirectoryQuietly(mockPath));
   }
 
   /** Simple serializable class for testing. */

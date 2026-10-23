@@ -1,23 +1,15 @@
 package me.desair.tus.server.upload.s3;
 
-import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import io.minio.RemoveObjectArgs;
-import io.minio.RemoveObjectsArgs;
 import io.minio.Result;
-import io.minio.StatObjectArgs;
-import io.minio.StatObjectResponse;
 import io.minio.errors.ErrorResponseException;
-import io.minio.messages.DeleteRequest;
-import io.minio.messages.DeleteResult;
 import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -25,6 +17,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.upload.UploadId;
@@ -81,7 +75,7 @@ public class S3ChecksumIndex implements ChecksumIndex {
   public S3ChecksumIndex(MinioClient minioClient, String bucket, String checksumsPrefix) {
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
-    this.checksumsPrefix = sanitizePrefix(checksumsPrefix);
+    this.checksumsPrefix = S3Utils.sanitizePrefix(checksumsPrefix);
   }
 
   /**
@@ -174,8 +168,7 @@ public class S3ChecksumIndex implements ChecksumIndex {
     Objects.requireNonNull(key, "key must not be null");
     String parentKey = buildKey(key, PARENT_OBJECT);
 
-    try (InputStream stream =
-        minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(parentKey).build())) {
+    try (InputStream stream = S3Utils.getObjectInputStream(minioClient, bucket, parentKey)) {
       String idStr = IOUtils.toString(stream, StandardCharsets.UTF_8).trim();
       return idStr.isEmpty() ? null : new UploadId(idStr);
     } catch (ErrorResponseException e) {
@@ -217,7 +210,7 @@ public class S3ChecksumIndex implements ChecksumIndex {
     Objects.requireNonNull(key, "key must not be null");
     Objects.requireNonNull(childId, "childId must not be null");
     String childKey = buildKey(key, CHILDREN_PREFIX + childId);
-    deleteObjectQuietly(childKey);
+    S3Utils.deleteS3ObjectQuietly(minioClient, bucket, childKey);
   }
 
   @Override
@@ -230,7 +223,7 @@ public class S3ChecksumIndex implements ChecksumIndex {
           minioClient.listObjects(
               ListObjectsArgs.builder().bucket(bucket).prefix(prefix).maxKeys(1).build());
       for (Result<Item> result : results) {
-        if (result.get() != null) {
+        if (result != null && result.get() != null) {
           return true;
         }
       }
@@ -250,26 +243,13 @@ public class S3ChecksumIndex implements ChecksumIndex {
           minioClient.listObjects(
               ListObjectsArgs.builder().bucket(bucket).prefix(prefix).recursive(true).build());
 
-      List<DeleteRequest.Object> toDelete = new ArrayList<>();
-      for (Result<Item> result : results) {
-        Item item = result.get();
-        if (item != null && item.objectName() != null) {
-          toDelete.add(new DeleteRequest.Object(item.objectName()));
-        }
-      }
+      List<String> toDelete =
+          StreamSupport.stream(results.spliterator(), false)
+              .map(S3Utils::extractObjectName)
+              .filter(Objects::nonNull)
+              .collect(Collectors.toList());
 
-      if (!toDelete.isEmpty()) {
-        Iterable<Result<DeleteResult.Error>> errors =
-            minioClient.removeObjects(
-                RemoveObjectsArgs.builder().bucket(bucket).objects(toDelete).build());
-        for (Result<DeleteResult.Error> errorResult : errors) {
-          DeleteResult.Error error = errorResult.get();
-          log.warn(
-              "Error deleting S3 object {} in checksum index: {}",
-              error.objectName(),
-              error.message());
-        }
-      }
+      S3Utils.deleteS3ObjectsQuietly(minioClient, bucket, toDelete);
     } catch (Exception e) {
       throw new IOException("Failed to delete checksum index in S3 for prefix " + prefix, e);
     }
@@ -321,15 +301,7 @@ public class S3ChecksumIndex implements ChecksumIndex {
   }
 
   private boolean objectExists(String objectKey) {
-    try {
-      StatObjectResponse stat =
-          minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(objectKey).build());
-      return stat != null;
-    } catch (ErrorResponseException e) {
-      return false;
-    } catch (Exception e) {
-      return false;
-    }
+    return S3Utils.objectExists(minioClient, bucket, objectKey);
   }
 
   private void putObjectUnconditional(String objectKey, byte[] data) throws IOException {
@@ -341,26 +313,5 @@ public class S3ChecksumIndex implements ChecksumIndex {
     } catch (Exception e) {
       throw new IOException("Failed to put object in S3: " + objectKey, e);
     }
-  }
-
-  private void deleteObjectQuietly(String objectKey) {
-    try {
-      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(objectKey).build());
-    } catch (Exception ignored) {
-    }
-  }
-
-  private static String sanitizePrefix(String prefix) {
-    if (prefix == null || prefix.trim().isEmpty()) {
-      return "";
-    }
-    String trimmed = prefix.trim();
-    while (trimmed.startsWith("/")) {
-      trimmed = trimmed.substring(1);
-    }
-    if (!trimmed.isEmpty() && !trimmed.endsWith("/")) {
-      trimmed = trimmed + "/";
-    }
-    return trimmed;
   }
 }

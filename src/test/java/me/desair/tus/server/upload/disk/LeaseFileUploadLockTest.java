@@ -22,7 +22,6 @@ import me.desair.tus.server.upload.LeaseData;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.LeaseDataJsonSerializer;
-import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -442,7 +441,7 @@ public class LeaseFileUploadLockTest {
     // Missing lease.json returns false
     assertFalse(lock.doesLockOwnershipMatch());
 
-    Utils.deleteDirectoryQuietly(dir);
+    DiskUtils.deleteDirectoryQuietly(dir);
   }
 
   @Test
@@ -465,7 +464,7 @@ public class LeaseFileUploadLockTest {
     LeaseDataJsonSerializer.serializeToPath(mismatchedLease, dir.resolve("lease.json"));
     assertFalse(lock.doesLockOwnershipMatch());
 
-    Utils.deleteDirectoryQuietly(dir);
+    DiskUtils.deleteDirectoryQuietly(dir);
   }
 
   @Test

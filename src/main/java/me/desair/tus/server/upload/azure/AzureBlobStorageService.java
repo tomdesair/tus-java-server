@@ -51,6 +51,7 @@ import me.desair.tus.server.upload.util.AsyncChunkUploader;
 import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.BoundedInputStream;
 import org.slf4j.Logger;
@@ -149,10 +150,10 @@ public class AzureBlobStorageService implements UploadStorageService {
       Path tempBufferDir) {
     this.containerClient =
         Objects.requireNonNull(containerClient, "containerClient must not be null");
-    this.uploadPrefix = sanitizePrefix(uploadPrefix);
-    this.metadataPrefix = sanitizePrefix(metadataPrefix);
-    this.checksumsPrefix = sanitizePrefix(checksumsPrefix);
-    this.locksPrefix = sanitizePrefix(locksPrefix);
+    this.uploadPrefix = AzureUtils.sanitizePrefix(uploadPrefix);
+    this.metadataPrefix = AzureUtils.sanitizePrefix(metadataPrefix);
+    this.checksumsPrefix = AzureUtils.sanitizePrefix(checksumsPrefix);
+    this.locksPrefix = AzureUtils.sanitizePrefix(locksPrefix);
     this.tempBufferDir = Objects.requireNonNull(tempBufferDir, "tempBufferDir must not be null");
 
     try {
@@ -346,7 +347,7 @@ public class AzureBlobStorageService implements UploadStorageService {
           break;
         } finally {
           if (!handedOff) {
-            deleteFileQuietly(chunkFile);
+            FileUtils.deleteQuietly(chunkFile);
           }
         }
       }
@@ -515,7 +516,7 @@ public class AzureBlobStorageService implements UploadStorageService {
         containerClient.getBlobClient(targetBlobName).getBlockBlobClient();
 
     try {
-      if (Boolean.TRUE.equals(blockBlobClient.exists())) {
+      if (AzureUtils.blobExists(blockBlobClient)) {
         return blockBlobClient.openInputStream();
       }
     } catch (Exception ignored) {
@@ -602,7 +603,7 @@ public class AzureBlobStorageService implements UploadStorageService {
         containerClient.getBlobClient(getAzureBlobName(uploadInfo)).getBlockBlobClient();
 
     if (targetOffset == 0) {
-      blockBlobClient.deleteIfExists();
+      AzureUtils.deleteBlobQuietly(blockBlobClient);
       uploadInfo.setUploadPartKeys(new ArrayList<>());
     } else {
       File tempFile = Files.createTempFile(tempBufferDir, "tus-azure-block-trim-", ".tmp").toFile();
@@ -622,7 +623,7 @@ public class AzureBlobStorageService implements UploadStorageService {
         blockBlobClient.commitBlockList(List.of(newBlockId), true);
         uploadInfo.setUploadPartKeys(new ArrayList<>(Collections.singletonList(newBlockId)));
       } finally {
-        deleteFileQuietly(tempFile);
+        FileUtils.deleteQuietly(tempFile);
       }
     }
 
@@ -667,19 +668,19 @@ public class AzureBlobStorageService implements UploadStorageService {
     if (id == null) {
       return false;
     }
-    return Boolean.TRUE.equals(containerClient.getBlobClient(uploadPrefix + id).exists());
+    return AzureUtils.blobExists(containerClient, uploadPrefix + id);
   }
 
   @Override
   public void deleteData(UploadId id) {
     if (id != null) {
-      containerClient.getBlobClient(uploadPrefix + id).deleteIfExists();
+      AzureUtils.deleteBlobQuietly(containerClient, uploadPrefix + id);
     }
   }
 
   private void deleteMetadata(UploadId id) {
     if (id != null) {
-      containerClient.getBlobClient(metadataPrefix + id + ".info").deleteIfExists();
+      AzureUtils.deleteBlobQuietly(containerClient, metadataPrefix + id + ".info");
     }
   }
 
@@ -1031,15 +1032,6 @@ public class AzureBlobStorageService implements UploadStorageService {
           "Failed to apply deduplication for upload {}: {}", uploadInfo.getId(), e.getMessage());
       return false;
     }
-  }
-
-  /** Sanitizes object key prefix format. */
-  private String sanitizePrefix(String prefix) {
-    if (prefix == null || prefix.isEmpty()) {
-      return "";
-    }
-    String result = prefix.startsWith("/") ? prefix.substring(1) : prefix;
-    return result.endsWith("/") ? result : result + "/";
   }
 
   /** Deletes local file suppressing exceptions. */

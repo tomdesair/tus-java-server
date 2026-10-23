@@ -74,7 +74,7 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
       UploadStorageService storageService) {
     this.containerClient =
         Objects.requireNonNull(containerClient, "containerClient must not be null");
-    this.uploadPrefix = sanitizePrefix(uploadPrefix);
+    this.uploadPrefix = AzureUtils.sanitizePrefix(uploadPrefix);
     this.storageService = Objects.requireNonNull(storageService, "storageService must not be null");
   }
 
@@ -225,14 +225,6 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
   private String generateBlockId(int index) {
     String idString = String.format("concat-%06d", index);
     return Base64.getEncoder().encodeToString(idString.getBytes(StandardCharsets.UTF_8));
-  }
-
-  private String sanitizePrefix(String prefix) {
-    if (prefix == null || prefix.isEmpty()) {
-      return "";
-    }
-    String result = prefix.startsWith("/") ? prefix.substring(1) : prefix;
-    return result.endsWith("/") ? result : result + "/";
   }
 
   void stageBlockFromUrl(BlockBlobClient finalBlockBlob, String blockId, String sourceUrl) {

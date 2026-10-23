@@ -358,13 +358,7 @@ public class AzureBlobUploadLock implements UploadLock {
       }
     }
 
-    if (stopBlob != null) {
-      try {
-        stopBlob.deleteIfExists();
-      } catch (Exception ignored) {
-        // Ignore stop signal deletion failures
-      }
-    }
+    AzureUtils.deleteBlobQuietly(stopBlob);
   }
 
   void fallbackReleaseLease() {

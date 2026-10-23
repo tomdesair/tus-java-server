@@ -98,7 +98,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
     super("azure-lock-shutdown-hook");
     this.containerClient =
         Objects.requireNonNull(containerClient, "containerClient must not be null");
-    this.locksPrefix = sanitizePrefix(locksPrefix);
+    this.locksPrefix = AzureUtils.sanitizePrefix(locksPrefix);
 
     // Use multi-threaded pooled scheduled daemon executor to poll .stop signals across pods
     // and execute heartbeat renewals concurrently without head-of-line blocking
@@ -120,7 +120,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
     super("azure-lock-shutdown-hook");
     this.containerClient =
         Objects.requireNonNull(containerClient, "containerClient must not be null");
-    this.locksPrefix = sanitizePrefix(locksPrefix);
+    this.locksPrefix = AzureUtils.sanitizePrefix(locksPrefix);
     this.watchdogExecutor = watchdogExecutor;
   }
 
@@ -311,7 +311,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
         if (blobName.endsWith(".stop")) {
           if (lastModified != null
               && lastModified.isBefore(now.minusSeconds(STOP_SIGNAL_EXPIRATION_SECONDS))) {
-            getBlobClient(blobName).deleteIfExists();
+            AzureUtils.deleteBlobQuietly(getBlobClient(blobName));
             log.info("Cleaned up stale Azure stop signal blob: {}", blobName);
           }
         }
@@ -395,12 +395,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
 
   /** Deletes the .stop signal blob after lock acquisition. */
   void deleteStopSignalBlob(String idStr) {
-    try {
-      BlobClient stopBlob = getBlobClient(locksPrefix + idStr + ".stop");
-      stopBlob.deleteIfExists();
-    } catch (Exception ignored) {
-      // Ignore cleanup exceptions
-    }
+    AzureUtils.deleteBlobQuietly(getBlobClient(locksPrefix + idStr + ".stop"));
   }
 
   /** Ensures the lock target blob exists on Azure Blob Storage. */
@@ -452,22 +447,14 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
           continue;
         }
         BlobClient stopBlob = getBlobClient(locksPrefix + idStr + ".stop");
-        if (Boolean.TRUE.equals(stopBlob.exists())) {
+        if (AzureUtils.blobExists(stopBlob)) {
           log.info("Detected remote .stop signal blob for upload ID {}", idStr);
           interruptLocalStream(idStr);
-          stopBlob.deleteIfExists();
+          AzureUtils.deleteBlobQuietly(stopBlob);
         }
       } catch (Exception e) {
         log.debug("Error in azure-lock-watchdog polling execution: {}", e.getMessage());
       }
     }
-  }
-
-  private String sanitizePrefix(String prefix) {
-    if (prefix == null || prefix.isEmpty()) {
-      return "";
-    }
-    String result = prefix.startsWith("/") ? prefix.substring(1) : prefix;
-    return result.endsWith("/") ? result : result + "/";
   }
 }
