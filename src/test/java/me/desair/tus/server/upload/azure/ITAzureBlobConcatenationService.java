@@ -14,6 +14,7 @@ import me.desair.tus.server.TestUtils;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadType;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assume;
 import org.junit.Before;
@@ -52,6 +53,13 @@ public class ITAzureBlobConcatenationService {
     storageService = new AzureBlobStorageService(containerClient);
     concatenationService = new AzureBlobConcatenationService(containerClient, storageService);
     storageService.setUploadConcatenationService(concatenationService);
+  }
+
+  @After
+  public void tearDown() throws Exception {
+    if (storageService != null) {
+      storageService.close();
+    }
   }
 
   @Test(expected = UploadNotFoundException.class)

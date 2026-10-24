@@ -94,7 +94,7 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
               "RUFH append request for URI {} was interrupted by locking service contention; "
                   + "saved partial upload up to offset {}",
               requestUri,
-              uploadInfo != null ? uploadInfo.getOffset() : "unknown");
+              uploadInfo.getOffset());
         } else {
           throw e;
         }

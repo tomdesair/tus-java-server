@@ -196,18 +196,35 @@ public class AsyncChunkUploaderTest {
     Files.write(chunk1.toPath(), new byte[] {1});
     Files.write(chunk2.toPath(), new byte[] {2});
 
+    CountDownLatch chunk1Started = new CountDownLatch(1);
+    CountDownLatch allowChunk1ToFail = new CountDownLatch(1);
+
     try (AsyncChunkUploader uploader = new AsyncChunkUploader(executor)) {
       uploader.submitChunk(
           chunk1,
           1,
           "part-1",
           () -> {
+            chunk1Started.countDown();
+            try {
+              allowChunk1ToFail.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+              Thread.currentThread().interrupt();
+            }
             throw new IOException("Simulated S3 network failure");
           });
 
-      // Submitting next chunk or draining must detect previous failure and throw IOException
+      // Wait until chunk 1 is actively running in background slot 3
+      assertTrue(chunk1Started.await(5, TimeUnit.SECONDS));
+
+      // With slot 3 actively running, submitChunk queues chunk 2 into slot 2 without throwing
+      uploader.submitChunk(chunk2, 1, "part-2", () -> {});
+
+      // Allow chunk 1 to fail
+      allowChunk1ToFail.countDown();
+
+      // Draining the pipeline detects the failure of chunk 1 and throws IOException
       try {
-        uploader.submitChunk(chunk2, 1, "part-2", () -> {});
         uploader.drainAndComplete(3000);
         fail("Expected IOException from failed chunk upload");
       } catch (IOException e) {
@@ -682,6 +699,32 @@ public class AsyncChunkUploaderTest {
     uploader.abort();
     unblock.countDown();
     uploader.close();
+  }
+
+  @Test
+  public void testAbortWhenThreadInterruptedRestoresInterruptStatus() throws Exception {
+    ExecutorService mockExecutor = mock(ExecutorService.class);
+    @SuppressWarnings("unchecked")
+    java.util.concurrent.Future<Void> future = mock(java.util.concurrent.Future.class);
+    when(mockExecutor.submit(any(Callable.class))).thenReturn(future);
+    when(future.isDone()).thenReturn(false);
+    when(future.get(500, TimeUnit.MILLISECONDS))
+        .thenThrow(new InterruptedException("Interrupted during abort wait"));
+
+    File f = new File(tempDir, "abort-interrupted.tmp");
+    Files.write(f.toPath(), new byte[] {1});
+
+    try (AsyncChunkUploader uploader = new AsyncChunkUploader(mockExecutor)) {
+      uploader.submitChunk(f, 1, "k-abort-intr", () -> {});
+      try {
+        uploader.abort();
+        assertTrue(
+            "Interrupted status must be restored when InterruptedException caught in abort()",
+            Thread.interrupted());
+      } finally {
+        Thread.interrupted();
+      }
+    }
   }
 
   @Test

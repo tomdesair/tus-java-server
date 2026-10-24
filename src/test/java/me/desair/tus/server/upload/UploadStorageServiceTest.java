@@ -6,7 +6,6 @@ import static org.hamcrest.Matchers.nullValue;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.time.Duration;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
@@ -70,12 +69,11 @@ public class UploadStorageServiceTest {
           @Override
           public InputStream getUploadedBytes(UploadId id)
               throws IOException, UploadNotFoundException {
+            if (id != null && "found".equals(id.toString())) {
+              return new java.io.ByteArrayInputStream(new byte[] {1, 2, 3});
+            }
             return null;
           }
-
-          @Override
-          public void copyUploadTo(UploadInfo info, OutputStream outputStream)
-              throws UploadNotFoundException, IOException {}
 
           @Override
           public void removeLastNumberOfBytes(UploadInfo uploadInfo, long byteCount)
@@ -117,6 +115,32 @@ public class UploadStorageServiceTest {
   @Test
   public void testDefaultIsUploadDeduplicationEnabled() {
     assertThat(dummyStorageService.isUploadDeduplicationEnabled(), is(false));
+  }
+
+  @Test
+  public void testDefaultCopyUploadTo() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("found"));
+    java.io.ByteArrayOutputStream os = new java.io.ByteArrayOutputStream();
+    dummyStorageService.copyUploadTo(info, os);
+    org.junit.Assert.assertArrayEquals(new byte[] {1, 2, 3}, os.toByteArray());
+  }
+
+  @Test(expected = UploadNotFoundException.class)
+  public void testDefaultCopyUploadToNotFound() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("missing"));
+    dummyStorageService.copyUploadTo(info, new java.io.ByteArrayOutputStream());
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void testDefaultCopyUploadToNullInfo() throws Exception {
+    dummyStorageService.copyUploadTo(null, new java.io.ByteArrayOutputStream());
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void testDefaultCopyUploadToNullOutputStream() throws Exception {
+    dummyStorageService.copyUploadTo(new UploadInfo(), null);
   }
 
   @Test
@@ -182,5 +206,26 @@ public class UploadStorageServiceTest {
 
     UploadLockingService mockLocking = org.mockito.Mockito.mock(UploadLockingService.class);
     dummyStorageService.cleanupExpiredUploads(mockLocking);
+  }
+
+  @Test
+  public void testDefaultUploadConcatenationServiceClose() throws Exception {
+    UploadConcatenationService concatService =
+        new UploadConcatenationService() {
+          @Override
+          public void merge(UploadInfo uploadInfo) {}
+
+          @Override
+          public InputStream getConcatenatedBytes(UploadInfo uploadInfo) {
+            return null;
+          }
+
+          @Override
+          public java.util.List<UploadInfo> getPartialUploads(UploadInfo info) {
+            return null;
+          }
+        };
+    // KISS: verifying default close() executes cleanly without throwing an exception
+    concatService.close();
   }
 }

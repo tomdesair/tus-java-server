@@ -5,7 +5,12 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.sameInstance;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,9 +23,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.upload.NoOpUploadLockingService;
@@ -933,6 +944,156 @@ public class UtilsTest {
         is(true));
     assertThat(
         Utils.getLockingServiceOrDefault(null, null) instanceof NoOpUploadLockingService, is(true));
+  }
+
+  @Test
+  public void testSanitizePrefix() {
+    assertEquals("", Utils.sanitizePrefix(null));
+    assertEquals("", Utils.sanitizePrefix(""));
+    assertEquals("", Utils.sanitizePrefix("   "));
+    assertEquals("", Utils.sanitizePrefix("///"));
+    assertEquals("locks/", Utils.sanitizePrefix("locks"));
+    assertEquals("locks/", Utils.sanitizePrefix("/locks"));
+    assertEquals("locks/", Utils.sanitizePrefix("locks/"));
+    assertEquals("locks/", Utils.sanitizePrefix("/locks/"));
+    assertEquals("a/b/c/", Utils.sanitizePrefix("/a/b/c"));
+    assertEquals("custom/", Utils.sanitizePrefix("/custom///"));
+  }
+
+  @Test
+  public void testCreateUploadExecutor() throws Exception {
+    ThreadPoolExecutor executor = Utils.createUploadExecutor(2, "test-upload");
+    try {
+      assertEquals(2, executor.getCorePoolSize());
+      assertEquals(2, executor.getMaximumPoolSize());
+      assertTrue(executor.allowsCoreThreadTimeOut());
+
+      CountDownLatch threadExecuted = new CountDownLatch(1);
+      String[] threadName = new String[1];
+      executor.execute(
+          () -> {
+            threadName[0] = Thread.currentThread().getName();
+            threadExecuted.countDown();
+          });
+      assertTrue(threadExecuted.await(2, TimeUnit.SECONDS));
+      assertTrue(threadName[0].startsWith("test-upload-"));
+    } finally {
+      Utils.shutdownExecutor(executor, Duration.ofSeconds(1));
+    }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testCreateUploadExecutorInvalidSize() {
+    Utils.createUploadExecutor(0, "test-upload");
+  }
+
+  @Test
+  public void testResizeThreadPoolExecutor() {
+    ThreadPoolExecutor executor = Utils.createUploadExecutor(2, "resize-test");
+    try {
+      // Grow pool
+      Utils.resizeThreadPoolExecutor(executor, 4);
+      assertEquals(4, executor.getMaximumPoolSize());
+      assertEquals(4, executor.getCorePoolSize());
+
+      // Shrink pool
+      Utils.resizeThreadPoolExecutor(executor, 1);
+      assertEquals(1, executor.getCorePoolSize());
+      assertEquals(1, executor.getMaximumPoolSize());
+
+      // Null executor handled safely
+      Utils.resizeThreadPoolExecutor(null, 5);
+    } finally {
+      Utils.shutdownExecutor(executor, Duration.ofSeconds(1));
+    }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testResizeThreadPoolExecutorInvalidSize() {
+    ThreadPoolExecutor executor = Utils.createUploadExecutor(2, "resize-test");
+    try {
+      Utils.resizeThreadPoolExecutor(executor, 0);
+    } finally {
+      Utils.shutdownExecutor(executor, Duration.ofSeconds(1));
+    }
+  }
+
+  @Test
+  public void testShutdownExecutorGracefulAndNull() {
+    Utils.shutdownExecutor(null, Duration.ofSeconds(1));
+
+    ThreadPoolExecutor executor = Utils.createUploadExecutor(1, "shutdown-test");
+    Utils.shutdownExecutor(executor, Duration.ofSeconds(1));
+    assertTrue(executor.isShutdown());
+  }
+
+  @Test
+  public void testUploadExecutorQueueBlockingAndShutdown() throws Exception {
+    ThreadPoolExecutor executor = Utils.createUploadExecutor(1, "block-test");
+    try {
+      CountDownLatch taskStarted = new CountDownLatch(1);
+      CountDownLatch holdTask = new CountDownLatch(1);
+      executor.execute(
+          () -> {
+            taskStarted.countDown();
+            try {
+              holdTask.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+            }
+          });
+      assertTrue(taskStarted.await(2, TimeUnit.SECONDS));
+
+      // Fill queue (size = 1 * 2 = 2)
+      executor.execute(() -> {});
+      executor.execute(() -> {});
+
+      // Shutdown and verify RejectedExecutionException on enqueue
+      executor.shutdown();
+      try {
+        executor.getRejectedExecutionHandler().rejectedExecution(() -> {}, executor);
+        org.junit.Assert.fail("Expected RejectedExecutionException when executor is shut down");
+      } catch (RejectedExecutionException expected) {
+        assertTrue(expected.getMessage().contains("Upload executor is shut down"));
+      } finally {
+        holdTask.countDown();
+      }
+    } finally {
+      Utils.shutdownExecutor(executor, Duration.ofSeconds(1));
+    }
+  }
+
+  @Test
+  public void testShutdownExecutorEdgeCases() throws Exception {
+    // 1. Null executor is a no-op
+    Utils.shutdownExecutor(null, Duration.ofSeconds(1));
+
+    // 2. Null timeout uses default 5s
+    ThreadPoolExecutor exec = Utils.createUploadExecutor(1, "test-null-timeout");
+    Utils.shutdownExecutor(exec, null);
+    assertTrue(exec.isShutdown());
+
+    // 3. Forced shutdownNow when awaitTermination times out
+    ThreadPoolExecutor slowExec = Utils.createUploadExecutor(1, "test-timeout-exec");
+    CountDownLatch taskRunning = new CountDownLatch(1);
+    slowExec.execute(
+        () -> {
+          taskRunning.countDown();
+          try {
+            Thread.sleep(5000);
+          } catch (InterruptedException ignored) {
+          }
+        });
+    assertTrue(taskRunning.await(2, TimeUnit.SECONDS));
+    Utils.shutdownExecutor(slowExec, Duration.ofMillis(50));
+    assertTrue(slowExec.isShutdown());
+
+    // 4. InterruptedException during awaitTermination triggers shutdownNow and interrupts thread
+    ExecutorService mockExec = mock(ExecutorService.class);
+    when(mockExec.awaitTermination(anyLong(), any()))
+        .thenThrow(new InterruptedException("Simulated interrupt"));
+    Utils.shutdownExecutor(mockExec, Duration.ofSeconds(1));
+    verify(mockExec).shutdownNow();
+    assertTrue(Thread.interrupted()); // verify interrupt status was restored and clear it
   }
 
   /** Simple serializable class for testing. */

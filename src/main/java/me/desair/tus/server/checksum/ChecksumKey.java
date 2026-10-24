@@ -60,12 +60,6 @@ public final class ChecksumKey implements Serializable {
           "The checksum value is not valid hexadecimal or Base64: " + checksum);
     }
 
-    // Guard against path traversal characters, slashes, or non-hex characters
-    if (!normalizedHex.matches("^[0-9a-f]+$")) {
-      throw new IllegalArgumentException(
-          "The normalized checksum contains invalid characters: " + normalizedHex);
-    }
-
     return new ChecksumKey(algorithm, normalizedHex);
   }
 
@@ -85,6 +79,34 @@ public final class ChecksumKey implements Serializable {
    */
   public String getHexChecksum() {
     return hexChecksum;
+  }
+
+  /**
+   * Parses a {@link ChecksumKey} from a relative index path formatted as {@code
+   * <algorithm>/<checksum>/<parentSuffix>}.
+   *
+   * @param relativePath The relative path string (e.g. "sha256/abc123hash/parent")
+   * @param parentSuffix The expected suffix component (e.g. "parent")
+   * @return The parsed {@link ChecksumKey}, or {@code null} if the path is invalid or does not
+   *     match
+   */
+  public static ChecksumKey parseFromIndexRelativePath(String relativePath, String parentSuffix) {
+    if (relativePath == null || parentSuffix == null) {
+      return null;
+    }
+    String cleanPath = relativePath.startsWith("/") ? relativePath.substring(1) : relativePath;
+    String[] parts = cleanPath.split("/");
+    if (parts.length == 3 && parentSuffix.equals(parts[2])) {
+      ChecksumAlgorithm algo = ChecksumAlgorithm.forTusName(parts[0]);
+      if (algo != null) {
+        try {
+          return ChecksumKey.of(parts[1], algo);
+        } catch (IllegalArgumentException e) {
+          // Malformed checksum value, skip
+        }
+      }
+    }
+    return null;
   }
 
   @Override

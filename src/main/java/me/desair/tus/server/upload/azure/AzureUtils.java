@@ -19,30 +19,6 @@ public final class AzureUtils {
   }
 
   /**
-   * Sanitizes a blob name prefix, stripping leading slashes, collapsing trailing slashes, and
-   * ensuring exactly one trailing slash.
-   *
-   * @param prefix Raw prefix string
-   * @return Normalized prefix ending with a slash, or empty string if null, empty, or only slashes
-   */
-  public static String sanitizePrefix(String prefix) {
-    if (prefix == null || prefix.trim().isEmpty()) {
-      return "";
-    }
-    String result = prefix.trim();
-    while (result.startsWith("/")) {
-      result = result.substring(1);
-    }
-    if (result.isEmpty()) {
-      return "";
-    }
-    while (result.endsWith("/")) {
-      result = result.substring(0, result.length() - 1);
-    }
-    return result + "/";
-  }
-
-  /**
    * Checks whether a blob exists in Azure Blob Storage.
    *
    * @param blobClient The {@link BlobClient} to inspect

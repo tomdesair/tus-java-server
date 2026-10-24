@@ -57,6 +57,10 @@ public class S3ConcatenationServiceTest {
             null);
     assertNotNull(service);
 
+    S3ConcatenationService service3Param =
+        new S3ConcatenationService(minioClient, "test-bucket", storageService);
+    assertNotNull(service3Param);
+
     // Public connection parameter constructors without region (defaults to "local")
     S3ConcatenationService serviceParamsNoRegionWithStorage =
         new S3ConcatenationService(

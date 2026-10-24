@@ -42,4 +42,13 @@ public interface UploadConcatenationService {
    * @throws UploadNotFoundException When one of the partial uploads cannot be found
    */
   List<UploadInfo> getPartialUploads(UploadInfo info) throws IOException, UploadNotFoundException;
+
+  /**
+   * Closes any resources associated with this concatenation service.
+   *
+   * @throws IOException If closing fails
+   */
+  default void close() throws IOException {
+    // No-op by default for backwards compatibility
+  }
 }

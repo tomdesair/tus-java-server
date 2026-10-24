@@ -14,6 +14,7 @@ import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.util.InterruptibleInputStream;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assume;
 import org.junit.Before;
@@ -54,6 +55,13 @@ public class ITAzureBlobLockingService {
     TimeBasedUploadIdFactory idFactory = new TimeBasedUploadIdFactory();
     idFactory.setUploadUri("/test/upload");
     lockingService.setIdFactory(idFactory);
+  }
+
+  @After
+  public void tearDown() throws Exception {
+    if (lockingService != null) {
+      lockingService.close();
+    }
   }
 
   @Test

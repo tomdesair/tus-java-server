@@ -36,6 +36,7 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -73,6 +74,13 @@ public abstract class AbstractITTusFileUploadService {
   public void setUp() throws Exception {
     reset();
     tusFileUploadService = createTusFileUploadService();
+  }
+
+  @After
+  public void tearDown() throws Exception {
+    if (tusFileUploadService != null) {
+      tusFileUploadService.close();
+    }
   }
 
   protected void reset() {
@@ -1395,6 +1403,9 @@ public abstract class AbstractITTusFileUploadService {
         "1B;test=value\r\nThis upload looks chunked, \r\n" + "D\r\nbut it's not!\r\n" + "\r\n0\r\n";
 
     // Create service without chunked decoding and without expiration
+    if (tusFileUploadService != null) {
+      tusFileUploadService.close();
+    }
     tusFileUploadService =
         createTusFileUploadService("/users/[0-9]+/files/upload")
             .withChunkedTransferDecoding(false)
@@ -2017,6 +2028,9 @@ public abstract class AbstractITTusFileUploadService {
       assertResponseStatus(HttpServletResponse.SC_BAD_REQUEST);
     } finally {
       // Restore for other tests
+      if (tusFileUploadService != null) {
+        tusFileUploadService.close();
+      }
       tusFileUploadService = createTusFileUploadService();
     }
   }
@@ -2145,126 +2159,126 @@ public abstract class AbstractITTusFileUploadService {
   @Test
   public void testUploadWithAbsoluteUploadUri() throws Exception {
     String absoluteBaseUri = "https://uploads.example.com";
-    TusFileUploadService service = createTusFileUploadService(absoluteBaseUri);
+    try (TusFileUploadService service = createTusFileUploadService(absoluteBaseUri)) {
+      String uploadContent = "Absolute URL upload content";
 
-    String uploadContent = "Absolute URL upload content";
+      // Step 1: POST to create upload on root endpoint "/"
+      servletRequest.setMethod("POST");
+      servletRequest.setRequestURI("/");
+      servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+      servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, uploadContent.getBytes().length);
+      servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
-    // Step 1: POST to create upload on root endpoint "/"
-    servletRequest.setMethod("POST");
-    servletRequest.setRequestURI("/");
-    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
-    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, uploadContent.getBytes().length);
-    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+      service.process(servletRequest, servletResponse, OWNER_KEY);
+      assertResponseStatus(HttpServletResponse.SC_CREATED);
+      assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+      String locationHeader = servletResponse.getHeader(HttpHeader.LOCATION);
+      assertResponseHeaderNotBlank(HttpHeader.LOCATION);
 
-    service.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseStatus(HttpServletResponse.SC_CREATED);
-    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    String locationHeader = servletResponse.getHeader(HttpHeader.LOCATION);
-    assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+      // Retrieve upload info using the full Location header to verify ID lookup works with absolute
+      // URLs
+      UploadInfo infoByLocation = service.getUploadInfo(locationHeader, OWNER_KEY);
+      assertTrue(infoByLocation != null && infoByLocation.getId() != null);
+      assertThat(locationHeader, is("https://uploads.example.com/" + infoByLocation.getId()));
 
-    // Retrieve upload info using the full Location header to verify ID lookup works with absolute
-    // URLs
-    UploadInfo infoByLocation = service.getUploadInfo(locationHeader, OWNER_KEY);
-    assertTrue(infoByLocation != null && infoByLocation.getId() != null);
-    assertThat(locationHeader, is("https://uploads.example.com/" + infoByLocation.getId()));
+      String uploadPath = "/" + infoByLocation.getId();
 
-    String uploadPath = "/" + infoByLocation.getId();
+      // Step 2: PATCH bytes to the upload resource
+      reset();
+      servletRequest.setMethod("PATCH");
+      servletRequest.setRequestURI(uploadPath);
+      servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+      servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, uploadContent.getBytes().length);
+      servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+      servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+      servletRequest.setContent(uploadContent.getBytes());
 
-    // Step 2: PATCH bytes to the upload resource
-    reset();
-    servletRequest.setMethod("PATCH");
-    servletRequest.setRequestURI(uploadPath);
-    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
-    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, uploadContent.getBytes().length);
-    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
-    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    servletRequest.setContent(uploadContent.getBytes());
+      service.process(servletRequest, servletResponse, OWNER_KEY);
+      assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+      assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + uploadContent.getBytes().length);
 
-    service.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
-    assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + uploadContent.getBytes().length);
+      // Step 3: HEAD request to verify completion
+      reset();
+      servletRequest.setMethod("HEAD");
+      servletRequest.setRequestURI(uploadPath);
+      servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
-    // Step 3: HEAD request to verify completion
-    reset();
-    servletRequest.setMethod("HEAD");
-    servletRequest.setRequestURI(uploadPath);
-    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+      service.process(servletRequest, servletResponse, OWNER_KEY);
+      assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+      assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + uploadContent.getBytes().length);
+      assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "" + uploadContent.getBytes().length);
 
-    service.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
-    assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + uploadContent.getBytes().length);
-    assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "" + uploadContent.getBytes().length);
+      // Verify upload info is also retrievable via relative path
+      UploadInfo infoByPath = service.getUploadInfo(uploadPath, OWNER_KEY);
+      assertTrue(infoByPath != null && infoByLocation.getId().equals(infoByPath.getId()));
 
-    // Verify upload info is also retrievable via relative path
-    UploadInfo infoByPath = service.getUploadInfo(uploadPath, OWNER_KEY);
-    assertTrue(infoByPath != null && infoByLocation.getId().equals(infoByPath.getId()));
-
-    // Step 4: Verify uploaded bytes
-    try (InputStream stream = service.getUploadedBytes(uploadPath, OWNER_KEY)) {
-      assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
+      // Step 4: Verify uploaded bytes
+      try (InputStream stream = service.getUploadedBytes(uploadPath, OWNER_KEY)) {
+        assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
+      }
     }
   }
 
   @Test
   public void testUploadWithAbsoluteUploadUriWithPath() throws Exception {
     String absoluteBaseUri = "https://uploads.example.com/api";
-    TusFileUploadService service = createTusFileUploadService(absoluteBaseUri);
+    try (TusFileUploadService service = createTusFileUploadService(absoluteBaseUri)) {
+      String uploadContent = "Absolute URL with path upload content";
 
-    String uploadContent = "Absolute URL with path upload content";
+      // Step 1: POST to create upload on endpoint "/api"
+      servletRequest.setMethod("POST");
+      servletRequest.setRequestURI("/api");
+      servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
+      servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, uploadContent.getBytes().length);
+      servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
-    // Step 1: POST to create upload on endpoint "/api"
-    servletRequest.setMethod("POST");
-    servletRequest.setRequestURI("/api");
-    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, 0);
-    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, uploadContent.getBytes().length);
-    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+      service.process(servletRequest, servletResponse, OWNER_KEY);
+      assertResponseStatus(HttpServletResponse.SC_CREATED);
+      assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+      String locationHeader = servletResponse.getHeader(HttpHeader.LOCATION);
+      assertResponseHeaderNotBlank(HttpHeader.LOCATION);
 
-    service.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseStatus(HttpServletResponse.SC_CREATED);
-    assertResponseHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    String locationHeader = servletResponse.getHeader(HttpHeader.LOCATION);
-    assertResponseHeaderNotBlank(HttpHeader.LOCATION);
+      // Retrieve upload info using the full Location header to verify ID lookup works with absolute
+      // URLs
+      UploadInfo infoByLocation = service.getUploadInfo(locationHeader, OWNER_KEY);
+      assertTrue(infoByLocation != null && infoByLocation.getId() != null);
+      assertThat(locationHeader, is("https://uploads.example.com/api/" + infoByLocation.getId()));
 
-    // Retrieve upload info using the full Location header to verify ID lookup works with absolute
-    // URLs
-    UploadInfo infoByLocation = service.getUploadInfo(locationHeader, OWNER_KEY);
-    assertTrue(infoByLocation != null && infoByLocation.getId() != null);
-    assertThat(locationHeader, is("https://uploads.example.com/api/" + infoByLocation.getId()));
+      String uploadPath = "/api/" + infoByLocation.getId();
 
-    String uploadPath = "/api/" + infoByLocation.getId();
+      // Step 2: PATCH bytes to the upload resource
+      reset();
+      servletRequest.setMethod("PATCH");
+      servletRequest.setRequestURI(uploadPath);
+      servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+      servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, uploadContent.getBytes().length);
+      servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
+      servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+      servletRequest.setContent(uploadContent.getBytes());
 
-    // Step 2: PATCH bytes to the upload resource
-    reset();
-    servletRequest.setMethod("PATCH");
-    servletRequest.setRequestURI(uploadPath);
-    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
-    servletRequest.addHeader(HttpHeader.CONTENT_LENGTH, uploadContent.getBytes().length);
-    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, 0);
-    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
-    servletRequest.setContent(uploadContent.getBytes());
+      service.process(servletRequest, servletResponse, OWNER_KEY);
+      assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+      assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + uploadContent.getBytes().length);
 
-    service.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
-    assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + uploadContent.getBytes().length);
+      // Step 3: HEAD request to verify completion
+      reset();
+      servletRequest.setMethod("HEAD");
+      servletRequest.setRequestURI(uploadPath);
+      servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
 
-    // Step 3: HEAD request to verify completion
-    reset();
-    servletRequest.setMethod("HEAD");
-    servletRequest.setRequestURI(uploadPath);
-    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+      service.process(servletRequest, servletResponse, OWNER_KEY);
+      assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+      assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + uploadContent.getBytes().length);
+      assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "" + uploadContent.getBytes().length);
 
-    service.process(servletRequest, servletResponse, OWNER_KEY);
-    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
-    assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "" + uploadContent.getBytes().length);
-    assertResponseHeader(HttpHeader.UPLOAD_LENGTH, "" + uploadContent.getBytes().length);
+      // Verify upload info is also retrievable via relative path
+      UploadInfo infoByPath = service.getUploadInfo(uploadPath, OWNER_KEY);
+      assertTrue(infoByPath != null && infoByLocation.getId().equals(infoByPath.getId()));
 
-    // Verify upload info is also retrievable via relative path
-    UploadInfo infoByPath = service.getUploadInfo(uploadPath, OWNER_KEY);
-    assertTrue(infoByPath != null && infoByLocation.getId().equals(infoByPath.getId()));
-
-    // Step 4: Verify uploaded bytes
-    try (InputStream stream = service.getUploadedBytes(uploadPath, OWNER_KEY)) {
-      assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
+      // Step 4: Verify uploaded bytes
+      try (InputStream stream = service.getUploadedBytes(uploadPath, OWNER_KEY)) {
+        assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
+      }
     }
   }
 

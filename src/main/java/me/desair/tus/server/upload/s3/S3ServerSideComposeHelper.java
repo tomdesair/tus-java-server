@@ -17,6 +17,7 @@ import io.minio.credentials.Credentials;
 import io.minio.credentials.Provider;
 import io.minio.credentials.StaticProvider;
 import io.minio.messages.Part;
+import java.io.Closeable;
 import java.io.IOException;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -51,7 +52,7 @@ import org.slf4j.LoggerFactory;
  * S3StorageService} and {@link S3ConcatenationService}) catch the exception and fall back to
  * sequential streaming concatenation (re-uploading the combined parts).
  */
-public class S3ServerSideComposeHelper {
+public class S3ServerSideComposeHelper implements Closeable {
 
   private static final Logger log = LoggerFactory.getLogger(S3ServerSideComposeHelper.class);
 
@@ -275,6 +276,15 @@ public class S3ServerSideComposeHelper {
         log.warn("Failed to abort multipart upload {} for target {}", uploadId, targetKey, abortEx);
       }
       throw e;
+    }
+  }
+
+  /** Closes any HTTP client dispatchers and evicts connection pools to release native threads. */
+  @Override
+  public void close() {
+    if (httpClient != null) {
+      httpClient.dispatcher().executorService().shutdown();
+      httpClient.connectionPool().evictAll();
     }
   }
 

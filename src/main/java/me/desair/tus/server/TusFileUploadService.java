@@ -728,28 +728,12 @@ public class TusFileUploadService implements Closeable {
         return null;
       }
       InputStream bytesStream = uploadStorageService.getUploadedBytes(uploadId);
-      if (bytesStream == null) {
-        return null;
-      }
-      // If locking is active, wrap in LockHoldingInputStream to retain the lock until
-      // the stream is fully closed by the caller, preventing concurrent mutations.
-      if (lock != null) {
-        LockHoldingInputStream lockHoldingStream = new LockHoldingInputStream(bytesStream, lock);
-        streamCreated = true;
-        return lockHoldingStream;
-      } else {
-        return bytesStream;
-      }
+      InputStream wrapped = wrapStreamWithLock(lock, bytesStream);
+      streamCreated = wrapped != null;
+      return wrapped;
     } finally {
       if (!streamCreated && lock != null) {
-        try {
-          lock.close();
-        } catch (Exception closeEx) {
-          log.warn(
-              "Failed to close upload lock after failure retrieving bytes for upload ID {}",
-              uploadId,
-              closeEx);
-        }
+        closeLockQuietly(lock, uploadId);
       }
     }
   }
@@ -784,29 +768,32 @@ public class TusFileUploadService implements Closeable {
     boolean streamCreated = false;
     try {
       InputStream bytesStream = uploadStorageService.getUploadedBytes(uploadUri, ownerKey);
-      if (bytesStream == null) {
-        return null;
-      }
-      // If locking is active, wrap in LockHoldingInputStream to retain the lock until
-      // the stream is fully closed by the caller, preventing concurrent mutations.
-      if (lock != null) {
-        LockHoldingInputStream lockHoldingStream = new LockHoldingInputStream(bytesStream, lock);
-        streamCreated = true;
-        return lockHoldingStream;
-      } else {
-        return bytesStream;
-      }
+      InputStream wrapped = wrapStreamWithLock(lock, bytesStream);
+      streamCreated = wrapped != null;
+      return wrapped;
     } finally {
       if (!streamCreated && lock != null) {
-        try {
-          lock.close();
-        } catch (Exception closeEx) {
-          log.warn(
-              "Failed to close upload lock after failure retrieving bytes for upload URI {}",
-              uploadUri,
-              closeEx);
-        }
+        closeLockQuietly(lock, uploadUri);
       }
+    }
+  }
+
+  private InputStream wrapStreamWithLock(UploadLock lock, InputStream bytesStream) {
+    if (bytesStream == null) {
+      return null;
+    }
+    if (lock != null) {
+      return new LockHoldingInputStream(bytesStream, lock);
+    }
+    return bytesStream;
+  }
+
+  private void closeLockQuietly(UploadLock lock, Object resourceId) {
+    try {
+      lock.close();
+    } catch (Exception closeEx) {
+      log.warn(
+          "Failed to close upload lock after failure retrieving bytes for {}", resourceId, closeEx);
     }
   }
 

@@ -28,17 +28,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.exception.MinAppendSizeNotMetException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.AbstractUploadStorageService;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
@@ -46,7 +41,6 @@ import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.upload.checksum.DeduplicationService;
-import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.util.AsyncChunkUploader;
 import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
@@ -74,7 +68,7 @@ import org.slf4j.LoggerFactory;
  *       checksums/<algorithm>/<hash>}. Duplicate uploads link to the parent upload ID.
  * </ul>
  */
-public class AzureBlobStorageService implements UploadStorageService {
+public class AzureBlobStorageService extends AbstractUploadStorageService {
 
   private static final Logger log = LoggerFactory.getLogger(AzureBlobStorageService.class);
 
@@ -98,22 +92,8 @@ public class AzureBlobStorageService implements UploadStorageService {
 
   private long preferredBlockSize = DEFAULT_PREFERRED_BLOCK_SIZE;
 
-  private int cloudUploadThreadPoolSize = 10;
-  private Duration drainTimeout = Duration.ofSeconds(55);
-  private final ThreadPoolExecutor uploadExecutor;
-
-  private Long maxUploadSize;
-  private Long maxAppendSize;
-  private Long minAppendSize;
-  private Long minSize;
-  private Long uploadExpirationPeriod;
-  private boolean deduplicationEnabled = false;
   private final AzureBlobChecksumIndex checksumIndex;
   private DeduplicationService deduplicationService;
-  private UploadLockingService uploadLockingService;
-
-  private UploadIdFactory idFactory = new UuidUploadIdFactory();
-  private UploadConcatenationService concatenationService;
 
   /**
    * Constructs an {@link AzureBlobStorageService} using default object key prefixes and system temp
@@ -150,10 +130,10 @@ public class AzureBlobStorageService implements UploadStorageService {
       Path tempBufferDir) {
     this.containerClient =
         Objects.requireNonNull(containerClient, "containerClient must not be null");
-    this.uploadPrefix = AzureUtils.sanitizePrefix(uploadPrefix);
-    this.metadataPrefix = AzureUtils.sanitizePrefix(metadataPrefix);
-    this.checksumsPrefix = AzureUtils.sanitizePrefix(checksumsPrefix);
-    this.locksPrefix = AzureUtils.sanitizePrefix(locksPrefix);
+    this.uploadPrefix = Utils.sanitizePrefix(uploadPrefix);
+    this.metadataPrefix = Utils.sanitizePrefix(metadataPrefix);
+    this.checksumsPrefix = Utils.sanitizePrefix(checksumsPrefix);
+    this.locksPrefix = Utils.sanitizePrefix(locksPrefix);
     this.tempBufferDir = Objects.requireNonNull(tempBufferDir, "tempBufferDir must not be null");
 
     try {
@@ -163,37 +143,9 @@ public class AzureBlobStorageService implements UploadStorageService {
     }
     Utils.cleanupTempFiles(this.tempBufferDir, "tus-azure-chunk-*.tmp", 24L * 3600_000L);
 
-    AtomicInteger threadNum = new AtomicInteger(1);
-    ThreadPoolExecutor pool =
-        new ThreadPoolExecutor(
-            cloudUploadThreadPoolSize,
-            cloudUploadThreadPoolSize,
-            60L,
-            TimeUnit.SECONDS,
-            new LinkedBlockingQueue<>(cloudUploadThreadPoolSize * 2),
-            r -> {
-              Thread t = new Thread(r, "tus-azure-upload-" + threadNum.getAndIncrement());
-              t.setDaemon(true);
-              return t;
-            },
-            (r, executor) -> {
-              // CallerRunsPolicy must not be used: executing a multi-megabyte cloud upload
-              // synchronously on the servlet thread blocks the request thread from polling lock
-              // contention (waitForInFlight), preventing concurrent HEAD/DELETE interruptions.
-              // Instead, block on the queue until a worker thread becomes available or interrupt
-              // occurs.
-              try {
-                if (executor.isShutdown()) {
-                  throw new RejectedExecutionException("Upload executor is shut down");
-                }
-                executor.getQueue().put(r);
-              } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new RejectedExecutionException("Interrupted while enqueuing upload task", e);
-              }
-            });
-    pool.allowCoreThreadTimeOut(true);
-    this.uploadExecutor = pool;
+    this.idFactory = new UuidUploadIdFactory();
+    this.drainTimeout = Duration.ofSeconds(55);
+    this.uploadExecutor = Utils.createUploadExecutor(cloudUploadThreadPoolSize, "tus-azure-upload");
 
     this.concatenationService =
         new AzureBlobConcatenationService(containerClient, this.uploadPrefix, this);
@@ -435,26 +387,6 @@ public class AzureBlobStorageService implements UploadStorageService {
   }
 
   @Override
-  public UploadInfo getUploadInfo(String requestUri, String ownerKey) throws IOException {
-    UploadId id = idFactory.readUploadId(requestUri);
-    if (id == null) {
-      return null;
-    }
-
-    UploadInfo info = getUploadInfo(id);
-    if (info == null) {
-      return null;
-    }
-
-    // Owner key validation for access isolation
-    if (info.getOwnerKey() != null && !Objects.equals(ownerKey, info.getOwnerKey())) {
-      return null;
-    }
-
-    return info;
-  }
-
-  @Override
   public UploadInfo getUploadInfo(UploadId id) throws IOException {
     if (id == null) {
       return null;
@@ -532,42 +464,6 @@ public class AzureBlobStorageService implements UploadStorageService {
   }
 
   @Override
-  public void copyUploadTo(UploadInfo uploadInfo, OutputStream outputStream)
-      throws UploadNotFoundException, IOException {
-    Objects.requireNonNull(uploadInfo, "UploadInfo must not be null");
-    Objects.requireNonNull(outputStream, "OutputStream must not be null");
-
-    try (InputStream is = getUploadedBytes(uploadInfo.getId())) {
-      if (is == null) {
-        throw new UploadNotFoundException("Upload data not found for ID " + uploadInfo.getId());
-      }
-      IOUtils.copyLarge(is, outputStream);
-    }
-  }
-
-  @Override
-  public void setUploadLockingService(UploadLockingService uploadLockingService) {
-    this.uploadLockingService =
-        Objects.requireNonNull(uploadLockingService, "uploadLockingService must not be null");
-    if (this.deduplicationService != null) {
-      this.deduplicationService.setUploadLockingService(uploadLockingService);
-    }
-  }
-
-  @Override
-  public UploadLockingService getUploadLockingService() {
-    return this.uploadLockingService;
-  }
-
-  @Override
-  public UploadInfo deduplicate(UploadInfo uploadInfo, ChecksumKey checksumKey) throws IOException {
-    if (!isUploadDeduplicationEnabled() || uploadInfo == null || checksumKey == null) {
-      return uploadInfo;
-    }
-    return deduplicationService.deduplicate(uploadInfo, checksumKey);
-  }
-
-  @Override
   public void terminateUpload(UploadInfo uploadInfo) throws UploadNotFoundException, IOException {
     if (uploadInfo == null || uploadInfo.getId() == null) {
       return;
@@ -629,21 +525,6 @@ public class AzureBlobStorageService implements UploadStorageService {
 
     uploadInfo.setOffset(targetOffset);
     saveUploadInfo(uploadInfo);
-  }
-
-  @Override
-  public UploadInfo getUploadInfoByChecksum(String checksum, ChecksumAlgorithm algorithm)
-      throws IOException {
-    if (!isUploadDeduplicationEnabled() || checksum == null || algorithm == null) {
-      return null;
-    }
-    ChecksumKey key;
-    try {
-      key = ChecksumKey.of(checksum, algorithm);
-    } catch (Exception e) {
-      return null;
-    }
-    return deduplicationService != null ? deduplicationService.getUploadInfoByChecksum(key) : null;
   }
 
   @Override
@@ -729,81 +610,6 @@ public class AzureBlobStorageService implements UploadStorageService {
 
   // --- Configuration Getters & Setters ---
 
-  @Override
-  public void setMaxUploadSize(Long maxUploadSize) {
-    this.maxUploadSize = maxUploadSize;
-  }
-
-  @Override
-  public long getMaxUploadSize() {
-    return maxUploadSize != null ? maxUploadSize : 0L;
-  }
-
-  @Override
-  public void setMaxAppendSize(Long maxAppendSize) {
-    this.maxAppendSize = maxAppendSize;
-  }
-
-  @Override
-  public Long getMaxAppendSize() {
-    return maxAppendSize != null ? maxAppendSize : (maxUploadSize != null ? maxUploadSize : null);
-  }
-
-  @Override
-  public void setMinAppendSize(Long minAppendSize) {
-    this.minAppendSize = minAppendSize;
-  }
-
-  @Override
-  public Long getMinAppendSize() {
-    return minAppendSize;
-  }
-
-  @Override
-  public void setMinSize(Long minSize) {
-    this.minSize = minSize;
-  }
-
-  @Override
-  public Long getMinSize() {
-    return minSize;
-  }
-
-  @Override
-  public void setUploadExpirationPeriod(Long uploadExpirationPeriod) {
-    this.uploadExpirationPeriod = uploadExpirationPeriod;
-  }
-
-  @Override
-  public Long getUploadExpirationPeriod() {
-    return uploadExpirationPeriod;
-  }
-
-  @Override
-  public void setUploadDeduplicationEnabled(boolean deduplicationEnabled) {
-    this.deduplicationEnabled = deduplicationEnabled;
-  }
-
-  @Override
-  public boolean isUploadDeduplicationEnabled() {
-    return deduplicationEnabled;
-  }
-
-  @Override
-  public boolean isJsonSerializationEnabled() {
-    return true;
-  }
-
-  @Override
-  public void setUploadConcatenationService(UploadConcatenationService concatenationService) {
-    this.concatenationService = concatenationService;
-  }
-
-  @Override
-  public UploadConcatenationService getUploadConcatenationService() {
-    return concatenationService;
-  }
-
   public void setPreferredBlockSize(long preferredBlockSize) {
     if (preferredBlockSize < MIN_BLOCK_SIZE || preferredBlockSize > MAX_BLOCK_SIZE) {
       throw new IllegalArgumentException(
@@ -817,53 +623,16 @@ public class AzureBlobStorageService implements UploadStorageService {
   }
 
   @Override
-  public void setCloudUploadThreadPoolSize(int size) {
-    if (size <= 0) {
-      throw new IllegalArgumentException(
-          "The cloud upload thread pool size must be greater than 0");
-    }
-    this.cloudUploadThreadPoolSize = size;
-    if (size > uploadExecutor.getMaximumPoolSize()) {
-      uploadExecutor.setMaximumPoolSize(size);
-      uploadExecutor.setCorePoolSize(size);
-    } else {
-      uploadExecutor.setCorePoolSize(size);
-      uploadExecutor.setMaximumPoolSize(size);
-    }
-  }
-
-  @Override
-  public int getCloudUploadThreadPoolSize() {
-    return cloudUploadThreadPoolSize;
-  }
-
-  ThreadPoolExecutor getUploadExecutor() {
-    return this.uploadExecutor;
-  }
-
-  @Override
-  public void setDrainTimeout(Duration drainTimeout) {
-    if (drainTimeout != null) {
-      this.drainTimeout = drainTimeout;
-    }
-  }
-
-  @Override
-  public Duration getDrainTimeout() {
-    return drainTimeout;
-  }
-
-  @Override
   public void close() throws IOException {
-    uploadExecutor.shutdown();
-    try {
-      if (!uploadExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-        uploadExecutor.shutdownNow();
-      }
-    } catch (InterruptedException e) {
-      uploadExecutor.shutdownNow();
-      Thread.currentThread().interrupt();
+    super.close();
+    if (uploadLockingService != null) {
+      uploadLockingService.close();
     }
+  }
+
+  @Override
+  protected DeduplicationService getDeduplicationService() {
+    return this.deduplicationService;
   }
 
   // --- Helper Methods ---

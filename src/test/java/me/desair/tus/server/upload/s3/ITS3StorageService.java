@@ -22,6 +22,7 @@ import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.IOUtils;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -59,8 +60,14 @@ public class ITS3StorageService {
   @Before
   public void setUp() {
     org.junit.Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable());
-    String endpoint = TestUtils.getS3Endpoint(rustfsContainer);
-    storageService = new S3StorageService(endpoint, "rustfsadmin", "rustfsadmin", BUCKET);
+    storageService = new S3StorageService(minioClient, BUCKET);
+  }
+
+  @After
+  public void tearDown() throws Exception {
+    if (storageService != null) {
+      storageService.close();
+    }
   }
 
   @Test

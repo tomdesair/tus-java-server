@@ -9,14 +9,18 @@ import java.nio.channels.FileLock;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
@@ -297,16 +301,13 @@ public class Utils {
     if (StringUtils.isBlank(uploadUri)) {
       return "/";
     }
-    // For absolute URLs (http:// or https://), extract the path starting after the authority
-    // component
+    int pathStart = findAuthorityEndIndex(uploadUri);
+    if (pathStart != -1) {
+      return uploadUri.substring(pathStart);
+    }
     if (Strings.CS.startsWith(uploadUri, "http://")
         || Strings.CS.startsWith(uploadUri, "https://")) {
-      int schemeEnd = uploadUri.indexOf("://");
-      int pathStart = uploadUri.indexOf('/', schemeEnd + 3);
-      if (pathStart == -1) {
-        return "/";
-      }
-      return uploadUri.substring(pathStart);
+      return "/";
     }
     return uploadUri;
   }
@@ -323,17 +324,24 @@ public class Utils {
     if (StringUtils.isBlank(uploadUri)) {
       return "";
     }
-    // Extract scheme + host[:port] for absolute HTTP and HTTPS URLs
+    int pathStart = findAuthorityEndIndex(uploadUri);
+    if (pathStart != -1) {
+      return uploadUri.substring(0, pathStart);
+    }
+    if (Strings.CS.startsWith(uploadUri, "http://")
+        || Strings.CS.startsWith(uploadUri, "https://")) {
+      return uploadUri;
+    }
+    return "";
+  }
+
+  private static int findAuthorityEndIndex(String uploadUri) {
     if (Strings.CS.startsWith(uploadUri, "http://")
         || Strings.CS.startsWith(uploadUri, "https://")) {
       int schemeEnd = uploadUri.indexOf("://");
-      int pathStart = uploadUri.indexOf('/', schemeEnd + 3);
-      if (pathStart == -1) {
-        return uploadUri;
-      }
-      return uploadUri.substring(0, pathStart);
+      return uploadUri.indexOf('/', schemeEnd + 3);
     }
-    return "";
+    return -1;
   }
 
   /**
@@ -661,5 +669,129 @@ public class Utils {
   public static UploadLockingService getLockingServiceOrDefault(
       UploadLockingService lockingService) {
     return lockingService != null ? lockingService : new NoOpUploadLockingService();
+  }
+
+  /**
+   * Creates a {@link ThreadPoolExecutor} configured for asynchronous cloud uploads.
+   *
+   * <p>Configured with a bounded queue of size {@code 2 * poolSize}, daemon threads, and a
+   * queue-blocking rejected execution policy. Bounded queue blocking prevents synchronous execution
+   * on the caller request thread (which would hold upload locks and prevent lock contention
+   * resolution).
+   *
+   * @param threadPoolSize The core and maximum pool size (must be greater than 0)
+   * @param threadNamePrefix The prefix for generated worker thread names (e.g. "tus-s3-upload")
+   * @return The configured ThreadPoolExecutor
+   */
+  public static ThreadPoolExecutor createUploadExecutor(
+      int threadPoolSize, String threadNamePrefix) {
+    if (threadPoolSize <= 0) {
+      throw new IllegalArgumentException(
+          "The cloud upload thread pool size must be greater than 0");
+    }
+    AtomicInteger threadNum = new AtomicInteger(1);
+    ThreadPoolExecutor pool =
+        new ThreadPoolExecutor(
+            threadPoolSize,
+            threadPoolSize,
+            60L,
+            TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(threadPoolSize * 2),
+            r -> {
+              Thread t = new Thread(r, threadNamePrefix + "-" + threadNum.getAndIncrement());
+              t.setDaemon(true);
+              return t;
+            },
+            (r, executor) -> {
+              // CallerRunsPolicy must not be used: executing a multi-megabyte cloud upload
+              // synchronously on the servlet thread blocks the request thread from polling lock
+              // contention (waitForInFlight), preventing concurrent HEAD/DELETE interruptions.
+              // Instead, block on the queue until a worker thread becomes available or interrupt
+              // occurs.
+              try {
+                if (executor.isShutdown()) {
+                  throw new RejectedExecutionException("Upload executor is shut down");
+                }
+                executor.getQueue().put(r);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RejectedExecutionException("Interrupted while enqueuing upload task", e);
+              }
+            });
+    pool.allowCoreThreadTimeOut(true);
+    return pool;
+  }
+
+  /**
+   * Resizes a {@link ThreadPoolExecutor} dynamically.
+   *
+   * <p>Adjusts core and maximum pool sizes in the appropriate order to avoid {@link
+   * IllegalArgumentException} when growing or shrinking.
+   *
+   * @param executor The executor to resize
+   * @param newSize The new core and maximum pool size (must be greater than 0)
+   */
+  public static void resizeThreadPoolExecutor(ThreadPoolExecutor executor, int newSize) {
+    if (executor == null) {
+      return;
+    }
+    if (newSize <= 0) {
+      throw new IllegalArgumentException(
+          "The cloud upload thread pool size must be greater than 0");
+    }
+    if (newSize > executor.getMaximumPoolSize()) {
+      executor.setMaximumPoolSize(newSize);
+      executor.setCorePoolSize(newSize);
+    } else {
+      executor.setCorePoolSize(newSize);
+      executor.setMaximumPoolSize(newSize);
+    }
+  }
+
+  /**
+   * Gracefully shuts down an {@link ExecutorService}, waiting up to the specified timeout before
+   * forcing termination with {@link ExecutorService#shutdownNow()}.
+   *
+   * @param executor The executor service to shut down
+   * @param timeout The duration to await termination
+   */
+  public static void shutdownExecutor(ExecutorService executor, Duration timeout) {
+    if (executor == null) {
+      return;
+    }
+    executor.shutdown();
+    long timeoutMillis = timeout != null ? Math.max(0, timeout.toMillis()) : 5000L;
+    try {
+      if (!executor.awaitTermination(timeoutMillis, TimeUnit.MILLISECONDS)) {
+        executor.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      executor.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  /**
+   * Sanitizes a storage object or blob name prefix, stripping leading slashes, collapsing trailing
+   * slashes, and ensuring exactly one trailing slash.
+   *
+   * @param prefix Raw prefix string
+   * @return Normalized prefix ending with a slash, or empty string if null, empty, or only slashes
+   */
+  public static String sanitizePrefix(String prefix) {
+    if (prefix == null || prefix.trim().isEmpty()) {
+      return "";
+    }
+    String result = prefix.trim();
+    while (result.startsWith("/")) {
+      result = result.substring(1);
+    }
+    if (result.isEmpty()) {
+      return "";
+    }
+    while (result.endsWith("/")) {
+      result = result.substring(0, result.length() - 1);
+    }
+    return result + "/";
   }
 }

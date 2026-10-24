@@ -16,6 +16,7 @@ import com.azure.storage.blob.BlobContainerClientBuilder;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -30,6 +31,7 @@ import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLockingService;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -379,6 +381,17 @@ public class AzureBlobStorageServiceTest {
       Files.deleteIfExists(childFile);
       Files.deleteIfExists(tempDir);
     }
+  }
+
+  @Test
+  public void testSetUploadLockingServiceReplacesExistingAndClosesWithException() throws Exception {
+    UploadLockingService mockLock1 = mock(UploadLockingService.class);
+    org.mockito.Mockito.doThrow(new IOException("close failed")).when(mockLock1).close();
+    storageService.setUploadLockingService(mockLock1);
+
+    UploadLockingService mockLock2 = mock(UploadLockingService.class);
+    storageService.setUploadLockingService(mockLock2);
+    org.mockito.Mockito.verify(mockLock1).close();
   }
 
   @Test(expected = NullPointerException.class)

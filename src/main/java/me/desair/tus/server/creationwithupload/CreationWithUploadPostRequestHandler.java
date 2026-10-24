@@ -77,7 +77,7 @@ public class CreationWithUploadPostRequestHandler extends AbstractRequestHandler
                   "Upload creation-with-upload POST request for URI {} was interrupted by locking"
                       + " service contention; saved partial upload up to offset {}",
                   location,
-                  uploadInfo != null ? uploadInfo.getOffset() : "unknown");
+                  uploadInfo.getOffset());
             } else {
               throw e;
             }

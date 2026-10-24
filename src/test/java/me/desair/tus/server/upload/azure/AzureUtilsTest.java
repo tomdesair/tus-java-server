@@ -36,20 +36,6 @@ public class AzureUtilsTest {
   }
 
   @Test
-  public void testSanitizePrefix() {
-    assertEquals("", AzureUtils.sanitizePrefix(null));
-    assertEquals("", AzureUtils.sanitizePrefix(""));
-    assertEquals("", AzureUtils.sanitizePrefix("   "));
-    assertEquals("", AzureUtils.sanitizePrefix("///"));
-    assertEquals("locks/", AzureUtils.sanitizePrefix("locks"));
-    assertEquals("locks/", AzureUtils.sanitizePrefix("/locks"));
-    assertEquals("locks/", AzureUtils.sanitizePrefix("locks/"));
-    assertEquals("locks/", AzureUtils.sanitizePrefix("/locks/"));
-    assertEquals("a/b/c/", AzureUtils.sanitizePrefix("/a/b/c"));
-    assertEquals("custom/", AzureUtils.sanitizePrefix("/custom///"));
-  }
-
-  @Test
   public void testBlobExists() {
     // Null checks
     assertFalse(AzureUtils.blobExists((BlobClient) null));

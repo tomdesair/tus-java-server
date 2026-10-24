@@ -3,7 +3,6 @@ package me.desair.tus.server.download;
 import java.io.IOException;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
-import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -17,11 +16,6 @@ public class DownloadUploadMetadataHandler extends AbstractRequestHandler {
   @Override
   public boolean supports(HttpMethod method) {
     return HttpMethod.GET.equals(method);
-  }
-
-  @Override
-  public boolean supports(HttpMethod method, ProtocolVersion version) {
-    return supports(method);
   }
 
   @Override

@@ -13,13 +13,14 @@ import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.upload.concatenation.AbstractConcatenationService;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
+import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,7 +41,7 @@ import org.slf4j.LoggerFactory;
  *       commitBlockList}.
  * </ul>
  */
-public class AzureBlobConcatenationService implements UploadConcatenationService {
+public class AzureBlobConcatenationService extends AbstractConcatenationService {
 
   private static final Logger log = LoggerFactory.getLogger(AzureBlobConcatenationService.class);
 
@@ -48,7 +49,6 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
 
   private final BlobContainerClient containerClient;
   private final String uploadPrefix;
-  private final UploadStorageService storageService;
 
   /**
    * Constructs an {@link AzureBlobConcatenationService} with default upload prefix.
@@ -72,10 +72,10 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
       BlobContainerClient containerClient,
       String uploadPrefix,
       UploadStorageService storageService) {
+    super(storageService);
     this.containerClient =
         Objects.requireNonNull(containerClient, "containerClient must not be null");
-    this.uploadPrefix = AzureUtils.sanitizePrefix(uploadPrefix);
-    this.storageService = Objects.requireNonNull(storageService, "storageService must not be null");
+    this.uploadPrefix = Utils.sanitizePrefix(uploadPrefix);
   }
 
   @Override
@@ -87,7 +87,7 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
     }
 
     Long expirationPeriod =
-        storageService != null ? storageService.getUploadExpirationPeriod() : null;
+        uploadStorageService != null ? uploadStorageService.getUploadExpirationPeriod() : null;
     List<UploadInfo> partialUploads = getPartialUploads(finalUpload);
 
     if (partialUploads.size() > MAX_BLOCKS_PER_BLOB) {
@@ -128,7 +128,7 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
               || e.getStatusCode() == 400
               || e.getStatusCode() == 401
               || e.getStatusCode() == 403) {
-            try (InputStream partIs = storageService.getUploadedBytes(partialInfo.getId())) {
+            try (InputStream partIs = uploadStorageService.getUploadedBytes(partialInfo.getId())) {
               finalBlockBlob.stageBlock(blockId, partIs, partialInfo.getOffset());
             }
           } else {
@@ -148,7 +148,7 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
       if (expirationPeriod != null) {
         finalUpload.updateExpiration(expirationPeriod);
       }
-      storageService.update(finalUpload);
+      uploadStorageService.update(finalUpload);
 
       log.info(
           "Successfully merged {} partial uploads into concatenated upload {}",
@@ -168,58 +168,11 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
       merge(info);
     }
 
-    if (!info.isUploadInProgress() && storageService != null) {
-      return storageService.getUploadedBytes(info.getId());
+    if (!info.isUploadInProgress() && uploadStorageService != null) {
+      return uploadStorageService.getUploadedBytes(info.getId());
     }
 
     return new ByteArrayInputStream(new byte[0]);
-  }
-
-  @Override
-  public List<UploadInfo> getPartialUploads(UploadInfo info)
-      throws IOException, UploadNotFoundException {
-    if (info == null || info.getConcatenationPartIds() == null) {
-      return Collections.emptyList();
-    }
-
-    List<UploadInfo> result = new ArrayList<>();
-    for (String partUri : info.getConcatenationPartIds()) {
-      UploadInfo partInfo = storageService.getUploadInfo(partUri, info.getOwnerKey());
-      // Validate that the partial upload exists and belongs to the exact same ownerKey
-      // (or both null) as the parent concatenated upload, preventing cross-tenant access.
-      if (partInfo == null || !Objects.equals(partInfo.getOwnerKey(), info.getOwnerKey())) {
-        throw new UploadNotFoundException(
-            "Partial upload with URI " + partUri + " not found for concatenated upload");
-      }
-      result.add(partInfo);
-    }
-    return result;
-  }
-
-  private Long calculateTotalLength(List<UploadInfo> partialUploads) {
-    if (partialUploads == null || partialUploads.isEmpty()) {
-      return null;
-    }
-    long total = 0L;
-    for (UploadInfo info : partialUploads) {
-      if (info == null || info.getLength() == null) {
-        return null;
-      }
-      total += info.getLength();
-    }
-    return total;
-  }
-
-  private boolean checkAllCompleted(Long expirationPeriod, List<UploadInfo> partialUploads) {
-    if (partialUploads == null || partialUploads.isEmpty()) {
-      return false;
-    }
-    for (UploadInfo info : partialUploads) {
-      if (info == null || info.isUploadInProgress() || info.isExpired()) {
-        return false;
-      }
-    }
-    return true;
   }
 
   private String generateBlockId(int index) {
@@ -267,8 +220,8 @@ public class AzureBlobConcatenationService implements UploadConcatenationService
    * @return The physical blob name
    */
   String resolvePartialBlobName(UploadInfo partialInfo) {
-    if (storageService instanceof AzureBlobStorageService) {
-      return ((AzureBlobStorageService) storageService).getAzureBlobName(partialInfo);
+    if (uploadStorageService instanceof AzureBlobStorageService) {
+      return ((AzureBlobStorageService) uploadStorageService).getAzureBlobName(partialInfo);
     } else if (partialInfo != null && partialInfo.getDuplicatesUploadId() != null) {
       return uploadPrefix + partialInfo.getDuplicatesUploadId();
     } else if (partialInfo != null) {
