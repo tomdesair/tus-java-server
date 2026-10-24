@@ -34,6 +34,9 @@ mvn clean install -DskipTests
    ```bash
    cd ../tus-java-server-spring-demo
    mvn clean package -DskipTests
+   # If application.properties.local is present, spring.config.import in application.properties automatically loads it.
+   # You can also pass it explicitly if running from another directory:
+   # --spring.config.import=optional:file:spring-boot-rest/src/main/resources/application.properties.local[.properties]
    java -jar spring-boot-rest/target/spring-boot-rest-0.0.1-SNAPSHOT.jar --tus.server.max-upload-size=1024
    ```
 
