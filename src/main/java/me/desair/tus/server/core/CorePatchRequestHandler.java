@@ -105,7 +105,7 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
               "Upload PATCH request for URI {} was interrupted by locking service contention; "
                   + "saved partial upload up to offset {}",
               servletRequest.getRequestURI(),
-              uploadInfo != null ? uploadInfo.getOffset() : "unknown");
+              uploadInfo.getOffset());
         } else {
           throw e;
         }

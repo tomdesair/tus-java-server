@@ -146,6 +146,10 @@ public class S3StorageServiceTest {
         new S3StorageService(
             "https://s3.amazonaws.com", null, "accessKey", "secretKey", "test-bucket");
     assertNotNull(defaultRegionService);
+
+    // 5. Package-private constructor with MinioClient and bucket
+    S3StorageService service2Param = new S3StorageService(minioClient, "test-bucket");
+    assertNotNull(service2Param);
   }
 
   @Test
@@ -3365,6 +3369,17 @@ public class S3StorageServiceTest {
     } catch (IOException e) {
       assertTrue(e.getMessage().contains("S3 chunk put failed") || e.getCause() != null);
     }
+  }
+
+  @Test
+  public void testSetUploadLockingServiceReplacesExistingAndClosesWithException() throws Exception {
+    UploadLockingService mockLock1 = mock(UploadLockingService.class);
+    org.mockito.Mockito.doThrow(new IOException("close failed")).when(mockLock1).close();
+    storageService.setUploadLockingService(mockLock1);
+
+    UploadLockingService mockLock2 = mock(UploadLockingService.class);
+    storageService.setUploadLockingService(mockLock2);
+    verify(mockLock1).close();
   }
 
   @Test(expected = NullPointerException.class)

@@ -7,15 +7,16 @@ import java.io.InputStream;
 import java.io.SequenceInputStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.upload.concatenation.AbstractConcatenationService;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.concatenation.UploadInputStreamEnumeration;
+import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,7 +36,7 @@ import org.slf4j.LoggerFactory;
  *       using {@link SequenceInputStream} and re-uploads the concatenated stream directly to S3.
  * </ul>
  */
-public class S3ConcatenationService implements UploadConcatenationService {
+public class S3ConcatenationService extends AbstractConcatenationService {
 
   private static final Logger log = LoggerFactory.getLogger(S3ConcatenationService.class);
   private static final long DEFAULT_MIN_PART_SIZE = 5L * 1024 * 1024; // 5 MB
@@ -45,7 +46,6 @@ public class S3ConcatenationService implements UploadConcatenationService {
   private final String objectPrefix;
   private final long minPartSize;
   private final Path temporaryDirectory;
-  private final UploadStorageService uploadStorageService;
   private S3ServerSideComposeHelper s3ComposeHelper;
 
   /**
@@ -132,6 +132,25 @@ public class S3ConcatenationService implements UploadConcatenationService {
   }
 
   /**
+   * Package-private convenience constructor taking pre-configured {@link MinioClient}.
+   *
+   * @param minioClient The MinIO client
+   * @param bucket S3 bucket name
+   * @param uploadStorageService Underlying storage service
+   */
+  S3ConcatenationService(
+      MinioClient minioClient, String bucket, UploadStorageService uploadStorageService) {
+    this(
+        minioClient,
+        bucket,
+        "uploads/",
+        uploadStorageService,
+        null,
+        DEFAULT_MIN_PART_SIZE,
+        new S3ServerSideComposeHelper(minioClient));
+  }
+
+  /**
    * Internal package-private constructor accepting {@link MinioClient} where all parameter
    * configuration is concentrated.
    */
@@ -143,11 +162,10 @@ public class S3ConcatenationService implements UploadConcatenationService {
       Path temporaryDirectory,
       long minPartSize,
       S3ServerSideComposeHelper s3ComposeHelper) {
+    super(uploadStorageService);
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
-    this.objectPrefix = S3Utils.sanitizePrefix(objectPrefix);
-    this.uploadStorageService =
-        Objects.requireNonNull(uploadStorageService, "UploadStorageService must not be null");
+    this.objectPrefix = Utils.sanitizePrefix(objectPrefix);
     this.temporaryDirectory =
         temporaryDirectory != null
             ? temporaryDirectory
@@ -244,41 +262,6 @@ public class S3ConcatenationService implements UploadConcatenationService {
     return new java.io.ByteArrayInputStream(new byte[0]);
   }
 
-  @Override
-  public List<UploadInfo> getPartialUploads(UploadInfo info)
-      throws IOException, UploadNotFoundException {
-    List<String> concatenationParts = info.getConcatenationPartIds();
-
-    if (concatenationParts == null || concatenationParts.isEmpty()) {
-      return Collections.emptyList();
-    }
-
-    List<UploadInfo> output = new ArrayList<>(concatenationParts.size());
-    for (String childUri : concatenationParts) {
-      UploadInfo childInfo = uploadStorageService.getUploadInfo(childUri, info.getOwnerKey());
-      if (childInfo == null) {
-        throw new UploadNotFoundException(
-            "Upload with URI " + childUri + " was not found for owner " + info.getOwnerKey());
-      }
-
-      // Ensure only uploads with the same owner key can be merged (either equal or both null)
-      if (!Objects.equals(childInfo.getOwnerKey(), info.getOwnerKey())) {
-        log.warn(
-            "Owner key mismatch during S3 concatenation merge check. Parent upload ID {} has owner"
-                + " key '{}', but partial child upload ID {} has owner key '{}'. Merging"
-                + " disallowed.",
-            info.getId(),
-            info.getOwnerKey(),
-            childInfo.getId(),
-            childInfo.getOwnerKey());
-        throw new UploadNotFoundException(
-            "Upload with URI " + childUri + " has a mismatching owner key");
-      }
-      output.add(childInfo);
-    }
-    return output;
-  }
-
   private void mergeUsingServerSideCopy(
       String targetKey, List<UploadInfo> partialUploads, long totalLength) throws IOException {
     try {
@@ -334,33 +317,11 @@ public class S3ConcatenationService implements UploadConcatenationService {
     }
   }
 
-  private Long calculateTotalLength(List<UploadInfo> partialUploads) {
-    Long totalLength = 0L;
-    for (UploadInfo childInfo : partialUploads) {
-      if (childInfo.getLength() == null) {
-        return null;
-      }
-      totalLength += childInfo.getLength();
+  @Override
+  public void close() throws IOException {
+    if (s3ComposeHelper != null) {
+      s3ComposeHelper.close();
     }
-    return totalLength;
-  }
-
-  private boolean checkAllCompleted(Long expirationPeriod, List<UploadInfo> partialUploads)
-      throws IOException {
-    boolean completed = true;
-    for (UploadInfo childInfo : partialUploads) {
-      if (childInfo.isUploadInProgress()) {
-        completed = false;
-      } else if (expirationPeriod != null) {
-        childInfo.updateExpiration(expirationPeriod);
-        try {
-          uploadStorageService.update(childInfo);
-        } catch (UploadNotFoundException e) {
-          log.debug("Failed to update child upload expiration for " + childInfo.getId(), e);
-        }
-      }
-    }
-    return completed;
   }
 
   private String buildObjectKey(UploadId id) {

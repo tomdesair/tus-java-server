@@ -98,11 +98,11 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
     super("azure-lock-shutdown-hook");
     this.containerClient =
         Objects.requireNonNull(containerClient, "containerClient must not be null");
-    this.locksPrefix = AzureUtils.sanitizePrefix(locksPrefix);
+    this.locksPrefix = Utils.sanitizePrefix(locksPrefix);
 
     // Use multi-threaded pooled scheduled daemon executor to poll .stop signals across pods
     // and execute heartbeat renewals concurrently without head-of-line blocking
-    int poolSize = Math.max(2, Math.min(Runtime.getRuntime().availableProcessors(), 8));
+    int poolSize = Math.max(2, Math.min(Runtime.getRuntime().availableProcessors(), 4));
     this.watchdogExecutor =
         Utils.scheduleWatchdog(
             "azure-lock-watchdog",
@@ -120,7 +120,7 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
     super("azure-lock-shutdown-hook");
     this.containerClient =
         Objects.requireNonNull(containerClient, "containerClient must not be null");
-    this.locksPrefix = AzureUtils.sanitizePrefix(locksPrefix);
+    this.locksPrefix = Utils.sanitizePrefix(locksPrefix);
     this.watchdogExecutor = watchdogExecutor;
   }
 

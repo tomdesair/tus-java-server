@@ -85,10 +85,10 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
     this.leaseDurationMs = leaseDurationMs;
     this.pollIntervalMs = pollIntervalMs;
 
-    // Use a multi-threaded daemon scheduled executor (scaling from 2 to 8 threads based on
+    // Use a multi-threaded daemon scheduled executor (scaling from 2 to 4 threads based on
     // available processors) so that stop signal polling and lease heartbeats across concurrent
     // uploads do not suffer head-of-line blocking during cloud network I/O.
-    int poolSize = Math.max(2, Math.min(Runtime.getRuntime().availableProcessors(), 8));
+    int poolSize = Math.max(2, Math.min(Runtime.getRuntime().availableProcessors(), 4));
     this.watchdogExecutor =
         Utils.scheduleWatchdog(
             watchdogThreadName,

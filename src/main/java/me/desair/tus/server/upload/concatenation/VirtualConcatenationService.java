@@ -3,10 +3,7 @@ package me.desair.tus.server.upload.concatenation;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.SequenceInputStream;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -18,14 +15,12 @@ import org.slf4j.LoggerFactory;
  * concatenated uploads. The concatenation is executed "virtually" meaning that upload bytes are not
  * duplicated to the upload but "concatenated" on the fly.
  */
-public class VirtualConcatenationService implements UploadConcatenationService {
+public class VirtualConcatenationService extends AbstractConcatenationService {
 
   private static final Logger log = LoggerFactory.getLogger(VirtualConcatenationService.class);
 
-  private UploadStorageService uploadStorageService;
-
   public VirtualConcatenationService(UploadStorageService uploadStorageService) {
-    this.uploadStorageService = uploadStorageService;
+    super(uploadStorageService);
   }
 
   @Override
@@ -69,78 +64,6 @@ public class VirtualConcatenationService implements UploadConcatenationService {
       return new SequenceInputStream(
           new UploadInputStreamEnumeration(uploads, uploadStorageService));
     }
-  }
-
-  @Override
-  public List<UploadInfo> getPartialUploads(UploadInfo info)
-      throws IOException, UploadNotFoundException {
-    List<String> concatenationParts = info.getConcatenationPartIds();
-
-    if (concatenationParts == null || concatenationParts.isEmpty()) {
-      return Collections.emptyList();
-    } else {
-      List<UploadInfo> output = new ArrayList<>(concatenationParts.size());
-      for (String childUri : concatenationParts) {
-        UploadInfo childInfo = uploadStorageService.getUploadInfo(childUri, info.getOwnerKey());
-        if (childInfo == null) {
-          throw new UploadNotFoundException(
-              "Upload with URI " + childUri + " was not found for owner " + info.getOwnerKey());
-        } else {
-          // Ensure only uploads with the same owner key can be merged (either equal or both null)
-          if (!Objects.equals(childInfo.getOwnerKey(), info.getOwnerKey())) {
-            log.warn(
-                "Owner key mismatch during concatenation merge check. Parent upload ID {} has owner"
-                    + " key '{}', but partial child upload ID {} has owner key '{}'. Merging"
-                    + " disallowed.",
-                info.getId(),
-                info.getOwnerKey(),
-                childInfo.getId(),
-                childInfo.getOwnerKey());
-            throw new UploadNotFoundException(
-                "Upload with URI " + childUri + " has a mismatching owner key");
-          }
-          output.add(childInfo);
-        }
-      }
-      return output;
-    }
-  }
-
-  private Long calculateTotalLength(List<UploadInfo> partialUploads) {
-    Long totalLength = 0L;
-
-    for (UploadInfo childInfo : partialUploads) {
-      if (childInfo.getLength() == null) {
-        // One of our partial uploads does not have a length, we can't calculate the total
-        // length
-        // yet
-        totalLength = null;
-      } else if (totalLength != null) {
-        totalLength += childInfo.getLength();
-      }
-    }
-
-    return totalLength;
-  }
-
-  private boolean checkAllCompleted(Long expirationPeriod, List<UploadInfo> partialUploads)
-      throws IOException {
-
-    boolean completed = true;
-
-    for (UploadInfo childInfo : partialUploads) {
-      if (childInfo.isUploadInProgress()) {
-        completed = false;
-
-      } else if (expirationPeriod != null) {
-        // Make sure our child uploads do not expire
-        // since the partial child upload is complete, it's safe to update it.
-        childInfo.updateExpiration(expirationPeriod);
-        updateUpload(childInfo);
-      }
-    }
-
-    return completed;
   }
 
   private void updateUpload(UploadInfo uploadInfo) throws IOException {

@@ -9,6 +9,7 @@ import me.desair.tus.server.TestUtils;
 import me.desair.tus.server.exception.UploadAlreadyLockedException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadLock;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -46,8 +47,14 @@ public class ITS3LockingService {
   @Before
   public void setUp() {
     org.junit.Assume.assumeTrue(TestUtils.isContainerRuntimeAvailable());
-    String endpoint = TestUtils.getS3Endpoint(rustfsContainer);
-    lockingService = new S3LockingService(endpoint, "rustfsadmin", "rustfsadmin", BUCKET);
+    lockingService = new S3LockingService(minioClient, BUCKET, "locks/");
+  }
+
+  @After
+  public void tearDown() throws Exception {
+    if (lockingService != null) {
+      lockingService.close();
+    }
   }
 
   @Test

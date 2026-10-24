@@ -27,6 +27,7 @@ import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assume;
 import org.junit.Before;
@@ -64,6 +65,13 @@ public class ITAzureBlobStorageService {
         TestUtils.createBlobContainerClient(
             azuriteContainer, "unit-test-container-" + System.nanoTime());
     storageService = new AzureBlobStorageService(containerClient);
+  }
+
+  @After
+  public void tearDown() throws Exception {
+    if (storageService != null) {
+      storageService.close();
+    }
   }
 
   @Test(expected = MinAppendSizeNotMetException.class)

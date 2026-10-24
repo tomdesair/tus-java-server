@@ -51,20 +51,6 @@ public class S3UtilsTest {
   }
 
   @Test
-  public void testSanitizePrefix() {
-    assertEquals("", S3Utils.sanitizePrefix(null));
-    assertEquals("", S3Utils.sanitizePrefix(""));
-    assertEquals("", S3Utils.sanitizePrefix("   "));
-    assertEquals("", S3Utils.sanitizePrefix("///"));
-    assertEquals("locks/", S3Utils.sanitizePrefix("locks"));
-    assertEquals("locks/", S3Utils.sanitizePrefix("/locks"));
-    assertEquals("locks/", S3Utils.sanitizePrefix("locks/"));
-    assertEquals("locks/", S3Utils.sanitizePrefix("/locks/"));
-    assertEquals("a/b/c/", S3Utils.sanitizePrefix("/a/b/c"));
-    assertEquals("custom/", S3Utils.sanitizePrefix("/custom///"));
-  }
-
-  @Test
   public void testDeleteS3Object() throws Exception {
     MinioClient client = mock(MinioClient.class);
 

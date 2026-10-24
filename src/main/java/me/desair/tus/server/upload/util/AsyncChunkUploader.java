@@ -242,7 +242,10 @@ public class AsyncChunkUploader implements AutoCloseable {
       try {
         // Wait briefly for worker thread to exit so no background thread outlives the lock
         inFlightUpload.get(500, TimeUnit.MILLISECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
       } catch (Exception ignored) {
+        // ExecutionException, TimeoutException, CancellationException ignored during cleanup
       }
     }
     // Note: Do NOT delete inFlightFile here. Ownership of inFlightFile belongs exclusively

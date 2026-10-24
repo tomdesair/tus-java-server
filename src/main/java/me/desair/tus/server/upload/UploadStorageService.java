@@ -4,12 +4,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
+import java.util.Objects;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.io.IOUtils;
 
 /**
  * Service Provider Interface (SPI) for storing, appending, retrieving, and terminating resumable
@@ -209,8 +211,18 @@ public interface UploadStorageService {
    * @throws UploadNotFoundException When the provided upload is not found in storage
    * @throws IOException When reading or writing bytes fails
    */
-  void copyUploadTo(UploadInfo info, OutputStream outputStream)
-      throws UploadNotFoundException, IOException;
+  default void copyUploadTo(UploadInfo info, OutputStream outputStream)
+      throws UploadNotFoundException, IOException {
+    Objects.requireNonNull(info, "UploadInfo must not be null");
+    Objects.requireNonNull(outputStream, "OutputStream must not be null");
+
+    try (InputStream is = getUploadedBytes(info.getId())) {
+      if (is == null) {
+        throw new UploadNotFoundException("Upload data not found for ID " + info.getId());
+      }
+      IOUtils.copyLarge(is, outputStream);
+    }
+  }
 
   /**
    * Clean up any upload data that is expired according to the configured expiration time.

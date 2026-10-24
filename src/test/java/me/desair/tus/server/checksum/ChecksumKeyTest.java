@@ -36,11 +36,17 @@ public class ChecksumKeyTest {
     ChecksumKey key2 = ChecksumKey.of("ABCDEF", ChecksumAlgorithm.SHA1);
     ChecksumKey key3 = ChecksumKey.of("abcdef", ChecksumAlgorithm.SHA256);
 
+    assertEquals(key1, key1);
     assertEquals(key1, key2);
     assertEquals(key1.hashCode(), key2.hashCode());
     assertNotEquals(key1, key3);
     assertNotEquals(key1, null);
     assertNotEquals(key1, "not-a-checksum-key");
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testEmptyBase64ChecksumThrows() {
+    ChecksumKey.of("====", ChecksumAlgorithm.SHA1);
   }
 
   @Test(expected = NullPointerException.class)
@@ -66,5 +72,41 @@ public class ChecksumKeyTest {
   @Test(expected = IllegalArgumentException.class)
   public void testPathTraversalAttempt() {
     ChecksumKey.of("../../../etc/passwd", ChecksumAlgorithm.SHA1);
+  }
+
+  @Test
+  public void testParseFromIndexRelativePath() {
+    ChecksumKey key =
+        ChecksumKey.parseFromIndexRelativePath("sha256/0123456789abcdef/parent", "parent");
+    assertEquals(ChecksumAlgorithm.SHA256, key.getAlgorithm());
+    assertEquals("0123456789abcdef", key.getHexChecksum());
+
+    // Leading slash
+    ChecksumKey keyWithSlash =
+        ChecksumKey.parseFromIndexRelativePath("/sha256/0123456789abcdef/parent", "parent");
+    assertEquals(key, keyWithSlash);
+
+    // Mismatched suffix
+    org.junit.Assert.assertNull(
+        ChecksumKey.parseFromIndexRelativePath("sha256/0123456789abcdef/other", "parent"));
+
+    // Unknown algorithm
+    org.junit.Assert.assertNull(
+        ChecksumKey.parseFromIndexRelativePath("unknown/0123456789abcdef/parent", "parent"));
+
+    // Malformed checksum
+    org.junit.Assert.assertNull(
+        ChecksumKey.parseFromIndexRelativePath("sha256/invalid!@#$/parent", "parent"));
+
+    // Invalid parts count
+    org.junit.Assert.assertNull(
+        ChecksumKey.parseFromIndexRelativePath("sha256/onlytwoparts", "parent"));
+    org.junit.Assert.assertNull(
+        ChecksumKey.parseFromIndexRelativePath("sha256/a/b/parent", "parent"));
+
+    // Null inputs
+    org.junit.Assert.assertNull(ChecksumKey.parseFromIndexRelativePath(null, "parent"));
+    org.junit.Assert.assertNull(
+        ChecksumKey.parseFromIndexRelativePath("sha256/0123456789abcdef/parent", null));
   }
 }

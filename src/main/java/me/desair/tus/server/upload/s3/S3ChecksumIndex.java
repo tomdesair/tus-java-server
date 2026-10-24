@@ -19,10 +19,10 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
-import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.checksum.ChecksumIndex;
+import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,7 +75,7 @@ public class S3ChecksumIndex implements ChecksumIndex {
   public S3ChecksumIndex(MinioClient minioClient, String bucket, String checksumsPrefix) {
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
-    this.checksumsPrefix = S3Utils.sanitizePrefix(checksumsPrefix);
+    this.checksumsPrefix = Utils.sanitizePrefix(checksumsPrefix);
   }
 
   /**
@@ -274,19 +274,9 @@ public class S3ChecksumIndex implements ChecksumIndex {
         String objectName = item.objectName();
         if (objectName.endsWith("/" + PARENT_OBJECT)) {
           String relative = objectName.substring(checksumsPrefix.length());
-          if (relative.startsWith("/")) {
-            relative = relative.substring(1);
-          }
-          String[] parts = relative.split("/");
-          if (parts.length == 3 && PARENT_OBJECT.equals(parts[2])) {
-            ChecksumAlgorithm algo = ChecksumAlgorithm.forTusName(parts[0]);
-            if (algo != null) {
-              try {
-                keys.add(ChecksumKey.of(parts[1], algo));
-              } catch (IllegalArgumentException e) {
-                // Malformed checksum key, skip
-              }
-            }
+          ChecksumKey key = ChecksumKey.parseFromIndexRelativePath(relative, PARENT_OBJECT);
+          if (key != null) {
+            keys.add(key);
           }
         }
       }

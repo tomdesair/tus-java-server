@@ -12,7 +12,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.SequenceInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -27,16 +26,10 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
-import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.exception.MaxUploadLengthExceededException;
@@ -44,15 +37,14 @@ import me.desair.tus.server.exception.MinAppendSizeNotMetException;
 import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.AbstractUploadStorageService;
 import me.desair.tus.server.upload.UploadId;
-import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.upload.UploadType;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.upload.checksum.DeduplicationService;
-import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.util.AsyncChunkUploader;
 import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
@@ -86,7 +78,7 @@ import org.slf4j.LoggerFactory;
  *       creation and index lookup for instant duplicate file matching.
  * </ul>
  */
-public class S3StorageService implements UploadStorageService {
+public class S3StorageService extends AbstractUploadStorageService {
 
   private static final Logger log = LoggerFactory.getLogger(S3StorageService.class);
 
@@ -115,22 +107,9 @@ public class S3StorageService implements UploadStorageService {
   private long minPartSize = DEFAULT_MIN_PART_SIZE;
   private long preferredPartSize = DEFAULT_PREFERRED_PART_SIZE;
 
-  private int cloudUploadThreadPoolSize = 10;
-  private Duration drainTimeout = Duration.ofSeconds(55);
-  private final ThreadPoolExecutor uploadExecutor;
-
-  private Long maxUploadSize;
-  private Long maxAppendSize;
-  private Long minAppendSize;
-  private Long minSize;
-  private Long uploadExpirationPeriod;
-  private boolean deduplicationEnabled = false;
   private final S3ChecksumIndex checksumIndex;
   private DeduplicationService deduplicationService;
-  private UploadLockingService uploadLockingService;
 
-  private UploadIdFactory idFactory = new UuidUploadIdFactory();
-  private UploadConcatenationService concatenationService;
   private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
   private boolean s3ComposeObjectSupported = true;
   private S3ServerSideComposeHelper s3ComposeHelper;
@@ -212,6 +191,24 @@ public class S3StorageService implements UploadStorageService {
   }
 
   /**
+   * Package-private convenience constructor taking pre-configured {@link MinioClient}.
+   *
+   * @param minioClient The MinIO client
+   * @param bucket S3 bucket name
+   */
+  S3StorageService(MinioClient minioClient, String bucket) {
+    this(
+        minioClient,
+        bucket,
+        "uploads/",
+        "metadata/",
+        "checksums/",
+        "locks/",
+        null,
+        new S3ServerSideComposeHelper(minioClient));
+  }
+
+  /**
    * Internal package-private constructor accepting {@link MinioClient} where all parameter
    * configuration and initialization logic is concentrated.
    */
@@ -226,10 +223,10 @@ public class S3StorageService implements UploadStorageService {
       S3ServerSideComposeHelper s3ComposeHelper) {
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
-    this.objectPrefix = S3Utils.sanitizePrefix(objectPrefix);
-    this.metadataPrefix = S3Utils.sanitizePrefix(metadataPrefix);
-    this.checksumsPrefix = S3Utils.sanitizePrefix(checksumsPrefix);
-    this.locksPrefix = S3Utils.sanitizePrefix(locksPrefix);
+    this.objectPrefix = Utils.sanitizePrefix(objectPrefix);
+    this.metadataPrefix = Utils.sanitizePrefix(metadataPrefix);
+    this.checksumsPrefix = Utils.sanitizePrefix(checksumsPrefix);
+    this.locksPrefix = Utils.sanitizePrefix(locksPrefix);
     this.temporaryDirectory =
         temporaryDirectory != null
             ? temporaryDirectory
@@ -243,37 +240,9 @@ public class S3StorageService implements UploadStorageService {
       log.debug("Unable to ensure temporary directory exists: {}", e.getMessage());
     }
 
-    AtomicInteger threadNum = new AtomicInteger(1);
-    ThreadPoolExecutor pool =
-        new ThreadPoolExecutor(
-            cloudUploadThreadPoolSize,
-            cloudUploadThreadPoolSize,
-            60L,
-            TimeUnit.SECONDS,
-            new LinkedBlockingQueue<>(cloudUploadThreadPoolSize * 2),
-            r -> {
-              Thread t = new Thread(r, "tus-s3-upload-" + threadNum.getAndIncrement());
-              t.setDaemon(true);
-              return t;
-            },
-            (r, executor) -> {
-              // CallerRunsPolicy must not be used: executing a multi-megabyte cloud upload
-              // synchronously on the servlet thread blocks the request thread from polling lock
-              // contention (waitForInFlight), preventing concurrent HEAD/DELETE interruptions.
-              // Instead, block on the queue until a worker thread becomes available or interrupt
-              // occurs.
-              try {
-                if (executor.isShutdown()) {
-                  throw new RejectedExecutionException("Upload executor is shut down");
-                }
-                executor.getQueue().put(r);
-              } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new RejectedExecutionException("Interrupted while enqueuing upload task", e);
-              }
-            });
-    pool.allowCoreThreadTimeOut(true);
-    this.uploadExecutor = pool;
+    this.idFactory = new UuidUploadIdFactory();
+    this.drainTimeout = Duration.ofSeconds(55);
+    this.uploadExecutor = Utils.createUploadExecutor(cloudUploadThreadPoolSize, "tus-s3-upload");
 
     this.s3ComposeHelper =
         s3ComposeHelper != null ? s3ComposeHelper : new S3ServerSideComposeHelper(this.minioClient);
@@ -349,22 +318,6 @@ public class S3StorageService implements UploadStorageService {
       log.debug("Error retrieving upload info for URI {}", uploadUri, e);
       return null;
     }
-  }
-
-  @Override
-  public UploadInfo getUploadInfo(String uploadUrl, String ownerKey) throws IOException {
-    UploadId uploadId = idFactory.readUploadId(uploadUrl);
-    if (uploadId == null) {
-      return null;
-    }
-    UploadInfo info = getUploadInfo(uploadId);
-    // Enforce strict owner isolation if ownerKey is configured
-    if (info != null
-        && ((info.getOwnerKey() != null && !info.getOwnerKey().equals(ownerKey))
-            || (ownerKey != null && info.getOwnerKey() == null))) {
-      return null;
-    }
-    return info;
   }
 
   @Override
@@ -646,14 +599,6 @@ public class S3StorageService implements UploadStorageService {
   }
 
   @Override
-  public void copyUploadTo(UploadInfo info, OutputStream outputStream)
-      throws UploadNotFoundException, IOException {
-    try (InputStream is = getUploadedBytes(info.getId())) {
-      IOUtils.copy(is, outputStream);
-    }
-  }
-
-  @Override
   public void cleanupExpiredUploads() throws IOException {
     // 1. Clean up orphaned local temporary chunk files
     Utils.cleanupTempFiles(this.temporaryDirectory, "tus-s3-chunk-*.tmp", 24L * 3600_000L);
@@ -734,28 +679,6 @@ public class S3StorageService implements UploadStorageService {
   }
 
   @Override
-  public void setUploadLockingService(UploadLockingService uploadLockingService) {
-    this.uploadLockingService =
-        Objects.requireNonNull(uploadLockingService, "uploadLockingService must not be null");
-    if (this.deduplicationService != null) {
-      this.deduplicationService.setUploadLockingService(uploadLockingService);
-    }
-  }
-
-  @Override
-  public UploadLockingService getUploadLockingService() {
-    return this.uploadLockingService;
-  }
-
-  @Override
-  public UploadInfo deduplicate(UploadInfo uploadInfo, ChecksumKey checksumKey) throws IOException {
-    if (!isUploadDeduplicationEnabled() || uploadInfo == null || checksumKey == null) {
-      return uploadInfo;
-    }
-    return deduplicationService.deduplicate(uploadInfo, checksumKey);
-  }
-
-  @Override
   public boolean dataExists(UploadId id) {
     if (id == null) {
       return false;
@@ -794,21 +717,6 @@ public class S3StorageService implements UploadStorageService {
     deleteMetadata(uploadInfo.getId());
   }
 
-  @Override
-  public UploadInfo getUploadInfoByChecksum(String checksum, ChecksumAlgorithm algorithm)
-      throws IOException {
-    if (!isUploadDeduplicationEnabled() || checksum == null || algorithm == null) {
-      return null;
-    }
-    ChecksumKey key;
-    try {
-      key = ChecksumKey.of(checksum, algorithm);
-    } catch (Exception e) {
-      return null;
-    }
-    return deduplicationService != null ? deduplicationService.getUploadInfoByChecksum(key) : null;
-  }
-
   // CONFIGURATION SETTERS & GETTERS
 
   /**
@@ -842,81 +750,6 @@ public class S3StorageService implements UploadStorageService {
     return this.checksumIndex != null && this.checksumIndex.isS3ConditionalWritesSupported();
   }
 
-  @Override
-  public void setMaxUploadSize(Long maxUploadSize) {
-    this.maxUploadSize = maxUploadSize;
-  }
-
-  @Override
-  public long getMaxUploadSize() {
-    return maxUploadSize != null ? maxUploadSize : 0L;
-  }
-
-  @Override
-  public void setMaxAppendSize(Long maxAppendSize) {
-    this.maxAppendSize = maxAppendSize;
-  }
-
-  @Override
-  public Long getMaxAppendSize() {
-    return maxAppendSize != null ? maxAppendSize : (maxUploadSize != null ? maxUploadSize : null);
-  }
-
-  @Override
-  public void setMinAppendSize(Long minAppendSize) {
-    this.minAppendSize = minAppendSize;
-  }
-
-  @Override
-  public Long getMinAppendSize() {
-    return minAppendSize;
-  }
-
-  @Override
-  public void setMinSize(Long minSize) {
-    this.minSize = minSize;
-  }
-
-  @Override
-  public Long getMinSize() {
-    return minSize;
-  }
-
-  @Override
-  public void setUploadExpirationPeriod(Long uploadExpirationPeriod) {
-    this.uploadExpirationPeriod = uploadExpirationPeriod;
-  }
-
-  @Override
-  public Long getUploadExpirationPeriod() {
-    return uploadExpirationPeriod;
-  }
-
-  @Override
-  public void setUploadDeduplicationEnabled(boolean enabled) {
-    this.deduplicationEnabled = enabled;
-  }
-
-  @Override
-  public boolean isUploadDeduplicationEnabled() {
-    return deduplicationEnabled;
-  }
-
-  @Override
-  public boolean isJsonSerializationEnabled() {
-    return true;
-  }
-
-  @Override
-  public void setUploadConcatenationService(UploadConcatenationService concatenationService) {
-    this.concatenationService = concatenationService;
-  }
-
-  @Override
-  public UploadConcatenationService getUploadConcatenationService() {
-    return concatenationService;
-  }
-
   boolean isS3ComposeObjectSupported() {
     thisObjectLock.readLock().lock();
     try {
@@ -941,50 +774,6 @@ public class S3StorageService implements UploadStorageService {
 
   S3ServerSideComposeHelper getS3ServerSideComposeHelper() {
     return s3ComposeHelper;
-  }
-
-  @Override
-  public void setIdFactory(UploadIdFactory idFactory) {
-    if (idFactory != null) {
-      this.idFactory = idFactory;
-    }
-  }
-
-  @Override
-  public void setCloudUploadThreadPoolSize(int size) {
-    if (size <= 0) {
-      throw new IllegalArgumentException(
-          "The cloud upload thread pool size must be greater than 0");
-    }
-    this.cloudUploadThreadPoolSize = size;
-    if (size > uploadExecutor.getMaximumPoolSize()) {
-      uploadExecutor.setMaximumPoolSize(size);
-      uploadExecutor.setCorePoolSize(size);
-    } else {
-      uploadExecutor.setCorePoolSize(size);
-      uploadExecutor.setMaximumPoolSize(size);
-    }
-  }
-
-  @Override
-  public int getCloudUploadThreadPoolSize() {
-    return cloudUploadThreadPoolSize;
-  }
-
-  ThreadPoolExecutor getUploadExecutor() {
-    return this.uploadExecutor;
-  }
-
-  @Override
-  public void setDrainTimeout(Duration drainTimeout) {
-    if (drainTimeout != null) {
-      this.drainTimeout = drainTimeout;
-    }
-  }
-
-  @Override
-  public Duration getDrainTimeout() {
-    return drainTimeout;
   }
 
   /**
@@ -1015,15 +804,21 @@ public class S3StorageService implements UploadStorageService {
 
   @Override
   public void close() throws IOException {
-    uploadExecutor.shutdown();
-    try {
-      if (!uploadExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-        uploadExecutor.shutdownNow();
-      }
-    } catch (InterruptedException e) {
-      uploadExecutor.shutdownNow();
-      Thread.currentThread().interrupt();
+    super.close();
+    if (uploadLockingService != null) {
+      uploadLockingService.close();
     }
+    if (concatenationService != null) {
+      concatenationService.close();
+    }
+    if (s3ComposeHelper != null) {
+      s3ComposeHelper.close();
+    }
+  }
+
+  @Override
+  protected DeduplicationService getDeduplicationService() {
+    return this.deduplicationService;
   }
 
   // PRIVATE HELPER METHODS & S3 PROCESSING LOGIC
@@ -1065,6 +860,8 @@ public class S3StorageService implements UploadStorageService {
    *     parts, and stale tail keys
    * @throws IOException If reading or downloading from S3 fails
    */
+  @SuppressWarnings(
+      "java:S2095") // Stream is returned within PreparedStream for caller lifecycle management
   private PreparedStream prepareStreamWithExistingIncompletePart(
       UploadInfo info, InterruptibleInputStream interruptibleStream) throws IOException {
     long prependedBytes = 0L;
@@ -1091,6 +888,7 @@ public class S3StorageService implements UploadStorageService {
         // Stream into a secure temp file instead of buffering up to 5 MB directly in JVM heap
         File tempPrepFile =
             Files.createTempFile(temporaryDirectory, "tus-s3-prep-", ".tmp").toFile();
+        InputStream prependedStream = null;
         try {
           try (InputStream lastPartStream =
                   S3Utils.getObjectInputStream(minioClient, bucket, lastPartKey);
@@ -1099,7 +897,7 @@ public class S3StorageService implements UploadStorageService {
           }
           long tempPrepLength = tempPrepFile.length();
           prependedBytes += tempPrepLength;
-          InputStream prependedStream =
+          prependedStream =
               new FileInputStream(tempPrepFile) {
                 @Override
                 public void close() throws IOException {
@@ -1115,6 +913,7 @@ public class S3StorageService implements UploadStorageService {
           existingPartsTotalSize -= tempPrepLength;
           existingPartKeys.remove(existingPartKeys.size() - 1);
         } catch (Exception e) {
+          IOUtils.closeQuietly(prependedStream);
           FileUtils.deleteQuietly(tempPrepFile);
           log.debug("Error inspecting last part key {}: {}", lastPartKey, e.getMessage());
         }
@@ -1255,14 +1054,8 @@ public class S3StorageService implements UploadStorageService {
                     "Upload has reached the maximum allowed S3 limit of "
                         + MAX_PARTS_PER_UPLOAD
                         + " parts.");
-            int confirmedCount = uploader.drainAndComplete();
-            int confirmed = Math.min(confirmedCount, plannedPartKeys.size());
-            for (int i = 0; i < confirmed; i++) {
-              allPartKeys.add(plannedPartKeys.get(i));
-              confirmedBytesAppended += plannedChunkSizes.get(i);
-            }
-            plannedPartKeys.clear();
-            plannedChunkSizes.clear();
+            confirmedBytesAppended +=
+                drainConfirmedParts(uploader, plannedPartKeys, plannedChunkSizes, allPartKeys);
 
             String chunkKey = buildChunkPartKey(id, nextPartNumber++, chunkBytesWritten);
             uploadChunkToS3(chunkKey, tempChunkFile, chunkBytesWritten);
@@ -1328,14 +1121,8 @@ public class S3StorageService implements UploadStorageService {
             // Sub-5MB chunk (e.g. final completing chunk, or partial chunk when
             // paused/interrupted):
             // First drain all preceding parts in the pipeline
-            int confirmedCount = uploader.drainAndComplete();
-            int confirmed = Math.min(confirmedCount, plannedPartKeys.size());
-            for (int i = 0; i < confirmed; i++) {
-              allPartKeys.add(plannedPartKeys.get(i));
-              confirmedBytesAppended += plannedChunkSizes.get(i);
-            }
-            plannedPartKeys.clear();
-            plannedChunkSizes.clear();
+            confirmedBytesAppended +=
+                drainConfirmedParts(uploader, plannedPartKeys, plannedChunkSizes, allPartKeys);
 
             String chunkKey = buildChunkPartKey(id, nextPartNumber++, chunkBytesWritten);
             uploadChunkToS3(chunkKey, tempChunkFile, chunkBytesWritten);
@@ -1381,6 +1168,24 @@ public class S3StorageService implements UploadStorageService {
 
     return new AppendResult(
         confirmedBytesAppended, allPartKeys, readException, maxAppendSizeException);
+  }
+
+  private long drainConfirmedParts(
+      AsyncChunkUploader uploader,
+      List<String> plannedPartKeys,
+      List<Long> plannedChunkSizes,
+      List<String> allPartKeys)
+      throws IOException {
+    long bytesAppended = 0;
+    int confirmedCount = uploader.drainAndComplete();
+    int confirmed = Math.min(confirmedCount, plannedPartKeys.size());
+    for (int i = 0; i < confirmed; i++) {
+      allPartKeys.add(plannedPartKeys.get(i));
+      bytesAppended += plannedChunkSizes.get(i);
+    }
+    plannedPartKeys.clear();
+    plannedChunkSizes.clear();
+    return bytesAppended;
   }
 
   private void uploadChunkToS3(String chunkKey, File tempChunkFile, long chunkLength)

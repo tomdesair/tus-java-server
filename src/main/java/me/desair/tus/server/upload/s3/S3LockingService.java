@@ -167,7 +167,7 @@ public class S3LockingService extends AbstractLeaseLockingService {
     super(idFactory, leaseDurationMs, pollIntervalMs, "s3-lock-shutdown-hook", "s3-lock-watchdog");
     this.minioClient = Objects.requireNonNull(minioClient, "MinioClient must not be null");
     this.bucket = Objects.requireNonNull(bucket, "Bucket must not be null");
-    this.locksPrefix = sanitizePrefix(locksPrefix);
+    this.locksPrefix = Utils.sanitizePrefix(locksPrefix);
   }
 
   /**
@@ -545,10 +545,6 @@ public class S3LockingService extends AbstractLeaseLockingService {
   @Override
   protected void applyJitter() {
     super.applyJitter();
-  }
-
-  private String sanitizePrefix(String prefix) {
-    return S3Utils.sanitizePrefix(prefix);
   }
 
   private String buildLockKey(UploadId uploadId) {

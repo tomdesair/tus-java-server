@@ -320,4 +320,19 @@ public class AzureBlobConcatenationServiceTest {
     assertEquals(
         "custom-blob-name", serviceWithAzureStorage.resolvePartialBlobName(partialWithDup));
   }
+
+  @Test
+  public void testGetConcatenatedBytesWhenCompleted() throws Exception {
+    UploadInfo finalInfo = new UploadInfo();
+    finalInfo.setId(new UploadId("concat-123"));
+    finalInfo.setOffset(100L);
+    finalInfo.setLength(100L);
+
+    when(storageService.getUploadedBytes(finalInfo.getId()))
+        .thenReturn(new java.io.ByteArrayInputStream(new byte[] {1, 2, 3}));
+
+    InputStream is = concatenationService.getConcatenatedBytes(finalInfo);
+    assertNotNull(is);
+    assertEquals(3, is.available());
+  }
 }
