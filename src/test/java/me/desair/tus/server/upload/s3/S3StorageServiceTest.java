@@ -3127,9 +3127,20 @@ public class S3StorageServiceTest {
 
   @Test
   public void testSetAndGetS3ServerSideComposeHelper() {
+    // When helper is null
+    storageService.setS3ServerSideComposeHelper(null);
+    assertNull(storageService.getS3ServerSideComposeHelper());
+    assertFalse(storageService.isS3ComposeObjectSupported());
+    storageService.setS3ComposeObjectSupported(true); // null-safe
+
+    // When helper is present
     S3ServerSideComposeHelper mockHelper = mock(S3ServerSideComposeHelper.class);
+    when(mockHelper.isComposeSupported()).thenReturn(true);
     storageService.setS3ServerSideComposeHelper(mockHelper);
     assertEquals(mockHelper, storageService.getS3ServerSideComposeHelper());
+    assertTrue(storageService.isS3ComposeObjectSupported());
+    storageService.setS3ComposeObjectSupported(false);
+    verify(mockHelper).setComposeSupported(false);
   }
 
   @Test
@@ -3152,7 +3163,7 @@ public class S3StorageServiceTest {
     info.setId(uploadId);
     info.setLength(1000L);
     info.setOffset(50L);
-    String partKey = "metadata/part-inspect-err-id.part.00001";
+    String partKey = "metadata/part-inspect-err-id.part.00001_50";
     info.setUploadPartKeys(new ArrayList<>(Collections.singletonList(partKey)));
 
     when(minioClient.getObject(
@@ -3161,10 +3172,10 @@ public class S3StorageServiceTest {
                     a != null && "metadata/part-inspect-err-id.info".equals(a.object()))))
         .thenReturn(mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes()));
 
-    // StatObject on last part throws Exception to test lines 1033-1034 catch block
-    when(minioClient.statObject(
-            argThat((StatObjectArgs a) -> a != null && partKey.equals(a.object()))))
-        .thenThrow(new RuntimeException("Part inspection failed"));
+    // GetObject on sub-5MB part throws Exception to test lines 911-913 catch block
+    when(minioClient.getObject(
+            argThat((GetObjectArgs a) -> a != null && partKey.equals(a.object()))))
+        .thenThrow(new RuntimeException("Part download failed"));
 
     UploadInfo result = storageService.append(info, new ByteArrayInputStream(new byte[0]));
     assertNotNull(result);

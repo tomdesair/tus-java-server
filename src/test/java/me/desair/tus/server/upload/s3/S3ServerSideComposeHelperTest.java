@@ -28,6 +28,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import me.desair.tus.server.upload.UploadInfo;
 import okhttp3.Call;
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
@@ -268,6 +269,11 @@ public class S3ServerSideComposeHelperTest {
         new S3ServerSideComposeHelper("https://s3.amazonaws.com", null, "testKey", "testSecret");
     assertTrue(helperWithNullRegion.isAvailable());
 
+    S3ServerSideComposeHelper helperWithBoth =
+        new S3ServerSideComposeHelper(
+            realClient, "https://s3.amazonaws.com", "us-east-1", "testKey", "testSecret");
+    assertTrue(helperWithBoth.isAvailable());
+
     S3ServerSideComposeHelper minioOnlyHelper = new S3ServerSideComposeHelper(realClient);
     assertFalse(minioOnlyHelper.isAvailable());
   }
@@ -419,6 +425,135 @@ public class S3ServerSideComposeHelperTest {
     // Verify composition executes with fallback region "local" without errors
     helper.compose("my-bucket", "upload/target", Collections.singletonList("upload/part-1"));
     verify(asyncClient).completeMultipartUpload(any(CompleteMultipartUploadArgs.class));
+  }
+
+  @Test
+  public void testComposeSupportedToggle() {
+    S3ServerSideComposeHelper helper = new S3ServerSideComposeHelper(null);
+    assertTrue(helper.isComposeSupported());
+
+    helper.setComposeSupported(false);
+    assertFalse(helper.isComposeSupported());
+
+    helper.setComposeSupported(true);
+    assertTrue(helper.isComposeSupported());
+  }
+
+  @Test
+  public void testCanComposeWithEncodedPartSizes() throws Exception {
+    MinioClient mockClient = mock(MinioClient.class);
+    S3ServerSideComposeHelper helper = new S3ServerSideComposeHelper(mockClient);
+
+    long minPartSize = 5L * 1024 * 1024; // 5 MB
+
+    // Null or empty part list
+    assertFalse(helper.canCompose("test-bucket", null, minPartSize));
+    assertFalse(helper.canCompose("test-bucket", Collections.emptyList(), minPartSize));
+
+    // When compose is disabled
+    helper.setComposeSupported(false);
+    assertFalse(
+        helper.canCompose(
+            "test-bucket", Collections.singletonList("upload.part.00001_5242880"), minPartSize));
+    helper.setComposeSupported(true);
+
+    // Single part
+    assertTrue(
+        helper.canCompose(
+            "test-bucket", Collections.singletonList("upload.part.00001_100"), minPartSize));
+
+    // Multiple parts where all except final are >= 5 MB (final part can be < 5 MB)
+    List<String> validParts =
+        Arrays.asList(
+            "upload.part.00001_5242880",
+            "upload.part.00002_10485760",
+            "upload.part.00003_100"); // final part < 5MB is allowed
+    assertTrue(helper.canCompose("test-bucket", validParts, minPartSize));
+
+    // Multiple parts where a non-final part is < 5 MB
+    List<String> invalidParts =
+        Arrays.asList(
+            "upload.part.00001_5242880",
+            "upload.part.00002_100", // non-final sub-5MB part rejected
+            "upload.part.00003_5242880");
+    assertFalse(helper.canCompose("test-bucket", invalidParts, minPartSize));
+
+    // Verify no remote statObject calls were issued during encoded key checks
+    verify(mockClient, org.mockito.Mockito.never()).statObject(any(io.minio.StatObjectArgs.class));
+  }
+
+  @Test
+  public void testCanComposePartialUploads() {
+    S3ServerSideComposeHelper helper = new S3ServerSideComposeHelper(null);
+    long minPartSize = 5L * 1024 * 1024; // 5 MB
+
+    // Null or empty
+    assertFalse(helper.canComposePartialUploads(null, minPartSize));
+    assertFalse(helper.canComposePartialUploads(Collections.emptyList(), minPartSize));
+
+    // When compose is disabled
+    helper.setComposeSupported(false);
+    UploadInfo pValid = new UploadInfo();
+    pValid.setLength(minPartSize);
+    pValid.setStorageUploadId("uploads/p1");
+    assertFalse(helper.canComposePartialUploads(Collections.singletonList(pValid), minPartSize));
+    helper.setComposeSupported(true);
+
+    // Single part: valid
+    assertTrue(helper.canComposePartialUploads(Collections.singletonList(pValid), minPartSize));
+
+    // Single part: missing storageUploadId
+    UploadInfo pNoStorageId = new UploadInfo();
+    pNoStorageId.setLength(minPartSize);
+    pNoStorageId.setStorageUploadId(null);
+    assertFalse(
+        helper.canComposePartialUploads(Collections.singletonList(pNoStorageId), minPartSize));
+
+    // Single part: length < minPartSize
+    UploadInfo pSmall = new UploadInfo();
+    pSmall.setLength(minPartSize - 1);
+    pSmall.setStorageUploadId("uploads/p-small");
+    assertFalse(helper.canComposePartialUploads(Collections.singletonList(pSmall), minPartSize));
+
+    // Single part: null length
+    UploadInfo pNullLen = new UploadInfo();
+    pNullLen.setLength(null);
+    pNullLen.setStorageUploadId("uploads/p-null");
+    assertFalse(helper.canComposePartialUploads(Collections.singletonList(pNullLen), minPartSize));
+
+    // Multiple parts: valid (non-final >= 5MB, final < 5MB allowed)
+    UploadInfo p1 = new UploadInfo();
+    p1.setLength(10L * 1024 * 1024);
+    p1.setStorageUploadId("uploads/p1");
+
+    UploadInfo p2 = new UploadInfo();
+    p2.setLength(5L * 1024 * 1024);
+    p2.setStorageUploadId("uploads/p2");
+
+    UploadInfo p3Final = new UploadInfo();
+    p3Final.setLength(100L); // < 5MB allowed for final part
+    p3Final.setStorageUploadId("uploads/p3");
+
+    assertTrue(helper.canComposePartialUploads(Arrays.asList(p1, p2, p3Final), minPartSize));
+
+    // Multiple parts: non-final part < 5MB
+    UploadInfo p2Small = new UploadInfo();
+    p2Small.setLength(100L);
+    p2Small.setStorageUploadId("uploads/p2-small");
+    assertFalse(helper.canComposePartialUploads(Arrays.asList(p1, p2Small, p3Final), minPartSize));
+
+    // Multiple parts: missing storageUploadId on one part
+    UploadInfo p2NoId = new UploadInfo();
+    p2NoId.setLength(10L * 1024 * 1024);
+    p2NoId.setStorageUploadId(null);
+    assertFalse(helper.canComposePartialUploads(Arrays.asList(p1, p2NoId, p3Final), minPartSize));
+
+    // Multiple parts: null length on one part
+    UploadInfo p2NullLen = new UploadInfo();
+    p2NullLen.setLength(null);
+    p2NullLen.setStorageUploadId("uploads/p2");
+    assertFalse(
+        helper.canComposePartialUploads(Arrays.asList(p1, p2NullLen, p3Final), minPartSize));
   }
 
   private static void setField(Object target, String fieldName, Object value) throws Exception {

@@ -22,6 +22,9 @@ import java.io.IOException;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import me.desair.tus.server.upload.UploadInfo;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -62,6 +65,8 @@ public class S3ServerSideComposeHelper implements Closeable {
   private final Provider provider;
   private final OkHttpClient httpClient;
   private final String explicitRegion;
+  private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
+  private boolean composeSupported = true;
 
   /**
    * Constructs an instance with explicit connection parameters without requiring a {@link
@@ -89,15 +94,15 @@ public class S3ServerSideComposeHelper implements Closeable {
     this(minioClient, null, null, null, null);
   }
 
-  private S3ServerSideComposeHelper(
+  S3ServerSideComposeHelper(
       MinioClient minioClient, String endpoint, String region, String accessKey, String secretKey) {
-    this.minioClient = minioClient;
     this.explicitRegion = (region != null && !region.isEmpty()) ? region : "local";
 
     Http.BaseUrl base = null;
     Provider prov = null;
     OkHttpClient client = null;
     MinioAsyncClient async = null;
+    MinioClient syncClient = minioClient;
 
     if (endpoint != null && !endpoint.isEmpty()) {
       try {
@@ -114,6 +119,9 @@ public class S3ServerSideComposeHelper implements Closeable {
           asyncBuilder.region(region);
         }
         async = asyncBuilder.build();
+        if (syncClient == null) {
+          syncClient = S3Utils.buildMinioClient(endpoint, region, accessKey, secretKey);
+        }
       } catch (Exception e) {
         log.warn(
             "Failed to initialize native S3 connection from endpoint {}: {}",
@@ -122,6 +130,7 @@ public class S3ServerSideComposeHelper implements Closeable {
       }
     }
 
+    this.minioClient = syncClient;
     this.baseUrl = base;
     this.provider = prov;
     this.httpClient = client;
@@ -135,6 +144,96 @@ public class S3ServerSideComposeHelper implements Closeable {
    */
   public boolean isAvailable() {
     return asyncClient != null && baseUrl != null && httpClient != null;
+  }
+
+  /**
+   * Returns whether S3 server-side composition is supported by the storage endpoint.
+   *
+   * @return {@code true} if server-side compose is supported; {@code false} if disabled or failed
+   */
+  public boolean isComposeSupported() {
+    thisObjectLock.readLock().lock();
+    try {
+      return composeSupported;
+    } finally {
+      thisObjectLock.readLock().unlock();
+    }
+  }
+
+  /**
+   * Configures whether S3 server-side composition is supported by the storage endpoint.
+   *
+   * @param composeSupported {@code true} to enable; {@code false} to disable
+   */
+  public void setComposeSupported(boolean composeSupported) {
+    thisObjectLock.writeLock().lock();
+    try {
+      this.composeSupported = composeSupported;
+    } finally {
+      thisObjectLock.writeLock().unlock();
+    }
+  }
+
+  /**
+   * Checks whether the given part keys meet S3's minimum part size requirement for server-side
+   * composition (all parts except the final part must be at least {@code minPartSize} bytes).
+   *
+   * <p>Part sizes are resolved in O(1) time from the {@code _<size>} suffix encoded in each part
+   * key name, falling back to {@code statObject} only for legacy keys without a size suffix.
+   *
+   * @param bucket The S3 bucket name
+   * @param partKeys The ordered list of part keys to compose
+   * @param minPartSize Minimum required byte size for non-final parts (typically 5 MiB)
+   * @return {@code true} if server-side composition can be used; {@code false} otherwise
+   */
+  public boolean canCompose(String bucket, List<String> partKeys, long minPartSize) {
+    if (!isComposeSupported() || partKeys == null || partKeys.isEmpty()) {
+      return false;
+    }
+    // AWS S3 requires all parts except the last to be >= minPartSize (5 MB)
+    for (int i = 0; i < partKeys.size() - 1; i++) {
+      if (S3Utils.getPartSize(minioClient, bucket, partKeys.get(i)) < minPartSize) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Checks whether the given partial uploads meet S3's constraints for server-side composition.
+   *
+   * <p>AWS S3 composeObject / multipart upload constraints:
+   *
+   * <ul>
+   *   <li>Single part: must be &ge; minPartSize (5MB) and have a valid storageUploadId.
+   *   <li>Multiple parts (&ge; 2): all parts EXCEPT the final part must be &ge; minPartSize (5MB)
+   *       and all parts must have valid storageUploadId. The final part is allowed to be &lt; 5MB.
+   * </ul>
+   *
+   * @param partialUploads The partial uploads to check
+   * @param minPartSize Minimum required byte size for non-final parts (typically 5 MiB)
+   * @return {@code true} if server-side composition can be used; {@code false} otherwise
+   */
+  public boolean canComposePartialUploads(List<UploadInfo> partialUploads, long minPartSize) {
+    if (!isComposeSupported() || partialUploads == null || partialUploads.isEmpty()) {
+      return false;
+    }
+    if (partialUploads.size() == 1) {
+      UploadInfo p = partialUploads.get(0);
+      return p.getLength() != null
+          && p.getLength() >= minPartSize
+          && p.getStorageUploadId() != null;
+    }
+    for (int i = 0; i < partialUploads.size(); i++) {
+      UploadInfo p = partialUploads.get(i);
+      if (p.getLength() == null || p.getStorageUploadId() == null) {
+        return false;
+      }
+      if (i < partialUploads.size() - 1 && p.getLength() < minPartSize) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**

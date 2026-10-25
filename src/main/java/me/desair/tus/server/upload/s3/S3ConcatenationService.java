@@ -195,29 +195,8 @@ public class S3ConcatenationService extends AbstractConcatenationService {
     boolean completed = checkAllCompleted(expirationPeriod, partialUploads);
 
     if (totalLength != null && totalLength > 0 && completed) {
-      // AWS S3 composeObject / multipart upload constraints:
-      // 1. Single part: must be >= minPartSize (5MB) and have valid storageUploadId to compose.
-      // 2. Multiple parts (>= 2): all parts EXCEPT the final part must be >= minPartSize (5MB).
-      //    The final part is allowed to be < 5MB while still using zero-copy server-side
-      //    composition.
-      boolean canUseServerSideCopy = !partialUploads.isEmpty();
-      if (partialUploads.size() == 1) {
-        UploadInfo p = partialUploads.get(0);
-        canUseServerSideCopy =
-            p.getLength() != null && p.getLength() >= minPartSize && p.getStorageUploadId() != null;
-      } else {
-        for (int i = 0; i < partialUploads.size(); i++) {
-          UploadInfo p = partialUploads.get(i);
-          if (p.getLength() == null || p.getStorageUploadId() == null) {
-            canUseServerSideCopy = false;
-            break;
-          }
-          if (i < partialUploads.size() - 1 && p.getLength() < minPartSize) {
-            canUseServerSideCopy = false;
-            break;
-          }
-        }
-      }
+      boolean canUseServerSideCopy =
+          s3ComposeHelper.canComposePartialUploads(partialUploads, minPartSize);
 
       String targetObjectKey = buildObjectKey(uploadInfo.getId());
 
@@ -288,8 +267,10 @@ public class S3ConcatenationService extends AbstractConcatenationService {
       s3ComposeHelper.compose(bucket, targetKey, partKeys);
     } catch (Exception e) {
       // If server-side composition fails for any reason (e.g. S3 permissions, regional policy,
-      // or unhandled multipart copy restriction), fall back to streaming re-upload as a safety net.
+      // or unhandled multipart copy restriction), mark compose as unsupported on this helper
+      // and fall back to streaming re-upload as a safety net.
       // This ensures concatenated uploads always succeed even if server-side copy is denied.
+      s3ComposeHelper.setComposeSupported(false);
       log.warn(
           "Server-side S3 composition failed for target key {}; falling back to streaming re-upload: {}",
           targetKey,

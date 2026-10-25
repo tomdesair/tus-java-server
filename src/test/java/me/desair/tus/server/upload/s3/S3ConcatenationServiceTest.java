@@ -558,6 +558,8 @@ public class S3ConcatenationServiceTest {
   @Test
   public void testMergeResolvesObjectKeysWhenStorageServiceNotS3StorageService() throws Exception {
     S3ServerSideComposeHelper mockHelper = Mockito.mock(S3ServerSideComposeHelper.class);
+    Mockito.when(mockHelper.canComposePartialUploads(Mockito.any(), Mockito.anyLong()))
+        .thenReturn(true);
     concatenationService.setS3ServerSideComposeHelper(mockHelper);
 
     UploadInfo childDup = new UploadInfo();
@@ -605,6 +607,8 @@ public class S3ConcatenationServiceTest {
             null);
 
     S3ServerSideComposeHelper mockHelper = Mockito.mock(S3ServerSideComposeHelper.class);
+    Mockito.when(mockHelper.canComposePartialUploads(Mockito.any(), Mockito.anyLong()))
+        .thenReturn(true);
     service.setS3ServerSideComposeHelper(mockHelper);
 
     UploadInfo child1 = new UploadInfo();
