@@ -193,6 +193,37 @@ public final class S3Utils {
   }
 
   /**
+   * Resolves the byte size of an S3 part key.
+   *
+   * <p>If the key encodes its size suffix ({@code _<size>}), the byte count is extracted in O(1)
+   * time without any remote network calls. If the key lacks a numeric suffix (e.g. legacy part keys
+   * or mock test keys), this method falls back to {@link #getObjectSize} via {@code statObject}.
+   *
+   * @param minioClient The {@link MinioClient}
+   * @param bucket The target bucket name
+   * @param partKey The S3 part object key
+   * @return The part size in bytes, or 0L if the key is null or an error occurs
+   */
+  public static long getPartSize(MinioClient minioClient, String bucket, String partKey) {
+    if (partKey == null) {
+      return 0L;
+    }
+    int underscoreIdx = partKey.lastIndexOf('_');
+    if (underscoreIdx >= 0 && underscoreIdx < partKey.length() - 1) {
+      try {
+        long parsed = Long.parseLong(partKey.substring(underscoreIdx + 1));
+        if (parsed >= 0) {
+          return parsed;
+        }
+      } catch (NumberFormatException ignored) {
+        // Fall back to statObject if suffix is not numeric
+      }
+    }
+    long size = getObjectSize(minioClient, bucket, partKey);
+    return size >= 0 ? size : 0L;
+  }
+
+  /**
    * Checks whether an S3 object exists in the specified bucket.
    *
    * @param minioClient The {@link MinioClient}

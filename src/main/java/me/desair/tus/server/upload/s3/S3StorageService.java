@@ -26,8 +26,6 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import me.desair.tus.server.checksum.ChecksumKey;
@@ -110,8 +108,6 @@ public class S3StorageService extends AbstractUploadStorageService {
   private final S3ChecksumIndex checksumIndex;
   private DeduplicationService deduplicationService;
 
-  private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
-  private boolean s3ComposeObjectSupported = true;
   private S3ServerSideComposeHelper s3ComposeHelper;
 
   /**
@@ -751,25 +747,21 @@ public class S3StorageService extends AbstractUploadStorageService {
   }
 
   boolean isS3ComposeObjectSupported() {
-    thisObjectLock.readLock().lock();
-    try {
-      return s3ComposeObjectSupported;
-    } finally {
-      thisObjectLock.readLock().unlock();
-    }
+    return s3ComposeHelper != null && s3ComposeHelper.isComposeSupported();
   }
 
   void setS3ComposeObjectSupported(boolean s3ComposeObjectSupported) {
-    thisObjectLock.writeLock().lock();
-    try {
-      this.s3ComposeObjectSupported = s3ComposeObjectSupported;
-    } finally {
-      thisObjectLock.writeLock().unlock();
+    if (this.s3ComposeHelper != null) {
+      this.s3ComposeHelper.setComposeSupported(s3ComposeObjectSupported);
     }
   }
 
   void setS3ServerSideComposeHelper(S3ServerSideComposeHelper s3ComposeHelper) {
     this.s3ComposeHelper = s3ComposeHelper;
+    if (this.concatenationService instanceof S3ConcatenationService) {
+      ((S3ConcatenationService) this.concatenationService)
+          .setS3ServerSideComposeHelper(s3ComposeHelper);
+    }
   }
 
   S3ServerSideComposeHelper getS3ServerSideComposeHelper() {
@@ -874,49 +866,51 @@ public class S3StorageService extends AbstractUploadStorageService {
             ? new ArrayList<>(info.getUploadPartKeys())
             : new ArrayList<>();
 
-    long existingPartsTotalSize = calculateTotalPartsSize(existingPartKeys);
+    long existingPartsTotalSize = 0L;
+    long lastPartSize = 0L;
+    for (int i = 0; i < existingPartKeys.size(); i++) {
+      long partSize = getPartSize(existingPartKeys.get(i));
+      existingPartsTotalSize += partSize;
+      if (i == existingPartKeys.size() - 1) {
+        lastPartSize = partSize;
+      }
+    }
 
     // 2. Roll back any existing sub-5MB numbered parts into the stream buffer so they can grow
-    if (!existingPartKeys.isEmpty()) {
+    if (!existingPartKeys.isEmpty() && lastPartSize > 0 && lastPartSize < minPartSize) {
       String lastPartKey = existingPartKeys.get(existingPartKeys.size() - 1);
-      long lastPartSize = getPartSize(lastPartKey);
-      if (lastPartSize > 0 && lastPartSize < minPartSize) {
-        log.info(
-            "Rolling back sub-5MB part {} (size: {}) into stream buffer",
-            lastPartKey,
-            lastPartSize);
-        // Stream into a secure temp file instead of buffering up to 5 MB directly in JVM heap
-        File tempPrepFile =
-            Files.createTempFile(temporaryDirectory, "tus-s3-prep-", ".tmp").toFile();
-        InputStream prependedStream = null;
-        try {
-          try (InputStream lastPartStream =
-                  S3Utils.getObjectInputStream(minioClient, bucket, lastPartKey);
-              FileOutputStream fos = new FileOutputStream(tempPrepFile)) {
-            IOUtils.copyLarge(lastPartStream, fos);
-          }
-          long tempPrepLength = tempPrepFile.length();
-          prependedBytes += tempPrepLength;
-          prependedStream =
-              new FileInputStream(tempPrepFile) {
-                @Override
-                public void close() throws IOException {
-                  try {
-                    super.close();
-                  } finally {
-                    FileUtils.deleteQuietly(tempPrepFile);
-                  }
-                }
-              };
-          combinedStream = new SequenceInputStream(prependedStream, combinedStream);
-          staleTailKeys.add(lastPartKey);
-          existingPartsTotalSize -= tempPrepLength;
-          existingPartKeys.remove(existingPartKeys.size() - 1);
-        } catch (Exception e) {
-          IOUtils.closeQuietly(prependedStream);
-          FileUtils.deleteQuietly(tempPrepFile);
-          log.debug("Error inspecting last part key {}: {}", lastPartKey, e.getMessage());
+      log.info(
+          "Rolling back sub-5MB part {} (size: {}) into stream buffer", lastPartKey, lastPartSize);
+      // Stream into a secure temp file instead of buffering up to 5 MB directly in JVM heap
+      File tempPrepFile = Files.createTempFile(temporaryDirectory, "tus-s3-prep-", ".tmp").toFile();
+      InputStream prependedStream = null;
+      try {
+        try (InputStream lastPartStream =
+                S3Utils.getObjectInputStream(minioClient, bucket, lastPartKey);
+            FileOutputStream fos = new FileOutputStream(tempPrepFile)) {
+          IOUtils.copyLarge(lastPartStream, fos);
         }
+        long tempPrepLength = tempPrepFile.length();
+        prependedBytes += tempPrepLength;
+        prependedStream =
+            new FileInputStream(tempPrepFile) {
+              @Override
+              public void close() throws IOException {
+                try {
+                  super.close();
+                } finally {
+                  FileUtils.deleteQuietly(tempPrepFile);
+                }
+              }
+            };
+        combinedStream = new SequenceInputStream(prependedStream, combinedStream);
+        staleTailKeys.add(lastPartKey);
+        existingPartsTotalSize -= tempPrepLength;
+        existingPartKeys.remove(existingPartKeys.size() - 1);
+      } catch (Exception e) {
+        IOUtils.closeQuietly(prependedStream);
+        FileUtils.deleteQuietly(tempPrepFile);
+        log.debug("Error inspecting last part key {}: {}", lastPartKey, e.getMessage());
       }
     }
 
@@ -946,19 +940,7 @@ public class S3StorageService extends AbstractUploadStorageService {
    * extracted in O(1) time without any network calls; otherwise falls back to statObject.
    */
   private long getPartSize(String partKey) {
-    if (partKey == null) {
-      return 0L;
-    }
-    int underscoreIdx = partKey.lastIndexOf('_');
-    if (underscoreIdx >= 0 && underscoreIdx < partKey.length() - 1) {
-      try {
-        return Long.parseLong(partKey.substring(underscoreIdx + 1));
-      } catch (NumberFormatException ignored) {
-        // Fall back to statObject if suffix is not numeric
-      }
-    }
-    long size = S3Utils.getObjectSize(minioClient, bucket, partKey);
-    return size >= 0 ? size : 0L;
+    return S3Utils.getPartSize(minioClient, bucket, partKey);
   }
 
   /**
@@ -1238,20 +1220,9 @@ public class S3StorageService extends AbstractUploadStorageService {
       }
 
       if (!partKeys.isEmpty()) {
-        boolean canUseServerSideCompose = true;
-        if (partKeys.size() > 1) {
-          // AWS S3 requires all parts except the last to be >= 5 MB (5,242,880 bytes) for
-          // composeObject. We check sizes using getPartSize() in O(1) time without statObject.
-          for (int i = 0; i < partKeys.size() - 1; i++) {
-            long size = getPartSize(partKeys.get(i));
-            if (size < minPartSize) {
-              canUseServerSideCompose = false;
-              break;
-            }
-          }
-        }
+        boolean canUseServerSideCompose = s3ComposeHelper.canCompose(bucket, partKeys, minPartSize);
 
-        if (canUseServerSideCompose && isS3ComposeObjectSupported()) {
+        if (canUseServerSideCompose) {
           try {
             // Perform S3 server-side object composition via native S3 multipart copy
             s3ComposeHelper.compose(bucket, objectKey, partKeys);
@@ -1272,7 +1243,7 @@ public class S3StorageService extends AbstractUploadStorageService {
             mergeUsingStreamingReupload(objectKey, partKeys, newOffset);
           }
         } else {
-          if (!canUseServerSideCompose) {
+          if (isS3ComposeObjectSupported()) {
             log.info(
                 "Detected sub-5MB non-final parts for ID {}. Using streaming part composition"
                     + " fallback.",

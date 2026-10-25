@@ -217,6 +217,48 @@ public class S3UtilsTest {
   }
 
   @Test
+  public void testGetPartSize() throws Exception {
+    MinioClient client = mock(MinioClient.class);
+
+    // Null key returns 0L without statObject calls
+    assertEquals(0L, S3Utils.getPartSize(client, "bucket", null));
+    verify(client, times(0)).statObject(any(StatObjectArgs.class));
+
+    // Valid encoded numeric suffix returns parsed size in O(1) without statObject calls
+    assertEquals(
+        5242880L,
+        S3Utils.getPartSize(client, "bucket", "metadata/upload.part.00001-abc12345_5242880"));
+    assertEquals(
+        0L, S3Utils.getPartSize(client, "bucket", "metadata/upload.part.00001-abc12345_0"));
+    assertEquals(123456789L, S3Utils.getPartSize(client, "bucket", "part_123456789"));
+    verify(client, times(0)).statObject(any(StatObjectArgs.class));
+
+    // Non-numeric suffix falls back to statObject
+    StatObjectResponse statResponse = mock(StatObjectResponse.class);
+    when(statResponse.size()).thenReturn(1048576L);
+    when(client.statObject(any(StatObjectArgs.class))).thenReturn(statResponse);
+
+    assertEquals(1048576L, S3Utils.getPartSize(client, "bucket", "metadata/part_nonnumeric"));
+    verify(client, times(1)).statObject(any(StatObjectArgs.class));
+
+    // Trailing underscore falls back to statObject
+    assertEquals(1048576L, S3Utils.getPartSize(client, "bucket", "metadata/part_"));
+    verify(client, times(2)).statObject(any(StatObjectArgs.class));
+
+    // Negative suffix falls back to statObject
+    assertEquals(1048576L, S3Utils.getPartSize(client, "bucket", "metadata/part_-50"));
+    verify(client, times(3)).statObject(any(StatObjectArgs.class));
+
+    // Missing underscore entirely falls back to statObject
+    assertEquals(1048576L, S3Utils.getPartSize(client, "bucket", "metadata/part-no-underscore"));
+    verify(client, times(4)).statObject(any(StatObjectArgs.class));
+
+    // S3 statObject error falls back to 0L
+    when(client.statObject(any(StatObjectArgs.class))).thenThrow(new RuntimeException("NoSuchKey"));
+    assertEquals(0L, S3Utils.getPartSize(client, "bucket", "missing_notanumber"));
+  }
+
+  @Test
   public void testObjectExists() throws Exception {
     MinioClient client = mock(MinioClient.class);
 
