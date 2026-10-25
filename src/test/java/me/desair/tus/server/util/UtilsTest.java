@@ -72,6 +72,23 @@ public class UtilsTest {
   }
 
   @Test
+  public void readSerializableWithUnallowedClass() throws Exception {
+    Path unallowedFile = storagePath.resolve("unallowed-" + UUID.randomUUID());
+    UnallowedTestSerializable original = new UnallowedTestSerializable("malicious-payload");
+
+    Utils.writeSerializable(original, unallowedFile);
+
+    // Should return null due to ValidatingObjectInputStream class validation rejection when reading
+    // as UploadInfo
+    me.desair.tus.server.upload.UploadInfo result =
+        Utils.readSerializable(unallowedFile, me.desair.tus.server.upload.UploadInfo.class);
+
+    assertThat(result, is(nullValue()));
+
+    Files.deleteIfExists(unallowedFile);
+  }
+
+  @Test
   public void readSerializableWithCorruptedFile() throws Exception {
     Path corruptedFile = storagePath.resolve("corrupted-" + UUID.randomUUID());
 
@@ -1107,6 +1124,20 @@ public class UtilsTest {
 
     public String getValue() {
       return value;
+    }
+  }
+
+  /** Unallowed serializable class for testing rejection. */
+  public static class UnallowedTestSerializable implements Serializable {
+    private static final long serialVersionUID = 1L;
+    private final String payload;
+
+    public UnallowedTestSerializable(String payload) {
+      this.payload = payload;
+    }
+
+    public String getPayload() {
+      return payload;
     }
   }
 }
