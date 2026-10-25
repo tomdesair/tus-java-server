@@ -95,6 +95,28 @@ public abstract class AbstractITRufhProtocol {
     servletResponse = new MockHttpServletResponse();
   }
 
+  /**
+   * Resets mock HTTP request and response objects simulating chunked transfer encoding where the
+   * Content-Length header is omitted (getContentLengthLong returns -1L).
+   */
+  protected void resetChunked() {
+    servletRequest =
+        new MockHttpServletRequest() {
+          @Override
+          public int getContentLength() {
+            return -1;
+          }
+
+          @Override
+          public long getContentLengthLong() {
+            return -1L;
+          }
+        };
+    servletRequest.setRemoteAddr("192.168.1.1");
+    servletRequest.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
+    servletResponse = new MockHttpServletResponse();
+  }
+
   // ===============================================================================================
   // USE CASE 1: OPTIONS Discovery
   // ===============================================================================================
@@ -912,6 +934,161 @@ public abstract class AbstractITRufhProtocol {
     try (InputStream stream = tusFileUploadService.getUploadedBytes(completedInfo)) {
       assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
     }
+  }
+
+  /**
+   * Section 4.1.4 (Limits - max-append-size): "max-append-size: An Integer indicating the maximum
+   * number of bytes that can be appended with each upload append request." Section 4.7 (Upload
+   * Append - Payload Limits): "The server MAY enforce limits on the size of individual data append
+   * requests."
+   *
+   * <p>Use Case: Configure max-append-size (10 bytes) on TusFileUploadService. Verify that chunked
+   * streaming requests without a Content-Length header (Transfer-Encoding: chunked) are properly
+   * validated and enforced by the storage backend's append method across all storage backends
+   * (Disk, S3, Azure Blob) during both creation POST and append PATCH, returning HTTP 413.
+   */
+  @Test
+  public void testChunkedAppendAndCreationEnforceMaxAppendSize() throws Exception {
+    tusFileUploadService.withMaxAppendSize(10L);
+
+    // Step 1: Chunked creation POST exceeding maxAppendSize (25 bytes > 10L)
+    resetChunked();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    byte[] oversizedPayload = "1234567890123456789012345".getBytes(StandardCharsets.UTF_8);
+    servletRequest.setContent(oversizedPayload);
+
+    UploadInfo failedCreation =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertNull(failedCreation);
+    assertResponseStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+
+    // Step 2: Create a clean upload without content
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "100");
+
+    UploadInfo createdInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    assertNotNull(createdInfo);
+    String uploadLocation = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    // Step 3: Chunked append PATCH exceeding maxAppendSize (25 bytes > 10L)
+    resetChunked();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadLocation);
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    servletRequest.setContent(oversizedPayload);
+
+    UploadInfo failedAppend =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertNull(failedAppend);
+    assertResponseStatus(HttpServletResponse.SC_REQUEST_ENTITY_TOO_LARGE);
+
+    // Offset on server must remain at 0 after rejection
+    UploadInfo currentInfo = tusFileUploadService.getUploadInfo(uploadLocation, OWNER_KEY);
+    assertNotNull(currentInfo);
+    assertEquals(Long.valueOf(0L), currentInfo.getOffset());
+
+    // Step 4: Chunked append PATCH within maxAppendSize (8 bytes <= 10L) succeeds
+    byte[] validPayload = "12345678".getBytes(StandardCharsets.UTF_8);
+    resetChunked();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadLocation);
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    servletRequest.setContent(validPayload);
+
+    UploadInfo validAppend =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertNotNull(validAppend);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertEquals(Long.valueOf(8L), validAppend.getOffset());
+  }
+
+  /**
+   * Section 4.1.4 (Limits - min-append-size): "min-append-size: An Integer indicating the minimum
+   * number of bytes that MUST be appended with each upload append request. This limit does not
+   * apply to upload creation requests with no content, or to requests completing the upload by
+   * including the Upload-Complete: ?1 header field."
+   *
+   * <p>Use Case: Configure min-append-size (20 bytes) on TusFileUploadService. Verify that chunked
+   * streaming requests without a Content-Length header (Transfer-Encoding: chunked) are rejected
+   * with HTTP 400 when below min-append-size, while chunked payloads meeting or exceeding the limit
+   * succeed without premature validator rejection.
+   */
+  @Test
+  public void testChunkedAppendAndCreationEnforceMinAppendSize() throws Exception {
+    tusFileUploadService.withMinAppendSize(20L);
+
+    // Step 1: Chunked creation POST below minAppendSize (8 bytes < 20L) is rejected
+    resetChunked();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    byte[] smallPayload = "12345678".getBytes(StandardCharsets.UTF_8);
+    servletRequest.setContent(smallPayload);
+
+    UploadInfo failedCreation =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertNull(failedCreation);
+    assertResponseStatus(HttpServletResponse.SC_BAD_REQUEST);
+
+    // Step 2: Create a clean upload without content
+    reset();
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "100");
+
+    UploadInfo createdInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    assertNotNull(createdInfo);
+    String uploadLocation = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    // Step 3: Chunked append PATCH below minAppendSize (8 bytes < 20L) without completion is
+    // rejected
+    resetChunked();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadLocation);
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    servletRequest.setContent(smallPayload);
+
+    UploadInfo failedAppend =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertNull(failedAppend);
+    assertResponseStatus(HttpServletResponse.SC_BAD_REQUEST);
+
+    // Offset on server must remain at 0 after rejection
+    UploadInfo currentInfo = tusFileUploadService.getUploadInfo(uploadLocation, OWNER_KEY);
+    assertNotNull(currentInfo);
+    assertEquals(Long.valueOf(0L), currentInfo.getOffset());
+
+    // Step 4: Chunked append PATCH meeting minAppendSize (25 bytes >= 20L) succeeds
+    byte[] validPayload = "1234567890123456789012345".getBytes(StandardCharsets.UTF_8);
+    resetChunked();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadLocation);
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    servletRequest.setContent(validPayload);
+
+    UploadInfo validAppend =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertNotNull(validAppend);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertEquals(Long.valueOf(25L), validAppend.getOffset());
   }
 
   @Test

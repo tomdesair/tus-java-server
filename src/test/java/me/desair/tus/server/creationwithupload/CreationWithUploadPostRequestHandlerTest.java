@@ -47,6 +47,7 @@ public class CreationWithUploadPostRequestHandlerTest {
     UploadLockingService lockingService = mock(UploadLockingService.class);
 
     when(request.getHeader(HttpHeader.CONTENT_LENGTH)).thenReturn("5");
+    when(request.hasContent()).thenReturn(true);
     when(response.getHeader(HttpHeader.LOCATION)).thenReturn("/files/123");
     when(request.getContentInputStream()).thenReturn(new ByteArrayInputStream("hello".getBytes()));
 
@@ -78,6 +79,7 @@ public class CreationWithUploadPostRequestHandlerTest {
     UploadStorageService storageService = mock(UploadStorageService.class);
 
     when(request.getHeader(HttpHeader.CONTENT_LENGTH)).thenReturn("5");
+    when(request.hasContent()).thenReturn(true);
     when(response.getHeader(HttpHeader.LOCATION)).thenReturn("/files/123");
     when(request.getContentInputStream()).thenReturn(new ByteArrayInputStream("hello".getBytes()));
 
@@ -112,6 +114,7 @@ public class CreationWithUploadPostRequestHandlerTest {
     UploadLockingService lockingService = mock(UploadLockingService.class);
 
     when(request.getHeader(HttpHeader.CONTENT_LENGTH)).thenReturn("100");
+    when(request.hasContent()).thenReturn(true);
     when(response.getHeader(HttpHeader.LOCATION)).thenReturn("/files/interrupted-cwu");
     when(request.getContentInputStream()).thenReturn(new ByteArrayInputStream("data".getBytes()));
 
@@ -152,6 +155,7 @@ public class CreationWithUploadPostRequestHandlerTest {
     UploadLockingService lockingService = mock(UploadLockingService.class);
 
     when(request.getHeader(HttpHeader.CONTENT_LENGTH)).thenReturn("100");
+    when(request.hasContent()).thenReturn(true);
     when(response.getHeader(HttpHeader.LOCATION)).thenReturn("/files/cwu-error");
     when(request.getContentInputStream()).thenReturn(new ByteArrayInputStream("data".getBytes()));
 
@@ -165,5 +169,76 @@ public class CreationWithUploadPostRequestHandlerTest {
 
     handler.process(
         HttpMethod.POST, request, response, storageService, lockingService, "owner", null);
+  }
+
+  @Test
+  public void testProcessChunkedWithContent() throws Exception {
+    TusServletRequest request = mock(TusServletRequest.class);
+    TusServletResponse response = mock(TusServletResponse.class);
+    UploadStorageService storageService = mock(UploadStorageService.class);
+    UploadLockingService lockingService = mock(UploadLockingService.class);
+
+    when(request.getHeader(HttpHeader.CONTENT_LENGTH)).thenReturn(null);
+    when(request.hasContent()).thenReturn(true);
+    when(response.getHeader(HttpHeader.LOCATION)).thenReturn("/files/chunked-cwu");
+    when(request.getContentInputStream())
+        .thenReturn(new ByteArrayInputStream("chunked-bytes".getBytes()));
+
+    UploadInfo uploadInfo = new UploadInfo();
+    uploadInfo.setLength(20L);
+    uploadInfo.setOffset(0L);
+
+    UploadInfo updatedInfo = new UploadInfo();
+    updatedInfo.setLength(20L);
+    updatedInfo.setOffset(13L);
+
+    when(storageService.getUploadInfo("/files/chunked-cwu", "owner")).thenReturn(uploadInfo);
+    when(storageService.append(eq(uploadInfo), any(InputStream.class))).thenReturn(updatedInfo);
+
+    handler.process(
+        HttpMethod.POST, request, response, storageService, lockingService, "owner", null);
+
+    ArgumentCaptor<InterruptibleInputStream> captor =
+        ArgumentCaptor.forClass(InterruptibleInputStream.class);
+    verify(lockingService).registerInputStream(eq("/files/chunked-cwu"), captor.capture());
+    assertNotNull(captor.getValue());
+    verify(response).setHeader(HttpHeader.UPLOAD_OFFSET, "13");
+  }
+
+  @Test
+  public void testProcessChunkedEmptyNoContent() throws Exception {
+    TusServletRequest request = mock(TusServletRequest.class);
+    TusServletResponse response = mock(TusServletResponse.class);
+    UploadStorageService storageService = mock(UploadStorageService.class);
+    UploadLockingService lockingService = mock(UploadLockingService.class);
+
+    when(request.getHeader(HttpHeader.CONTENT_LENGTH)).thenReturn(null);
+    when(request.hasContent()).thenReturn(false);
+
+    handler.process(
+        HttpMethod.POST, request, response, storageService, lockingService, "owner", null);
+
+    // Verify storage append was never called for empty creation request
+    org.mockito.Mockito.verifyNoInteractions(storageService);
+    org.mockito.Mockito.verifyNoInteractions(lockingService);
+    org.mockito.Mockito.verify(response, org.mockito.Mockito.never())
+        .setHeader(eq(HttpHeader.UPLOAD_OFFSET), any());
+  }
+
+  @Test
+  public void testProcessZeroContentLength() throws Exception {
+    TusServletRequest request = mock(TusServletRequest.class);
+    TusServletResponse response = mock(TusServletResponse.class);
+    UploadStorageService storageService = mock(UploadStorageService.class);
+    UploadLockingService lockingService = mock(UploadLockingService.class);
+
+    when(request.getHeader(HttpHeader.CONTENT_LENGTH)).thenReturn("0");
+
+    handler.process(
+        HttpMethod.POST, request, response, storageService, lockingService, "owner", null);
+
+    // Verify storage append was never called for 0 Content-Length
+    org.mockito.Mockito.verifyNoInteractions(storageService);
+    org.mockito.Mockito.verifyNoInteractions(lockingService);
   }
 }

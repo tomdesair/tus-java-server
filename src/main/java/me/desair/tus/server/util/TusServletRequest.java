@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PushbackInputStream;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.util.Arrays;
@@ -32,6 +33,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
 
   private Map<String, List<String>> trailerHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
   private Set<String> processedBySet = new TreeSet<>();
+  private Boolean hasContent = null;
 
   /**
    * Constructs a request object wrapping the given request.
@@ -59,6 +61,9 @@ public class TusServletRequest extends HttpServletRequestWrapper {
   public InputStream getContentInputStream() throws IOException {
     if (contentInputStream == null) {
       contentInputStream = super.getInputStream();
+      if (contentInputStream == null) {
+        return null;
+      }
 
       // If we're dealing with chunked transfer encoding,
       // abstract it so that the rest of our code doesn't need to care
@@ -122,6 +127,68 @@ public class TusServletRequest extends HttpServletRequestWrapper {
    */
   public Set<ChecksumAlgorithm> getEnabledChecksums() {
     return digestInputStreamMap.keySet();
+  }
+
+  /**
+   * Determine whether this request carries body content to be uploaded or appended.
+   *
+   * <p>If {@code Content-Length} is positive, returns {@code true}. If {@code Content-Length} is
+   * zero, returns {@code false}. When {@code Content-Length} is absent or negative (e.g. HTTP/1.1
+   * chunked transfer encoding, HTTP/2 streaming, or upstream proxies stripping hop-by-hop headers
+   * per RFC 9112 §6.3), peeks 1 byte via {@link PushbackInputStream} to verify whether body bytes
+   * are present without consuming them from the stream.
+   *
+   * @return true if the request contains at least one byte of body content, false otherwise
+   * @throws IOException if an error occurs reading from the input stream
+   */
+  public boolean hasContent() throws IOException {
+    if (hasContent != null) {
+      return hasContent;
+    }
+
+    boolean isChunked = hasChunkedTransferEncoding();
+    long contentLength = -1L;
+    if (!isChunked) {
+      contentLength = getContentLengthLong();
+      if (contentLength < 0) {
+        String clHeader = getHeader(HttpHeader.CONTENT_LENGTH);
+        if (StringUtils.isNotBlank(clHeader)) {
+          try {
+            contentLength = Long.parseLong(clHeader.trim());
+          } catch (NumberFormatException ignored) {
+            contentLength = -1L;
+          }
+        }
+      }
+    }
+    if (contentLength > 0) {
+      hasContent = Boolean.TRUE;
+      return true;
+    } else if (contentLength == 0) {
+      hasContent = Boolean.FALSE;
+      return false;
+    }
+
+    InputStream is = getContentInputStream();
+    if (is == null) {
+      hasContent = Boolean.FALSE;
+      return false;
+    }
+
+    if (!(is instanceof PushbackInputStream)) {
+      is = new PushbackInputStream(is);
+      contentInputStream = is;
+    }
+    PushbackInputStream pushbackStream = (PushbackInputStream) is;
+    int firstByte = pushbackStream.read();
+    if (firstByte != -1) {
+      pushbackStream.unread(firstByte);
+      hasContent = Boolean.TRUE;
+      return true;
+    }
+
+    hasContent = Boolean.FALSE;
+    return false;
   }
 
   @Override

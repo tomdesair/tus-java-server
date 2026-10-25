@@ -244,4 +244,77 @@ public class TusServletRequestTest {
     when(servletRequest.getHeader("X-My-Header")).thenReturn(null);
     assertNull(request.getHeader("X-My-Header"));
   }
+
+  @Test
+  public void testHasContentWithPositiveContentLength() throws Exception {
+    when(servletRequest.getContentLengthLong()).thenReturn(10L);
+    assertThat(request.hasContent(), is(true));
+  }
+
+  @Test
+  public void testHasContentWithZeroContentLength() throws Exception {
+    when(servletRequest.getContentLengthLong()).thenReturn(0L);
+    assertThat(request.hasContent(), is(false));
+  }
+
+  @Test
+  public void testHasContentChunkedWithData() throws Exception {
+    when(servletRequest.getContentLengthLong()).thenReturn(-1L);
+    byte[] data = "payload bytes".getBytes(StandardCharsets.UTF_8);
+    when(servletRequest.getInputStream())
+        .thenReturn(new MockServletInputStream(new ByteArrayInputStream(data)));
+
+    // hasContent should peek first byte and unread it
+    assertThat(request.hasContent(), is(true));
+
+    // Verify subsequent read of stream receives all bytes including the peeked byte
+    InputStream is = request.getContentInputStream();
+    byte[] readBytes = IOUtils.toByteArray(is);
+    assertThat(readBytes, is(data));
+  }
+
+  @Test
+  public void testHasContentChunkedEmpty() throws Exception {
+    when(servletRequest.getContentLengthLong()).thenReturn(-1L);
+    byte[] emptyData = new byte[0];
+    when(servletRequest.getInputStream())
+        .thenReturn(new MockServletInputStream(new ByteArrayInputStream(emptyData)));
+
+    assertThat(request.hasContent(), is(false));
+  }
+
+  @Test
+  public void testHasContentNullStream() throws Exception {
+    when(servletRequest.getContentLengthLong()).thenReturn(-1L);
+    when(servletRequest.getInputStream()).thenReturn(null);
+
+    assertThat(request.hasContent(), is(false));
+  }
+
+  @Test
+  public void testHasContentCached() throws Exception {
+    when(servletRequest.getContentLengthLong()).thenReturn(-1L);
+    byte[] data = "cached data".getBytes(StandardCharsets.UTF_8);
+    when(servletRequest.getInputStream())
+        .thenReturn(new MockServletInputStream(new ByteArrayInputStream(data)));
+
+    assertThat(request.hasContent(), is(true));
+    // Second invocation returns cached boolean
+    assertThat(request.hasContent(), is(true));
+
+    InputStream is = request.getContentInputStream();
+    byte[] readBytes = IOUtils.toByteArray(is);
+    assertThat(readBytes, is(data));
+  }
+
+  @Test
+  public void testHasContentWithInvalidContentLengthHeaderFallsBackToStream() throws Exception {
+    when(servletRequest.getContentLengthLong()).thenReturn(-1L);
+    when(servletRequest.getHeader(HttpHeader.CONTENT_LENGTH)).thenReturn("non-numeric");
+    byte[] data = "stream data".getBytes(StandardCharsets.UTF_8);
+    when(servletRequest.getInputStream())
+        .thenReturn(new MockServletInputStream(new ByteArrayInputStream(data)));
+
+    assertThat(request.hasContent(), is(true));
+  }
 }

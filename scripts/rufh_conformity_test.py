@@ -111,7 +111,7 @@ def parse_headers(lines):
     return res_headers
 
 
-def http_request(method, url, headers=None, body=None, test_name=""):
+def http_request(method, url, headers=None, body=None, test_name="", chunked=False):
     """
     Socket-based HTTP client helper that transparently handles HTTP 104 interim response frames.
     Tracks 104 interim response detection in INTERIM_RESPONSES_DETECTED.
@@ -130,19 +130,34 @@ def http_request(method, url, headers=None, body=None, test_name=""):
         if "Connection" not in req_headers:
             req_headers["Connection"] = "close"
 
+        is_chunked = chunked or (req_headers.get("Transfer-Encoding", "").lower() == "chunked")
+        if is_chunked:
+            req_headers["Transfer-Encoding"] = "chunked"
+            if "Content-Length" in req_headers:
+                del req_headers["Content-Length"]
+
         req_lines = [f"{method} {path} HTTP/1.1", f"Host: {host}:{port}"]
         for k, v in req_headers.items():
             req_lines.append(f"{k}: {v}")
-        if body is not None and "Content-Length" not in req_headers:
+        if body is not None and not is_chunked and "Content-Length" not in req_headers:
             body_len = len(body) if isinstance(body, bytes) else len(body.encode("utf-8"))
             req_lines.append(f"Content-Length: {body_len}")
         req_lines.append("")
         req_lines.append("")
         req_data = "\r\n".join(req_lines).encode("latin1")
-        if body:
+        if is_chunked:
+            if body:
+                body_bytes = body if isinstance(body, bytes) else body.encode("utf-8")
+                req_data += f"{len(body_bytes):X}\r\n".encode("latin1") + body_bytes + b"\r\n0\r\n\r\n"
+            else:
+                req_data += b"0\r\n\r\n"
+        elif body:
             req_data += body if isinstance(body, bytes) else body.encode("utf-8")
 
-        s.sendall(req_data)
+        try:
+            s.sendall(req_data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
         # Read response data
         resp_bytes = b""
@@ -872,6 +887,109 @@ class TestUploadLimitEnforcement:
         status, rej_headers, _, _ = http_request("PATCH", upload_uri, headers=headers, body=body, test_name=request.node.name)
         assert status == 413, "Append exceeding max-append-size MUST be rejected with 413"
         assert UPLOAD_LIMIT in rej_headers, "413 rejection SHOULD include Upload-Limit"
+
+    def test_chunked_append_and_creation_enforce_max_append_size(self, target_url, request):
+        """
+        §4.1.4, §4.7: Chunked Creation and Append Exceeding max-append-size Enforced by Storage Backend.
+        Quote: "The server MAY enforce limits on the size of individual data append requests."
+        Expected behavior: When Content-Length is omitted (Transfer-Encoding: chunked), storage streaming
+        enforces max-append-size on both creation POST and append PATCH, returning 413, preserving offset,
+        and accepting chunked appends within limit.
+        """
+        _, resp_headers, _, _ = http_request("OPTIONS", target_url, test_name=request.node.name)
+        limit_hdr = resp_headers.get(UPLOAD_LIMIT, "")
+        max_append_size = None
+        min_append_size = None
+        for part in limit_hdr.split(","):
+            part = part.strip()
+            if "max-append-size=" in part:
+                max_append_size = int(part.split("=")[1].strip())
+            elif "min-append-size=" in part:
+                min_append_size = int(part.split("=")[1].strip())
+        if max_append_size is None or max_append_size > 10 * 1024 * 1024:
+            pytest.skip("Server max-append-size is not advertised or too large to test over socket")
+
+        # Step 1: Chunked creation POST exceeding max-append-size
+        headers = {
+            UPLOAD_COMPLETE: FALSE,
+        }
+        oversized_body = b"X" * (max_append_size + 1)
+        status, rej_headers, _, _ = http_request("POST", target_url, headers=headers, body=oversized_body, chunked=True, test_name=request.node.name)
+        assert status == 413, f"Chunked creation exceeding max-append-size MUST be rejected with 413, got {status}"
+
+        # Step 2: Create a clean partial upload without body and without declared length
+        upload_uri = create_partial_upload(target_url, test_name=request.node.name, upload_length=None)
+
+        # Step 3: Chunked append PATCH exceeding max-append-size
+        headers = {
+            UPLOAD_OFFSET: "0",
+            UPLOAD_COMPLETE: FALSE,
+            CONTENT_TYPE: APPLICATION_PARTIAL_UPLOAD,
+        }
+        status, rej_headers, _, _ = http_request("PATCH", upload_uri, headers=headers, body=oversized_body, chunked=True, test_name=request.node.name)
+        assert status == 413, f"Chunked append exceeding max-append-size MUST be rejected with 413, got {status}"
+
+        # Step 4: Verify offset remains 0 after rejection
+        status, head_headers, _, _ = http_request("HEAD", upload_uri, test_name=request.node.name)
+        assert head_headers.get(UPLOAD_OFFSET) == "0", "Upload offset MUST remain 0 after rejected chunked append"
+
+        # Step 5: Chunked append PATCH within limit succeeds
+        valid_size = min_append_size if (min_append_size and min_append_size <= max_append_size) else min(max_append_size, 16)
+        valid_body = b"Y" * valid_size
+        status, _, _, _ = http_request("PATCH", upload_uri, headers=headers, body=valid_body, chunked=True, test_name=request.node.name)
+        assert status in (200, 204), f"Chunked append within max-append-size MUST succeed, got {status}"
+        status, head_headers, _, _ = http_request("HEAD", upload_uri, test_name=request.node.name)
+        assert head_headers.get(UPLOAD_OFFSET) == str(valid_size), f"Upload offset MUST be {valid_size} after valid chunked append"
+
+    def test_chunked_append_and_creation_enforce_min_append_size(self, target_url, request):
+        """
+        §4.1.4: Chunked Creation and Append Below min-append-size Enforced by Storage Backend.
+        Quote: "min-append-size: An Integer indicating the minimum number of bytes that MUST be appended
+        with each upload append request. This limit does not apply to upload creation requests with no content,
+        or to requests completing the upload by including the Upload-Complete: ?1 header field."
+        Expected behavior: When Content-Length is omitted (Transfer-Encoding: chunked), storage streaming
+        enforces min-append-size on creation POST and append PATCH (when Upload-Complete: ?0), returning 400/413,
+        preserving offset, and accepting chunked appends meeting min-append-size.
+        """
+        _, resp_headers, _, _ = http_request("OPTIONS", target_url, test_name=request.node.name)
+        limit_hdr = resp_headers.get(UPLOAD_LIMIT, "")
+        min_append_size = None
+        for part in limit_hdr.split(","):
+            if "min-append-size=" in part:
+                min_append_size = int(part.split("=")[1].strip())
+        if min_append_size is None or min_append_size <= 1:
+            pytest.skip("Server does not advertise min-append-size > 1")
+
+        # Step 1: Chunked creation POST below min-append-size with content
+        headers = {
+            UPLOAD_COMPLETE: FALSE,
+        }
+        small_body = b"x" * (min_append_size - 1)
+        status, rej_headers, _, _ = http_request("POST", target_url, headers=headers, body=small_body, chunked=True, test_name=request.node.name)
+        assert status in (400, 413), f"Chunked creation below min-append-size MUST be rejected with 400/413, got {status}"
+
+        # Step 2: Create a clean partial upload without body and without declared length
+        upload_uri = create_partial_upload(target_url, test_name=request.node.name, upload_length=None)
+
+        # Step 3: Chunked append PATCH below min-append-size without completion
+        headers = {
+            UPLOAD_OFFSET: "0",
+            UPLOAD_COMPLETE: FALSE,
+            CONTENT_TYPE: APPLICATION_PARTIAL_UPLOAD,
+        }
+        status, rej_headers, _, _ = http_request("PATCH", upload_uri, headers=headers, body=small_body, chunked=True, test_name=request.node.name)
+        assert status in (400, 413), f"Chunked append below min-append-size MUST be rejected with 400/413, got {status}"
+
+        # Step 4: Verify offset remains 0 after rejection
+        status, head_headers, _, _ = http_request("HEAD", upload_uri, test_name=request.node.name)
+        assert head_headers.get(UPLOAD_OFFSET) == "0", "Upload offset MUST remain 0 after rejected chunked append"
+
+        # Step 5: Chunked append PATCH meeting min-append-size succeeds
+        valid_body = b"y" * min_append_size
+        status, _, _, _ = http_request("PATCH", upload_uri, headers=headers, body=valid_body, chunked=True, test_name=request.node.name)
+        assert status in (200, 204), f"Chunked append meeting min-append-size MUST succeed, got {status}"
+        status, head_headers, _, _ = http_request("HEAD", upload_uri, test_name=request.node.name)
+        assert head_headers.get(UPLOAD_OFFSET) == str(min_append_size), f"Upload offset MUST be {min_append_size} after valid chunked append"
 
 
 class TestUploadResourceDeactivation:

@@ -247,8 +247,16 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
         File chunkFile = null;
         boolean handedOff = false;
         try {
+          long maxBytesToRead = optimalBlockSize;
+          if (effectiveMaxAppendSize != null) {
+            // Read at most 1 byte beyond the remaining allowed append size so oversized streams
+            // are interrupted immediately without buffering large amounts of excess data to disk.
+            long remainingAllowed = Math.max(0L, effectiveMaxAppendSize - totalAppended);
+            maxBytesToRead = Math.min(optimalBlockSize, remainingAllowed + 1L);
+          }
+
           chunkFile = Files.createTempFile(tempBufferDir, "tus-azure-chunk-", ".tmp").toFile();
-          ReadChunkResult chunkResult = readChunk(inputStream, chunkFile, optimalBlockSize);
+          ReadChunkResult chunkResult = readChunk(inputStream, chunkFile, maxBytesToRead);
           long chunkSize = chunkResult.bytesRead;
           if (chunkResult.exception != null) {
             streamException = chunkResult.exception;
@@ -258,18 +266,10 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
             break;
           }
 
-          if (effectiveMaxAppendSize != null
-              && (totalAppended + chunkSize) > effectiveMaxAppendSize) {
-            // If maxAppendSize is exceeded, stop reading from the stream but commit
-            // previously staged blocks so no uploaded data or offset is corrupted.
-            pendingTusException =
-                new MaxAppendSizeExceededException(
-                    "Append payload size "
-                        + (totalAppended + chunkSize)
-                        + " exceeded limit of "
-                        + effectiveMaxAppendSize);
-            break;
-          }
+          // Validate append size against effectiveMaxAppendSize. If exceeded, throws
+          // MaxAppendSizeExceededException, which is caught below as pendingTusException to stop
+          // reading while still committing any previously staged blocks without data loss.
+          validateMaxAppendSize(totalAppended + chunkSize, effectiveMaxAppendSize);
 
           int plannedIndex = blockIds.size() + plannedBlockIds.size();
           // Validate chunk against remaining block budget

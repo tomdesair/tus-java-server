@@ -22,6 +22,7 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -1038,6 +1039,133 @@ public class DiskStorageServiceTest {
 
     diskService.setMinSize(-5L);
     assertThat(diskService.getMinSize(), is(nullValue()));
+  }
+
+  @Test(expected = me.desair.tus.server.exception.MaxAppendSizeExceededException.class)
+  public void testValidateMaxAppendSizeThrowsWhenExceeded() throws Exception {
+    storageService.setMaxAppendSize(50L);
+    storageService.validateMaxAppendSize(100L);
+  }
+
+  @Test
+  public void testValidateMaxAppendSizePassesWhenWithinLimit() throws Exception {
+    storageService.setMaxAppendSize(100L);
+    storageService.validateMaxAppendSize(50L);
+    storageService.setMaxAppendSize(null);
+    storageService.validateMaxAppendSize(500L);
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
+  }
+
+  @Test(expected = me.desair.tus.server.exception.MinAppendSizeNotMetException.class)
+  public void testValidateMinAppendSizeThrowsWhenNotMet() throws Exception {
+    storageService.setMinAppendSize(100L);
+    storageService.validateMinAppendSize(50L);
+  }
+
+  @Test
+  public void testValidateMinAppendSizePassesWhenMet() throws Exception {
+    storageService.setMinAppendSize(100L);
+    storageService.validateMinAppendSize(150L);
+    storageService.setMinAppendSize(null);
+    storageService.validateMinAppendSize(10L);
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
+  }
+
+  @Test(expected = me.desair.tus.server.exception.MaxAppendSizeExceededException.class)
+  public void testAppendExceedsMaxAppendSizeThrowsAndPreservesOffset() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(1000L);
+    info = storageService.create(info, null);
+
+    // Initial valid append of 10 bytes
+    storageService.append(
+        info, new ByteArrayInputStream("0123456789".getBytes(StandardCharsets.UTF_8)));
+    assertEquals(Long.valueOf(10L), info.getOffset());
+
+    storageService.setMaxAppendSize(5L);
+    try {
+      storageService.append(
+          info, new ByteArrayInputStream("abcdefghij".getBytes(StandardCharsets.UTF_8)));
+    } finally {
+      UploadInfo reloaded = storageService.getUploadInfo(info.getId());
+      assertNotNull(reloaded);
+      assertEquals(Long.valueOf(10L), reloaded.getOffset());
+      assertEquals(10L, Files.size(getUploadDataPath(info.getId())));
+    }
+  }
+
+  @Test(expected = me.desair.tus.server.exception.MinAppendSizeNotMetException.class)
+  public void testAppendBelowMinAppendSizeThrowsAndPreservesOffset() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(1000L);
+    info = storageService.create(info, null);
+
+    storageService.setMinAppendSize(50L);
+    try {
+      storageService.append(
+          info, new ByteArrayInputStream("0123456789".getBytes(StandardCharsets.UTF_8)));
+    } finally {
+      UploadInfo reloaded = storageService.getUploadInfo(info.getId());
+      assertNotNull(reloaded);
+      assertEquals(Long.valueOf(0L), reloaded.getOffset());
+      assertEquals(0L, Files.size(getUploadDataPath(info.getId())));
+    }
+  }
+
+  @Test
+  public void testAppendCompletingUploadBypassesMinAppendSize() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L);
+    info = storageService.create(info, null);
+
+    storageService.setMinAppendSize(50L);
+    UploadInfo completed =
+        storageService.append(
+            info, new ByteArrayInputStream("0123456789".getBytes(StandardCharsets.UTF_8)));
+    assertNotNull(completed);
+    assertEquals(Long.valueOf(10L), completed.getOffset());
+    assertFalse(completed.isUploadInProgress());
+  }
+
+  @Test
+  public void testAppendWithinMaxAppendSizeSucceeds() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(1000L);
+    info = storageService.create(info, null);
+
+    storageService.setMaxAppendSize(50L);
+    UploadInfo updated =
+        storageService.append(
+            info, new ByteArrayInputStream("0123456789".getBytes(StandardCharsets.UTF_8)));
+    assertNotNull(updated);
+    assertEquals(Long.valueOf(10L), updated.getOffset());
+  }
+
+  @Test(expected = me.desair.tus.server.exception.MinAppendSizeNotMetException.class)
+  public void testAppendUnknownLengthBelowMinAppendSizeThrows() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(null);
+    info = storageService.create(info, null);
+
+    storageService.setMinAppendSize(50L);
+    storageService.append(
+        info, new ByteArrayInputStream("0123456789".getBytes(StandardCharsets.UTF_8)));
+  }
+
+  @Test
+  public void testAppendUnknownLengthMeetsMinAppendSizeSucceeds() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(null);
+    info = storageService.create(info, null);
+
+    storageService.setMinAppendSize(10L);
+    UploadInfo updated =
+        storageService.append(
+            info, new ByteArrayInputStream("0123456789".getBytes(StandardCharsets.UTF_8)));
+    assertNotNull(updated);
+    assertEquals(Long.valueOf(10L), updated.getOffset());
   }
 
   @Test

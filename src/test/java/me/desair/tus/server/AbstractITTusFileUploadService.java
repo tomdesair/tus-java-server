@@ -2403,6 +2403,63 @@ public abstract class AbstractITTusFileUploadService {
   }
 
   @Test
+  public void testCreationWithUploadChunkedTransferEncoding() throws Exception {
+    String uploadContent = "chunked-creation-with-upload-bytes";
+    String chunkedPayload =
+        String.format(
+            "%x\r\n%s\r\n0\r\n\r\n",
+            uploadContent.getBytes(StandardCharsets.UTF_8).length, uploadContent);
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, uploadContent.length());
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
+    servletRequest.setContent(chunkedPayload.getBytes(StandardCharsets.UTF_8));
+
+    UploadInfo createdInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    assertNotNull(createdInfo);
+    assertResponseHeader(HttpHeader.UPLOAD_OFFSET, String.valueOf(uploadContent.length()));
+
+    String location = servletResponse.getHeader(HttpHeader.LOCATION);
+    assertNotNull(location);
+
+    try (InputStream stream = tusFileUploadService.getUploadedBytes(location, OWNER_KEY)) {
+      assertThat(IOUtils.toString(stream, StandardCharsets.UTF_8), is(uploadContent));
+    }
+
+    tusFileUploadService.deleteUpload(createdInfo);
+  }
+
+  @Test
+  public void testCreationWithUploadChunkedEmptyBody() throws Exception {
+    String emptyChunkedPayload = "0\r\n\r\n";
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "100");
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    servletRequest.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    servletRequest.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
+    servletRequest.setContent(emptyChunkedPayload.getBytes(StandardCharsets.UTF_8));
+
+    UploadInfo createdInfo =
+        tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    assertNotNull(createdInfo);
+    assertResponseHeaderNull(HttpHeader.UPLOAD_OFFSET);
+
+    String location = servletResponse.getHeader(HttpHeader.LOCATION);
+    assertNotNull(location);
+    UploadInfo info = tusFileUploadService.getUploadInfo(location, OWNER_KEY);
+    assertNotNull(info);
+    assertThat(info.getOffset(), is(0L));
+
+    tusFileUploadService.deleteUpload(createdInfo);
+  }
+
+  @Test
   public void testUploadCompletionListenerTusConcatenation() throws Exception {
     String part1Content = "part1-";
     String part2Content = "part2";
