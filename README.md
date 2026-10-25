@@ -1,4 +1,4 @@
-[![Maven Central](https://img.shields.io/maven-central/v/me.desair.tus/tus-java-server.svg)](https://central.sonatype.com/artifact/me.desair.tus/tus-java-server) [![Java 17+](https://img.shields.io/badge/Java-17%2B-blue.svg)](https://adoptium.net) [![Build and Tests](https://github.com/tomdesair/tus-java-server/actions/workflows/build.yml/badge.svg)](https://github.com/tomdesair/tus-java-server/actions?query=branch%3Amaster+) [![Coverage Status](https://coveralls.io/repos/github/tomdesair/tus-java-server/badge.svg?branch=master)](https://coveralls.io/github/tomdesair/tus-java-server?branch=master) [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=bugs)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=vulnerabilities)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Duplicated Lines](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=duplicated_lines_density)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server)
+[![Maven Central](https://img.shields.io/maven-central/v/me.desair.tus/tus-java-server.svg)](https://central.sonatype.com/artifact/me.desair.tus/tus-java-server) [![Java 17+](https://img.shields.io/badge/Java-17%2B-blue.svg)](https://adoptium.net) [![Build and Tests](https://github.com/tomdesair/tus-java-server/actions/workflows/build.yml/badge.svg)](https://github.com/tomdesair/tus-java-server/actions?query=branch%3Amaster+) [![Coverage Status](https://coveralls.io/repos/github/tomdesair/tus-java-server/badge.svg?branch=master)](https://coveralls.io/github/tomdesair/tus-java-server?branch=master) [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=bugs)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=vulnerabilities)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Duplicated Lines](https://sonarcloud.io/api/project_badges/measure?project=me.desair.tus%3Atus-java-server&metric=duplicated_lines_density)](https://sonarcloud.io/dashboard?id=me.desair.tus%3Atus-java-server) [![Sponsor](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://github.com/sponsors/tomdesair)
 
 # tus-java-server
 
@@ -23,6 +23,7 @@ Javadoc: https://tus.desair.me/ · Requires Java 17+ (Jakarta Servlet 6.0) · Up
 - [Compatible Clients & Conformity Testing](#compatible-clients--conformity-testing)
 - [Versioning](#versioning)
 - [Contributing](#contributing)
+- [Sponsoring](#sponsoring)
 
 ## Quick Start
 
@@ -295,3 +296,6 @@ This artifact follows `MAJOR.MINOR.PATCH` semantic versioning. Version `2.0.0` i
 
 ## Contributing
 This library comes without any warranty and is released under a [MIT license](https://github.com/tomdesair/tus-java-server/blob/master/LICENSE). Bug reports, ideas and pull requests are welcome; contributed code needs automated tests and must follow the Google Java Style. See [CONTRIBUTING.md](CONTRIBUTING.md) for details, code style and testing instructions.
+
+## Sponsoring
+If `tus-java-server` is useful to you or your organization, please consider [sponsoring the project on GitHub Sponsors](https://github.com/sponsors/tomdesair). Your support helps cover infrastructure and cloud testing costs and keeps the library actively maintained.
