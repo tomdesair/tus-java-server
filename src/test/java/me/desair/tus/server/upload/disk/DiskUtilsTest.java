@@ -267,6 +267,13 @@ public class DiskUtilsTest {
     assertThat(result, is(notNullValue()));
     assertThat(result.getValue(), is("test-value-123"));
 
+    // Unauthorized class object serialization attempt when expecting UploadInfo.class
+    Path unallowedFile = storagePath.resolve("unallowed.bin");
+    DiskUtils.writeSerializable(new UnallowedSerializable("untrusted"), unallowedFile);
+    assertThat(
+        DiskUtils.readSerializable(unallowedFile, me.desair.tus.server.upload.UploadInfo.class),
+        is(nullValue()));
+
     // Corrupted file
     Path corrupted = storagePath.resolve("corrupted.bin");
     Files.write(corrupted, "not a valid serialized object".getBytes());
@@ -342,6 +349,19 @@ public class DiskUtilsTest {
 
     public String getValue() {
       return value;
+    }
+  }
+
+  public static class UnallowedSerializable implements Serializable {
+    private static final long serialVersionUID = 1L;
+    private final String payload;
+
+    public UnallowedSerializable(String payload) {
+      this.payload = payload;
+    }
+
+    public String getPayload() {
+      return payload;
     }
   }
 }

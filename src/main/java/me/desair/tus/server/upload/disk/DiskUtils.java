@@ -5,12 +5,15 @@ import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
 
 import java.io.BufferedOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InvalidClassException;
 import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.io.Serializable;
+import java.io.StreamCorruptedException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -22,8 +25,21 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.Objects;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.UUID;
+import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.upload.UploadId;
+import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadType;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.io.serialization.ValidatingObjectInputStream;
@@ -290,10 +306,40 @@ public final class DiskUtils {
     if (path != null && Files.exists(path)) {
       try (InputStream is = Files.newInputStream(path);
           ValidatingObjectInputStream ois = new ValidatingObjectInputStream(is)) {
-        ois.accept("java.lang.*", "java.util.*", "me.desair.tus.server.*");
+        if (clazz != null) {
+          ois.accept(clazz);
+        }
+        ois.accept(
+            UploadInfo.class,
+            UploadId.class,
+            UploadType.class,
+            ChecksumAlgorithm.class,
+            String.class,
+            Long.class,
+            Integer.class,
+            Boolean.class,
+            Number.class,
+            Object.class,
+            Enum.class,
+            Date.class,
+            UUID.class,
+            ArrayList.class,
+            LinkedList.class,
+            TreeMap.class,
+            HashMap.class,
+            HashSet.class,
+            TreeSet.class,
+            String[].class,
+            Object[].class,
+            Arrays.asList().getClass(),
+            Collections.unmodifiableList(new ArrayList<>()).getClass(),
+            Collections.emptyList().getClass());
         info = clazz.cast(ois.readObject());
-      } catch (ClassNotFoundException | java.io.EOFException | java.io.StreamCorruptedException e) {
-        // File may be corrupted due to unexpected server shutdown
+      } catch (ClassNotFoundException
+          | InvalidClassException
+          | EOFException
+          | StreamCorruptedException e) {
+        // File may be corrupted due to unexpected server shutdown or contain an unallowed class
         log.warn("Unable to read serializable file {}: {}", path, e.getMessage());
         info = null;
       }

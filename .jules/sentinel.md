@@ -27,3 +27,8 @@
 **Vulnerability:** A Path Traversal vulnerability existed in `LeaseFileLockingService` and `LeaseFileMutex` where the `UploadId` was blindly resolved against the base storage directory to construct `.lock`, `.stop`, and `.mutex` paths.
 **Learning:** Similar to the previous issue in `AbstractDiskBasedService`, any paths constructed from `UploadId` input must be properly normalized and constrained to the base storage directory, as unvalidated `UploadId`s could lead to out-of-bounds file access or creation.
 **Prevention:** Always validate that constructed file paths derived from user input or external identifiers remain within their intended boundary directory by using `path.normalize().toAbsolutePath().startsWith(storagePath.normalize().toAbsolutePath())`. Ensure this check is consistently applied across all file-based services.
+
+## 2026-10-25 - Replace Wide Wildcards in ValidatingObjectInputStream with Explicit Class Allow-List
+**Vulnerability:** In `DiskUtils.readSerializable`, `ValidatingObjectInputStream.accept()` used wide wildcards (`java.lang.*`, `java.util.*`, `me.desair.tus.server.*`) which permitted deserialization of any class within those packages, exposing potential gadget chains for insecure deserialization attacks.
+**Learning:** Broad package wildcards in `ValidatingObjectInputStream` reduce the protection against insecure deserialization, allowing arbitrary classes within allowed packages to be instantiated during deserialization.
+**Prevention:** Always construct explicit, concrete class allow-lists when using `ValidatingObjectInputStream.accept(...)` by supplying expected class literal references rather than wide package-level wildcards.
