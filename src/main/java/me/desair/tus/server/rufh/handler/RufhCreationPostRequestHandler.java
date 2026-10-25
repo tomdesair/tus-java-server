@@ -16,7 +16,6 @@ import me.desair.tus.server.util.StructuredHeaderUtil;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import me.desair.tus.server.util.Utils;
-import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -100,49 +99,48 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
 
     // Per RUFH §4.1.4: "This limit does not apply to upload creation requests with no content,
     // or to requests completing the upload by including the Upload-Complete: ?1 header field."
-    // An empty creation request carries no body (contentLength <= 0 without chunked encoding).
-    // In servlet requests without a body, getContentLengthLong() returns -1. We must verify
-    // that actual payload content is present before invoking storageService.append(); otherwise,
-    // sending a 0-byte stream to backends with minAppendSize configured (e.g. S3 or Azure Blob)
-    // would trigger MinAppendSizeNotMetException on an empty creation request.
-    boolean hasContent =
-        contentLength > 0
-            || (contentLength < 0
-                && servletRequest.getHeader(HttpHeader.TRANSFER_ENCODING) != null
-                && Strings.CI.contains(
-                    servletRequest.getHeader(HttpHeader.TRANSFER_ENCODING), "chunked"));
+    // An empty creation request carries no body. In requests without Content-Length (e.g.
+    // HTTP/1.1 chunked encoding, HTTP/2 streaming, or upstream proxies stripping hop-by-hop
+    // headers per RFC 9112 §6.3), getContentLengthLong() returns -1.
+    // servletRequest.hasContent() peeks 1 byte via PushbackInputStream to accurately detect
+    // whether actual payload bytes are present before invoking storageService.append();
+    // otherwise, passing an empty stream to backends with minAppendSize would erroneously reject an
+    // empty creation request.
+    boolean hasContent = servletRequest != null && servletRequest.hasContent();
 
-    InputStream is = servletRequest.getContentInputStream();
     InterruptibleInputStream interruptibleStream = null;
-    if (is != null && hasContent) {
-      interruptibleStream = new InterruptibleInputStream(is);
-      uploadLockingService.registerInputStream(uploadUri, interruptibleStream);
-      is = interruptibleStream;
-      try {
-        UploadInfo appended = uploadStorageService.append(uploadInfo, is);
-        if (appended != null) {
-          uploadInfo = appended;
-        }
-      } catch (IOException e) {
-        // When an upload stream is interrupted by the locking service watchdog or a concurrent
-        // lock contention release request (e.g. from a concurrent HEAD or DELETE), the storage
-        // backend (Disk, S3, Azure) commits all bytes received up to the interruption and updates
-        // the offset in storage. We reload the updated UploadInfo and acknowledge the partial
-        // upload rather than propagating an unhandled error to the servlet container.
-        if (interruptibleStream != null && interruptibleStream.isInterrupted()) {
-          // Refresh UploadInfo first so the log statement and response reflect the true committed
-          // byte offset persisted by the storage backend up to the interruption point.
-          UploadInfo refreshed = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
-          if (refreshed != null) {
-            uploadInfo = refreshed;
+    if (hasContent) {
+      InputStream is = servletRequest.getContentInputStream();
+      if (is != null) {
+        interruptibleStream = new InterruptibleInputStream(is);
+        uploadLockingService.registerInputStream(uploadUri, interruptibleStream);
+        is = interruptibleStream;
+        try {
+          UploadInfo appended = uploadStorageService.append(uploadInfo, is);
+          if (appended != null) {
+            uploadInfo = appended;
           }
-          log.info(
-              "RUFH creation request with body for URI {} was interrupted by locking service"
-                  + " contention; saved partial upload up to offset {}",
-              uploadUri,
-              uploadInfo != null ? uploadInfo.getOffset() : "unknown");
-        } else {
-          throw e;
+        } catch (IOException e) {
+          // When an upload stream is interrupted by the locking service watchdog or a concurrent
+          // lock contention release request (e.g. from a concurrent HEAD or DELETE), the storage
+          // backend (Disk, S3, Azure) commits all bytes received up to the interruption and updates
+          // the offset in storage. We reload the updated UploadInfo and acknowledge the partial
+          // upload rather than propagating an unhandled error to the servlet container.
+          if (interruptibleStream != null && interruptibleStream.isInterrupted()) {
+            // Refresh UploadInfo first so the log statement and response reflect the true committed
+            // byte offset persisted by the storage backend up to the interruption point.
+            UploadInfo refreshed = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
+            if (refreshed != null) {
+              uploadInfo = refreshed;
+            }
+            log.info(
+                "RUFH creation request with body for URI {} was interrupted by locking service"
+                    + " contention; saved partial upload up to offset {}",
+                uploadUri,
+                uploadInfo != null ? uploadInfo.getOffset() : "unknown");
+          } else {
+            throw e;
+          }
         }
       }
     }

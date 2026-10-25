@@ -154,11 +154,14 @@ public class RufhAppendValidator implements RequestValidator {
     // Section 4.1.4: min-append-size validation with exemption for Upload-Complete: ?1
     // "This limit does not apply to upload creation requests with no content, or to requests
     // completing the upload by including the Upload-Complete: ?1 header field."
+    // Only validate minAppendSize by Content-Length header when contentLength >= 0. For chunked
+    // requests (Transfer-Encoding: chunked, where contentLength is -1), payload size cannot be
+    // determined from headers alone and is enforced by the storage service append() method.
     Long minAppendSize = uploadStorageService.getMinAppendSize();
     Boolean uploadComplete = StructuredHeaderUtil.parseBoolean(uploadCompleteHeader);
     boolean isCompleteExempt = Boolean.TRUE.equals(uploadComplete);
 
-    if (minAppendSize != null && minAppendSize > 0 && !isCompleteExempt) {
+    if (minAppendSize != null && minAppendSize > 0 && !isCompleteExempt && contentLength >= 0) {
       if (contentLength < minAppendSize) {
         throw new MinAppendSizeNotMetException(
             "The request payload size ("

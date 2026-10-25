@@ -13,8 +13,6 @@ import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.InterruptibleInputStream;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
-import me.desair.tus.server.util.Utils;
-import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,12 +38,9 @@ public class CreationWithUploadPostRequestHandler extends AbstractRequestHandler
       TusException exception)
       throws IOException, TusException {
 
-    Long contentLength = Utils.getLongHeader(servletRequest, HttpHeader.CONTENT_LENGTH);
-    // Allow chunked transfer encoding where Content-Length is omitted or negative
-    boolean hasContent =
-        (contentLength != null && contentLength > 0)
-            || Strings.CI.contains(
-                servletRequest.getHeader(HttpHeader.TRANSFER_ENCODING), "chunked");
+    // Check if the creation request carries upload data to append in the initial request body.
+    // Supports requests with Content-Length as well as chunked encoding or HTTP/2 streaming.
+    boolean hasContent = servletRequest != null && servletRequest.hasContent();
     if (hasContent) {
       String location = servletResponse.getHeader(HttpHeader.LOCATION);
       if (location != null) {

@@ -571,6 +571,50 @@ public class RufhCreationPostRequestHandlerTest {
   }
 
   @Test
+  public void testProcessCreationWithChunkedEmptyBodyDoesNotCallAppend() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
+
+    TusServletRequest tusRequest =
+        new TusServletRequest(request) {
+          @Override
+          public long getContentLengthLong() {
+            return -1L;
+          }
+
+          @Override
+          public InputStream getContentInputStream() {
+            return new java.io.ByteArrayInputStream(new byte[0]);
+          }
+        };
+
+    UploadInfo createdInfo = new UploadInfo();
+    createdInfo.setId(new UploadId("chunked-empty-id"));
+    createdInfo.setOffset(0L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class)))
+        .thenReturn(createdInfo);
+
+    handler.process(
+        HttpMethod.POST,
+        tusRequest,
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    // Verify storageService.append is NEVER invoked for empty chunked creation
+    verify(storageService, org.mockito.Mockito.never())
+        .append(any(UploadInfo.class), any(InputStream.class));
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("0"));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+  }
+
+  @Test
   public void testProcessCreationWithBodyInterrupted() throws Exception {
     byte[] content = "partial-creation-data".getBytes();
     request.setMethod("POST");

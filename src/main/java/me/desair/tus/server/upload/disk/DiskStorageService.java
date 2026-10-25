@@ -21,6 +21,8 @@ import java.util.Objects;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.InvalidUploadOffsetException;
+import me.desair.tus.server.exception.MaxAppendSizeExceededException;
+import me.desair.tus.server.exception.MinAppendSizeNotMetException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
@@ -354,7 +356,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
       long max = getMaxUploadSize() > 0 ? getMaxUploadSize() : Long.MAX_VALUE;
       long transferred = 0;
-      Long offset = info.getOffset();
+      Long offset = info.getOffset() != null ? info.getOffset() : 0L;
       long newOffset = offset;
 
       try (ReadableByteChannel uploadedBytes = Channels.newChannel(inputStream);
@@ -372,11 +374,16 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
                     + " bytes. You can only append to the end of an upload");
           }
 
-          // write all bytes in the channel up to the configured maximum in a loop to support
-          // transfers larger than 2GB (OS syscall limits)
+          // Write all bytes in the channel up to the configured maximum in a loop to support
+          // transfers larger than 2GB (OS syscall limits). If an explicit maxAppendSize limit is
+          // configured, allow reading at most maxAppendSize + 1 bytes so oversized transfers
+          // can be detected immediately without streaming unbounded excess bytes to disk.
           long bytesTransferred = 0;
-          while (offset + bytesTransferred < max) {
-            long toTransfer = max - (offset + bytesTransferred);
+          long appendLimit = this.maxAppendSize != null ? this.maxAppendSize + 1L : Long.MAX_VALUE;
+
+          while (offset + bytesTransferred < max && bytesTransferred < appendLimit) {
+            long toTransfer =
+                Math.min(max - (offset + bytesTransferred), appendLimit - bytesTransferred);
             long n = file.transferFrom(uploadedBytes, offset + bytesTransferred, toTransfer);
             if (n <= 0) {
               break;
@@ -387,6 +394,33 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
           file.force(true);
           newOffset = offset + transferred;
 
+          // If maxAppendSize was exceeded, truncate back to initial offset and throw
+          // MaxAppendSizeExceededException so no partial invalid bytes from this request are kept.
+          if (this.maxAppendSize != null && transferred > this.maxAppendSize) {
+            file.truncate(offset);
+            file.force(true);
+            newOffset = offset;
+            validateMaxAppendSize(transferred);
+          }
+
+          // Validate minimum append size constraints if configured.
+          // Per RUFH §4.1.4: "This limit does not apply to upload creation requests with no
+          // content, or to requests completing the upload by including the Upload-Complete: ?1
+          // header field."
+          boolean isCompletingOrEmpty =
+              !info.isUploadInProgress()
+                  || (info.getLength() != null && newOffset >= info.getLength());
+          if (!isCompletingOrEmpty
+              && this.minAppendSize != null
+              && transferred < this.minAppendSize) {
+            file.truncate(offset);
+            file.force(true);
+            newOffset = offset;
+            validateMinAppendSize(transferred);
+          }
+
+        } catch (TusException te) {
+          throw te;
         } catch (Exception ex) {
           // An error occurred, try to write as much data as possible
           newOffset = writeAsMuchAsPossible(file);
@@ -706,5 +740,39 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
       offset = file.size();
     }
     return offset;
+  }
+
+  /**
+   * Validates that the number of bytes appended during the current request does not exceed the
+   * configured {@code maxAppendSize}.
+   *
+   * @param totalAppended The number of bytes appended during this request
+   * @throws MaxAppendSizeExceededException If the appended size exceeds the maximum limit
+   */
+  void validateMaxAppendSize(long totalAppended) throws MaxAppendSizeExceededException {
+    if (this.maxAppendSize != null && totalAppended > this.maxAppendSize) {
+      throw new MaxAppendSizeExceededException(
+          "Append size "
+              + totalAppended
+              + " exceeds maximum allowed chunk size of "
+              + this.maxAppendSize);
+    }
+  }
+
+  /**
+   * Validates that the number of bytes appended during the current request meets the configured
+   * {@code minAppendSize}.
+   *
+   * @param totalAppended The number of bytes appended during this request
+   * @throws MinAppendSizeNotMetException If the appended size is below the minimum limit
+   */
+  void validateMinAppendSize(long totalAppended) throws MinAppendSizeNotMetException {
+    if (this.minAppendSize != null && totalAppended < this.minAppendSize) {
+      throw new MinAppendSizeNotMetException(
+          "Append size "
+              + totalAppended
+              + " is less than minimum allowed of "
+              + this.minAppendSize);
+    }
   }
 }

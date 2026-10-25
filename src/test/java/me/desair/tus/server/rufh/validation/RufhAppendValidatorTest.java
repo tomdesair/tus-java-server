@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.exception.MinAppendSizeNotMetException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -290,5 +291,120 @@ public class RufhAppendValidatorTest {
         .terminateUpload(info);
 
     validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
+
+  /**
+   * Section 4.1.4 (min-append-size): "This limit does not apply to upload creation requests with no
+   * content, or to requests completing the upload by including the Upload-Complete: ?1 header
+   * field."
+   *
+   * <p>When Content-Length is omitted or unknown (contentLength == -1L, e.g. Transfer-Encoding:
+   * chunked), minAppendSize validation must not reject the request during header validation;
+   * payload size is enforced during streaming by the storage service append() method.
+   */
+  @Test
+  public void testValidateMinAppendSizeWithChunkedTransferDoesNotThrow() throws Exception {
+    MockHttpServletRequest chunkedReq =
+        new MockHttpServletRequest() {
+          @Override
+          public int getContentLength() {
+            return -1;
+          }
+
+          @Override
+          public long getContentLengthLong() {
+            return -1L;
+          }
+        };
+    chunkedReq.setRequestURI("/files/exists");
+    chunkedReq.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    chunkedReq.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    chunkedReq.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    chunkedReq.addHeader(HttpHeader.TRANSFER_ENCODING, "chunked");
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5000L);
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+    when(storageService.getMinAppendSize()).thenReturn(500L);
+
+    validator.validate(HttpMethod.PATCH, chunkedReq, storageService, "owner");
+    // KISS: verifying method executes cleanly without throwing MinAppendSizeNotMetException
+    org.junit.Assert.assertTrue(true);
+  }
+
+  @Test(expected = MinAppendSizeNotMetException.class)
+  public void testValidateMinAppendSizeBelowLimitThrows() throws Exception {
+    request.setRequestURI("/files/exists");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.setContent(new byte[100]);
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5000L);
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+    when(storageService.getMinAppendSize()).thenReturn(500L);
+
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
+
+  @Test
+  public void testValidateMinAppendSizeMetPasses() throws Exception {
+    request.setRequestURI("/files/exists");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.setContent(new byte[500]);
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5000L);
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+    when(storageService.getMinAppendSize()).thenReturn(500L);
+
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
+  }
+
+  @Test
+  public void testValidateMinAppendSizeExemptWhenUploadCompleteTrue() throws Exception {
+    MockHttpServletRequest completeReq = new MockHttpServletRequest();
+    completeReq.setRequestURI("/files/exists");
+    completeReq.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    completeReq.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    completeReq.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    completeReq.setContent(new byte[100]);
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(1100L);
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+    when(storageService.getMinAppendSize()).thenReturn(500L);
+
+    validator.validate(HttpMethod.PATCH, completeReq, storageService, "owner");
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
+  }
+
+  @Test
+  public void testValidateMinAppendSizeZeroOrNegativeIgnored() throws Exception {
+    request.setRequestURI("/files/exists");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.setContent(new byte[100]);
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5000L);
+    info.setOffset(1000L);
+    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
+
+    when(storageService.getMinAppendSize()).thenReturn(0L);
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+
+    when(storageService.getMinAppendSize()).thenReturn(-10L);
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+    // KISS: verifying method executes cleanly without throwing an exception
+    assertTrue(true);
   }
 }
