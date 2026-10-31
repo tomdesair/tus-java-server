@@ -154,13 +154,41 @@ public class TusFileUploadService implements Closeable {
    *
    * @param servletRequest The incoming {@link HttpServletRequest}
    * @param ownerKey The owner key identifier for the upload
-   * @return The raw HTTP 104 interim response string if applicable, or null if not applicable
+   * @return The raw HTTP 104 interim response string if applicable, or null if not applicable or if
+   *     preliminary validation fails
    */
   public String getRawInterimResponse(HttpServletRequest servletRequest, String ownerKey) {
-    if (detectProtocolVersion(servletRequest) == ProtocolVersion.RUFH) {
+    if (servletRequest == null) {
+      return null;
+    }
+    HttpMethod method =
+        HttpMethod.getMethodIfSupported(servletRequest, EnumSet.allOf(HttpMethod.class));
+    if (method == null) {
+      return null;
+    }
+
+    ProtocolVersion version = detectProtocolVersion(servletRequest);
+    try {
+      validateRequest(method, servletRequest, ownerKey, version);
+    } catch (Exception e) {
+      log.debug("Validation failed before generating interim response: {}", e.getMessage());
+      // If preliminary validation fails (e.g. invalid metadata, path traversal, or upload length
+      // exceeding maxUploadSize), return null so that no 104 interim response is emitted and no
+      // phantom upload is pre-created on storage. The request will proceed down the normal servlet
+      // container pipeline to process(), where the main validation pipeline will catch the error
+      // and generate the formal error response (e.g. RFC 7807 problem details or Tus error
+      // response).
+      return null;
+    }
+
+    if (version == ProtocolVersion.RUFH) {
       return RufhInterimResponseUtil.getRawInterimResponse(
           servletRequest, uploadStorageService, ownerKey);
     }
+
+    // Protocol versions other than RUFH (such as Tus 1.0.0) do not define HTTP 104 interim
+    // responses.
+    // Return null so the request proceeds to normal servlet processing where process() handles it.
     return null;
   }
 

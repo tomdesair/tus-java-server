@@ -3121,6 +3121,41 @@ public class S3StorageServiceTest {
   }
 
   @Test
+  public void testGetOwnS3ObjectKeyShouldReturnChildKey() {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("child-s3-123"));
+    assertEquals("uploads/child-s3-123", storageService.getOwnS3ObjectKey(info));
+
+    // For deduplicated child uploads, getOwnS3ObjectKey MUST return the child's own object key
+    // (not parent's) to protect parent data from write and truncation operations
+    info.setDuplicatesUploadId(new UploadId("parent-s3-999"));
+    assertEquals("uploads/child-s3-123", storageService.getOwnS3ObjectKey(info));
+    assertNull(storageService.getOwnS3ObjectKey(null));
+  }
+
+  @Test
+  public void testCleanupExpiredUploadsSkipsRecentlyModifiedObjects() throws Exception {
+    storageService.setUploadExpirationPeriod(3600000L); // 1 hour
+
+    Item freshItem = mock(Item.class);
+    when(freshItem.objectName()).thenReturn("uploads/fresh-upload.info");
+    // Modified 5 minutes ago (newer than 1 hour expiration threshold)
+    when(freshItem.lastModified()).thenReturn(java.time.ZonedDateTime.now().minusMinutes(5));
+
+    Result<Item> result = new Result<>(freshItem);
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(Collections.singletonList(result));
+
+    storageService.cleanupExpiredUploads(null);
+
+    // Should skip fetching the .info object because it was recently modified
+    verify(minioClient, never())
+        .getObject(
+            argThat(
+                (GetObjectArgs a) -> a != null && a.object().equals("uploads/fresh-upload.info")));
+  }
+
+  @Test
   public void testIsJsonSerializationEnabled() {
     assertTrue(storageService.isJsonSerializationEnabled());
   }

@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -289,6 +290,25 @@ public class S3StorageService extends AbstractUploadStorageService {
   }
 
   /**
+   * Returns the S3 object key for this upload's own physical data object without dynamically
+   * resolving deduplication links. Write and truncate operations must strictly target the upload's
+   * own physical data object rather than resolving duplicates to parent objects, preventing
+   * accidental truncation or modification of parent files.
+   *
+   * @param uploadInfo The upload metadata
+   * @return The physical object key for this upload
+   */
+  public String getOwnS3ObjectKey(UploadInfo uploadInfo) {
+    if (uploadInfo == null || uploadInfo.getId() == null) {
+      return null;
+    }
+    if (uploadInfo.getStorageUploadId() != null) {
+      return uploadInfo.getStorageUploadId();
+    }
+    return buildObjectKey(uploadInfo.getId());
+  }
+
+  /**
    * Return the S3 object key where the uploaded bytes are stored for the given upload URI.
    *
    * @param uploadUri The HTTP request URI of the upload
@@ -402,7 +422,9 @@ public class S3StorageService extends AbstractUploadStorageService {
     if (upload != null && upload.getLength() != null && info.getLength() == null) {
       info.setLength(upload.getLength());
     }
-    String objectKey = getS3ObjectKey(info);
+    // Write and modify operations must strictly target the upload's own physical data object,
+    // never resolving duplicates to parent objects, to protect completed parent files.
+    String objectKey = getOwnS3ObjectKey(info);
     InterruptibleInputStream interruptibleStream = Utils.toInterruptibleStream(inputStream);
 
     // Pre-calculate expiration if configured so updated metadata already reflects the renewed
@@ -606,9 +628,19 @@ public class S3StorageService extends AbstractUploadStorageService {
           minioClient.listObjects(
               ListObjectsArgs.builder().bucket(bucket).prefix(metadataPrefix).build());
 
+      ZonedDateTime expirationCutoff = S3Utils.calculateExpirationCutoff(uploadExpirationPeriod);
+
       for (Result<Item> result : results) {
         Item item = result.get();
         if (item.objectName().endsWith(".info")) {
+          // Pre-filter using LIST Last-Modified metadata to avoid an O(N) HTTP GET storm for
+          // recently updated or created uploads that cannot yet have expired.
+          if (expirationCutoff != null) {
+            ZonedDateTime lastModified = item.lastModified();
+            if (lastModified != null && lastModified.isAfter(expirationCutoff)) {
+              continue;
+            }
+          }
           String idStr =
               item.objectName()
                   .substring(
@@ -653,7 +685,9 @@ public class S3StorageService extends AbstractUploadStorageService {
     if (uploadInfo == null || byteCount <= 0) {
       return;
     }
-    String objectKey = getS3ObjectKey(uploadInfo);
+    // Write and modify operations must strictly target the upload's own physical data object,
+    // never resolving duplicates to parent objects, to protect completed parent files.
+    String objectKey = getOwnS3ObjectKey(uploadInfo);
     long newOffset = Math.max(0L, uploadInfo.getOffset() - byteCount);
     uploadInfo.setOffset(newOffset);
 

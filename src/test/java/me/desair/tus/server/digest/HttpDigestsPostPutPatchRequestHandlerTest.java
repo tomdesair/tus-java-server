@@ -6,6 +6,7 @@ import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -242,5 +243,84 @@ public class HttpDigestsPostPutPatchRequestHandlerTest {
 
     assertThat(
         mockResp.getHeader(HttpHeader.CONTENT_DIGEST), org.hamcrest.CoreMatchers.nullValue());
+  }
+
+  @Test
+  public void testProcessMultiAlgorithmReprDigestWhereOneFailsDoesNotCallUpdateAndThrows()
+      throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/123");
+    // sha-256 matches "hello", but sha-512 has an invalid digest value
+    request.addHeader(
+        HttpHeader.REPR_DIGEST,
+        "sha-256=:LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=:, sha-512=:invalid-512-digest=:");
+
+    TusServletRequest servletRequest = new TusServletRequest(request);
+    TusServletResponse servletResponse =
+        new TusServletResponse(new org.springframework.mock.web.MockHttpServletResponse());
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5L);
+    info.setOffset(5L); // Complete upload
+    info.setRepresentationDigest(
+        "sha-256=:LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=:, sha-512=:invalid-512-digest=:");
+    when(uploadStorageService.getUploadInfo("/files/123", "owner")).thenReturn(info);
+    when(uploadStorageService.getUploadedBytes("/files/123", "owner"))
+        .thenReturn(new ByteArrayInputStream("hello".getBytes(StandardCharsets.UTF_8)));
+
+    assertThrows(
+        UploadDigestMismatchException.class,
+        () ->
+            handler.process(
+                HttpMethod.PATCH,
+                servletRequest,
+                servletResponse,
+                uploadStorageService,
+                uploadLockingService,
+                "owner",
+                null));
+
+    // Because validation is atomic across all algorithms, storageService.update must NEVER be
+    // called
+    verify(uploadStorageService, never()).update(any());
+  }
+
+  @Test
+  public void testProcessReprDigestAndWantReprDigestDownloadsFileOnlyOnceDueToCache()
+      throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/123");
+    request.addHeader(
+        HttpHeader.REPR_DIGEST, "sha-256=:LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=:");
+    request.addHeader(HttpHeader.WANT_REPR_DIGEST, "sha-256");
+
+    TusServletRequest servletRequest = new TusServletRequest(request);
+    MockHttpServletResponse mockResp = new MockHttpServletResponse();
+    TusServletResponse servletResponse = new TusServletResponse(mockResp);
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(5L);
+    info.setOffset(5L); // Complete upload
+    when(uploadStorageService.getUploadInfo("/files/123", "owner")).thenReturn(info);
+    when(uploadStorageService.getUploadedBytes("/files/123", "owner"))
+        .thenReturn(new ByteArrayInputStream("hello".getBytes(StandardCharsets.UTF_8)));
+
+    handler.process(
+        HttpMethod.PATCH,
+        servletRequest,
+        servletResponse,
+        uploadStorageService,
+        uploadLockingService,
+        "owner",
+        null);
+
+    // Verify storageService.getUploadedBytes was called only once and reused from request cache
+    verify(uploadStorageService, times(1)).getUploadedBytes("/files/123", "owner");
+    verify(uploadStorageService, times(2)).update(info);
+    assertThat(
+        mockResp.getHeader(HttpHeader.REPR_DIGEST),
+        is("sha-256=:LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=:"));
   }
 }

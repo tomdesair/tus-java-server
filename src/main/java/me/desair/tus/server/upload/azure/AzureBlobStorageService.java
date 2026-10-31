@@ -22,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -207,19 +208,25 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
       upload.updateExpiration(uploadExpirationPeriod);
     }
 
-    // 1. Obtain Azure Block Blob client and fetch pre-existing committed block list
+    // 1. Obtain Azure Block Blob client and fetch pre-existing committed block list.
+    // Write and modify operations must strictly target the upload's own physical data blob,
+    // never resolving duplicates to parent blobs, to protect completed parent files.
     BlockBlobClient blockBlobClient =
-        containerClient.getBlobClient(getAzureBlobName(upload)).getBlockBlobClient();
-    List<String> blockIds = getCommittedBlockIds(blockBlobClient);
-
-    // If metadata records committed uploadPartKeys, ensure the blob's committed blocks do not
-    // exceed the authoritative metadata offset (e.g. if a prior commitBlockList succeeded
-    // but updating UploadInfo metadata failed or was interrupted).
+        containerClient.getBlobClient(getOwnAzureBlobName(upload)).getBlockBlobClient();
     List<String> recordedPartKeys =
         upload.getUploadPartKeys() != null ? upload.getUploadPartKeys() : Collections.emptyList();
-    if (blockIds.size() > recordedPartKeys.size()) {
+    List<String> blockIds;
+    if (!recordedPartKeys.isEmpty()) {
+      // Reuse the authoritative committed block IDs recorded in UploadInfo metadata. This avoids
+      // an extra synchronous listBlocks() network call on every PATCH request and guarantees that
+      // a transient Azure error cannot return an empty list and overwrite prior blocks.
       blockIds = new ArrayList<>(recordedPartKeys);
-      blockBlobClient.commitBlockList(blockIds, true);
+    } else if (upload.getOffset() != null && upload.getOffset() > 0L) {
+      // Recovery path: offset > 0 but metadata has no recorded part keys. Fetch committed blocks
+      // from Azure, propagating non-404 errors so we never commit an empty baseline over data.
+      blockIds = getCommittedBlockIds(blockBlobClient);
+    } else {
+      blockIds = new ArrayList<>();
     }
 
     // 2. Validate block budget: Azure Block Blobs support up to 50,000 blocks
@@ -256,7 +263,9 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
           }
 
           chunkFile = Files.createTempFile(tempBufferDir, "tus-azure-chunk-", ".tmp").toFile();
-          ReadChunkResult chunkResult = readChunk(inputStream, chunkFile, maxBytesToRead);
+          // Pass interruptibleStream so AsyncChunkUploader's drain timeout or lock contention can
+          // interrupt blocked reads cleanly even when the caller passed a raw InputStream.
+          ReadChunkResult chunkResult = readChunk(interruptibleStream, chunkFile, maxBytesToRead);
           long chunkSize = chunkResult.bytesRead;
           if (chunkResult.exception != null) {
             streamException = chunkResult.exception;
@@ -420,6 +429,22 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
     return uploadPrefix + uploadInfo.getId().toString();
   }
 
+  /**
+   * Returns the Azure Block Blob name for the upload's own physical data blob without dynamically
+   * resolving deduplication links. Write and truncate operations must strictly target the upload's
+   * own physical data blob rather than resolving duplicates to parent blobs, preventing accidental
+   * truncation or modification of parent files.
+   *
+   * @param uploadInfo The upload metadata
+   * @return The physical blob name for this upload
+   */
+  public String getOwnAzureBlobName(UploadInfo uploadInfo) {
+    if (uploadInfo == null || uploadInfo.getId() == null) {
+      return null;
+    }
+    return uploadPrefix + uploadInfo.getId().toString();
+  }
+
   public String getAzureBlobName(String requestUri, String ownerKey) throws IOException {
     UploadInfo info = getUploadInfo(requestUri, ownerKey);
     return info != null ? getAzureBlobName(info) : null;
@@ -491,12 +516,13 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
       return;
     }
 
-    // Write/modify operations MUST NOT resolve duplicates to parent.
+    // Write and modify operations must strictly target the upload's own physical data blob,
+    // never resolving duplicates to parent blobs, to protect completed parent files.
     long currentOffset = uploadInfo.getOffset();
     long targetOffset = Math.max(0L, currentOffset - byteCount);
 
     BlockBlobClient blockBlobClient =
-        containerClient.getBlobClient(getAzureBlobName(uploadInfo)).getBlockBlobClient();
+        containerClient.getBlobClient(getOwnAzureBlobName(uploadInfo)).getBlockBlobClient();
 
     if (targetOffset == 0) {
       AzureUtils.deleteBlobQuietly(blockBlobClient);
@@ -569,8 +595,17 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
   public void cleanupExpiredUploads() throws IOException {
     Utils.cleanupTempFiles(this.tempBufferDir, "tus-azure-chunk-*.tmp", 24L * 3600_000L);
     ListBlobsOptions options = new ListBlobsOptions().setPrefix(metadataPrefix);
+    OffsetDateTime expirationCutoff = AzureUtils.calculateExpirationCutoff(uploadExpirationPeriod);
     for (BlobItem item : containerClient.listBlobs(options, null)) {
       if (item.getName().endsWith(".info")) {
+        // Pre-filter using LIST Last-Modified metadata to avoid an O(N) HTTP GET storm for
+        // recently updated or created uploads that cannot yet have expired.
+        if (expirationCutoff != null && item.getProperties() != null) {
+          OffsetDateTime lastModified = item.getProperties().getLastModified();
+          if (lastModified != null && lastModified.isAfter(expirationCutoff)) {
+            continue;
+          }
+        }
         String infoName = item.getName();
         String idStr =
             infoName.substring(metadataPrefix.length(), infoName.length() - ".info".length());
@@ -713,7 +748,7 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
   }
 
   /** Retrieves committed block IDs from Azure Block Blob. */
-  private List<String> getCommittedBlockIds(BlockBlobClient blockBlobClient) {
+  private List<String> getCommittedBlockIds(BlockBlobClient blockBlobClient) throws IOException {
     List<String> blockIds = new ArrayList<>();
     try {
       BlockList blockList = blockBlobClient.listBlocks(BlockListType.COMMITTED);
@@ -722,8 +757,12 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
           blockIds.add(block.getName());
         }
       }
+    } catch (BlobStorageException e) {
+      if (AzureUtils.parseErrorResponse(e) != AzureErrorType.BLOB_NOT_FOUND) {
+        throw new IOException("Failed to retrieve committed block list from Azure Blob", e);
+      }
     } catch (Exception e) {
-      log.debug("Could not retrieve committed block list: {}", e.getMessage());
+      throw new IOException("Failed to retrieve committed block list from Azure Blob", e);
     }
     return blockIds;
   }

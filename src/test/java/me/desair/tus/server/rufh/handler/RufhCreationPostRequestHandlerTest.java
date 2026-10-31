@@ -18,6 +18,7 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.upload.NoOpUploadLockingService;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.InterruptibleInputStream;
@@ -783,5 +784,79 @@ public class RufhCreationPostRequestHandlerTest {
     verify(storageService, org.mockito.Mockito.atLeastOnce()).update(captor.capture());
     // The update on interruption must reset length to null so deferred upload can be resumed
     org.junit.Assert.assertNull(captor.getValue().getLength());
+
+    // Verify stream was unregistered upon exit to avoid leaking in active input streams map
+    verify(lockingService).unregisterInputStream("/files/creation-id");
+  }
+
+  @Test(expected = IOException.class)
+  public void testProcessUninterruptedIoExceptionWithDeferredLengthResetsLengthAndRethrows()
+      throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    request.setContent("creation body".getBytes());
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("creation-uninterrupted-id"));
+    info.setLength(13L);
+    info.setOffset(0L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+    when(storageService.append(eq(info), any(InputStream.class)))
+        .thenThrow(new IOException("Simulated network drop / client reset"));
+
+    try {
+      handler.process(
+          HttpMethod.POST,
+          new TusServletRequest(request),
+          new TusServletResponse(response),
+          storageService,
+          lockingService,
+          "owner",
+          null);
+    } finally {
+      // Must reset length to null so subsequent append requests can finish the deferred upload
+      ArgumentCaptor<UploadInfo> captor = ArgumentCaptor.forClass(UploadInfo.class);
+      verify(storageService, org.mockito.Mockito.atLeastOnce()).update(captor.capture());
+      org.junit.Assert.assertNull(captor.getValue().getLength());
+
+      // Lock input stream registration must be cleaned up even when exception is rethrown
+      verify(lockingService).unregisterInputStream("/files/creation-uninterrupted-id");
+    }
+  }
+
+  @Test
+  public void testProcessCreationAcquiresLockWhenNullLockProvided() throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "100");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.setContent("data".getBytes());
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("locked-id"));
+    info.setLength(100L);
+    info.setOffset(0L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+    when(storageService.append(any(UploadInfo.class), any())).thenReturn(info);
+
+    UploadLock mockLock = org.mockito.Mockito.mock(UploadLock.class);
+    when(lockingService.lockUploadByUri("/files/locked-id")).thenReturn(mockLock);
+
+    handler.process(
+        HttpMethod.POST,
+        new TusServletRequest(request),
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    // Verify lock was acquired for newly created location and closed when finished
+    verify(lockingService).lockUploadByUri("/files/locked-id");
+    verify(mockLock).close();
+    verify(lockingService).unregisterInputStream("/files/locked-id");
   }
 }

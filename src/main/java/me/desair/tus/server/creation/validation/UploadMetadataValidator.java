@@ -17,6 +17,8 @@ import org.apache.commons.lang3.StringUtils;
  */
 public class UploadMetadataValidator implements RequestValidator {
 
+  public static final int MAX_METADATA_HEADER_LENGTH = 65_536;
+
   @Override
   public void validate(
       HttpMethod method,
@@ -27,6 +29,12 @@ public class UploadMetadataValidator implements RequestValidator {
 
     String metadata = Utils.getHeader(request, HttpHeader.UPLOAD_METADATA);
     if (StringUtils.isNotBlank(metadata)) {
+      if (metadata.length() > MAX_METADATA_HEADER_LENGTH) {
+        throw new InvalidUploadMetadataException(
+            "Upload-Metadata header exceeds maximum allowed length of "
+                + MAX_METADATA_HEADER_LENGTH
+                + " characters");
+      }
       String[] pairs = metadata.split(",");
       for (String pair : pairs) {
         pair = pair.trim();
@@ -41,8 +49,9 @@ public class UploadMetadataValidator implements RequestValidator {
         }
 
         String key = keyValue[0];
-        if (StringUtils.isBlank(key)) {
-          throw new InvalidUploadMetadataException("Upload-Metadata key cannot be empty");
+        if (!isValidKey(key)) {
+          throw new InvalidUploadMetadataException(
+              "Upload-Metadata key must not be empty and must not contain spaces or commas");
         }
 
         if (keyValue.length == 2) {
@@ -54,6 +63,17 @@ public class UploadMetadataValidator implements RequestValidator {
         }
       }
     }
+  }
+
+  private boolean isValidKey(String key) {
+    for (char c : key.toCharArray()) {
+      // The key MUST NOT contain spaces and commas and MUST NOT be empty (Tus 1.0.0 spec).
+      // Commas and single spaces are already separated during parsing; reject any other whitespace.
+      if (Character.isWhitespace(c)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @Override

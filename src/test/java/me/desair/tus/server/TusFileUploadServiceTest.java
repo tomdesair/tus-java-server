@@ -558,7 +558,8 @@ public class TusFileUploadServiceTest {
     request.setMethod("GET");
     org.junit.Assert.assertNull(service.getRawInterimResponse(request, "owner-123"));
 
-    // Test AUTO protocol service with TUS 1.0.0 request returns null for RUFH 104 interim response
+    // Test AUTO protocol service with valid TUS 1.0.0 request returns null (no 104 interim response
+    // for Tus 1.0.0)
     TusFileUploadService autoService =
         new TusFileUploadService()
             .withSupportedProtocolVersions(ProtocolVersion.AUTO)
@@ -568,11 +569,55 @@ public class TusFileUploadServiceTest {
     tus10Request.setMethod("POST");
     tus10Request.setRequestURI("/files");
     tus10Request.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tus10Request.addHeader(HttpHeader.UPLOAD_LENGTH, "1000");
     org.junit.Assert.assertNull(autoService.getRawInterimResponse(tus10Request, "owner-123"));
 
     // Test null input
     org.junit.Assert.assertNull(
         service.getRawInterimResponse((jakarta.servlet.http.HttpServletRequest) null, "owner-123"));
+
+    // Test invalid creation request where upload length exceeds maxUploadSize: validation fails
+    // and returns null before any storage creation takes place (error response handled by main
+    // pipeline)
+    TusFileUploadService sizeLimitedService =
+        new TusFileUploadService()
+            .withSupportedProtocolVersions(ProtocolVersion.RUFH)
+            .withUploadUri("/files")
+            .withMaxUploadSize(100L);
+    org.springframework.mock.web.MockHttpServletRequest oversizedRequest =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    oversizedRequest.setMethod("POST");
+    oversizedRequest.setRequestURI("/files");
+    oversizedRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "500");
+    oversizedRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    org.junit.Assert.assertNull(
+        sizeLimitedService.getRawInterimResponse(oversizedRequest, "owner-123"));
+
+    // Test path traversal attempt: validation fails and returns null
+    org.springframework.mock.web.MockHttpServletRequest traversalRequest =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    traversalRequest.setMethod("POST");
+    traversalRequest.setRequestURI("/files/../secret");
+    traversalRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    org.junit.Assert.assertNull(service.getRawInterimResponse(traversalRequest, "owner-123"));
+
+    // Test Tus 1.0.0 request with invalid metadata fails validation and returns null
+    org.springframework.mock.web.MockHttpServletRequest invalidTus10Request =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    invalidTus10Request.setMethod("POST");
+    invalidTus10Request.setRequestURI("/files");
+    invalidTus10Request.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    invalidTus10Request.addHeader(HttpHeader.UPLOAD_METADATA, "file\tname d29ybGQ=");
+    org.junit.Assert.assertNull(
+        autoService.getRawInterimResponse(invalidTus10Request, "owner-123"));
+
+    org.springframework.mock.web.MockHttpServletRequest unsupportedMethodRequest =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    unsupportedMethodRequest.setMethod("CUSTOM");
+    unsupportedMethodRequest.setRequestURI("/files");
+    unsupportedMethodRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    org.junit.Assert.assertNull(
+        service.getRawInterimResponse(unsupportedMethodRequest, "owner-123"));
   }
 
   @Test

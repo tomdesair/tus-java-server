@@ -13,7 +13,9 @@ import java.time.Duration;
 import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -43,6 +45,8 @@ public class Utils {
 
   private static final Logger log = LoggerFactory.getLogger(Utils.class);
   private static final Pattern CHECKSUM_VALUE_PATTERN = Pattern.compile("^[a-zA-Z0-9+/=\\-_]+$");
+  private static final Map<String, Pattern> CREATION_URI_PATTERN_CACHE = new ConcurrentHashMap<>();
+  private static final int MAX_PATTERN_CACHE_SIZE = 64;
 
   private Utils() {
     // This is a utility class that only holds static utility methods
@@ -375,14 +379,26 @@ public class Utils {
       String normalizedBase =
           Strings.CS.endsWith(baseUri, "/") ? baseUri.substring(0, baseUri.length() - 1) : baseUri;
       String patternStr = "^" + normalizedBase + "/?$";
-      try {
-        return Pattern.compile(patternStr).matcher(requestUri).matches();
-      } catch (Exception e) {
-        log.debug("Invalid regex in upload URI pattern: {}", baseUri, e);
-        return false;
-      }
+      Pattern pattern = getPatternFromCache(patternStr);
+      return pattern != null && pattern.matcher(requestUri).matches();
     }
     return false;
+  }
+
+  private static Pattern getPatternFromCache(String patternStr) {
+    try {
+      Pattern pattern = CREATION_URI_PATTERN_CACHE.get(patternStr);
+      if (pattern == null) {
+        pattern = Pattern.compile(patternStr);
+        if (CREATION_URI_PATTERN_CACHE.size() < MAX_PATTERN_CACHE_SIZE) {
+          CREATION_URI_PATTERN_CACHE.put(patternStr, pattern);
+        }
+      }
+      return pattern;
+    } catch (Exception e) {
+      log.debug("Invalid regex in upload URI pattern: {}", patternStr, e);
+      return null;
+    }
   }
 
   /**

@@ -71,7 +71,9 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
     InterruptibleInputStream interruptibleStream = null;
     if (is != null) {
       interruptibleStream = new InterruptibleInputStream(is);
-      uploadLockingService.registerInputStream(requestUri, interruptibleStream);
+      if (uploadLockingService != null) {
+        uploadLockingService.registerInputStream(requestUri, interruptibleStream);
+      }
       is = interruptibleStream;
       try {
         UploadInfo appended = uploadStorageService.append(uploadInfo, is);
@@ -83,20 +85,29 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
         // release request, the storage backend commits all bytes received so far and updates
         // the offset in storage. We reload the updated UploadInfo and acknowledge the partial
         // append rather than propagating an unhandled error.
-        if (interruptibleStream != null && interruptibleStream.isInterrupted()) {
-          // Refresh UploadInfo first so the log statement and response reflect the true committed
-          // byte offset persisted by the storage backend up to the interruption point.
-          UploadInfo refreshed = uploadStorageService.getUploadInfo(requestUri, ownerKey);
-          if (refreshed != null) {
-            uploadInfo = refreshed;
-          }
+        UploadInfo refreshed = uploadStorageService.getUploadInfo(requestUri, ownerKey);
+        if (refreshed != null) {
+          uploadInfo = refreshed;
+        }
+        if (interruptibleStream.isInterrupted()) {
           log.info(
               "RUFH append request for URI {} was interrupted by locking service contention; "
                   + "saved partial upload up to offset {}",
               requestUri,
               uploadInfo.getOffset());
         } else {
+          // If an un-interrupted network error aborted a deferred-length append that temporarily
+          // set length from Content-Length + Upload-Complete: ?1, restore length to null before
+          // rethrowing so the upload remains open with deferred length.
+          if (!hadLengthInitially && uploadInfo != null) {
+            uploadInfo.setLength(null);
+            uploadStorageService.update(uploadInfo);
+          }
           throw e;
+        }
+      } finally {
+        if (uploadLockingService != null) {
+          uploadLockingService.unregisterInputStream(requestUri);
         }
       }
     }

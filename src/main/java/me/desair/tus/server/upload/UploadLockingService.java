@@ -69,6 +69,17 @@ public interface UploadLockingService {
   }
 
   /**
+   * Unregisters the active input stream associated with the given request URI once streaming has
+   * completed or failed, preventing stale stream references from lingering in memory or being
+   * repeatedly polled by background watchdog daemon threads across long service lifecycles.
+   *
+   * @param requestUri The request URI of the active request
+   */
+  default void unregisterInputStream(String requestUri) {
+    // No-op by default for backwards compatibility
+  }
+
+  /**
    * Request that the lock for the given request URI be released. This interrupts the active
    * request's input stream locally or signals other cluster replicas to interrupt their active
    * stream via a stop signal.
