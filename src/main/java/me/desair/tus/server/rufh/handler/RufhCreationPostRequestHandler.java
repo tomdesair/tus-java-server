@@ -8,6 +8,7 @@ import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.rufh.util.RufhInterimResponseUtil;
 import me.desair.tus.server.upload.UploadInfo;
+import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractRequestHandler;
@@ -112,34 +113,57 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
     if (hasContent) {
       InputStream is = servletRequest.getContentInputStream();
       if (is != null) {
-        interruptibleStream = new InterruptibleInputStream(is);
-        uploadLockingService.registerInputStream(uploadUri, interruptibleStream);
-        is = interruptibleStream;
-        try {
-          UploadInfo appended = uploadStorageService.append(uploadInfo, is);
-          if (appended != null) {
-            uploadInfo = appended;
+        // Acquire the distributed lock for the newly created upload resource if not already locked
+        // by the outer request so concurrent requests across replicas coordinate via lock
+        // contention and the registered stream is guaranteed to be cleaned up when the lock closes.
+        boolean needsLock =
+            uploadLockingService != null
+                && uploadInfo != null
+                && uploadInfo.getId() != null
+                && !uploadLockingService.isLocked(uploadInfo.getId());
+        try (UploadLock ignored =
+            needsLock ? uploadLockingService.lockUploadByUri(uploadUri) : null) {
+          interruptibleStream = new InterruptibleInputStream(is);
+          if (uploadLockingService != null) {
+            uploadLockingService.registerInputStream(uploadUri, interruptibleStream);
           }
-        } catch (IOException e) {
-          // When an upload stream is interrupted by the locking service watchdog or a concurrent
-          // lock contention release request (e.g. from a concurrent HEAD or DELETE), the storage
-          // backend (Disk, S3, Azure) commits all bytes received up to the interruption and updates
-          // the offset in storage. We reload the updated UploadInfo and acknowledge the partial
-          // upload rather than propagating an unhandled error to the servlet container.
-          if (interruptibleStream != null && interruptibleStream.isInterrupted()) {
-            // Refresh UploadInfo first so the log statement and response reflect the true committed
-            // byte offset persisted by the storage backend up to the interruption point.
+          is = interruptibleStream;
+          try {
+            UploadInfo appended = uploadStorageService.append(uploadInfo, is);
+            if (appended != null) {
+              uploadInfo = appended;
+            }
+          } catch (IOException e) {
+            // When an upload stream is interrupted by the locking service watchdog or a concurrent
+            // lock contention release request (e.g. from a concurrent HEAD or DELETE), the storage
+            // backend (Disk, S3, Azure) commits all bytes received up to the interruption and
+            // updates the offset in storage. We reload the updated UploadInfo and acknowledge the
+            // partial upload rather than propagating an unhandled error to the servlet container.
             UploadInfo refreshed = uploadStorageService.getUploadInfo(uploadUri, ownerKey);
             if (refreshed != null) {
               uploadInfo = refreshed;
             }
-            log.info(
-                "RUFH creation request with body for URI {} was interrupted by locking service"
-                    + " contention; saved partial upload up to offset {}",
-                uploadUri,
-                uploadInfo != null ? uploadInfo.getOffset() : "unknown");
-          } else {
-            throw e;
+            if (interruptibleStream.isInterrupted()) {
+              log.info(
+                  "RUFH creation request with body for URI {} was interrupted by locking service"
+                      + " contention; saved partial upload up to offset {}",
+                  uploadUri,
+                  uploadInfo != null ? uploadInfo.getOffset() : "unknown");
+            } else {
+              // If the client socket dropped mid-stream on a deferred-length upload (where length
+              // was temporarily derived from Content-Length + Upload-Complete: ?1), reset length
+              // to null in storage before rethrowing so the upload remains resumable with
+              // deferred length on subsequent PATCH requests.
+              if (uploadLength == null && uploadInfo != null) {
+                uploadInfo.setLength(null);
+                uploadStorageService.update(uploadInfo);
+              }
+              throw e;
+            }
+          } finally {
+            if (uploadLockingService != null) {
+              uploadLockingService.unregisterInputStream(uploadUri);
+            }
           }
         }
       }

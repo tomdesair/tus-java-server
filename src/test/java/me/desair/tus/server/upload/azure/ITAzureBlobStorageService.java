@@ -1061,6 +1061,28 @@ public class ITAzureBlobStorageService {
   }
 
   @Test
+  public void testAppendRecoversCommittedBlocksFromAzureWhenUploadPartKeysNull() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setLength(200L);
+    UploadInfo created = storageService.create(info, "owner1");
+
+    // First append writes 100 bytes (creating block in Azure)
+    UploadInfo first = storageService.append(created, new ByteArrayInputStream(new byte[100]));
+    assertEquals(Long.valueOf(100L), first.getOffset());
+    assertEquals(1, first.getUploadPartKeys().size());
+
+    // Clear uploadPartKeys in metadata to simulate pre-existing upload or lost metadata keys
+    first.setUploadPartKeys(null);
+    storageService.update(first);
+
+    // Second append writes another 50 bytes: offset > 0 but uploadPartKeys is empty.
+    // This exercises the getCommittedBlockIds recovery path in AzureBlobStorageService.
+    UploadInfo second = storageService.append(first, new ByteArrayInputStream(new byte[50]));
+    assertEquals(Long.valueOf(150L), second.getOffset());
+    assertEquals(2, second.getUploadPartKeys().size());
+  }
+
+  @Test
   public void testTerminateUploadWithUnleasedLockBlob() throws Exception {
     UploadInfo info = new UploadInfo();
     info.setLength(100L);

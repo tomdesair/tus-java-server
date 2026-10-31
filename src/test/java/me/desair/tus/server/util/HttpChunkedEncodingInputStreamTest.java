@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringWriter;
@@ -282,5 +283,89 @@ public class HttpChunkedEncodingInputStreamTest {
 
     byte[] byteArray = new byte[10];
     in.read(byteArray);
+  }
+
+  @Test(expected = EOFException.class)
+  public void testMidChunkEofSingleByteRead() throws IOException {
+    // Declares chunk size 10 (0xA), but stream only delivers 4 bytes and ends prematurely
+    String truncatedInput = "A\r\n1234";
+    try (HttpChunkedEncodingInputStream in =
+        new HttpChunkedEncodingInputStream(
+            IOUtils.toInputStream(truncatedInput, StandardCharsets.UTF_8), trailerHeaders)) {
+      for (int i = 0; i < 10; i++) {
+        in.read();
+      }
+    }
+  }
+
+  @Test(expected = EOFException.class)
+  public void testMidChunkEofBlockRead() throws IOException {
+    // Declares chunk size 10 (0xA), but stream only delivers 4 bytes and ends prematurely
+    String truncatedInput = "A\r\n1234";
+    try (HttpChunkedEncodingInputStream in =
+        new HttpChunkedEncodingInputStream(
+            IOUtils.toInputStream(truncatedInput, StandardCharsets.UTF_8), trailerHeaders)) {
+      byte[] buffer = new byte[10];
+      int totalRead = 0;
+      while (totalRead < 10) {
+        int read = in.read(buffer, totalRead, 10 - totalRead);
+        if (read == -1) {
+          break;
+        }
+        totalRead += read;
+      }
+    }
+  }
+
+  @Test(expected = IOException.class)
+  public void testChunkSizeLineExceedingMaxLineLengthThrowsIOException() throws IOException {
+    // Build a chunk size line exceeding 8192 characters (e.g. 8200 chars)
+    StringBuilder sb = new StringBuilder();
+    sb.append("5;param=");
+    for (int i = 0; i < 8200; i++) {
+      sb.append("a");
+    }
+    sb.append("\r\nhello\r\n0\r\n\r\n");
+
+    try (HttpChunkedEncodingInputStream in =
+        new HttpChunkedEncodingInputStream(
+            IOUtils.toInputStream(sb.toString(), StandardCharsets.UTF_8), trailerHeaders)) {
+      in.read();
+    }
+  }
+
+  @Test(expected = IOException.class)
+  public void testTrailerHeaderLineExceedingMaxLineLengthThrowsIOException() throws IOException {
+    StringBuilder sb = new StringBuilder();
+    sb.append("0\r\n");
+    sb.append("X-Very-Long-Header: ");
+    for (int i = 0; i < 8200; i++) {
+      sb.append("x");
+    }
+    sb.append("\r\n\r\n");
+
+    try (HttpChunkedEncodingInputStream in =
+        new HttpChunkedEncodingInputStream(
+            IOUtils.toInputStream(sb.toString(), StandardCharsets.UTF_8), trailerHeaders)) {
+      in.read();
+    }
+  }
+
+  @Test(expected = IOException.class)
+  public void testTrailerHeadersCountExceedingMaxTrailerHeadersThrowsIOException()
+      throws IOException {
+    StringBuilder sb = new StringBuilder();
+    sb.append("0\r\n");
+    // Add 65 trailer headers (max is 64)
+    for (int i = 0; i < 65; i++) {
+      sb.append("Trailer-").append(i).append(": value\r\n");
+    }
+    sb.append("\r\n");
+
+    try (HttpChunkedEncodingInputStream in =
+        new HttpChunkedEncodingInputStream(
+            IOUtils.toInputStream(sb.toString(), StandardCharsets.UTF_8), trailerHeaders)) {
+      in.read();
+    }
   }
 }

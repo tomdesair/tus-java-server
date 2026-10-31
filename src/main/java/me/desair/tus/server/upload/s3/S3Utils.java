@@ -14,6 +14,8 @@ import io.minio.messages.ErrorResponse;
 import io.minio.messages.Item;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Duration;
+import java.time.ZonedDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
@@ -47,6 +49,21 @@ public final class S3Utils {
         .credentials(accessKey, secretKey)
         .region(effectiveRegion)
         .build();
+  }
+
+  /**
+   * Calculates the cutoff timestamp before which listed objects can be considered candidates for
+   * expiration, subtracting a safety margin to account for clock skew and in-flight writes.
+   *
+   * @param uploadExpirationPeriod The upload expiration period in milliseconds
+   * @return The expiration cutoff timestamp, or null if expiration is disabled
+   */
+  public static ZonedDateTime calculateExpirationCutoff(Long uploadExpirationPeriod) {
+    if (uploadExpirationPeriod == null || uploadExpirationPeriod <= 0) {
+      return null;
+    }
+    return ZonedDateTime.now()
+        .minus(Duration.ofMillis(Math.max(0L, uploadExpirationPeriod - 2000L)));
   }
 
   /**

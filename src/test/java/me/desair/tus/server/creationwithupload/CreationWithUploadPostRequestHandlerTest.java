@@ -69,6 +69,46 @@ public class CreationWithUploadPostRequestHandlerTest {
         ArgumentCaptor.forClass(InterruptibleInputStream.class);
     verify(lockingService).registerInputStream(eq("/files/123"), captor.capture());
     assertNotNull(captor.getValue());
+    verify(lockingService).unregisterInputStream(eq("/files/123"));
+    verify(response).setHeader(HttpHeader.UPLOAD_OFFSET, "5");
+  }
+
+  @Test
+  public void testProcessWithLockingServiceAcquiresLockAndCleansUp() throws Exception {
+    TusServletRequest request = mock(TusServletRequest.class);
+    TusServletResponse response = mock(TusServletResponse.class);
+    UploadStorageService storageService = mock(UploadStorageService.class);
+    UploadLockingService lockingService = mock(UploadLockingService.class);
+    me.desair.tus.server.upload.UploadLock mockLock =
+        mock(me.desair.tus.server.upload.UploadLock.class);
+
+    when(request.getHeader(HttpHeader.CONTENT_LENGTH)).thenReturn("5");
+    when(request.hasContent()).thenReturn(true);
+    when(response.getHeader(HttpHeader.LOCATION)).thenReturn("/files/123");
+    when(request.getContentInputStream()).thenReturn(new ByteArrayInputStream("hello".getBytes()));
+
+    me.desair.tus.server.upload.UploadId id = new me.desair.tus.server.upload.UploadId("123");
+    UploadInfo uploadInfo = new UploadInfo();
+    uploadInfo.setId(id);
+    uploadInfo.setLength(10L);
+    uploadInfo.setOffset(0L);
+
+    UploadInfo updatedInfo = new UploadInfo();
+    updatedInfo.setId(id);
+    updatedInfo.setLength(10L);
+    updatedInfo.setOffset(5L);
+
+    when(lockingService.isLocked(id)).thenReturn(false);
+    when(lockingService.lockUploadByUri("/files/123")).thenReturn(mockLock);
+    when(storageService.getUploadInfo("/files/123", "owner")).thenReturn(uploadInfo);
+    when(storageService.append(eq(uploadInfo), any(InputStream.class))).thenReturn(updatedInfo);
+
+    handler.process(
+        HttpMethod.POST, request, response, storageService, lockingService, "owner", null);
+
+    verify(lockingService).lockUploadByUri("/files/123");
+    verify(mockLock).close();
+    verify(lockingService).unregisterInputStream("/files/123");
     verify(response).setHeader(HttpHeader.UPLOAD_OFFSET, "5");
   }
 

@@ -252,6 +252,9 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
     service.registerInputStream("/files/1", is);
     verify(mockLocking, times(1)).registerInputStream("/files/1", is);
 
+    service.unregisterInputStream("/files/1");
+    verify(mockLocking, times(1)).unregisterInputStream("/files/1");
+
     service.requestLockRelease("/files/1");
     verify(mockLocking, times(1)).requestLockRelease("/files/1");
 

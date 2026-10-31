@@ -363,6 +363,16 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
   }
 
   @Override
+  public void unregisterInputStream(String requestUri) {
+    UploadId uploadId = idFactory.readUploadId(requestUri);
+    if (uploadId != null) {
+      // Remove stream registration once transfer completes or fails so the background watchdog
+      // stops polling storage for stop signals on this upload ID.
+      activeStreams.remove(uploadId.toString());
+    }
+  }
+
+  @Override
   public void requestLockRelease(String requestUri) {
     UploadId uploadId = idFactory.readUploadId(requestUri);
     if (uploadId != null) {

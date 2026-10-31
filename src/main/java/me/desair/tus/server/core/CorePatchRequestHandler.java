@@ -109,6 +109,10 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
         } else {
           throw e;
         }
+      } finally {
+        if (lockingService != null) {
+          lockingService.unregisterInputStream(servletRequest.getRequestURI());
+        }
       }
     }
 

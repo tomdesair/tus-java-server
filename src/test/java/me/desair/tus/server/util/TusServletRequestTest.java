@@ -7,6 +7,7 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -131,6 +132,37 @@ public class TusServletRequestTest {
     // Since it's chunked and checksum can come at the end, it should keep track of all algorithms
     assertThat(algorithms, hasItems(ChecksumAlgorithm.values()));
 
+    assertThat(
+        chunkedRequest.getCalculatedChecksum(ChecksumAlgorithm.SHA1),
+        is("9I3YU4IIYIFsddVND1hNyGMyenw="));
+  }
+
+  @Test
+  public void testGetContentInputStreamChunkedWithExplicitInitialChecksumEnablesOnlyThatAlgorithm()
+      throws Exception {
+    HttpServletRequest mockReq = mock(HttpServletRequest.class);
+    byte[] data = "5\r\ntest \r\n4\r\ndata\r\n0\r\n\r\n".getBytes();
+    when(mockReq.getInputStream())
+        .thenReturn(new MockServletInputStream(new ByteArrayInputStream(data)));
+    when(mockReq.getHeader(HttpHeader.TRANSFER_ENCODING)).thenReturn("chunked");
+    when(mockReq.getHeader(HttpHeader.UPLOAD_CHECKSUM))
+        .thenReturn("sha1 9I3YU4IIYIFsddVND1hNyGMyenw=");
+
+    TusServletRequest chunkedRequest = new TusServletRequest(mockReq, true);
+    InputStream is = chunkedRequest.getContentInputStream();
+    assertThat(is, notNullValue());
+
+    byte[] buffer = new byte[1024];
+    while (is.read(buffer) != -1) {
+      // Consume stream completely
+    }
+
+    assertThat(chunkedRequest.hasCalculatedChecksum(), is(true));
+    Set<ChecksumAlgorithm> algorithms = chunkedRequest.getEnabledChecksums();
+    // Because explicit checksum algorithm was supplied in the initial headers, only SHA1 should be
+    // enabled, saving the CPU cost of calculating SHA-256, SHA-384, SHA-512, and MD5 in parallel
+    assertEquals(1, algorithms.size());
+    assertTrue(algorithms.contains(ChecksumAlgorithm.SHA1));
     assertThat(
         chunkedRequest.getCalculatedChecksum(ChecksumAlgorithm.SHA1),
         is("9I3YU4IIYIFsddVND1hNyGMyenw="));

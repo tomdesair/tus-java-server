@@ -630,6 +630,13 @@ public class UtilsTest {
     when(storageService.getUploadUri()).thenReturn("/users/[0-9+/files");
     when(request.getRequestURI()).thenReturn("/users/42/files");
     assertThat(Utils.isCreationEndpoint(request, storageService), is(false));
+
+    // Test cached pattern execution across repeated calls and diverse URI templates
+    for (int i = 0; i < 300; i++) {
+      when(storageService.getUploadUri()).thenReturn("/tenant-" + (i % 20) + "/files");
+      when(request.getRequestURI()).thenReturn("/tenant-" + (i % 20) + "/files");
+      assertThat(Utils.isCreationEndpoint(request, storageService), is(true));
+    }
   }
 
   @Test

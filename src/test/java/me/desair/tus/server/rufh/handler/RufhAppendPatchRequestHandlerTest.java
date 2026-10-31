@@ -482,5 +482,49 @@ public class RufhAppendPatchRequestHandlerTest {
     verify(storageService, org.mockito.Mockito.atLeastOnce()).update(captor.capture());
     // The last update before returning must reset length back to null for deferred upload resume
     org.junit.Assert.assertNull(captor.getValue().getLength());
+
+    // Stream must be unregistered from locking service to clean up active input stream tracking
+    verify(lockingService).unregisterInputStream("/files/append-id");
+  }
+
+  @Test(expected = IOException.class)
+  public void testProcessUninterruptedIoExceptionWithDeferredLengthResetsLengthAndRethrows()
+      throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/append-uninterrupted-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    request.setContent("hello world".getBytes());
+
+    UploadInfo initial = new UploadInfo();
+    initial.setId(new UploadId("append-uninterrupted-id"));
+    initial.setOffset(1000L);
+    initial.setLength(null); // Deferred length initially
+
+    when(storageService.getUploadInfo("/files/append-uninterrupted-id", "owner"))
+        .thenReturn(initial);
+
+    when(storageService.append(eq(initial), any(InputStream.class)))
+        .thenThrow(new IOException("Simulated network drop / connection reset"));
+
+    try {
+      handler.process(
+          HttpMethod.PATCH,
+          new TusServletRequest(request),
+          new TusServletResponse(response),
+          storageService,
+          lockingService,
+          "owner",
+          null);
+    } finally {
+      // Must reset length back to null so future append requests can resume
+      ArgumentCaptor<UploadInfo> captor = ArgumentCaptor.forClass(UploadInfo.class);
+      verify(storageService, org.mockito.Mockito.atLeastOnce()).update(captor.capture());
+      org.junit.Assert.assertNull(captor.getValue().getLength());
+
+      // Input stream must be cleanly unregistered even on failure
+      verify(lockingService).unregisterInputStream("/files/append-uninterrupted-id");
+    }
   }
 }

@@ -669,6 +669,64 @@ public abstract class AbstractITRufhProtocol {
     assertResponseHeader(HttpHeader.UPLOAD_OFFSET, "12");
   }
 
+  /**
+   * Section 3 of RFC 9530 (Content-Digest): "The Content-Digest HTTP header field associates one or
+   * more digests with a message content." When using chunked transfer encoding, digests can be sent
+   * in trailing header fields.
+   *
+   * <p>Use Case: Send a chunked PATCH payload without initial Content-Digest header, supplying the
+   * digest only in the chunked trailer. Verify the server calculates digests across algorithms and
+   * validates the trailer header successfully, returning HTTP 204 No Content for a match and HTTP
+   * 400 Bad Request for a mismatch.
+   */
+  @Test
+  public void testChunkedPatchWithTrailingContentDigestValidation() throws Exception {
+    tusFileUploadService.withChunkedTransferDecoding(true);
+
+    // Step 1: Create upload resource
+    servletRequest.setMethod("POST");
+    servletRequest.setRequestURI(UPLOAD_URI);
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "100");
+
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_CREATED);
+    String uploadLocation = servletResponse.getHeader(HttpHeader.LOCATION);
+
+    // Step 2: Send chunked PATCH with valid trailing Content-Digest for "hello digest"
+    // (12 bytes -> 0xC hex chunk size)
+    String chunkedBody =
+        "C\r\nhello digest\r\n0\r\nContent-Digest: sha-256=:yV9g7MInOPrtlLDWsplfHK0LaH22Uz70R1ZXbHIjzjU=:\r\n\r\n";
+
+    resetChunked();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadLocation);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    servletRequest.setContent(chunkedBody.getBytes(StandardCharsets.UTF_8));
+
+    UploadInfo updated = tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_NO_CONTENT);
+    assertNotNull(updated);
+    assertEquals(Long.valueOf(12L), updated.getOffset());
+
+    // Step 3: Send chunked PATCH with invalid trailing Content-Digest -> 400 Bad Request
+    String invalidChunkedBody =
+        "C\r\nhello again!\r\n0\r\nContent-Digest: sha-256=:invalid-digest-here=:\r\n\r\n";
+
+    resetChunked();
+    servletRequest.setMethod("PATCH");
+    servletRequest.setRequestURI(uploadLocation);
+    servletRequest.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    servletRequest.addHeader(HttpHeader.UPLOAD_OFFSET, "12");
+    servletRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    servletRequest.setContent(invalidChunkedBody.getBytes(StandardCharsets.UTF_8));
+
+    tusFileUploadService.process(servletRequest, servletResponse, OWNER_KEY);
+    assertResponseStatus(HttpServletResponse.SC_BAD_REQUEST);
+  }
+
   @Test
   public void testUploadWithAbsoluteUploadUri() throws Exception {
     String absoluteBaseUri = "https://uploads.example.com";

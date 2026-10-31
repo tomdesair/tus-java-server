@@ -322,6 +322,11 @@ public class ThreadLocalCachedStorageAndLockingService
   }
 
   @Override
+  public void unregisterInputStream(String requestUri) {
+    lockingServiceDelegate.unregisterInputStream(requestUri);
+  }
+
+  @Override
   public void requestLockRelease(String requestUri) {
     lockingServiceDelegate.requestLockRelease(requestUri);
   }

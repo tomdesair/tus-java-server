@@ -175,6 +175,18 @@ public abstract class AbstractLeaseLockingService extends AbstractCloseableResou
   }
 
   @Override
+  public void unregisterInputStream(String requestUri) {
+    if (requestUri != null) {
+      UploadId uploadId = idFactory.readUploadId(requestUri);
+      if (uploadId != null) {
+        // Remove stream registration once transfer completes or fails so the background watchdog
+        // stops polling storage for stop signals on this upload ID.
+        activeInputStreams.remove(uploadId);
+      }
+    }
+  }
+
+  @Override
   public void requestLockRelease(String requestUri) {
     if (requestUri == null) {
       return;

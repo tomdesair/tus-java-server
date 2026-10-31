@@ -134,6 +134,19 @@ public class AzureBlobStorageServiceTest {
   }
 
   @Test
+  public void getOwnAzureBlobNameShouldReturnChildBlobName() {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("12345"));
+    assertEquals("uploads/12345", storageService.getOwnAzureBlobName(info));
+
+    // For deduplicated child uploads, getOwnAzureBlobName MUST return the child's own blob name
+    // (not parent's) to protect parent blobs from write and truncation operations
+    info.setDuplicatesUploadId(new UploadId("parent-999"));
+    assertEquals("uploads/12345", storageService.getOwnAzureBlobName(info));
+    assertNull(storageService.getOwnAzureBlobName(null));
+  }
+
+  @Test
   public void getAzureBlobNameNullInfoShouldReturnNull() throws Exception {
     assertNull(storageService.getAzureBlobName((UploadInfo) null));
     assertNull(storageService.getAzureBlobName("/test/upload/invalid", "owner1"));

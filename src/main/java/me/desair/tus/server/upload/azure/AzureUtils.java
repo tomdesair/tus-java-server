@@ -4,6 +4,8 @@ import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.specialized.BlockBlobClient;
+import java.time.Duration;
+import java.time.OffsetDateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,6 +27,21 @@ public final class AzureUtils {
    * @return {@code true} if the blob exists; {@code false} if it does not exist, argument is null,
    *     or an error occurs
    */
+  /**
+   * Calculates the cutoff timestamp before which listed blobs can be considered candidates for
+   * expiration, subtracting a safety margin to account for clock skew and in-flight writes.
+   *
+   * @param uploadExpirationPeriod The upload expiration period in milliseconds
+   * @return The expiration cutoff timestamp, or null if expiration is disabled
+   */
+  public static OffsetDateTime calculateExpirationCutoff(Long uploadExpirationPeriod) {
+    if (uploadExpirationPeriod == null || uploadExpirationPeriod <= 0) {
+      return null;
+    }
+    return OffsetDateTime.now()
+        .minus(Duration.ofMillis(Math.max(0L, uploadExpirationPeriod - 2000L)));
+  }
+
   public static boolean blobExists(BlobClient blobClient) {
     if (blobClient == null) {
       return false;

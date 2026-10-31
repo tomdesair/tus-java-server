@@ -9,6 +9,7 @@ import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -79,20 +80,20 @@ public class TusServletRequest extends HttpServletRequestWrapper {
       ChecksumAlgorithm checksumAlgorithm =
           ChecksumAlgorithm.forUploadChecksumHeader(getHeader(HttpHeader.UPLOAD_CHECKSUM));
 
-      java.util.Set<ChecksumAlgorithm> algorithms = new java.util.LinkedHashSet<>();
+      Set<ChecksumAlgorithm> algorithms = new LinkedHashSet<>();
+      if (checksumAlgorithm != null) {
+        algorithms.add(checksumAlgorithm);
+      }
+      algorithms.addAll(
+          ChecksumAlgorithm.parseDigestHeader(getHeader(HttpHeader.CONTENT_DIGEST)).keySet());
+      algorithms.addAll(
+          ChecksumAlgorithm.parseDigestHeader(getHeader(HttpHeader.WANT_CONTENT_DIGEST)).keySet());
 
-      if (isChunked) {
-        // Since the Checksum header can still come at the end, keep track of all checksums
+      // Only compute all 5 digest algorithms when Transfer-Encoding is chunked AND no explicit
+      // checksum or digest header was already provided in the initial request headers (meaning a
+      // trailing Upload-Checksum or Content-Digest header may arrive at the end of the stream).
+      if (isChunked && algorithms.isEmpty()) {
         algorithms.addAll(Arrays.asList(ChecksumAlgorithm.values()));
-      } else {
-        if (checksumAlgorithm != null) {
-          algorithms.add(checksumAlgorithm);
-        }
-        algorithms.addAll(
-            ChecksumAlgorithm.parseDigestHeader(getHeader(HttpHeader.CONTENT_DIGEST)).keySet());
-        algorithms.addAll(
-            ChecksumAlgorithm.parseDigestHeader(getHeader(HttpHeader.WANT_CONTENT_DIGEST))
-                .keySet());
       }
 
       for (ChecksumAlgorithm algorithm : algorithms) {
