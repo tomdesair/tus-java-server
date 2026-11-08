@@ -52,6 +52,7 @@ See [docs/UPGRADING.md](docs/UPGRADING.md) for details and code examples.
 - **`UploadStorageService.cleanupExpiredUploads(UploadLockingService)`**: Deprecated in favor of the zero-argument `cleanupExpiredUploads()`, as storage services coordinate locking through `setUploadLockingService(UploadLockingService)`.
 
 ### Security
+- **Download Security**: sanitized filenames in the `Content-Disposition` header to prevent directory traversal attacks on clients and added `X-Content-Type-Options: nosniff` header to protect against MIME type sniffing.
 - **Path traversal protection**: hardened `LeaseFileLockingService` against directory traversal via crafted upload identifiers ([#141](https://github.com/tomdesair/tus-java-server/pull/141)).
 - **CORS origin validation**: prevented arbitrary `Origin` header reflection in CORS preflight responses ([#132](https://github.com/tomdesair/tus-java-server/pull/132)).
 - **Secure temporary files**: replaced legacy `File.createTempFile` with `Files.createTempFile` enforcing owner-only POSIX permissions (`0600`, CWE-378 / SonarQube java:S5443) ([#131](https://github.com/tomdesair/tus-java-server/pull/131)).
