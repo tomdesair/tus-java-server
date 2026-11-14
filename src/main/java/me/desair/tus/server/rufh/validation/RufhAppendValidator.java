@@ -7,9 +7,12 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.exception.InconsistentUploadLengthException;
 import me.desair.tus.server.exception.InvalidUploadCompleteHeaderException;
+import me.desair.tus.server.exception.InvalidUploadLengthException;
 import me.desair.tus.server.exception.InvalidUploadOffsetHeaderException;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
+import me.desair.tus.server.exception.MaxUploadLengthExceededException;
 import me.desair.tus.server.exception.MinAppendSizeNotMetException;
+import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UnsupportedMediaTypeException;
 import me.desair.tus.server.exception.UploadAlreadyCompletedException;
@@ -80,14 +83,9 @@ public class RufhAppendValidator implements RequestValidator {
     }
 
     if (!uploadInfo.isUploadInProgress()) {
-      try {
-        // Section 4.4.2: Deactivate upload resource when append is attempted on a completed upload
-        // Terminate/deactivate upload resource per §4.4.2 when append is attempted past
-        // declared length
-        uploadStorageService.terminateUpload(uploadInfo);
-      } catch (Exception e) {
-        // Log or ignore cleanup failure
-      }
+      // Section 4.4.2: Reject append attempts on a completed upload; resource deactivation is
+      // performed under the request lock in RufhErrorHandler so read-only pre-checks (like 104
+      // interim generation) never mutate storage before process() executes.
       throw new UploadAlreadyCompletedException("Upload resource is already completed");
     }
 
@@ -137,11 +135,6 @@ public class RufhAppendValidator implements RequestValidator {
     if (uploadInfo.hasLength()) {
       if (currentOffset >= uploadInfo.getLength()
           || (contentLength > 0 && currentOffset + contentLength > uploadInfo.getLength())) {
-        try {
-          uploadStorageService.terminateUpload(uploadInfo);
-        } catch (Exception e) {
-          // Log or ignore cleanup failure
-        }
         throw new UploadLengthExceededException(
             "Appended content length ("
                 + contentLength
@@ -172,11 +165,29 @@ public class RufhAppendValidator implements RequestValidator {
       }
     }
 
-    // Section 4.1.3: Validate consistency of Upload-Length if provided in append request
+    // Section 4.1.3: Validate consistency of Upload-Length if provided in append request, or
+    // enforce declared/derived final length bounds when length was previously deferred
     String uploadLengthHeader = request.getHeader(HttpHeader.UPLOAD_LENGTH);
     Long providedLength = StructuredHeaderUtil.parseInteger(uploadLengthHeader);
-    if (providedLength != null && uploadInfo.hasLength()) {
-      if (!providedLength.equals(uploadInfo.getLength())) {
+    validateAppendUploadLength(
+        uploadInfo,
+        uploadStorageService,
+        providedLength,
+        uploadComplete,
+        contentLength,
+        currentOffset);
+  }
+
+  private void validateAppendUploadLength(
+      UploadInfo uploadInfo,
+      UploadStorageService uploadStorageService,
+      Long providedLength,
+      Boolean uploadComplete,
+      long contentLength,
+      long currentOffset)
+      throws TusException {
+    if (uploadInfo.hasLength()) {
+      if (providedLength != null && !providedLength.equals(uploadInfo.getLength())) {
         throw new InconsistentUploadLengthException(
             "Provided Upload-Length ("
                 + providedLength
@@ -184,6 +195,68 @@ public class RufhAppendValidator implements RequestValidator {
                 + uploadInfo.getLength()
                 + ")");
       }
+      return;
+    }
+
+    if (providedLength != null) {
+      if (providedLength < currentOffset) {
+        throw new InvalidUploadLengthException(
+            "Provided Upload-Length ("
+                + providedLength
+                + ") is smaller than current offset ("
+                + currentOffset
+                + ")");
+      }
+      if (Boolean.TRUE.equals(uploadComplete)
+          && contentLength >= 0
+          && providedLength != currentOffset + contentLength) {
+        throw new InconsistentUploadLengthException(
+            "Provided Upload-Length ("
+                + providedLength
+                + ") does not match final offset ("
+                + (currentOffset + contentLength)
+                + ")");
+      }
+      if (contentLength > 0 && currentOffset + contentLength > providedLength) {
+        throw new UploadLengthExceededException(
+            "Appended content length ("
+                + contentLength
+                + ") pushes total offset past declared upload length ("
+                + providedLength
+                + ")");
+      }
+    }
+
+    // Enforce global min/max size constraints once an append either declares Upload-Length or
+    // finalizes a deferred upload via Upload-Complete: ?1 with known Content-Length
+    Long effectiveLength =
+        providedLength != null
+            ? providedLength
+            : (Boolean.TRUE.equals(uploadComplete) && contentLength >= 0
+                ? currentOffset + contentLength
+                : null);
+    if (effectiveLength == null) {
+      return;
+    }
+
+    long maxUploadSize = uploadStorageService.getMaxUploadSize();
+    if (maxUploadSize > 0 && effectiveLength > maxUploadSize) {
+      throw new MaxUploadLengthExceededException(
+          "The requested upload length ("
+              + effectiveLength
+              + ") exceeds the maximum allowed size ("
+              + maxUploadSize
+              + ")");
+    }
+
+    Long minSize = uploadStorageService.getMinSize();
+    if (minSize != null && minSize > 0 && effectiveLength < minSize) {
+      throw new MinUploadLengthNotReachedException(
+          "The requested upload length ("
+              + effectiveLength
+              + ") is smaller than the minimum allowed size ("
+              + minSize
+              + ")");
     }
   }
 }

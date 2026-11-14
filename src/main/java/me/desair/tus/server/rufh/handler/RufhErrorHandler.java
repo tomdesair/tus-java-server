@@ -1,5 +1,6 @@
 package me.desair.tus.server.rufh.handler;
 
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -8,6 +9,7 @@ import me.desair.tus.server.exception.InconsistentUploadLengthException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadAlreadyCompletedException;
 import me.desair.tus.server.exception.UploadDigestMismatchException;
+import me.desair.tus.server.exception.UploadLengthExceededException;
 import me.desair.tus.server.exception.UploadOffsetMismatchException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -78,8 +80,16 @@ public class RufhErrorHandler extends AbstractRequestHandler {
       return HttpProblemDetails.forOffsetMismatch(expectedOffset, provided);
 
     } else if (exception instanceof UploadAlreadyCompletedException) {
-      // Section 7.2: Completed Upload
-      return HttpProblemDetails.forCompletedUpload(400);
+      // Section 4.4.2 & 7.2: Deactivate completed upload resource under the request lock before
+      // returning the 400 Problem Details error so pre-flight checks stay side-effect free.
+      terminateUploadQuietly(servletRequest, uploadStorageService, ownerKey);
+      return HttpProblemDetails.forCompletedUpload(HttpServletResponse.SC_BAD_REQUEST);
+
+    } else if (exception instanceof UploadLengthExceededException) {
+      // Section 4.4.2: Invalidate the upload resource when an append pushes offset past length
+      // so subsequent interactions fail cleanly while this request still returns 409 Conflict.
+      terminateUploadQuietly(servletRequest, uploadStorageService, ownerKey);
+      return null;
 
     } else if (exception instanceof InconsistentUploadLengthException) {
       // Section 7.2: Inconsistent Length
@@ -91,5 +101,23 @@ public class RufhErrorHandler extends AbstractRequestHandler {
       return HttpProblemDetails.forDigestMismatch();
     }
     return null;
+  }
+
+  private void terminateUploadQuietly(
+      TusServletRequest servletRequest,
+      UploadStorageService uploadStorageService,
+      String ownerKey) {
+    if (uploadStorageService == null || servletRequest == null) {
+      return;
+    }
+    try {
+      UploadInfo uploadInfo =
+          uploadStorageService.getUploadInfo(servletRequest.getRequestURI(), ownerKey);
+      if (uploadInfo != null) {
+        uploadStorageService.terminateUpload(uploadInfo);
+      }
+    } catch (Exception e) {
+      // Ignore cleanup failure so the protocol error response is still returned
+    }
   }
 }

@@ -63,6 +63,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   private final DiskChecksumIndex checksumIndex;
   private DeduplicationService deduplicationService;
   private UploadLockingService uploadLockingService;
+  private boolean ownsUploadLockingService = true;
 
   public DiskStorageService(String storagePath) {
     super(storagePath + File.separator + UPLOAD_SUB_DIRECTORY);
@@ -164,10 +165,36 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
   @Override
   public void setUploadLockingService(UploadLockingService uploadLockingService) {
-    this.uploadLockingService =
+    UploadLockingService target =
         Objects.requireNonNull(uploadLockingService, "uploadLockingService must not be null");
+    // Only close the default internal DiskLockingService when replaced; externally managed
+    // locking services remain owned by the caller (e.g., TusFileUploadService).
+    if (this.ownsUploadLockingService
+        && this.uploadLockingService != null
+        && this.uploadLockingService != target) {
+      try {
+        this.uploadLockingService.close();
+      } catch (IOException e) {
+        log.warn("Error closing replaced upload locking service: {}", e.getMessage());
+      }
+    }
+    this.uploadLockingService = target;
+    this.ownsUploadLockingService = false;
     if (this.deduplicationService != null) {
-      this.deduplicationService.setUploadLockingService(uploadLockingService);
+      this.deduplicationService.setUploadLockingService(target);
+    }
+  }
+
+  @Override
+  protected void cleanupOnClose() throws IOException {
+    try {
+      if (this.ownsUploadLockingService && this.uploadLockingService != null) {
+        this.uploadLockingService.close();
+      }
+    } finally {
+      if (this.uploadConcatenationService != null) {
+        this.uploadConcatenationService.close();
+      }
     }
   }
 

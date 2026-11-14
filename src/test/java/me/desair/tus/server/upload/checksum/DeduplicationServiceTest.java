@@ -887,6 +887,66 @@ public class DeduplicationServiceTest {
     assertEquals(parentId, index.findParent(key));
   }
 
+  @Test
+  public void testDeduplicateSkipsWhenAlreadyDeduplicatedChild() throws Exception {
+    UploadId existingParent = new UploadId("existing-parent");
+    UploadInfo child = createUploadInfo(new UploadId("child-already"), checksumKey);
+    child.setDuplicatesUploadId(existingParent);
+
+    UploadInfo result = deduplicationService.deduplicate(child, checksumKey);
+
+    assertEquals(existingParent, result.getDuplicatesUploadId());
+    assertNull(index.findParent(checksumKey));
+  }
+
+  @Test
+  public void testDeduplicateRejectsInProgressParentAndDuplicateParentAndReplacesIndex()
+      throws Exception {
+    UploadLock mockLock = mock(UploadLock.class);
+    when(lockingService.lockUpload(any())).thenReturn(mockLock);
+
+    // 1. Parent still in progress (offset < length) must be invalidated and replaced
+    UploadId inProgressParentId = new UploadId("in-progress-parent");
+    UploadInfo inProgressParent = createUploadInfo(inProgressParentId, checksumKey);
+    inProgressParent.setOffset(10L);
+    adapter.put(inProgressParentId, inProgressParent, true);
+    index.tryRegisterParent(checksumKey, inProgressParentId);
+
+    UploadId contenderId = new UploadId("completed-contender");
+    UploadInfo contender = createUploadInfo(contenderId, checksumKey);
+    adapter.put(contenderId, contender, true);
+
+    UploadInfo result1 = deduplicationService.deduplicate(contender, checksumKey);
+    assertNull(result1.getDuplicatesUploadId());
+    assertEquals(contenderId, index.findParent(checksumKey));
+
+    // 2. Parent that is itself a deduplicated child must also be rejected
+    index.deleteIndex(checksumKey);
+    UploadId chainedParentId = new UploadId("chained-parent");
+    UploadInfo chainedParent = createUploadInfo(chainedParentId, checksumKey);
+    chainedParent.setDuplicatesUploadId(new UploadId("grandparent"));
+    adapter.put(chainedParentId, chainedParent, true);
+    index.tryRegisterParent(checksumKey, chainedParentId);
+
+    UploadId newUploadId = new UploadId("new-standalone");
+    UploadInfo newUpload = createUploadInfo(newUploadId, checksumKey);
+    adapter.put(newUploadId, newUpload, true);
+
+    UploadInfo result2 = deduplicationService.deduplicate(newUpload, checksumKey);
+    assertNull(result2.getDuplicatesUploadId());
+    assertEquals(newUploadId, index.findParent(checksumKey));
+
+    // 3. Tombstoned parent with retained physical bytes remains joinable by a new child
+    index.markParentDeleted(checksumKey);
+    adapter.deleteMetadata(newUploadId);
+    UploadId leafChildId = new UploadId("leaf-child");
+    UploadInfo leafChild = createUploadInfo(leafChildId, checksumKey);
+    adapter.put(leafChildId, leafChild, true);
+
+    UploadInfo result3 = deduplicationService.deduplicate(leafChild, checksumKey);
+    assertEquals(newUploadId, result3.getDuplicatesUploadId());
+  }
+
   private UploadInfo createUploadInfo(UploadId id, ChecksumKey key) {
     UploadInfo info = new UploadInfo();
     info.setId(id);

@@ -370,8 +370,12 @@ public class UtilsTest {
     assertThat(Utils.getUploadUri(request, response), is("/files/location"));
     when(request.getMethod()).thenReturn("PUT");
     assertThat(Utils.getUploadUri(request, response), is("/files/location"));
+    // RUFH creation via PATCH sets Location, whereas append PATCH leaves Location unset
     when(request.getMethod()).thenReturn("PATCH");
+    assertThat(Utils.getUploadUri(request, response), is("/files/location"));
+    when(response.getHeader(HttpHeader.LOCATION)).thenReturn(null);
     assertThat(Utils.getUploadUri(request, response), is("/files/123"));
+    when(response.getHeader(HttpHeader.LOCATION)).thenReturn("/files/location");
     when(request.getMethod()).thenReturn("GET");
     assertThat(Utils.getUploadUri(request, response), is("/files/123"));
     when(request.getMethod()).thenReturn("HEAD");

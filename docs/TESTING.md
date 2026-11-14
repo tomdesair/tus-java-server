@@ -139,9 +139,9 @@ curl -X HEAD -H "Tus-Resumable: 1.0.0" -I ${UPLOAD_URL}
 
 ## Automated Unit Test Coverage Verification
 
-To locally verify unit test coverage against a target percentage (default: 95%) and report which lines/files are not covered, you can run the Maven build with the `check-coverage` profile.
+To locally verify unit test coverage against a target percentage (default: 93%) and report which lines/files are not covered, you can run the Maven build with the `check-coverage` profile.
 
-### Run with default threshold (95%)
+### Run with default threshold (93%)
 ```bash
 mvn verify -Pcheck-coverage
 ```

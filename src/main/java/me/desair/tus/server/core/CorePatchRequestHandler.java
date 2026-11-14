@@ -94,6 +94,9 @@ public class CorePatchRequestHandler extends AbstractRequestHandler {
         // the offset in storage. We reload the updated UploadInfo and acknowledge the partial
         // PATCH with 204 No Content and the new Upload-Offset rather than throwing a 500 error.
         if (interruptibleStream != null && interruptibleStream.isInterrupted()) {
+          // Mark the request as interrupted so downstream checksum/digest handlers preserve the
+          // partial progress saved so far instead of rejecting the truncated stream.
+          servletRequest.setStreamInterrupted(true);
           // Refresh UploadInfo first so the log statement and response reflect the true committed
           // byte offset persisted by the storage backend up to the interruption point.
           UploadInfo refreshed =

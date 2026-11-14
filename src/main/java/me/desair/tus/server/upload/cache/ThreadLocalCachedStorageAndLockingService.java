@@ -51,6 +51,24 @@ public class ThreadLocalCachedStorageAndLockingService
     }
   }
 
+  /**
+   * Returns the underlying wrapped {@link UploadStorageService} delegate.
+   *
+   * @return the storage service delegate
+   */
+  public UploadStorageService getStorageServiceDelegate() {
+    return storageServiceDelegate;
+  }
+
+  /**
+   * Returns the underlying wrapped {@link UploadLockingService} delegate.
+   *
+   * @return the locking service delegate
+   */
+  public UploadLockingService getLockingServiceDelegate() {
+    return lockingServiceDelegate;
+  }
+
   @Override
   public UploadInfo getUploadInfo(UploadId id) throws IOException {
     if (id == null) {
@@ -67,7 +85,10 @@ public class ThreadLocalCachedStorageAndLockingService
 
   @Override
   public UploadInfo getUploadInfo(String uploadUrl, String ownerKey) throws IOException {
-    UploadInfo uploadInfo = getUploadInfo(idFactory.readUploadId(uploadUrl));
+    // Skip cache lookup when idFactory has not been wired yet (e.g., an external cache wrapper
+    // passed into VirtualConcatenationService before setIdFactory runs).
+    UploadInfo uploadInfo =
+        idFactory != null ? getUploadInfo(idFactory.readUploadId(uploadUrl)) : null;
     if (uploadInfo == null || !Objects.equals(uploadInfo.getOwnerKey(), ownerKey)) {
       uploadInfo = storageServiceDelegate.getUploadInfo(uploadUrl, ownerKey);
       uploadInfoCache.set(new WeakReference<>(uploadInfo));
@@ -77,8 +98,14 @@ public class ThreadLocalCachedStorageAndLockingService
 
   @Override
   public void update(UploadInfo uploadInfo) throws IOException, UploadNotFoundException {
-    storageServiceDelegate.update(uploadInfo);
-    uploadInfoCache.set(new WeakReference<>(uploadInfo));
+    try {
+      storageServiceDelegate.update(uploadInfo);
+      uploadInfoCache.set(new WeakReference<>(uploadInfo));
+    } catch (IOException | UploadNotFoundException | RuntimeException e) {
+      // Clear cached state so failure recovery reads the true persisted metadata from storage.
+      cleanupCache();
+      throw e;
+    }
   }
 
   @Override
@@ -96,9 +123,16 @@ public class ThreadLocalCachedStorageAndLockingService
   @Override
   public UploadInfo append(UploadInfo upload, InputStream inputStream)
       throws IOException, TusException {
-    UploadInfo info = storageServiceDelegate.append(upload, inputStream);
-    uploadInfoCache.set(new WeakReference<>(info));
-    return info;
+    try {
+      UploadInfo info = storageServiceDelegate.append(upload, inputStream);
+      uploadInfoCache.set(new WeakReference<>(info));
+      return info;
+    } catch (IOException | TusException | RuntimeException e) {
+      // Evict stale pre-append UploadInfo so error handling calculates rolled-back bytes from
+      // the actual persisted offset rather than the stale cached offset.
+      cleanupCache();
+      throw e;
+    }
   }
 
   @Override
@@ -186,8 +220,13 @@ public class ThreadLocalCachedStorageAndLockingService
   @Override
   public void removeLastNumberOfBytes(UploadInfo uploadInfo, long byteCount)
       throws UploadNotFoundException, IOException {
-    storageServiceDelegate.removeLastNumberOfBytes(uploadInfo, byteCount);
-    uploadInfoCache.set(new WeakReference<>(uploadInfo));
+    try {
+      storageServiceDelegate.removeLastNumberOfBytes(uploadInfo, byteCount);
+      uploadInfoCache.set(new WeakReference<>(uploadInfo));
+    } catch (IOException | UploadNotFoundException | RuntimeException e) {
+      cleanupCache();
+      throw e;
+    }
   }
 
   @Override
@@ -246,11 +285,16 @@ public class ThreadLocalCachedStorageAndLockingService
 
   @Override
   public UploadInfo deduplicate(UploadInfo uploadInfo, ChecksumKey checksumKey) throws IOException {
-    UploadInfo result = storageServiceDelegate.deduplicate(uploadInfo, checksumKey);
-    if (result != null) {
-      uploadInfoCache.set(new WeakReference<>(result));
+    try {
+      UploadInfo result = storageServiceDelegate.deduplicate(uploadInfo, checksumKey);
+      if (result != null) {
+        uploadInfoCache.set(new WeakReference<>(result));
+      }
+      return result;
+    } catch (IOException | RuntimeException e) {
+      cleanupCache();
+      throw e;
     }
-    return result;
   }
 
   @Override
@@ -295,12 +339,17 @@ public class ThreadLocalCachedStorageAndLockingService
 
   @Override
   public UploadLock lockUploadByUri(String requestUri) throws TusException, IOException {
+    // Evict any unlocked pre-lock cached state (e.g. populated during getRawInterimResponse)
+    // so the first read inside the exclusive lock always fetches fresh state from storage.
+    cleanupCache();
     UploadLock uploadLock = lockingServiceDelegate.lockUploadByUri(requestUri);
     return new CachedLock(uploadLock);
   }
 
   @Override
   public UploadLock lockUpload(UploadId id) throws TusException, IOException {
+    // Evict any unlocked pre-lock cached state before entering the exclusive lock scope.
+    cleanupCache();
     UploadLock uploadLock = lockingServiceDelegate.lockUpload(id);
     return new CachedLock(uploadLock);
   }
@@ -339,9 +388,15 @@ public class ThreadLocalCachedStorageAndLockingService
 
   @Override
   public void close() throws IOException {
-    lockingServiceDelegate.close();
-    storageServiceDelegate.close();
-    cleanupCache();
+    try {
+      lockingServiceDelegate.close();
+    } finally {
+      try {
+        storageServiceDelegate.close();
+      } finally {
+        cleanupCache();
+      }
+    }
   }
 
   private void cleanupCache() {

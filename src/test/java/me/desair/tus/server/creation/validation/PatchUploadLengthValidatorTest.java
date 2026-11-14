@@ -9,6 +9,7 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.InvalidUploadLengthException;
 import me.desair.tus.server.exception.MaxUploadLengthExceededException;
+import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.junit.Before;
@@ -91,6 +92,31 @@ public class PatchUploadLengthValidatorTest {
     UploadInfo info = new UploadInfo();
     info.setLength(1000L);
     when(uploadStorageService.getUploadInfo("/files/123", "owner")).thenReturn(info);
+
+    validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, "owner");
+  }
+
+  @Test(expected = InvalidUploadLengthException.class)
+  public void validateDeferredLengthSmallerThanOffsetThrows() throws Exception {
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 400L);
+    servletRequest.setRequestURI("/files/123");
+
+    UploadInfo info = new UploadInfo();
+    info.setOffset(500L);
+    when(uploadStorageService.getUploadInfo("/files/123", "owner")).thenReturn(info);
+
+    validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, "owner");
+  }
+
+  @Test(expected = MinUploadLengthNotReachedException.class)
+  public void validateDeferredLengthBelowMinSizeThrows() throws Exception {
+    servletRequest.addHeader(HttpHeader.UPLOAD_LENGTH, 400L);
+    servletRequest.setRequestURI("/files/123");
+
+    UploadInfo info = new UploadInfo();
+    info.setOffset(100L);
+    when(uploadStorageService.getUploadInfo("/files/123", "owner")).thenReturn(info);
+    when(uploadStorageService.getMinSize()).thenReturn(500L);
 
     validator.validate(HttpMethod.PATCH, servletRequest, uploadStorageService, "owner");
   }

@@ -10,6 +10,7 @@ import com.azure.storage.blob.models.BlockList;
 import com.azure.storage.blob.models.BlockListType;
 import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.blob.specialized.BlockBlobClient;
+import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -328,10 +329,24 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
       }
     }
 
-    // Calculate actual confirmed bytes appended
+    // Calculate actual confirmed bytes appended and validate minAppendSize BEFORE committing
+    // staged blocks so a rejected undersized request does not advance committed state.
     long confirmedAppended = 0L;
     for (int i = 0; i < blockIds.size() - initialBlockCount; i++) {
       confirmedAppended += plannedChunkSizes.get(i);
+    }
+
+    long candidateOffset = initialOffset + confirmedAppended;
+    boolean isCompletingOrEmpty =
+        !upload.isUploadInProgress()
+            || (upload.getLength() != null && candidateOffset >= upload.getLength());
+    if (drainException == null
+        && streamException == null
+        && pendingTusException == null
+        && !isCompletingOrEmpty) {
+      // Per RUFH §4.1.4: "This limit does not apply to upload creation requests with no content,
+      // or to requests completing the upload by including the Upload-Complete: ?1 header field."
+      validateMinAppendSize(confirmedAppended);
     }
 
     // 5. Commit any newly staged blocks in batch (1 single commit call for entire request)
@@ -342,21 +357,20 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
     if (blockIds.size() > initialBlockCount) {
       try {
         blockBlobClient.commitBlockList(blockIds, true);
-        upload.setOffset(initialOffset + confirmedAppended);
+        upload.setOffset(candidateOffset);
         upload.setUploadPartKeys(new ArrayList<>(blockIds));
         if (uploadExpirationPeriod != null && uploadExpirationPeriod > 0) {
           upload.setExpirationTimestamp(System.currentTimeMillis() + uploadExpirationPeriod);
         }
 
+        // Persist updated offset and block IDs before attempting deduplication so durable
+        // metadata is always saved regardless of whether deduplication applies.
+        saveUploadInfo(upload);
+
         boolean finalComplete =
             upload.getLength() != null && upload.getOffset().equals(upload.getLength());
-        boolean deduplicated = false;
         if (finalComplete) {
-          deduplicated = checkAndApplyDeduplication(upload);
-        }
-
-        if (!deduplicated) {
-          saveUploadInfo(upload);
+          checkAndApplyDeduplication(upload);
         }
       } catch (Exception e) {
         log.error(
@@ -378,18 +392,6 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
 
     if (pendingTusException != null) {
       throw pendingTusException;
-    }
-
-    // 6. Validate minimum append size constraints if configured
-    // Per RUFH §4.1.4: "This limit does not apply to upload creation requests with no content,
-    // or to requests completing the upload by including the Upload-Complete: ?1 header field."
-    boolean isCompletingOrEmpty =
-        !upload.isUploadInProgress()
-            || (upload.getLength() != null
-                && upload.getOffset() != null
-                && upload.getOffset() >= upload.getLength());
-    if (!isCompletingOrEmpty) {
-      validateMinAppendSize(confirmedAppended);
     }
 
     return upload;
@@ -443,6 +445,17 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
       return null;
     }
     return uploadPrefix + uploadInfo.getId().toString();
+  }
+
+  /**
+   * Resolves the effective Azure blob name for an upload identified by its request URI.
+   *
+   * @param requestUri The upload request URI
+   * @return The Azure blob name, or {@code null} if the upload is not found
+   * @throws IOException If reading upload metadata fails
+   */
+  public String getAzureBlobName(String requestUri) throws IOException {
+    return getAzureBlobName(requestUri, null);
   }
 
   public String getAzureBlobName(String requestUri, String ownerKey) throws IOException {
@@ -539,7 +552,7 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
           IOUtils.copyLarge(is, os);
         }
         String newBlockId = generateBlockId(0);
-        try (InputStream is = new java.io.BufferedInputStream(new FileInputStream(tempFile))) {
+        try (InputStream is = new BufferedInputStream(new FileInputStream(tempFile))) {
           blockBlobClient.stageBlock(newBlockId, is, tempFile.length());
         }
         blockBlobClient.commitBlockList(List.of(newBlockId), true);
@@ -662,6 +675,9 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
     super.close();
     if (uploadLockingService != null) {
       uploadLockingService.close();
+    }
+    if (concatenationService != null) {
+      concatenationService.close();
     }
   }
 
@@ -795,7 +811,7 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
       BlockBlobClient blockBlobClient, String blockId, File chunkFile, long chunkSize)
       throws IOException {
     if (chunkSize > 0) {
-      try (InputStream chunkIs = new java.io.BufferedInputStream(new FileInputStream(chunkFile))) {
+      try (InputStream chunkIs = new BufferedInputStream(new FileInputStream(chunkFile))) {
         blockBlobClient.stageBlock(blockId, chunkIs, chunkSize);
       }
     }
@@ -813,6 +829,7 @@ public class AzureBlobStorageService extends AbstractUploadStorageService {
    *
    * <p>Incorporates an 8-character random UUID suffix to guarantee that late-landing blocks from
    * previous aborted or timed-out worker threads never collide with or overwrite blocks in
+   * subsequent retry attempts.
    *
    * @param index The block index
    * @return The Base64-encoded block ID

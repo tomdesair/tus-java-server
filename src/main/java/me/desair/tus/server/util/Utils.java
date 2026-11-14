@@ -232,7 +232,6 @@ public class Utils {
   /**
    * Resolves the upload URI from the HTTP request and response context.
    *
-   * @param method The HttpMethod of the request
    * @param request The TusServletRequest
    * @param response The TusServletResponse
    * @return The upload URI string, or null if it cannot be determined
@@ -243,8 +242,16 @@ public class Utils {
             ? HttpMethod.getMethodIfSupported(request, EnumSet.allOf(HttpMethod.class))
             : null;
 
+    // Creation methods (POST, PUT, and RUFH creation via PATCH) allocate a new upload resource
+    // and publish its URI via the Location response header.
     if (HttpMethod.POST.equals(method) || HttpMethod.PUT.equals(method)) {
-      return response != null ? response.getHeader(HttpHeader.LOCATION) : null;
+      return response != null && StringUtils.isNotBlank(response.getHeader(HttpHeader.LOCATION))
+          ? response.getHeader(HttpHeader.LOCATION)
+          : null;
+    } else if (HttpMethod.PATCH.equals(method)
+        && response != null
+        && StringUtils.isNotBlank(response.getHeader(HttpHeader.LOCATION))) {
+      return response.getHeader(HttpHeader.LOCATION);
     } else if (request != null) {
       return request.getRequestURI();
     }
@@ -284,9 +291,9 @@ public class Utils {
         return ProtocolVersion.RUFH;
       }
       String method = request.getMethod();
-      if (HttpMethod.HEAD.name().equalsIgnoreCase(method)
-          || HttpMethod.GET.name().equalsIgnoreCase(method)
-          || HttpMethod.DELETE.name().equalsIgnoreCase(method)) {
+      if (Strings.CI.equals(HttpMethod.HEAD.name(), method)
+          || Strings.CI.equals(HttpMethod.GET.name(), method)
+          || Strings.CI.equals(HttpMethod.DELETE.name(), method)) {
         return ProtocolVersion.RUFH;
       }
     }
@@ -584,7 +591,7 @@ public class Utils {
    *
    * @param inputStream The InputStream to interrupt or close
    */
-  public static void interruptStream(java.io.InputStream inputStream) {
+  public static void interruptStream(InputStream inputStream) {
     if (inputStream == null) {
       return;
     }

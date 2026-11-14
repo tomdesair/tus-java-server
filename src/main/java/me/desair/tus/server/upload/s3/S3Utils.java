@@ -20,6 +20,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -275,27 +276,27 @@ public final class S3Utils {
     ErrorResponse response = exception.errorResponse();
     String code = response != null && response.code() != null ? response.code() : "";
 
-    if ("NoSuchKey".equalsIgnoreCase(code)
-        || "NoSuchBucket".equalsIgnoreCase(code)
-        || "NoSuchUpload".equalsIgnoreCase(code)) {
+    if (Strings.CI.equals("NoSuchKey", code)
+        || Strings.CI.equals("NoSuchBucket", code)
+        || Strings.CI.equals("NoSuchUpload", code)) {
       return S3ErrorType.NO_SUCH_KEY;
     }
 
-    if ("PreconditionFailed".equalsIgnoreCase(code)) {
+    if (Strings.CI.equals("PreconditionFailed", code)) {
       return S3ErrorType.PRECONDITION_FAILED;
     }
 
-    if ("ObjectAlreadyExists".equalsIgnoreCase(code)
-        || "BucketAlreadyExists".equalsIgnoreCase(code)) {
+    if (Strings.CI.equals("ObjectAlreadyExists", code)
+        || Strings.CI.equals("BucketAlreadyExists", code)) {
       return S3ErrorType.CONFLICT;
     }
 
-    if ("AccessDenied".equalsIgnoreCase(code)) {
+    if (Strings.CI.equals("AccessDenied", code)) {
       return S3ErrorType.ACCESS_DENIED;
     }
 
-    if ("APINotImplemented".equalsIgnoreCase(code)
-        || "NotImplemented".equalsIgnoreCase(code)
+    if (Strings.CI.equals("APINotImplemented", code)
+        || Strings.CI.equals("NotImplemented", code)
         || (exception.response() != null && exception.response().code() == 501)) {
       return S3ErrorType.API_NOT_IMPLEMENTED;
     }

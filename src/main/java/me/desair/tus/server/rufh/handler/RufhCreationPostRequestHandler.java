@@ -1,5 +1,6 @@
 package me.desair.tus.server.rufh.handler;
 
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.InputStream;
 import me.desair.tus.server.HttpHeader;
@@ -97,6 +98,9 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
 
     String uploadUri =
         Utils.getUploadUriOnCreation(uploadInfo, servletRequest, uploadStorageService);
+    // Set Location early so error handling and downstream digest processing can resolve the created
+    // resource URI even if payload streaming is interrupted or throws an exception.
+    servletResponse.setHeader(HttpHeader.LOCATION, uploadUri);
 
     // Per RUFH §4.1.4: "This limit does not apply to upload creation requests with no content,
     // or to requests completing the upload by including the Upload-Complete: ?1 header field."
@@ -174,6 +178,11 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
     boolean streamInterrupted =
         (interruptibleStream != null && interruptibleStream.isInterrupted())
             || (contentLength >= 0 && uploadInfo != null && uploadInfo.getOffset() < contentLength);
+    if (streamInterrupted && servletRequest != null) {
+      // Mark the request as interrupted so Content-Digest validation does not discard partial bytes
+      // saved before contention or early truncation.
+      servletRequest.setStreamInterrupted(true);
+    }
 
     // Per RUFH §4.2: An upload must only be marked complete if the stream completed uninterrupted.
     // If the stream was interrupted, we acknowledge partial progress and allow subsequent PATCH
@@ -186,7 +195,7 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
     if (isFinished && uploadInfo != null) {
       uploadInfo.setLength(uploadInfo.getOffset());
       uploadStorageService.update(uploadInfo);
-      servletResponse.setStatus(200);
+      servletResponse.setStatus(HttpServletResponse.SC_OK);
       servletResponse.setHeader(HttpHeader.LOCATION, uploadUri);
       servletResponse.setHeader(
           HttpHeader.UPLOAD_COMPLETE, StructuredHeaderUtil.formatBoolean(true));
@@ -198,7 +207,7 @@ public class RufhCreationPostRequestHandler extends AbstractRequestHandler {
         uploadInfo.setLength(null);
         uploadStorageService.update(uploadInfo);
       }
-      servletResponse.setStatus(201);
+      servletResponse.setStatus(HttpServletResponse.SC_CREATED);
       servletResponse.setHeader(HttpHeader.LOCATION, uploadUri);
       servletResponse.setHeader(
           HttpHeader.UPLOAD_COMPLETE, StructuredHeaderUtil.formatBoolean(false));

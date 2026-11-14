@@ -35,6 +35,7 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.upload.UploadType;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.upload.cache.ThreadLocalCachedStorageAndLockingService;
 import me.desair.tus.server.upload.disk.DiskStorageService;
@@ -70,6 +71,7 @@ public class TusFileUploadService implements Closeable {
   private final LinkedHashMap<String, TusExtension> enabledFeatures = new LinkedHashMap<>();
   private final Set<HttpMethod> supportedHttpMethods = EnumSet.noneOf(HttpMethod.class);
   private boolean isThreadLocalCacheEnabled = false;
+  private Long configuredMaxAppendSize = null;
   private boolean isChunkedTransferDecodingEnabled = false;
   private ProtocolVersion supportedProtocolVersion = ProtocolVersion.AUTO;
   private Duration lockWaitTimeout = DEFAULT_LOCK_WAIT_TIMEOUT;
@@ -244,6 +246,7 @@ public class TusFileUploadService implements Closeable {
       Validate.exclusiveBetween(
           0, Long.MAX_VALUE, maxAppendSize, "The max append size must be bigger than 0");
     }
+    this.configuredMaxAppendSize = maxAppendSize;
     this.uploadStorageService.setMaxAppendSize(maxAppendSize);
     return this;
   }
@@ -321,24 +324,37 @@ public class TusFileUploadService implements Closeable {
    */
   public TusFileUploadService withUploadStorageService(UploadStorageService uploadStorageService) {
     Objects.requireNonNull(uploadStorageService, "The UploadStorageService cannot be null");
-    // Copy over any previous configuration
-    uploadStorageService.setMaxUploadSize(this.uploadStorageService.getMaxUploadSize());
-    uploadStorageService.setMaxAppendSize(this.uploadStorageService.getMaxAppendSize());
-    uploadStorageService.setMinAppendSize(this.uploadStorageService.getMinAppendSize());
-    uploadStorageService.setMinSize(this.uploadStorageService.getMinSize());
-    uploadStorageService.setCloudUploadThreadPoolSize(
-        this.uploadStorageService.getCloudUploadThreadPoolSize());
-    uploadStorageService.setUploadExpirationPeriod(
-        this.uploadStorageService.getUploadExpirationPeriod());
-    uploadStorageService.setUploadDeduplicationEnabled(
-        this.uploadStorageService.isUploadDeduplicationEnabled());
-    uploadStorageService.setJsonSerializationEnabled(
-        this.uploadStorageService.isJsonSerializationEnabled());
-    uploadStorageService.setDrainTimeout(this.uploadStorageService.getDrainTimeout());
+    // Unwrap any active ThreadLocal cache wrapper so configuration copies between concrete
+    // delegates and double-wrapping is prevented.
+    UploadStorageService previousStorage = unwrapStorageService(this.uploadStorageService);
+    UploadLockingService rawLocking = unwrapLockingService(this.uploadLockingService);
+    UploadStorageService targetStorage = unwrapStorageService(uploadStorageService);
+
+    // Copy over previous configuration, preserving backend-specific maxAppendSize defaults
+    // (such as Azure's 400 GiB limit) unless withMaxAppendSize() was explicitly configured.
+    targetStorage.setMaxUploadSize(previousStorage.getMaxUploadSize());
+    if (this.configuredMaxAppendSize != null) {
+      targetStorage.setMaxAppendSize(this.configuredMaxAppendSize);
+    }
+    targetStorage.setMinAppendSize(previousStorage.getMinAppendSize());
+    targetStorage.setMinSize(previousStorage.getMinSize());
+    targetStorage.setCloudUploadThreadPoolSize(previousStorage.getCloudUploadThreadPoolSize());
+    targetStorage.setUploadExpirationPeriod(previousStorage.getUploadExpirationPeriod());
+    targetStorage.setUploadDeduplicationEnabled(previousStorage.isUploadDeduplicationEnabled());
+    targetStorage.setJsonSerializationEnabled(previousStorage.isJsonSerializationEnabled());
+    targetStorage.setDrainTimeout(previousStorage.getDrainTimeout());
+    // Call setIdFactory on the caller-provided reference so external cache wrappers wired elsewhere
+    // (such as VirtualConcatenationService) also receive idFactory before unwrapping.
     uploadStorageService.setIdFactory(this.idFactory);
-    uploadStorageService.setUploadLockingService(this.uploadLockingService);
-    // Update the upload storage service
-    this.uploadStorageService = uploadStorageService;
+    targetStorage.setUploadLockingService(rawLocking);
+
+    if (previousStorage != targetStorage) {
+      closeQuietly(previousStorage);
+    }
+
+    // Update the upload storage service and re-wrap cache if enabled
+    this.uploadStorageService = targetStorage;
+    this.uploadLockingService = rawLocking;
     prepareCacheIfEnabled();
     return this;
   }
@@ -383,12 +399,22 @@ public class TusFileUploadService implements Closeable {
    */
   public TusFileUploadService withUploadLockingService(UploadLockingService uploadLockingService) {
     Objects.requireNonNull(uploadLockingService, "The UploadLockingService cannot be null");
+    UploadLockingService previousLocking = unwrapLockingService(this.uploadLockingService);
+    UploadStorageService rawStorage = unwrapStorageService(this.uploadStorageService);
+    UploadLockingService targetLocking = unwrapLockingService(uploadLockingService);
+
+    // Preserve idFactory on both any caller-provided cache wrapper and the underlying delegate.
     uploadLockingService.setIdFactory(this.idFactory);
-    // Update the upload locking service
-    this.uploadLockingService = uploadLockingService;
-    if (this.uploadStorageService != null) {
-      this.uploadStorageService.setUploadLockingService(uploadLockingService);
+    if (rawStorage != null) {
+      rawStorage.setUploadLockingService(targetLocking);
     }
+    if (previousLocking != null && previousLocking != targetLocking) {
+      closeQuietly(previousLocking);
+    }
+
+    // Update the upload locking service and re-wrap cache if enabled
+    this.uploadStorageService = rawStorage;
+    this.uploadLockingService = targetLocking;
     prepareCacheIfEnabled();
     return this;
   }
@@ -453,7 +479,6 @@ public class TusFileUploadService implements Closeable {
     Validate.notBlank(storagePath, "The storage path cannot be blank");
     withUploadStorageService(new DiskStorageService(storagePath));
     withUploadLockingService(new LeaseFileLockingService(storagePath));
-    prepareCacheIfEnabled();
     return this;
   }
 
@@ -635,7 +660,12 @@ public class TusFileUploadService implements Closeable {
       response.sendError(e.getStatus(), e.getMessage());
     }
 
-    if (wasInProgress && processedUploadInfo != null && !processedUploadInfo.isUploadInProgress()) {
+    // Only notify completion listeners for standalone/final uploads, not concatenated PARTIAL
+    // segments whose data will still be merged into a separate final resource.
+    if (wasInProgress
+        && processedUploadInfo != null
+        && !processedUploadInfo.isUploadInProgress()
+        && !UploadType.PARTIAL.equals(processedUploadInfo.getUploadType())) {
       notifyUploadCompletionListeners(processedUploadInfo);
     }
 
@@ -1226,12 +1256,52 @@ public class TusFileUploadService implements Closeable {
   }
 
   private void prepareCacheIfEnabled() {
-    if (isThreadLocalCacheEnabled && uploadStorageService != null) {
+    UploadStorageService rawStorage = unwrapStorageService(this.uploadStorageService);
+    UploadLockingService rawLocking = unwrapLockingService(this.uploadLockingService);
+
+    if (isThreadLocalCacheEnabled && rawStorage != null) {
       ThreadLocalCachedStorageAndLockingService service =
-          new ThreadLocalCachedStorageAndLockingService(uploadStorageService, uploadLockingService);
+          new ThreadLocalCachedStorageAndLockingService(rawStorage, rawLocking);
       service.setIdFactory(this.idFactory);
       this.uploadStorageService = service;
       this.uploadLockingService = service;
+    } else {
+      this.uploadStorageService = rawStorage;
+      this.uploadLockingService = rawLocking;
+    }
+  }
+
+  private UploadStorageService unwrapStorageService(UploadStorageService service) {
+    if (service instanceof ThreadLocalCachedStorageAndLockingService cached) {
+      return cached.getStorageServiceDelegate();
+    }
+    return service;
+  }
+
+  private UploadLockingService unwrapLockingService(UploadLockingService service) {
+    if (service instanceof ThreadLocalCachedStorageAndLockingService cached) {
+      return cached.getLockingServiceDelegate();
+    }
+    return service;
+  }
+
+  private void closeQuietly(UploadStorageService storageService) {
+    if (storageService != null) {
+      try {
+        storageService.close();
+      } catch (Exception e) {
+        log.warn("Error closing replaced storage service instance: {}", e.getMessage());
+      }
+    }
+  }
+
+  private void closeQuietly(UploadLockingService lockingService) {
+    if (lockingService != null) {
+      try {
+        lockingService.close();
+      } catch (Exception e) {
+        log.warn("Error closing replaced locking service instance: {}", e.getMessage());
+      }
     }
   }
 
@@ -1242,9 +1312,19 @@ public class TusFileUploadService implements Closeable {
    */
   @Override
   public void close() throws IOException {
-    uploadLockingService.close();
-    if (uploadStorageService != null) {
+    if (uploadStorageService instanceof ThreadLocalCachedStorageAndLockingService) {
+      // Cache wrapper owns and closes both the locking and storage delegates once.
       uploadStorageService.close();
+      return;
+    }
+    try {
+      if (uploadLockingService != null) {
+        uploadLockingService.close();
+      }
+    } finally {
+      if (uploadStorageService != null) {
+        uploadStorageService.close();
+      }
     }
   }
 

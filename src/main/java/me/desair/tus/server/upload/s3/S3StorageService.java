@@ -456,22 +456,56 @@ public class S3StorageService extends AbstractUploadStorageService {
     // Step 3: Process payload stream in optimal chunk parts and upload to S3.
     AppendResult appendResult = processPayloadChunks(info, preparedStream, info.getId());
 
-    // Step 4: Persist any newly confirmed chunk parts and update the byte offset.
-    // Drained chunks and trailing parts are committed to the manifest before rethrowing any
-    // stream interruption exception, ensuring maximum byte persistence.
+    // Step 4: Validate minimum append size BEFORE persisting metadata or deleting stale parts on
+    // non-error requests, so rejected undersized appends never advance the durable offset.
     boolean hasNewParts =
         appendResult.allPartKeys.size() > preparedStream.remainingPartKeys.size()
             || appendResult.confirmedBytesAppended > 0;
 
+    long currentOffsetBeforeStream =
+        Math.max(
+            info.getOffset() != null ? info.getOffset() : 0L,
+            preparedStream.existingPartsTotalSize + preparedStream.prependedBytes);
+    long baseOffset = currentOffsetBeforeStream - preparedStream.prependedBytes;
+    long candidateOffset =
+        hasNewParts
+            ? baseOffset + appendResult.confirmedBytesAppended
+            : (info.getOffset() != null ? info.getOffset() : 0L);
+    boolean isCompletingOrEmpty =
+        !info.isUploadInProgress()
+            || (info.getLength() != null && candidateOffset >= info.getLength());
+    long requestPayloadAppended =
+        Math.max(0L, appendResult.confirmedBytesAppended - preparedStream.prependedBytes);
+
+    // Subtract prependedBytes so minAppendSize accurately measures payload transferred in THIS
+    // request. Per RUFH §4.1.4: "This limit does not apply to upload creation requests with no
+    // content, or to requests completing the upload by including the Upload-Complete: ?1 header
+    // field."
+    if (appendResult.readException == null
+        && appendResult.maxAppendSizeException == null
+        && minAppendSize != null
+        && !isCompletingOrEmpty
+        && requestPayloadAppended < minAppendSize) {
+      // Clean up only the newly uploaded parts from this rejected request so prior state stays
+      // intact
+      for (int i = preparedStream.remainingPartKeys.size();
+          i < appendResult.allPartKeys.size();
+          i++) {
+        deleteObjectQuietly(appendResult.allPartKeys.get(i));
+      }
+      throw new MinAppendSizeNotMetException(
+          "Append payload size "
+              + requestPayloadAppended
+              + " is below minimum limit "
+              + minAppendSize);
+    }
+
+    // Step 5: Persist any newly confirmed chunk parts and update the byte offset.
+    // Drained chunks and trailing parts are committed to the manifest before rethrowing any
+    // stream interruption exception, ensuring maximum byte persistence.
     if (hasNewParts) {
-      long currentOffsetBeforeStream =
-          Math.max(
-              info.getOffset() != null ? info.getOffset() : 0L,
-              preparedStream.existingPartsTotalSize + preparedStream.prependedBytes);
-      long baseOffset = currentOffsetBeforeStream - preparedStream.prependedBytes;
-      long newOffset = baseOffset + appendResult.confirmedBytesAppended;
-      info.setOffset(newOffset);
-      upload.setOffset(newOffset);
+      info.setOffset(candidateOffset);
+      upload.setOffset(candidateOffset);
       info.setUploadPartKeys(new ArrayList<>(appendResult.allPartKeys));
       upload.setUploadPartKeys(new ArrayList<>(appendResult.allPartKeys));
 
@@ -497,26 +531,8 @@ public class S3StorageService extends AbstractUploadStorageService {
       throw appendResult.maxAppendSizeException;
     }
 
-    // Step 5: Validate minimum append size constraints if configured.
-    // Subtract prependedBytes so minAppendSize accurately measures payload transferred in THIS
-    // request. Per RUFH §4.1.4: "This limit does not apply to upload creation requests with no
-    // content, or to requests completing the upload by including the Upload-Complete: ?1 header
-    // field."
-    long currentOffset = info.getOffset() != null ? info.getOffset() : 0L;
-    boolean isCompletingOrEmpty =
-        !info.isUploadInProgress()
-            || (info.getLength() != null && currentOffset >= info.getLength());
-    long requestPayloadAppended =
-        Math.max(0L, appendResult.confirmedBytesAppended - preparedStream.prependedBytes);
-    if (minAppendSize != null && !isCompletingOrEmpty && requestPayloadAppended < minAppendSize) {
-      throw new MinAppendSizeNotMetException(
-          "Append payload size "
-              + requestPayloadAppended
-              + " is below minimum limit "
-              + minAppendSize);
-    }
-
     // Step 6: If all expected bytes are uploaded, compose all part chunks into final S3 object
+    long currentOffset = info.getOffset() != null ? info.getOffset() : 0L;
     if (isCompletingOrEmpty) {
       finalizeCompletedUploadIfFinished(info, objectKey, info.getId(), currentOffset);
       update(info);
@@ -689,11 +705,11 @@ public class S3StorageService extends AbstractUploadStorageService {
     // never resolving duplicates to parent objects, to protect completed parent files.
     String objectKey = getOwnS3ObjectKey(uploadInfo);
     long newOffset = Math.max(0L, uploadInfo.getOffset() - byteCount);
-    uploadInfo.setOffset(newOffset);
 
-    // If final completed object exists in S3, truncate it
+    // If final completed object exists in S3, truncate it before updating upload offset
     if (objectExists(objectKey)) {
       truncateCompletedObject(uploadInfo, objectKey, newOffset);
+      uploadInfo.setOffset(newOffset);
       update(uploadInfo);
       return;
     }
@@ -701,10 +717,12 @@ public class S3StorageService extends AbstractUploadStorageService {
     // If upload has manifest parts in uploadPartKeys, truncate backwards from parts
     if (uploadInfo.getUploadPartKeys() != null && !uploadInfo.getUploadPartKeys().isEmpty()) {
       truncateManifestParts(uploadInfo, byteCount);
+      uploadInfo.setOffset(newOffset);
       update(uploadInfo);
       return;
     }
 
+    uploadInfo.setOffset(newOffset);
     update(uploadInfo);
   }
 
@@ -768,6 +786,9 @@ public class S3StorageService extends AbstractUploadStorageService {
   public void setS3ConditionalWritesSupported(boolean supported) {
     if (this.checksumIndex != null) {
       this.checksumIndex.setS3ConditionalWritesSupported(supported);
+    }
+    if (this.uploadLockingService instanceof S3LockingService s3Locking) {
+      s3Locking.withS3ConditionalWritesSupported(supported);
     }
   }
 
@@ -925,7 +946,6 @@ public class S3StorageService extends AbstractUploadStorageService {
           IOUtils.copyLarge(lastPartStream, fos);
         }
         long tempPrepLength = tempPrepFile.length();
-        prependedBytes += tempPrepLength;
         prependedStream =
             new FileInputStream(tempPrepFile) {
               @Override
@@ -938,6 +958,9 @@ public class S3StorageService extends AbstractUploadStorageService {
               }
             };
         combinedStream = new SequenceInputStream(prependedStream, combinedStream);
+        // Only credit prependedBytes after stream wrapping succeeds so exceptions do not skew
+        // offset
+        prependedBytes += tempPrepLength;
         staleTailKeys.add(lastPartKey);
         existingPartsTotalSize -= tempPrepLength;
         existingPartKeys.remove(existingPartKeys.size() - 1);
@@ -1369,33 +1392,40 @@ public class S3StorageService extends AbstractUploadStorageService {
    *
    * @param uploadInfo The upload metadata containing the list of part keys
    * @param bytesToRemove The total number of bytes to strip from the tail
+   * @throws IOException If inspecting or truncating a manifest part fails
    */
-  private void truncateManifestParts(UploadInfo uploadInfo, long bytesToRemove) {
+  private void truncateManifestParts(UploadInfo uploadInfo, long bytesToRemove) throws IOException {
     List<String> partKeys = new ArrayList<>(uploadInfo.getUploadPartKeys());
     long bytesToRemoveRemaining = bytesToRemove;
 
-    while (!partKeys.isEmpty() && bytesToRemoveRemaining > 0) {
-      String lastKey = partKeys.get(partKeys.size() - 1);
-      try {
-        long partSize = getPartSize(lastKey);
+    try {
+      while (!partKeys.isEmpty() && bytesToRemoveRemaining > 0) {
+        String lastKey = partKeys.get(partKeys.size() - 1);
+        try {
+          long partSize = getPartSize(lastKey);
 
-        if (bytesToRemoveRemaining >= partSize) {
-          // The entire part is subsumed by the truncation; delete it and adjust remaining budget
-          deleteObjectQuietly(lastKey);
-          partKeys.remove(partKeys.size() - 1);
-          bytesToRemoveRemaining -= partSize;
-        } else {
-          // Only a fraction of this part is being removed; rewrite the remaining prefix
-          String newKey = truncateSinglePart(lastKey, partSize, bytesToRemoveRemaining);
-          partKeys.set(partKeys.size() - 1, newKey);
-          bytesToRemoveRemaining = 0;
+          if (bytesToRemoveRemaining >= partSize) {
+            // The entire part is subsumed by the truncation; delete it and adjust remaining budget
+            deleteObjectQuietly(lastKey);
+            partKeys.remove(partKeys.size() - 1);
+            bytesToRemoveRemaining -= partSize;
+          } else {
+            // Only a fraction of this part is being removed; rewrite the remaining prefix
+            String newKey = truncateSinglePart(lastKey, partSize, bytesToRemoveRemaining);
+            partKeys.set(partKeys.size() - 1, newKey);
+            bytesToRemoveRemaining = 0;
+          }
+        } catch (IOException e) {
+          log.debug("Error truncating manifest part {}: {}", lastKey, e.getMessage());
+          throw e;
+        } catch (Exception e) {
+          log.debug("Error truncating manifest part {}", lastKey, e);
+          throw new IOException("Error truncating manifest part " + lastKey, e);
         }
-      } catch (Exception e) {
-        log.debug("Error truncating manifest part {}", lastKey, e);
-        break;
       }
+    } finally {
+      uploadInfo.setUploadPartKeys(partKeys);
     }
-    uploadInfo.setUploadPartKeys(partKeys);
   }
 
   /**

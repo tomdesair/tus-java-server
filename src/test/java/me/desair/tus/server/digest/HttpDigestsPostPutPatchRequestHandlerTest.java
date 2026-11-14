@@ -2,6 +2,7 @@ package me.desair.tus.server.digest;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -322,5 +323,32 @@ public class HttpDigestsPostPutPatchRequestHandlerTest {
     assertThat(
         mockResp.getHeader(HttpHeader.REPR_DIGEST),
         is("sha-256=:LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=:"));
+  }
+
+  @Test
+  public void testSkipsDigestVerificationAndEmissionWhenStreamInterrupted() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/123");
+    request.addHeader(HttpHeader.CONTENT_DIGEST, "sha-256=:invalid-digest=:");
+    request.addHeader(HttpHeader.WANT_CONTENT_DIGEST, "sha-256");
+
+    TusServletRequest servletRequest = new TusServletRequest(request);
+    servletRequest.setStreamInterrupted(true);
+    MockHttpServletResponse mockResp = new MockHttpServletResponse();
+    TusServletResponse servletResponse = new TusServletResponse(mockResp);
+
+    // Must not throw UploadDigestMismatchException or emit Content-Digest on interrupted streams
+    handler.process(
+        HttpMethod.PATCH,
+        servletRequest,
+        servletResponse,
+        uploadStorageService,
+        uploadLockingService,
+        "owner",
+        null);
+
+    assertNull(mockResp.getHeader(HttpHeader.CONTENT_DIGEST));
+    verify(uploadStorageService, never()).update(any());
   }
 }

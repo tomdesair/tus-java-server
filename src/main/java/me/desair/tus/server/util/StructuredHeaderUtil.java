@@ -1,6 +1,8 @@
 package me.desair.tus.server.util;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang3.Strings;
 
@@ -89,7 +91,7 @@ public class StructuredHeaderUtil {
     }
 
     // Split dictionary members by comma respecting RFC 9651 quoted strings
-    java.util.List<String> members = splitMembers(headerValue);
+    List<String> members = splitMembers(headerValue);
     for (String member : members) {
       int eqIdx = member.indexOf('=');
       if (eqIdx > 0) {
@@ -182,14 +184,14 @@ public class StructuredHeaderUtil {
    * Parse a Structured Header List according to RFC 9651 Section 3.1.
    *
    * @param headerValue The list header value string
-   * @return Ordered {@link java.util.List} of member item strings
+   * @return Ordered {@link List} of member item strings
    */
-  public static java.util.List<String> parseList(String headerValue) {
-    java.util.List<String> list = new java.util.ArrayList<>();
+  public static List<String> parseList(String headerValue) {
+    List<String> list = new ArrayList<>();
     if (headerValue == null || headerValue.isBlank()) {
       return list;
     }
-    java.util.List<String> members = splitMembers(headerValue);
+    List<String> members = splitMembers(headerValue);
     for (String member : members) {
       list.add(sanitizeHeaderValue(unquoteString(member)));
     }
@@ -203,8 +205,8 @@ public class StructuredHeaderUtil {
    * @param headerValue The raw header string
    * @return List of trimmed member strings
    */
-  private static java.util.List<String> splitMembers(String headerValue) {
-    java.util.List<String> members = new java.util.ArrayList<>();
+  private static List<String> splitMembers(String headerValue) {
+    List<String> members = new ArrayList<>();
     StringBuilder current = new StringBuilder();
     boolean inQuotes = false;
     boolean escaped = false;

@@ -1,10 +1,12 @@
 package me.desair.tus.server.rufh.handler;
 
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.InputStream;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.HttpProblemDetails;
+import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -62,9 +64,19 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
     boolean hadLengthInitially = uploadInfo.hasLength();
     long initialOffset = uploadInfo.getOffset() != null ? uploadInfo.getOffset() : 0L;
     long contentLength = servletRequest.getContentLengthLong();
-    if (Boolean.TRUE.equals(uploadComplete) && !hadLengthInitially && contentLength >= 0) {
+    Long providedLength =
+        StructuredHeaderUtil.parseInteger(servletRequest.getHeader(HttpHeader.UPLOAD_LENGTH));
+    // Persist an explicitly supplied Upload-Length on a deferred-length upload before appending
+    // so progress and completion checks see the declared length; only fall back to Content-Length
+    // when Upload-Complete: ?1 completes a deferred upload without an Upload-Length header.
+    boolean derivedLengthFromComplete = false;
+    if (!hadLengthInitially && providedLength != null && providedLength >= 0) {
+      uploadInfo.setLength(providedLength);
+      uploadStorageService.update(uploadInfo);
+    } else if (Boolean.TRUE.equals(uploadComplete) && !hadLengthInitially && contentLength >= 0) {
       uploadInfo.setLength(initialOffset + contentLength);
       uploadStorageService.update(uploadInfo);
+      derivedLengthFromComplete = true;
     }
 
     InputStream is = servletRequest.getContentInputStream();
@@ -99,7 +111,7 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
           // If an un-interrupted network error aborted a deferred-length append that temporarily
           // set length from Content-Length + Upload-Complete: ?1, restore length to null before
           // rethrowing so the upload remains open with deferred length.
-          if (!hadLengthInitially && uploadInfo != null) {
+          if (derivedLengthFromComplete && uploadInfo != null) {
             uploadInfo.setLength(null);
             uploadStorageService.update(uploadInfo);
           }
@@ -117,6 +129,11 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
     boolean streamInterrupted =
         (interruptibleStream != null && interruptibleStream.isInterrupted())
             || (contentLength >= 0 && (uploadInfo.getOffset() - initialOffset) < contentLength);
+    if (streamInterrupted) {
+      // Mark the request as interrupted so Content-Digest validation preserves saved partial bytes
+      // instead of rejecting the truncated chunk.
+      servletRequest.setStreamInterrupted(true);
+    }
 
     // Per RUFH §4.2: An upload must only be marked complete if the stream completed uninterrupted.
     // If the stream was interrupted, we acknowledge partial progress and allow subsequent PATCH
@@ -125,11 +142,20 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
         !streamInterrupted
             && (Boolean.TRUE.equals(uploadComplete) || isUploadCompleted(uploadInfo));
     if (isFinished) {
+      Long minSize = uploadStorageService.getMinSize();
+      if (minSize != null && minSize > 0 && uploadInfo.getOffset() < minSize) {
+        throw new MinUploadLengthNotReachedException(
+            "The upload length ("
+                + uploadInfo.getOffset()
+                + ") is smaller than the minimum allowed size ("
+                + minSize
+                + ")");
+      }
       uploadInfo.setLength(uploadInfo.getOffset());
       uploadStorageService.update(uploadInfo);
-    } else if (streamInterrupted && !hadLengthInitially) {
-      // If the stream was interrupted on an upload whose length was deferred,
-      // reset length to null so that it remains open for subsequent resumes.
+    } else if (streamInterrupted && derivedLengthFromComplete) {
+      // If the stream was interrupted on a deferred-length upload whose length was only tentatively
+      // inferred from Content-Length, reset length to null so it remains open for resume.
       uploadInfo.setLength(null);
       uploadStorageService.update(uploadInfo);
     }
@@ -139,9 +165,9 @@ public class RufhAppendPatchRequestHandler extends AbstractRequestHandler {
         HttpHeader.UPLOAD_COMPLETE, StructuredHeaderUtil.formatBoolean(isFinished));
 
     if (isFinished) {
-      servletResponse.setStatus(200);
+      servletResponse.setStatus(HttpServletResponse.SC_OK);
     } else {
-      servletResponse.setStatus(204);
+      servletResponse.setStatus(HttpServletResponse.SC_NO_CONTENT);
     }
     return null;
   }

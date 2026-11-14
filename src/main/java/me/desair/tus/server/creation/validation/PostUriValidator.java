@@ -1,6 +1,8 @@
 package me.desair.tus.server.creation.validation;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import me.desair.tus.server.HttpMethod;
@@ -16,6 +18,7 @@ import me.desair.tus.server.util.Utils;
  */
 public class PostUriValidator implements RequestValidator {
 
+  private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
   private Pattern uploadUriPattern = null;
 
   @Override
@@ -41,11 +44,25 @@ public class PostUriValidator implements RequestValidator {
   }
 
   private Pattern getUploadUriPattern(UploadStorageService uploadStorageService) {
-    if (uploadUriPattern == null) {
-      // A POST request should match the full URI path
-      String path = Utils.extractUriPath(uploadStorageService.getUploadUri());
-      uploadUriPattern = Pattern.compile("^" + path + "$");
+    thisObjectLock.readLock().lock();
+    try {
+      if (uploadUriPattern != null) {
+        return uploadUriPattern;
+      }
+    } finally {
+      thisObjectLock.readLock().unlock();
     }
-    return uploadUriPattern;
+
+    thisObjectLock.writeLock().lock();
+    try {
+      if (uploadUriPattern == null) {
+        // A POST request should match the full URI path
+        String path = Utils.extractUriPath(uploadStorageService.getUploadUri());
+        uploadUriPattern = Pattern.compile("^" + path + "$");
+      }
+      return uploadUriPattern;
+    } finally {
+      thisObjectLock.writeLock().unlock();
+    }
   }
 }

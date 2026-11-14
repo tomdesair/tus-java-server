@@ -2,6 +2,7 @@ package me.desair.tus.server;
 
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -149,11 +150,11 @@ public class HttpProblemDetails {
    */
   public void writeTo(HttpServletResponse response) throws IOException {
     Objects.requireNonNull(response, "Response cannot be null");
-    byte[] jsonBytes = toJson().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    byte[] jsonBytes = toJson().getBytes(StandardCharsets.UTF_8);
     response.setStatus(status);
     response.setHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PROBLEM_JSON);
     response.setContentLength(jsonBytes.length);
-    response.getWriter().write(new String(jsonBytes, java.nio.charset.StandardCharsets.UTF_8));
+    response.getWriter().write(new String(jsonBytes, StandardCharsets.UTF_8));
     response.getWriter().flush();
   }
 

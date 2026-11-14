@@ -2,6 +2,7 @@ package me.desair.tus.server.checksum;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -112,7 +113,7 @@ public enum ChecksumAlgorithm {
    * @return The comma-separated list of digest algorithms
    */
   public static String getSupportedHttpDigestAlgorithmsHeaderValue() {
-    List<ChecksumAlgorithm> sorted = new java.util.ArrayList<>(Arrays.asList(values()));
+    List<ChecksumAlgorithm> sorted = new ArrayList<>(Arrays.asList(values()));
     sorted.sort((a, b) -> Integer.compare(b.getPriority(), a.getPriority()));
     StringBuilder sb = new StringBuilder();
     for (int i = 0; i < sorted.size(); i++) {
@@ -156,7 +157,7 @@ public enum ChecksumAlgorithm {
       return null;
     }
 
-    java.util.List<String> items = StructuredHeaderUtil.parseList(wantReprDigest);
+    List<String> items = StructuredHeaderUtil.parseList(wantReprDigest);
     double bestQ = -1.0;
     ChecksumAlgorithm bestAlg = null;
 

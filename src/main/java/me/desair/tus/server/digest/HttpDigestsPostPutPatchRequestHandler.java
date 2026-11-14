@@ -45,8 +45,13 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
       TusException exception)
       throws IOException, TusException {
 
-    // 1. Verify Content-Digest for the request chunk
-    verifyContentDigest(method, servletRequest);
+    boolean streamInterrupted = servletRequest != null && servletRequest.isStreamInterrupted();
+
+    // 1. Verify Content-Digest for the request chunk (skip when stream was interrupted early by
+    // lock contention so saved partial progress is preserved for resumption)
+    if (!streamInterrupted) {
+      verifyContentDigest(method, servletRequest);
+    }
 
     // Resolve UploadInfo using centralized helpers
     String uploadUri = Utils.getUploadUri(servletRequest, servletResponse);
@@ -60,15 +65,17 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
     }
 
     // 4. Provide Repr-Digest / Content-Digest response header if requested
-    String wantContentDigest = servletRequest.getHeader(HttpHeader.WANT_CONTENT_DIGEST);
-    if (StringUtils.isNotBlank(wantContentDigest)) {
-      ChecksumAlgorithm preferredAlg = ChecksumAlgorithm.selectBestAlgorithm(wantContentDigest);
-      if (preferredAlg != null) {
-        String calculatedVal = servletRequest.getCalculatedChecksum(preferredAlg);
-        if (calculatedVal != null) {
-          servletResponse.setHeader(
-              HttpHeader.CONTENT_DIGEST,
-              preferredAlg.getHttpDigestNames().get(0) + "=:" + calculatedVal + ":");
+    if (!streamInterrupted) {
+      String wantContentDigest = servletRequest.getHeader(HttpHeader.WANT_CONTENT_DIGEST);
+      if (StringUtils.isNotBlank(wantContentDigest)) {
+        ChecksumAlgorithm preferredAlg = ChecksumAlgorithm.selectBestAlgorithm(wantContentDigest);
+        if (preferredAlg != null) {
+          String calculatedVal = servletRequest.getCalculatedChecksum(preferredAlg);
+          if (calculatedVal != null) {
+            servletResponse.setHeader(
+                HttpHeader.CONTENT_DIGEST,
+                preferredAlg.getHttpDigestNames().get(0) + "=:" + calculatedVal + ":");
+          }
         }
       }
     }

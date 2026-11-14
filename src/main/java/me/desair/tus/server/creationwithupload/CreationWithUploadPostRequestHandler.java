@@ -78,6 +78,9 @@ public class CreationWithUploadPostRequestHandler extends AbstractRequestHandler
               // updates the offset in storage. We reload the updated UploadInfo and acknowledge the
               // partial upload rather than propagating an unhandled error to the servlet container.
               if (interruptibleStream.isInterrupted()) {
+                // Mark the request as interrupted so downstream checksum handlers keep the
+                // partial bytes persisted before contention interrupted the upload stream.
+                servletRequest.setStreamInterrupted(true);
                 UploadInfo refreshed = uploadStorageService.getUploadInfo(location, ownerKey);
                 if (refreshed != null) {
                   uploadInfo = refreshed;

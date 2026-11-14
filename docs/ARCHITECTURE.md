@@ -131,8 +131,7 @@ sequenceDiagram
         Handler-->>Service: Write RFC 7807 problem details / error status
     end
 
-    opt Upload Finished
-        Service->>Locking: cleanupLock(uploadId)
+    opt Upload Finished (FINAL or COMPLETE, not PARTIAL)
         Service->>Service: notifyUploadCompletionListeners(uploadInfo)
     end
 
@@ -169,7 +168,7 @@ For local filesystems and shared network volumes, `tus-java-server` provides two
 ### Cloud Storage Implementations
 
 - **`S3StorageService`**: Stores chunks as S3 objects and concatenates them using multipart upload copy or compose helpers (`S3ConcatenationService`).
-- **`AzureBlobStorageService`**: Stages chunks as uncommitted block blobs using `.part` temporary buffers and commits block lists atomically upon completion. Zero-copy concatenation is supported via `stageBlockFromUrl`.
+- **`AzureBlobStorageService`**: Stages chunks directly as uncommitted Azure Block Blob blocks and commits block lists atomically upon completion. Zero-copy concatenation is supported via `stageBlockFromUrl`.
 
 ### Storage Extensions & Helpers
 
@@ -252,7 +251,7 @@ classDiagram
         #isLockExpired(id)* boolean
         #evictExpiredLock(id)* boolean
         #writeStopSignal(id)* void
-        #checkStopSignals()* void
+        #checkStopSignalForUpload(id, inputStream)* void
     }
 
     class LeaseFileLockingService {
@@ -339,4 +338,4 @@ For detailed testing instructions, see [`docs/TESTING.md`](TESTING.md) and [`doc
 | **Add a Request Processing Action** | Create a class implementing `RequestHandler` (or extending `AbstractRequestHandler`). | Wrap streaming payload inputs in `InterruptibleInputStream`. Set headers on `TusServletResponse`. Register in `extension.initRequestHandlers()`. |
 | **Add a New Protocol Extension** | Create a package under `me.desair.tus.server.<extension>` and extend `AbstractTusExtension`. | Implement `getName()`, `isApplicable(method, version)`, `initValidators()`, and `initRequestHandlers()`. Register in `TusFileUploadService.initFeatures()`. |
 | **Add a Storage Backend** | Implement `UploadStorageService` (and optionally `UploadConcatenationService`). | Implement `terminateUpload` (free data, metadata `.info`, and delegate `cleanupLock`). If supporting deduplication, implement `deduplicate`, `dataExists`, and `deleteData`, follow read/write safety rules (`duplicatesUploadId`), and implement a `ChecksumIndex`. Implement offline unit tests (`*Test.java`) and Testcontainers integration tests (`IT*`). |
-| **Add a Distributed Locking Provider** | Extend `AbstractLeaseLockingService` and `AbstractLeaseLock`. | Implement the template hooks (`tryAcquireLock`, `isLockExpired`, `evictExpiredLock`, `writeStopSignal`, `checkStopSignals`). Inherit NTP safety margins and stream interruption automatically. |
+| **Add a Distributed Locking Provider** | Extend `AbstractLeaseLockingService` and `AbstractLeaseLock`. | Implement the template hooks (`tryAcquireLock`, `isLockExpired`, `evictExpiredLock`, `writeStopSignal`, `checkStopSignalForUpload`). Inherit NTP safety margins and stream interruption automatically. |

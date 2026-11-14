@@ -22,7 +22,7 @@ public class UuidUploadIdFactory extends UploadIdFactory {
   }
 
   @Override
-  public synchronized UploadId createId() {
+  public UploadId createId() {
     return new UploadId(UUID.randomUUID());
   }
 }

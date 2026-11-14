@@ -7,6 +7,7 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestValidator;
 import me.desair.tus.server.exception.InvalidUploadLengthException;
 import me.desair.tus.server.exception.MaxUploadLengthExceededException;
+import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -41,6 +42,13 @@ public class PatchUploadLengthValidator implements RequestValidator {
                 "The Upload-Length cannot be modified once set.");
           }
         } else {
+          if (uploadInfo.getOffset() != null && uploadLength < uploadInfo.getOffset()) {
+            throw new InvalidUploadLengthException(
+                "The Upload-Length "
+                    + uploadLength
+                    + " is smaller than the current offset "
+                    + uploadInfo.getOffset());
+          }
           // Verify max upload size
           if (uploadStorageService.getMaxUploadSize() > 0
               && uploadLength > uploadStorageService.getMaxUploadSize()) {
@@ -49,6 +57,15 @@ public class PatchUploadLengthValidator implements RequestValidator {
                     + uploadLength
                     + " exceeds the maximum allowed size of "
                     + uploadStorageService.getMaxUploadSize());
+          }
+          // Verify min upload size
+          Long minSize = uploadStorageService.getMinSize();
+          if (minSize != null && minSize > 0 && uploadLength < minSize) {
+            throw new MinUploadLengthNotReachedException(
+                "The Upload-Length "
+                    + uploadLength
+                    + " is smaller than the minimum allowed size of "
+                    + minSize);
           }
         }
       }

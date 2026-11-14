@@ -859,4 +859,56 @@ public class RufhCreationPostRequestHandlerTest {
     verify(mockLock).close();
     verify(lockingService).unregisterInputStream("/files/locked-id");
   }
+
+  @Test
+  public void testProcessCreationSetsLocationEarlyAndMarksStreamInterruptedOnContention()
+      throws Exception {
+    request.setMethod("POST");
+    request.setRequestURI("/files");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "100");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.setContent("partial payload".getBytes());
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("early-loc-id"));
+    info.setLength(100L);
+    info.setOffset(0L);
+
+    UploadInfo refreshed = new UploadInfo();
+    refreshed.setId(new UploadId("early-loc-id"));
+    refreshed.setLength(100L);
+    refreshed.setOffset(5L);
+
+    when(storageService.create(any(UploadInfo.class), nullable(String.class))).thenReturn(info);
+    when(storageService.getUploadInfo("/files/early-loc-id", "owner")).thenReturn(refreshed);
+
+    final String[] locationSeenDuringAppend = new String[1];
+    when(storageService.append(eq(info), any(InputStream.class)))
+        .thenAnswer(
+            inv -> {
+              // Verify Location header is already published before streaming begins
+              locationSeenDuringAppend[0] = response.getHeader(HttpHeader.LOCATION);
+              Object s = inv.getArgument(1);
+              if (s instanceof InterruptibleInputStream) {
+                ((InterruptibleInputStream) s).interrupt();
+              }
+              throw new IOException("Stream interrupted by contention");
+            });
+
+    TusServletRequest tusRequest = new TusServletRequest(request);
+    handler.process(
+        HttpMethod.POST,
+        tusRequest,
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertThat(locationSeenDuringAppend[0], is("/files/early-loc-id"));
+    assertThat(response.getHeader(HttpHeader.LOCATION), is("/files/early-loc-id"));
+    assertTrue(tusRequest.isStreamInterrupted());
+    assertThat(response.getStatus(), is(201));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("5"));
+  }
 }

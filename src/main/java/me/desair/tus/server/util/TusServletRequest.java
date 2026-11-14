@@ -35,6 +35,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
   private Map<String, List<String>> trailerHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
   private Set<String> processedBySet = new TreeSet<>();
   private Boolean hasContent = null;
+  private boolean streamInterrupted = false;
 
   /**
    * Constructs a request object wrapping the given request.
@@ -212,6 +213,26 @@ public class TusServletRequest extends HttpServletRequestWrapper {
 
   public void addProcessor(TusExtension processor) {
     processedBySet.add(processor.getName());
+  }
+
+  /**
+   * Returns true if the request payload stream was prematurely interrupted (e.g. due to lock
+   * contention or mid-stream truncation) after partial bytes were saved.
+   *
+   * @return true if the upload stream was interrupted before completion
+   */
+  public boolean isStreamInterrupted() {
+    return streamInterrupted;
+  }
+
+  /**
+   * Marks whether the request payload stream was prematurely interrupted after partial bytes were
+   * saved.
+   *
+   * @param streamInterrupted true if the upload stream was interrupted
+   */
+  public void setStreamInterrupted(boolean streamInterrupted) {
+    this.streamInterrupted = streamInterrupted;
   }
 
   private boolean hasChunkedTransferEncoding() {

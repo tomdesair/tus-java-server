@@ -252,16 +252,15 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
       return false;
     }
     try {
-      if (Boolean.TRUE.equals(lockBlob.exists())) {
-        BlobProperties props = lockBlob.getProperties();
-        // Check lease state before deletion: if actively held by another thread or node,
-        // do not attempt deletion to avoid lease conflict errors.
-        if (props.getLeaseState() != null
-            && !Strings.CS.equals(props.getLeaseState().toString(), "leased")) {
-          lockBlob.deleteIfExists();
-          log.debug("Cleaned up Azure lock blob {}", lockBlob.getBlobName());
-          return true;
-        }
+      // Skip a separate exists() call: getProperties() throws BlobStorageException (404) if absent.
+      BlobProperties props = lockBlob.getProperties();
+      // Check lease state before deletion: if actively held by another thread or node,
+      // do not attempt deletion to avoid lease conflict errors.
+      if (props.getLeaseState() != null
+          && !Strings.CS.equals(props.getLeaseState().toString(), "leased")) {
+        lockBlob.deleteIfExists();
+        log.debug("Cleaned up Azure lock blob {}", lockBlob.getBlobName());
+        return true;
       }
     } catch (Exception e) {
       log.debug(

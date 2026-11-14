@@ -32,6 +32,12 @@ public class ChecksumRequestHandler extends AbstractRequestHandler {
       String ownerKey)
       throws IOException, TusException {
 
+    // Skip per-chunk checksum validation when the stream was intentionally interrupted by lock
+    // contention so partial bytes saved before interruption are not rolled back.
+    if (servletRequest.isStreamInterrupted()) {
+      return;
+    }
+
     String uploadChecksumHeader = servletRequest.getHeader(HttpHeader.UPLOAD_CHECKSUM);
 
     if (servletRequest.hasCalculatedChecksum() && StringUtils.isNotBlank(uploadChecksumHeader)) {

@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -52,6 +53,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
+import me.desair.tus.server.exception.MinAppendSizeNotMetException;
 import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.exception.UploadNotFoundException;
 import me.desair.tus.server.upload.UploadId;
@@ -2590,8 +2592,10 @@ public class S3StorageServiceTest {
                 (PutObjectArgs args) ->
                     args != null && "metadata/trunc-put-err.part.00001".equals(args.object())));
 
-    storageService.removeLastNumberOfBytes(info, 3L);
-    assertEquals(7L, info.getOffset().longValue());
+    IOException thrown =
+        assertThrows(IOException.class, () -> storageService.removeLastNumberOfBytes(info, 3L));
+    assertTrue(thrown.getMessage().contains("metadata/trunc-put-err.part.00001"));
+    assertEquals(10L, info.getOffset().longValue());
   }
 
   @Test
@@ -3436,6 +3440,47 @@ public class S3StorageServiceTest {
   @Test
   public void testGetUploadLockingServiceReturnsConfiguredInstance() {
     assertNotNull(storageService.getUploadLockingService());
+  }
+
+  @Test
+  public void testAppendMinAppendSizeNotMetDeletesNewPartsWithoutMutatingMetadataOrOffset()
+      throws Exception {
+    storageService.setMinAppendSize(100L);
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("s3-min-append"));
+    info.setOffset(0L);
+    info.setLength(1000L);
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && "metadata/s3-min-append.info".equals(a.object()))))
+        .thenReturn(mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes()));
+
+    assertThrows(
+        MinAppendSizeNotMetException.class,
+        () -> storageService.append(info, new ByteArrayInputStream(new byte[10])));
+
+    assertEquals(0L, info.getOffset().longValue());
+    assertTrue(info.getUploadPartKeys() == null || info.getUploadPartKeys().isEmpty());
+    // Newly uploaded temporary part object must be cleaned up and .info metadata must stay
+    // untouched
+    verify(minioClient)
+        .removeObject(argThat((RemoveObjectArgs a) -> a != null && a.object().contains(".part.")));
+    verify(minioClient, never())
+        .putObject(argThat((PutObjectArgs a) -> a != null && a.object().endsWith(".info")));
+  }
+
+  @Test
+  public void testSetS3ConditionalWritesSupportedForwardsToS3LockingService() {
+    S3LockingService mockS3Locking = mock(S3LockingService.class);
+    storageService.setUploadLockingService(mockS3Locking);
+
+    storageService.setS3ConditionalWritesSupported(false);
+    verify(mockS3Locking).withS3ConditionalWritesSupported(false);
+
+    storageService.withS3ConditionalWritesSupported(true);
+    verify(mockS3Locking).withS3ConditionalWritesSupported(true);
   }
 
   private GetObjectResponse mockGetObjectResponse(byte[] bytes) {

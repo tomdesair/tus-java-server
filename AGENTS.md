@@ -136,7 +136,7 @@ To avoid duplicate test code and ensure all protocol integration tests run consi
 
 ### 18. Efficient Batch Test & Code Coverage Verification Strategy
 To maximize developer velocity and minimize test execution overhead when increasing code coverage:
-- **Batch Test Updates**: When addressing missing line/branch coverage reported by JaCoCo, batch multiple test additions across all relevant test classes (`S3StorageServiceTest`, `S3LockingServiceTest`, `S3UploadLockTest`, `S3ConcatenationServiceTest`, `UploadInfoSerializerTest`) at once rather than running test-by-test iterations.
+- **Batch Test Updates**: When addressing missing line/branch coverage reported by JaCoCo, batch multiple test additions across all relevant test classes (`S3StorageServiceTest`, `S3LockingServiceTest`, `S3UploadLockTest`, `S3ConcatenationServiceTest`, `UploadInfoJsonSerializerTest`) at once rather than running test-by-test iterations.
 - **Fast Unit Test Execution**: Verify all local unit tests rapidly using target wildcard patterns (e.g. `mvn test -Dtest="S3*" -q` or `mvn test -Dtest="*Test" -q`). Unit tests run in under 2 seconds without launching test containers.
 - **Single Verification Gate**: Only run the python coverage script (`python3 scripts/check-coverage.py --per-file-limit 90`) after all batched unit test updates have been applied and locally validated.
 
@@ -184,12 +184,13 @@ To maintain a clear separation between fast, offline unit tests and containerize
 - Do NOT use legacy `java.io.File.createTempFile(...)`. On POSIX systems, it creates files with overly permissive default umask permissions (often world-readable or group-readable, CWE-378 / SonarQube java:S5443).
 - Always use `java.nio.file.Files.createTempFile(...)` (or `Utils.createTempSiblingPath(...)` / `Utils.createTempSibling(...)`), which creates temporary files with restricted owner-only permissions (`rw-------` / `0600`) by default.
 
-### 23. Thread Safety: Prevent Volatile Class Variables & Use ReentrantReadWriteLock
+### 23. Thread Safety: Prevent Volatile Class Variables & Use ReentrantReadWriteLock or Synchronized
 - Do NOT use `volatile` class variables for mutable state, lazy compilation, or feature flags. `volatile` references on complex objects or mutable fields can trigger static analysis warnings (e.g. SonarQube java:S3077) and cannot guard multi-step compound actions, non-atomic transitions, or lazy initializations.
-- Guard concurrent mutable state using a `ReadWriteLock` (`ReentrantReadWriteLock`).
-- Consistently name the lock field `private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();` in every class for pattern consistency across the codebase.
-- Use `thisObjectLock.readLock()` for fast, concurrent reads, and `thisObjectLock.writeLock()` for state mutations, lazy pattern compilation, or feature capability degradation.
-- Always acquire and release locks using `try ... finally` blocks (e.g. `thisObjectLock.readLock().lock(); try { return field; } finally { thisObjectLock.readLock().unlock(); }`).
+- When a class requires both concurrent reads and exclusive writes, guard mutable state using a `ReadWriteLock` (`ReentrantReadWriteLock`):
+  - Consistently name the lock field `private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();` in every class for pattern consistency across the codebase.
+  - Use `thisObjectLock.readLock()` for fast, concurrent reads, and `thisObjectLock.writeLock()` for state mutations, lazy pattern compilation, or feature capability degradation.
+  - Always acquire and release locks using `try ... finally` blocks (e.g. `thisObjectLock.readLock().lock(); try { return field; } finally { thisObjectLock.readLock().unlock(); }`).
+- If a class only needs exclusive mutual exclusion (i.e. only `writeLock` semantics are used and no `readLock` is needed in the class), prefer the simpler `synchronized` keyword on the method or block rather than introducing a `ReadWriteLock`.
 
 ### 24. UploadLock AutoCloseable Lifecycle & Try-With-Resources
 - `UploadLock` implements `java.lang.AutoCloseable`.
@@ -211,7 +212,7 @@ When a new draft revision of the IETF Resumable Uploads specification (`draft-ie
 - Identify any changed header names, structured field syntax changes, response status codes, or problem details schemas.
 
 ### 2. Spec-Driven Compliance Test Maintenance
-Compliance unit tests located in `src/test/java/me/desair/tus.server.rufh/` (`RufhProtocolCreationTest`, `RufhProtocolAppendTest`, `RufhProtocolHeadTest`, `RufhProtocolCancellationTest`, `HttpProblemDetailsTest`) contain verbatim quotes from the specification in their method Javadocs.
+Compliance unit tests located in `src/test/java/me/desair/tus/server/rufh/` (`RufhProtocolCreationTest`, `RufhProtocolAppendTest`, `RufhProtocolHeadTest`, `RufhProtocolCancellationTest`, `HttpProblemDetailsTest`) contain verbatim quotes from the specification in their method Javadocs.
 - **Workflow**:
   1. Update the verbatim spec quotes in test method Javadocs to reflect the new draft revision text.
   2. Update test assertions and expected header/status formats.

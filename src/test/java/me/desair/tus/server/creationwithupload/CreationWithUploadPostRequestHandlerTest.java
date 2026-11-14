@@ -184,6 +184,7 @@ public class CreationWithUploadPostRequestHandlerTest {
     handler.process(
         HttpMethod.POST, request, response, storageService, lockingService, "owner", null);
 
+    verify(request).setStreamInterrupted(true);
     verify(response).setHeader(HttpHeader.UPLOAD_OFFSET, "50");
   }
 

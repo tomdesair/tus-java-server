@@ -6,6 +6,8 @@ import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import me.desair.tus.server.util.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +30,8 @@ public abstract class AbstractLeaseLock implements UploadLock {
   private final UploadId uploadId;
   private final Map<UploadId, InputStream> activeInputStreams;
   private final ScheduledFuture<?> heartbeatTask;
+  private final ReadWriteLock thisObjectLock = new ReentrantReadWriteLock();
+  private boolean released = false;
 
   /**
    * Constructs an active lock and schedules the background heartbeat renewal task using the shared
@@ -79,11 +83,21 @@ public abstract class AbstractLeaseLock implements UploadLock {
   }
 
   public long getExpiresAt() {
-    return leaseData.getExpiresAt();
+    thisObjectLock.readLock().lock();
+    try {
+      return leaseData.getExpiresAt();
+    } finally {
+      thisObjectLock.readLock().unlock();
+    }
   }
 
   public void setExpiresAt(long expiresAt) {
-    leaseData.setExpiresAt(expiresAt);
+    thisObjectLock.writeLock().lock();
+    try {
+      leaseData.setExpiresAt(expiresAt);
+    } finally {
+      thisObjectLock.writeLock().unlock();
+    }
   }
 
   public long getAcquiredAt() {
@@ -102,52 +116,72 @@ public abstract class AbstractLeaseLock implements UploadLock {
 
   @Override
   public void close() {
-    // 1. Cancel heartbeat task cleanly
+    // 1. Cancel heartbeat task before waiting on the write lock so any blocked renewal wakes up
+    // immediately instead of holding up lock release.
     if (heartbeatTask != null) {
       heartbeatTask.cancel(true);
     }
 
-    // 2. Remove active stream registration from JVM heap
-    if (activeInputStreams != null && uploadId != null) {
-      activeInputStreams.remove(uploadId);
-    }
+    thisObjectLock.writeLock().lock();
+    try {
+      if (released) {
+        return;
+      }
+      released = true;
 
-    // 3. Release backend storage resources
-    releaseLockResource();
+      // 2. Remove active stream registration from JVM heap
+      if (activeInputStreams != null && uploadId != null) {
+        activeInputStreams.remove(uploadId);
+      }
+
+      // 3. Release backend storage resources only after any in-flight renewLease() has finished
+      releaseLockResource();
+    } finally {
+      thisObjectLock.writeLock().unlock();
+    }
   }
 
   /**
    * Renew the lock lease by advancing the expiration timestamp and persisting the updated metadata.
    */
   public void renewLease() {
-    long oldExpiresAt = leaseData.getExpiresAt();
-    long candidateExpiresAt = System.currentTimeMillis() + leaseData.getLeaseDurationMs();
+    thisObjectLock.writeLock().lock();
     try {
-      leaseData.setExpiresAt(candidateExpiresAt);
-      doRenewLease();
-    } catch (IllegalStateException e) {
-      leaseData.setExpiresAt(oldExpiresAt);
-      // Ownership lost (e.g. lease taken over by another node): abort immediately
-      log.info(
-          "Aborting active input stream for upload ID {} as lock was taken over: {}",
-          uploadId,
-          e.getMessage());
-      abortActiveStreamAndHeartbeat();
-    } catch (Exception e) {
-      leaseData.setExpiresAt(oldExpiresAt);
-      // Transient failure (e.g. network timeout). Only abort if previous lease actually expired.
-      if (System.currentTimeMillis() >= oldExpiresAt) {
-        log.warn(
-            "Lease for upload ID {} expired after renewal failure; aborting active stream",
-            uploadId,
-            e);
-        abortActiveStreamAndHeartbeat();
-      } else {
-        log.warn(
-            "Transient failure renewing lease for upload ID {} (will retry on next tick): {}",
+      // Do not overwrite or recreate lock objects once close() has released the lock.
+      if (released) {
+        return;
+      }
+      long oldExpiresAt = leaseData.getExpiresAt();
+      long candidateExpiresAt = System.currentTimeMillis() + leaseData.getLeaseDurationMs();
+      try {
+        leaseData.setExpiresAt(candidateExpiresAt);
+        doRenewLease();
+      } catch (IllegalStateException e) {
+        leaseData.setExpiresAt(oldExpiresAt);
+        // Ownership lost (e.g. lease taken over by another node): abort immediately
+        log.info(
+            "Aborting active input stream for upload ID {} as lock was taken over: {}",
             uploadId,
             e.getMessage());
+        abortActiveStreamAndHeartbeat();
+      } catch (Exception e) {
+        leaseData.setExpiresAt(oldExpiresAt);
+        // Transient failure (e.g. network timeout). Only abort if previous lease actually expired.
+        if (System.currentTimeMillis() >= oldExpiresAt) {
+          log.warn(
+              "Lease for upload ID {} expired after renewal failure; aborting active stream",
+              uploadId,
+              e);
+          abortActiveStreamAndHeartbeat();
+        } else {
+          log.warn(
+              "Transient failure renewing lease for upload ID {} (will retry on next tick): {}",
+              uploadId,
+              e.getMessage());
+        }
       }
+    } finally {
+      thisObjectLock.writeLock().unlock();
     }
   }
 
