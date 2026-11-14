@@ -557,4 +557,15 @@ public class AzureBlobUploadLockTest {
     lock.release();
     assertNotNull(lock);
   }
+
+  @Test
+  public void testThreeArgConstructorInitializesAndSkipsReleaseWhenMarkedDeleted()
+      throws Exception {
+    try (AzureBlobUploadLock lock =
+        new AzureBlobUploadLock(leaseClient, lockBlob, "/test/upload/3arg")) {
+      assertEquals("/test/upload/3arg", lock.getUploadUri());
+      // Marking the blob deleted skips Azure SDK delete/release network calls during close().
+      lock.markBlobDeleted();
+    }
+  }
 }

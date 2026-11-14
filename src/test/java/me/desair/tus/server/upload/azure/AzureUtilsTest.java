@@ -2,6 +2,8 @@ package me.desair.tus.server.upload.azure;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -19,6 +21,7 @@ import com.azure.storage.blob.BlobContainerClientBuilder;
 import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.specialized.BlockBlobClient;
+import java.time.OffsetDateTime;
 import org.junit.Test;
 import reactor.core.publisher.Mono;
 
@@ -189,5 +192,19 @@ public class AzureUtilsTest {
     when(response.getHeaders()).thenThrow(new RuntimeException("Simulated error code failure"));
     BlobStorageException ex = new BlobStorageException("Test exception", response, null);
     assertEquals(AzureErrorType.UNKNOWN, AzureUtils.parseErrorResponse(ex));
+  }
+
+  @Test
+  public void testCalculateExpirationCutoff() {
+    assertNull(AzureUtils.calculateExpirationCutoff(null));
+    assertNull(AzureUtils.calculateExpirationCutoff(0L));
+    assertNull(AzureUtils.calculateExpirationCutoff(-100L));
+
+    OffsetDateTime shortCutoff = AzureUtils.calculateExpirationCutoff(1000L);
+    assertNotNull(shortCutoff);
+
+    OffsetDateTime longCutoff = AzureUtils.calculateExpirationCutoff(10_000L);
+    assertNotNull(longCutoff);
+    assertTrue(longCutoff.isBefore(OffsetDateTime.now()));
   }
 }

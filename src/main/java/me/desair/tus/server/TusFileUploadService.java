@@ -1285,22 +1285,12 @@ public class TusFileUploadService implements Closeable {
     return service;
   }
 
-  private void closeQuietly(UploadStorageService storageService) {
-    if (storageService != null) {
+  private void closeQuietly(Closeable service) {
+    if (service != null) {
       try {
-        storageService.close();
+        service.close();
       } catch (Exception e) {
-        log.warn("Error closing replaced storage service instance: {}", e.getMessage());
-      }
-    }
-  }
-
-  private void closeQuietly(UploadLockingService lockingService) {
-    if (lockingService != null) {
-      try {
-        lockingService.close();
-      } catch (Exception e) {
-        log.warn("Error closing replaced locking service instance: {}", e.getMessage());
+        log.warn("Error closing replaced service instance: {}", e.getMessage());
       }
     }
   }

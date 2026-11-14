@@ -1418,9 +1418,6 @@ public class S3StorageService extends AbstractUploadStorageService {
         } catch (IOException e) {
           log.debug("Error truncating manifest part {}: {}", lastKey, e.getMessage());
           throw e;
-        } catch (Exception e) {
-          log.debug("Error truncating manifest part {}", lastKey, e);
-          throw new IOException("Error truncating manifest part " + lastKey, e);
         }
       }
     } finally {

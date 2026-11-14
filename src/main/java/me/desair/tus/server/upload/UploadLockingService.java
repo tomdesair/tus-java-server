@@ -1,5 +1,6 @@
 package me.desair.tus.server.upload;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import me.desair.tus.server.exception.TusException;
@@ -8,7 +9,7 @@ import me.desair.tus.server.exception.TusException;
  * Service interface that can lock a specific upload so that it cannot be modified by other
  * requests/threads.
  */
-public interface UploadLockingService {
+public interface UploadLockingService extends Closeable {
 
   /**
    * If the given URI represents a valid upload, lock that upload for processing.
@@ -96,6 +97,7 @@ public interface UploadLockingService {
    *
    * @throws IOException If closing fails
    */
+  @Override
   default void close() throws IOException {
     // No-op by default for backwards compatibility
   }

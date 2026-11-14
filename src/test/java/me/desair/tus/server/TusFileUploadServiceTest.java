@@ -1223,4 +1223,32 @@ public class TusFileUploadServiceTest {
     }
     verify(mockStorage).close();
   }
+
+  @Test
+  public void testCloseQuietlySwallowsReplacementCloseExceptionsAndClosesCachedService()
+      throws Exception {
+    UploadStorageService storage1 = mock(UploadStorageService.class);
+    UploadStorageService storage2 = mock(UploadStorageService.class);
+    UploadLockingService locking1 = mock(UploadLockingService.class);
+    UploadLockingService locking2 = mock(UploadLockingService.class);
+
+    doThrow(new IOException("Simulated storage close failure")).when(storage1).close();
+    doThrow(new IOException("Simulated locking close failure")).when(locking1).close();
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadStorageService(storage1)
+            .withUploadLockingService(locking1);
+
+    service.withUploadStorageService(storage2);
+    verify(storage1).close();
+
+    service.withUploadLockingService(locking2);
+    verify(locking1).close();
+
+    service.withThreadLocalCache(true);
+    service.close();
+    verify(storage2).close();
+    verify(locking2).close();
+  }
 }

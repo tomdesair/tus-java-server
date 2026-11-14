@@ -36,6 +36,7 @@ import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.concatenation.VirtualConcatenationService;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -172,11 +173,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
     if (this.ownsUploadLockingService
         && this.uploadLockingService != null
         && this.uploadLockingService != target) {
-      try {
-        this.uploadLockingService.close();
-      } catch (IOException e) {
-        log.warn("Error closing replaced upload locking service: {}", e.getMessage());
-      }
+      IOUtils.closeQuietly(this.uploadLockingService);
     }
     this.uploadLockingService = target;
     this.ownsUploadLockingService = false;
@@ -188,6 +185,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   @Override
   protected void cleanupOnClose() throws IOException {
     try {
+      super.cleanupOnClose();
       if (this.ownsUploadLockingService && this.uploadLockingService != null) {
         this.uploadLockingService.close();
       }

@@ -1,5 +1,6 @@
 package me.desair.tus.server.upload;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -72,7 +73,7 @@ import org.apache.commons.io.IOUtils;
  *       child-owned storage.
  * </ul>
  */
-public interface UploadStorageService {
+public interface UploadStorageService extends Closeable {
 
   /**
    * Method to retrieve the upload info by its upload URL.
@@ -554,6 +555,7 @@ public interface UploadStorageService {
    *
    * @throws IOException If closing fails
    */
+  @Override
   default void close() throws IOException {
     // No-op by default for backward compatibility
   }

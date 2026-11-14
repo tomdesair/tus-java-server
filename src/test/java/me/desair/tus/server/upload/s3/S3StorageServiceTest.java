@@ -56,6 +56,7 @@ import me.desair.tus.server.exception.MaxAppendSizeExceededException;
 import me.desair.tus.server.exception.MinAppendSizeNotMetException;
 import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -3481,6 +3482,32 @@ public class S3StorageServiceTest {
 
     storageService.withS3ConditionalWritesSupported(true);
     verify(mockS3Locking).withS3ConditionalWritesSupported(true);
+  }
+
+  @Test
+  public void testCreateWithExpirationPresetPartsAndGetUploadUri() {
+    TimeBasedUploadIdFactory customFactory = new TimeBasedUploadIdFactory();
+    customFactory.setUploadUri("/custom/s3");
+    storageService.setIdFactory(customFactory);
+    storageService.setUploadExpirationPeriod(3600000L);
+
+    assertEquals("/custom/s3", storageService.getUploadUri());
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L);
+    info.setOffset(2L);
+    info.setUploadPartKeys(new ArrayList<>(Arrays.asList("part-existing")));
+
+    UploadInfo created = null;
+    try {
+      created = storageService.create(info, "owner-exp");
+    } catch (Exception e) {
+      fail("Unexpected exception: " + e.getMessage());
+    }
+    assertNotNull(created);
+    assertNotNull(created.getExpirationTimestamp());
+    assertEquals(Long.valueOf(2L), created.getOffset());
+    assertEquals(1, created.getUploadPartKeys().size());
   }
 
   private GetObjectResponse mockGetObjectResponse(byte[] bytes) {

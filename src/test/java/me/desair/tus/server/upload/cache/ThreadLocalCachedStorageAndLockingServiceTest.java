@@ -2,11 +2,14 @@ package me.desair.tus.server.upload.cache;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,6 +21,7 @@ import java.io.OutputStream;
 import java.time.Duration;
 import java.util.UUID;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
@@ -349,5 +353,39 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
     doThrow(new IOException("locking close failed")).when(mockLocking).close();
     assertThrows(IOException.class, () -> service.close());
     verify(mockStorage, times(1)).close();
+  }
+
+  @Test
+  public void testJsonSerializationDeduplicateSetLockingAndNullDelegateLock() throws Exception {
+    service.setJsonSerializationEnabled(true);
+    verify(mockStorage, times(1)).setJsonSerializationEnabled(true);
+
+    when(mockStorage.isJsonSerializationEnabled()).thenReturn(true);
+    assertTrue(service.isJsonSerializationEnabled());
+
+    service.setUploadLockingService(mockLocking);
+    verify(mockStorage, times(1)).setUploadLockingService(mockLocking);
+
+    UploadId id = new UploadId(UUID.randomUUID().toString());
+    UploadInfo input = new UploadInfo();
+    input.setId(id);
+    UploadInfo deduped = new UploadInfo();
+    deduped.setId(id);
+    deduped.setDuplicatesUploadId(new UploadId(UUID.randomUUID().toString()));
+    ChecksumKey key = ChecksumKey.of("abcdef", ChecksumAlgorithm.SHA256);
+
+    when(mockStorage.deduplicate(input, key)).thenReturn(deduped).thenReturn(null);
+    assertSame(deduped, service.deduplicate(input, key));
+    // Non-null deduplication result must populate the ThreadLocal cache
+    assertSame(deduped, service.getUploadInfo(id));
+    verify(mockStorage, never()).getUploadInfo(id);
+
+    assertNull(service.deduplicate(input, key));
+
+    ThreadLocalCachedStorageAndLockingService.CachedLock nullDelegateLock =
+        service.new CachedLock(null);
+    assertNull(nullDelegateLock.getUploadUri());
+    nullDelegateLock.release();
+    nullDelegateLock.close();
   }
 }

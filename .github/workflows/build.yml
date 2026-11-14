@@ -50,6 +50,10 @@ jobs:
       - name: Build with Maven
         run: mvn install
 
+      - if: ${{ runner.os == 'Linux' }}
+        name: Enforce Code Coverage Threshold
+        run: python3 scripts/check-coverage.py --per-file-limit 90
+
       # Uploads the full dependency graph to GitHub to improve the quality of Dependabot alerts this repository can receive
       - if: ${{ matrix.upload-dependency-graph && github.event_name != 'pull_request' }}
         name: Update dependency graph
