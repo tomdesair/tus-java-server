@@ -193,6 +193,21 @@ public class CoverageGapTest {
     DummyAbstractExtension ext = new DummyAbstractExtension();
     ext.handleError(HttpMethod.POST, null, null, null, null);
     assertThat(ext.handleError8Called, is(true));
+
+    // Verify 5-arg validate delegates cleanly
+    ext.validate(
+        HttpMethod.POST, new org.springframework.mock.web.MockHttpServletRequest(), null, "owner");
+
+    // Verify 5-arg process delegates cleanly
+    org.springframework.mock.web.MockHttpServletResponse response =
+        new org.springframework.mock.web.MockHttpServletResponse();
+    ext.process(
+        HttpMethod.POST,
+        new TusServletRequest(new org.springframework.mock.web.MockHttpServletRequest()),
+        new TusServletResponse(response),
+        null,
+        "owner");
+    assertThat(ext.getName(), is("dummy"));
   }
 
   @Test

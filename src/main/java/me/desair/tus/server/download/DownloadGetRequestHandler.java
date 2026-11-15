@@ -9,12 +9,12 @@ import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
-import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
+import me.desair.tus.server.util.Utils;
 
 /** Send the uploaded bytes of finished uploads. */
 public class DownloadGetRequestHandler extends AbstractRequestHandler {
@@ -51,7 +51,9 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
 
     servletResponse.setHeader(HttpHeader.CONTENT_LENGTH, Objects.toString(info.getLength()));
 
-    String sanitizedFileName = sanitizeFileName(info.getFileName(), info.getId());
+    // info.getFileName() is pre-sanitized, but passing through Utils.sanitizeFileName ensures
+    // idempotent directory traversal protection before generating Content-Disposition headers
+    String sanitizedFileName = Utils.sanitizeFileName(info.getFileName(), info.getId());
     servletResponse.setHeader(
         HttpHeader.CONTENT_DISPOSITION,
         String.format(
@@ -66,27 +68,5 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
     servletResponse.setStatus(HttpServletResponse.SC_OK);
 
     uploadStorageService.copyUploadTo(info, servletResponse.getOutputStream());
-  }
-
-  /**
-   * Sanitizes the given filename to prevent directory traversal and header corruption attacks on
-   * clients consuming the Content-Disposition header.
-   */
-  private String sanitizeFileName(String fileName, UploadId uploadId) {
-    if (fileName == null || fileName.trim().isEmpty()) {
-      return uploadId != null ? uploadId.toString() : "download";
-    }
-    // Prevent client-side path traversal: strip directory paths across Unix and Windows separators
-    String sanitized = fileName.trim();
-    int lastSlash = Math.max(sanitized.lastIndexOf('/'), sanitized.lastIndexOf('\\'));
-    if (lastSlash >= 0) {
-      sanitized = sanitized.substring(lastSlash + 1).trim();
-    }
-    // Remove directory traversal sequences (..)
-    sanitized = sanitized.replace("..", "").trim();
-    if (sanitized.isEmpty()) {
-      return uploadId != null ? uploadId.toString() : "download";
-    }
-    return sanitized;
   }
 }

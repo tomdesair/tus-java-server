@@ -339,20 +339,27 @@ public class UploadInfo implements Serializable {
 
   /**
    * Try to guess the filename of the uploaded data. If we cannot guess the name we fall back to the
-   * ID. <br>
-   * NOTE: This is only a guess, there are no guarantees that the return value is correct
+   * ID (or {@code "download"} if the ID is not set).
    *
-   * @return A potential file name
+   * <p>The returned filename is sanitized via {@link Utils#sanitizeFileName(String, UploadId)} to
+   * strip directory paths and path traversal sequences.
+   *
+   * <p>NOTE: This is only a guess, there are no guarantees that the return value is correct.
+   *
+   * @return A sanitized potential file name (never null or blank)
    */
   public String getFileName() {
     Map<String, String> metadata = getMetadata();
     for (String fileNameKey : fileNameKeys) {
       if (metadata.containsKey(fileNameKey)) {
-        return metadata.get(fileNameKey);
+        // Sanitize client-supplied metadata against directory traversal (../, ..\) and null-bytes
+        // to protect downstream callers who persist uploaded files using getFileName()
+        return Utils.sanitizeFileName(metadata.get(fileNameKey), getId());
       }
     }
 
-    return getId().toString();
+    // Safely fall back to the upload ID (or "download" if ID is null) without throwing NPE
+    return Utils.sanitizeFileName(null, getId());
   }
 
   /**

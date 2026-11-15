@@ -35,6 +35,7 @@ import java.util.concurrent.TimeUnit;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.upload.NoOpUploadLockingService;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.apache.commons.io.FileUtils;
@@ -986,6 +987,23 @@ public class UtilsTest {
     assertEquals("locks/", Utils.sanitizePrefix("/locks/"));
     assertEquals("a/b/c/", Utils.sanitizePrefix("/a/b/c"));
     assertEquals("custom/", Utils.sanitizePrefix("/custom///"));
+  }
+
+  @Test
+  public void testSanitizeFileName() {
+    UploadId fallbackId = new UploadId("id-1");
+    assertEquals("download", Utils.sanitizeFileName(null));
+    assertEquals("download", Utils.sanitizeFileName(""));
+    assertEquals("id-1", Utils.sanitizeFileName("   ", fallbackId));
+    assertEquals("passwd", Utils.sanitizeFileName("../../etc/passwd", fallbackId));
+    assertEquals("secret.pdf", Utils.sanitizeFileName("C:\\Users\\test\\..\\secret.pdf"));
+    assertEquals("id-1", Utils.sanitizeFileName("../..", fallbackId));
+    assertEquals("download", Utils.sanitizeFileName("../..", null));
+    assertEquals("id-1", Utils.sanitizeFileName(".", fallbackId));
+    assertEquals("download", Utils.sanitizeFileName(".", null));
+    assertEquals("id-1", Utils.sanitizeFileName(".../...", fallbackId));
+    assertEquals("filename.txt", Utils.sanitizeFileName("file\0name.txt"));
+    assertEquals("normal-file.txt", Utils.sanitizeFileName("normal-file.txt", fallbackId));
   }
 
   @Test

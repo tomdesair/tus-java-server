@@ -47,6 +47,7 @@ See [docs/UPGRADING.md](docs/UPGRADING.md) for details and code examples.
 - **`UploadStorageService.cleanupExpiredUploads(UploadLockingService)`**: deprecated in favor of the zero-argument `cleanupExpiredUploads()`.
 
 ### Security
+- **UploadInfo filename sanitization**: sanitize `UploadInfo.getFileName()` to prevent directory traversal and null-byte injection, stripping directory paths and traversal sequences with safe fallback to the upload ID.
 - **Download extension**: sanitize filenames in `Content-Disposition` to prevent client directory traversal and add `X-Content-Type-Options: nosniff`.
 - **CORS origin validation**: prevent arbitrary `Origin` header reflection in CORS responses ([#132](https://github.com/tomdesair/tus-java-server/pull/132)).
 - **Temporary file permissions**: use `Files.createTempFile` instead of `File.createTempFile` to enforce owner-only permissions (`0600`, CWE-378) ([#131](https://github.com/tomdesair/tus-java-server/pull/131)).
