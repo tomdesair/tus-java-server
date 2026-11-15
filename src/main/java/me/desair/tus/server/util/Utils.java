@@ -31,6 +31,7 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.upload.NoOpUploadLockingService;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -816,5 +817,51 @@ public class Utils {
       result = result.substring(0, result.length() - 1);
     }
     return result + "/";
+  }
+
+  /**
+   * Sanitizes a client-supplied filename to prevent directory traversal and null-byte injection
+   * when serving downloads or persisting uploaded files.
+   *
+   * <p>Strips Unix ({@code /}) and Windows ({@code \}) directory prefixes, removes {@code ..}
+   * traversal sequences and null bytes ({@code \0}), and falls back to {@code "download"} when the
+   * resulting name is null or blank.
+   *
+   * @param fileName The raw filename string (may be null)
+   * @return A non-null, non-blank sanitized filename
+   */
+  public static String sanitizeFileName(String fileName) {
+    return sanitizeFileName(fileName, null);
+  }
+
+  /**
+   * Sanitizes a client-supplied filename to prevent directory traversal and null-byte injection
+   * when serving downloads or persisting uploaded files.
+   *
+   * <p>Strips Unix ({@code /}) and Windows ({@code \}) directory prefixes, removes {@code ..}
+   * traversal sequences and null bytes ({@code \0}), and falls back to the provided {@link
+   * UploadId} (or {@code "download"} if {@code uploadId} is {@code null}) when the resulting name
+   * is null or blank.
+   *
+   * @param fileName The raw filename string (may be null)
+   * @param uploadId Optional fallback upload ID if the filename is null, blank, or unsafe
+   * @return A non-null, non-blank sanitized filename
+   */
+  public static String sanitizeFileName(String fileName, UploadId uploadId) {
+    if (fileName == null || fileName.trim().isEmpty()) {
+      return uploadId != null ? uploadId.toString() : "download";
+    }
+    // Strip Unix and Windows directory segments so only the terminal filename remains
+    String sanitized = fileName.trim();
+    int lastSlash = Math.max(sanitized.lastIndexOf('/'), sanitized.lastIndexOf('\\'));
+    if (lastSlash >= 0) {
+      sanitized = sanitized.substring(lastSlash + 1).trim();
+    }
+    // Remove path traversal sequences and null bytes that could bypass filesystem or header checks
+    sanitized = sanitized.replace("..", "").replace("\0", "").trim();
+    if (sanitized.isEmpty() || ".".equals(sanitized)) {
+      return uploadId != null ? uploadId.toString() : "download";
+    }
+    return sanitized;
   }
 }
