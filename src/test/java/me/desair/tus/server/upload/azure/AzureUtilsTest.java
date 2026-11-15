@@ -200,8 +200,10 @@ public class AzureUtilsTest {
     assertNull(AzureUtils.calculateExpirationCutoff(0L));
     assertNull(AzureUtils.calculateExpirationCutoff(-100L));
 
+    OffsetDateTime now = OffsetDateTime.now();
     OffsetDateTime shortCutoff = AzureUtils.calculateExpirationCutoff(1000L);
     assertNotNull(shortCutoff);
+    assertTrue(shortCutoff.isAfter(now));
 
     OffsetDateTime longCutoff = AzureUtils.calculateExpirationCutoff(10_000L);
     assertNotNull(longCutoff);

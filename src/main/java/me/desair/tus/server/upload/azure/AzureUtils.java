@@ -21,13 +21,6 @@ public final class AzureUtils {
   }
 
   /**
-   * Checks whether a blob exists in Azure Blob Storage.
-   *
-   * @param blobClient The {@link BlobClient} to inspect
-   * @return {@code true} if the blob exists; {@code false} if it does not exist, argument is null,
-   *     or an error occurs
-   */
-  /**
    * Calculates the cutoff timestamp before which listed blobs can be considered candidates for
    * expiration, subtracting a safety margin to account for clock skew and in-flight writes.
    *
@@ -38,10 +31,20 @@ public final class AzureUtils {
     if (uploadExpirationPeriod == null || uploadExpirationPeriod <= 0) {
       return null;
     }
-    return OffsetDateTime.now()
-        .minus(Duration.ofMillis(Math.max(0L, uploadExpirationPeriod - 2000L)));
+    // Do not clamp (uploadExpirationPeriod - 2000L) at 0: when uploadExpirationPeriod is shorter
+    // than the 2000ms safety margin (e.g. 1ms in tests), the cutoff must remain in the future
+    // (now + 2000ms - uploadExpirationPeriod) so remote clocks slightly ahead of the host JVM
+    // do not cause newly expired blobs to be skipped.
+    return OffsetDateTime.now().minus(Duration.ofMillis(uploadExpirationPeriod - 2000L));
   }
 
+  /**
+   * Checks whether a blob exists in Azure Blob Storage.
+   *
+   * @param blobClient The {@link BlobClient} to inspect
+   * @return {@code true} if the blob exists; {@code false} if it does not exist, argument is null,
+   *     or an error occurs
+   */
   public static boolean blobExists(BlobClient blobClient) {
     if (blobClient == null) {
       return false;

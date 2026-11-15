@@ -63,8 +63,11 @@ public final class S3Utils {
     if (uploadExpirationPeriod == null || uploadExpirationPeriod <= 0) {
       return null;
     }
-    return ZonedDateTime.now()
-        .minus(Duration.ofMillis(Math.max(0L, uploadExpirationPeriod - 2000L)));
+    // Do not clamp (uploadExpirationPeriod - 2000L) at 0: when uploadExpirationPeriod is shorter
+    // than the 2000ms safety margin (e.g. 1ms in tests), the cutoff must remain in the future
+    // (now + 2000ms - uploadExpirationPeriod) so remote clocks slightly ahead of the host JVM
+    // do not cause newly expired objects to be skipped.
+    return ZonedDateTime.now().minus(Duration.ofMillis(uploadExpirationPeriod - 2000L));
   }
 
   /**
