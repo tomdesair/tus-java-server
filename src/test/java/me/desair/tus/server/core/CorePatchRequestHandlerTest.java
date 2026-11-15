@@ -246,9 +246,10 @@ public class CorePatchRequestHandlerTest {
                   "Stream was interrupted by the upload locking service watchdog");
             });
 
+    TusServletRequest tusRequest = new TusServletRequest(servletRequest);
     handler.process(
         HttpMethod.PATCH,
-        new TusServletRequest(servletRequest),
+        tusRequest,
         new TusServletResponse(servletResponse),
         uploadStorageService,
         mockLocking,
@@ -257,6 +258,8 @@ public class CorePatchRequestHandlerTest {
 
     assertThat(servletResponse.getStatus(), is(HttpServletResponse.SC_NO_CONTENT));
     assertThat(servletResponse.getHeader(HttpHeader.UPLOAD_OFFSET), is("50"));
+    assertThat(tusRequest.isStreamInterrupted(), is(true));
+    verify(mockLocking).unregisterInputStream("/test/upload/123");
   }
 
   @Test(expected = IOException.class)
@@ -276,13 +279,17 @@ public class CorePatchRequestHandlerTest {
     when(uploadStorageService.append(any(UploadInfo.class), any(InputStream.class)))
         .thenThrow(new IOException("Disk failure"));
 
-    handler.process(
-        HttpMethod.PATCH,
-        new TusServletRequest(servletRequest),
-        new TusServletResponse(servletResponse),
-        uploadStorageService,
-        mockLocking,
-        "owner",
-        null);
+    try {
+      handler.process(
+          HttpMethod.PATCH,
+          new TusServletRequest(servletRequest),
+          new TusServletResponse(servletResponse),
+          uploadStorageService,
+          mockLocking,
+          "owner",
+          null);
+    } finally {
+      verify(mockLocking).unregisterInputStream("/test/upload/123");
+    }
   }
 }

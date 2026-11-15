@@ -8,6 +8,8 @@ import static org.mockito.Mockito.when;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.exception.MaxUploadLengthExceededException;
+import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.junit.Before;
@@ -156,5 +158,27 @@ public class RufhCreationValidatorTest {
     when(storageService.getUploadInfo("/files/existing-id", "owner")).thenReturn(existing);
 
     validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
+
+  @Test(expected = MaxUploadLengthExceededException.class)
+  public void testValidateDerivedCompleteLengthExceedsMaxUploadSize() throws Exception {
+    // Single-request creation with Upload-Complete: ?1 and no Upload-Length must enforce
+    // maxUploadSize against Content-Length.
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    request.setContent(new byte[200]);
+    when(storageService.getMaxUploadSize()).thenReturn(100L);
+
+    validator.validate(HttpMethod.POST, request, storageService, null);
+  }
+
+  @Test(expected = MinUploadLengthNotReachedException.class)
+  public void testValidateDerivedCompleteLengthBelowMinSize() throws Exception {
+    // Single-request creation with Upload-Complete: ?1 and no Upload-Length must enforce
+    // minSize against Content-Length.
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    request.setContent(new byte[20]);
+    when(storageService.getMinSize()).thenReturn(100L);
+
+    validator.validate(HttpMethod.POST, request, storageService, null);
   }
 }

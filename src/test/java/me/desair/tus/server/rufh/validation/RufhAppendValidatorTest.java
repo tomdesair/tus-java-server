@@ -1,13 +1,22 @@
 package me.desair.tus.server.rufh.validation;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.exception.InconsistentUploadLengthException;
+import me.desair.tus.server.exception.InvalidUploadLengthException;
+import me.desair.tus.server.exception.MaxUploadLengthExceededException;
 import me.desair.tus.server.exception.MinAppendSizeNotMetException;
+import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.exception.TusException;
+import me.desair.tus.server.exception.UploadLengthExceededException;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadStorageService;
 import org.junit.Before;
@@ -239,8 +248,9 @@ public class RufhAppendValidatorTest {
    * from exceeding the representation's length by rejecting the request once the offset exceeds the
    * length, marking the upload resource invalid and rejecting any further interaction with it."
    */
-  @Test(expected = TusException.class)
-  public void testValidateExceedingUploadLengthInvalidatesResource() throws Exception {
+  @Test
+  public void testValidateExceedingUploadLengthDoesNotMutateStorageDuringValidation()
+      throws Exception {
     request.setRequestURI("/files/exists");
     request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
     request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
@@ -251,44 +261,31 @@ public class RufhAppendValidatorTest {
     info.setOffset(1000L);
     when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
 
-    try {
-      validator.validate(HttpMethod.PATCH, request, storageService, "owner");
-    } finally {
-      org.mockito.Mockito.verify(storageService).terminateUpload(info);
-    }
+    assertThrows(
+        UploadLengthExceededException.class,
+        () -> validator.validate(HttpMethod.PATCH, request, storageService, "owner"));
+    // Validation must remain side-effect free because pre-flight interim checks run before
+    // process().
+    verify(storageService, never()).terminateUpload(any());
   }
 
-  @Test(expected = TusException.class)
-  public void testValidateCompletedUploadTerminateThrowsException() throws Exception {
-    request.setRequestURI("/files/exists");
+  @Test(expected = UploadLengthExceededException.class)
+  public void testValidateOffsetAlreadyAtDeclaredLengthThrows() throws Exception {
+    request.setRequestURI("/files/at-length");
     request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
     request.addHeader(HttpHeader.UPLOAD_OFFSET, "5000");
+    request.setContent(new byte[10]);
 
-    UploadInfo info = new UploadInfo();
+    UploadInfo info =
+        new UploadInfo() {
+          @Override
+          public boolean isUploadInProgress() {
+            return true;
+          }
+        };
     info.setLength(5000L);
-    info.setOffset(5000L); // Completed
-    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
-    org.mockito.Mockito.doThrow(new RuntimeException("Terminate failed"))
-        .when(storageService)
-        .terminateUpload(info);
-
-    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
-  }
-
-  @Test(expected = TusException.class)
-  public void testValidateExceedingLengthTerminateThrowsException() throws Exception {
-    request.setRequestURI("/files/exists");
-    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
-    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
-    request.setContent(new byte[5000]);
-
-    UploadInfo info = new UploadInfo();
-    info.setLength(5000L);
-    info.setOffset(1000L);
-    when(storageService.getUploadInfo("/files/exists", "owner")).thenReturn(info);
-    org.mockito.Mockito.doThrow(new RuntimeException("Terminate failed"))
-        .when(storageService)
-        .terminateUpload(info);
+    info.setOffset(5000L);
+    when(storageService.getUploadInfo("/files/at-length", "owner")).thenReturn(info);
 
     validator.validate(HttpMethod.PATCH, request, storageService, "owner");
   }
@@ -330,7 +327,7 @@ public class RufhAppendValidatorTest {
 
     validator.validate(HttpMethod.PATCH, chunkedReq, storageService, "owner");
     // KISS: verifying method executes cleanly without throwing MinAppendSizeNotMetException
-    org.junit.Assert.assertTrue(true);
+    assertTrue(true);
   }
 
   @Test(expected = MinAppendSizeNotMetException.class)
@@ -406,5 +403,88 @@ public class RufhAppendValidatorTest {
     validator.validate(HttpMethod.PATCH, request, storageService, "owner");
     // KISS: verifying method executes cleanly without throwing an exception
     assertTrue(true);
+  }
+
+  @Test(expected = InvalidUploadLengthException.class)
+  public void testDeferredUploadLengthSmallerThanOffsetThrows() throws Exception {
+    request.setRequestURI("/files/deferred");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "500");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "400");
+
+    UploadInfo info = new UploadInfo();
+    info.setOffset(500L);
+    when(storageService.getUploadInfo("/files/deferred", "owner")).thenReturn(info);
+
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
+
+  @Test(expected = InconsistentUploadLengthException.class)
+  public void testDeferredUploadLengthInconsistentWithCompleteContentLengthThrows()
+      throws Exception {
+    MockHttpServletRequest completeReq = new MockHttpServletRequest();
+    completeReq.setRequestURI("/files/deferred");
+    completeReq.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    completeReq.addHeader(HttpHeader.UPLOAD_OFFSET, "10");
+    completeReq.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    completeReq.addHeader(HttpHeader.UPLOAD_LENGTH, "20");
+    completeReq.setContent(new byte[5]);
+
+    UploadInfo info = new UploadInfo();
+    info.setOffset(10L);
+    when(storageService.getUploadInfo("/files/deferred", "owner")).thenReturn(info);
+
+    validator.validate(HttpMethod.PATCH, completeReq, storageService, "owner");
+  }
+
+  @Test
+  public void testDeferredUploadLengthExceededThrowsWithoutMutatingStorage() throws Exception {
+    request.setRequestURI("/files/deferred");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "10");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "15");
+    request.setContent(new byte[10]);
+
+    UploadInfo info = new UploadInfo();
+    info.setOffset(10L);
+    when(storageService.getUploadInfo("/files/deferred", "owner")).thenReturn(info);
+
+    assertThrows(
+        UploadLengthExceededException.class,
+        () -> validator.validate(HttpMethod.PATCH, request, storageService, "owner"));
+    verify(storageService, never()).terminateUpload(any());
+  }
+
+  @Test(expected = MaxUploadLengthExceededException.class)
+  public void testDeferredUploadExceedsMaxUploadSizeThrows() throws Exception {
+    request.setRequestURI("/files/deferred");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "10");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "200");
+    request.setContent(new byte[10]);
+
+    UploadInfo info = new UploadInfo();
+    info.setOffset(10L);
+    when(storageService.getUploadInfo("/files/deferred", "owner")).thenReturn(info);
+    when(storageService.getMaxUploadSize()).thenReturn(100L);
+
+    validator.validate(HttpMethod.PATCH, request, storageService, "owner");
+  }
+
+  @Test(expected = MinUploadLengthNotReachedException.class)
+  public void testDeferredUploadCompleteBelowMinSizeThrows() throws Exception {
+    MockHttpServletRequest completeReq = new MockHttpServletRequest();
+    completeReq.setRequestURI("/files/deferred");
+    completeReq.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    completeReq.addHeader(HttpHeader.UPLOAD_OFFSET, "10");
+    completeReq.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    completeReq.setContent(new byte[10]);
+
+    UploadInfo info = new UploadInfo();
+    info.setOffset(10L);
+    when(storageService.getUploadInfo("/files/deferred", "owner")).thenReturn(info);
+    when(storageService.getMinSize()).thenReturn(50L);
+
+    validator.validate(HttpMethod.PATCH, completeReq, storageService, "owner");
   }
 }

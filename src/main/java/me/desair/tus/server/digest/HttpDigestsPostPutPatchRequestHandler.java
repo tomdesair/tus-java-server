@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
+import java.util.EnumMap;
 import java.util.Map;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -44,8 +45,13 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
       TusException exception)
       throws IOException, TusException {
 
-    // 1. Verify Content-Digest for the request chunk
-    verifyContentDigest(method, servletRequest);
+    boolean streamInterrupted = servletRequest != null && servletRequest.isStreamInterrupted();
+
+    // 1. Verify Content-Digest for the request chunk (skip when stream was interrupted early by
+    // lock contention so saved partial progress is preserved for resumption)
+    if (!streamInterrupted) {
+      verifyContentDigest(method, servletRequest);
+    }
 
     // Resolve UploadInfo using centralized helpers
     String uploadUri = Utils.getUploadUri(servletRequest, servletResponse);
@@ -59,30 +65,36 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
     }
 
     // 4. Provide Repr-Digest / Content-Digest response header if requested
-    String wantContentDigest = servletRequest.getHeader(HttpHeader.WANT_CONTENT_DIGEST);
-    if (StringUtils.isNotBlank(wantContentDigest)) {
-      ChecksumAlgorithm preferredAlg = ChecksumAlgorithm.selectBestAlgorithm(wantContentDigest);
-      if (preferredAlg != null) {
-        String calculatedVal = servletRequest.getCalculatedChecksum(preferredAlg);
-        if (calculatedVal != null) {
-          servletResponse.setHeader(
-              HttpHeader.CONTENT_DIGEST,
-              preferredAlg.getHttpDigestNames().get(0) + "=:" + calculatedVal + ":");
+    if (!streamInterrupted) {
+      String wantContentDigest = servletRequest.getHeader(HttpHeader.WANT_CONTENT_DIGEST);
+      if (StringUtils.isNotBlank(wantContentDigest)) {
+        ChecksumAlgorithm preferredAlg = ChecksumAlgorithm.selectBestAlgorithm(wantContentDigest);
+        if (preferredAlg != null) {
+          String calculatedVal = servletRequest.getCalculatedChecksum(preferredAlg);
+          if (calculatedVal != null) {
+            servletResponse.setHeader(
+                HttpHeader.CONTENT_DIGEST,
+                preferredAlg.getHttpDigestNames().get(0) + "=:" + calculatedVal + ":");
+          }
         }
       }
     }
 
     if (uploadInfo != null) {
+      // Cache full-file digests within this request so having both Repr-Digest and
+      // Want-Repr-Digest for the same algorithm only streams the file from cloud storage once.
+      Map<ChecksumAlgorithm, String> fileDigestCache = new EnumMap<>(ChecksumAlgorithm.class);
+
       // 2. Capture client Repr-Digest and Want-Repr-Digest
       captureDigestPreferences(servletRequest, uploadInfo, uploadStorageService);
 
       // 3. Verify Repr-Digest on upload completion
       verifyReprDigestOnCompletion(
-          servletRequest, uploadInfo, uploadUri, ownerKey, uploadStorageService);
+          servletRequest, uploadInfo, uploadUri, ownerKey, uploadStorageService, fileDigestCache);
 
       // 4. Provide Repr-Digest response header if requested
       addReprDigestResponseHeader(
-          servletResponse, uploadInfo, uploadUri, ownerKey, uploadStorageService);
+          servletResponse, uploadInfo, uploadUri, ownerKey, uploadStorageService, fileDigestCache);
     }
 
     return null;
@@ -148,7 +160,8 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
       UploadInfo uploadInfo,
       String uploadUri,
       String ownerKey,
-      UploadStorageService uploadStorageService)
+      UploadStorageService uploadStorageService,
+      Map<ChecksumAlgorithm, String> fileDigestCache)
       throws IOException, TusException {
 
     if (!uploadInfo.isUploadInProgress()) {
@@ -160,11 +173,15 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
         Map<ChecksumAlgorithm, String> expectedDigests =
             ChecksumAlgorithm.parseDigestHeader(reprDigest);
 
+        ChecksumAlgorithm verifiedAlg = null;
+        String verifiedValue = null;
+
         for (Map.Entry<ChecksumAlgorithm, String> entry : expectedDigests.entrySet()) {
           ChecksumAlgorithm alg = entry.getKey();
           String expectedValue = entry.getValue();
           String calculatedValue =
-              calculateEntireFileDigest(uploadUri, ownerKey, alg, uploadStorageService);
+              getOrCalculateEntireFileDigest(
+                  uploadInfo, uploadUri, ownerKey, alg, uploadStorageService, fileDigestCache);
 
           if (calculatedValue != null) {
             if (!Strings.CS.equals(expectedValue, calculatedValue)) {
@@ -176,12 +193,18 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
                       + " but was: "
                       + calculatedValue);
             } else {
-              // Always save verified checksum on the uploadInfo
-              uploadInfo.setChecksum(expectedValue);
-              uploadInfo.setChecksumAlgorithm(alg);
-              uploadStorageService.update(uploadInfo);
+              verifiedAlg = alg;
+              verifiedValue = expectedValue;
             }
           }
+        }
+
+        // Only persist the verified checksum (and trigger storage deduplication) after ALL
+        // provided digest algorithms in Repr-Digest have been verified to match.
+        if (verifiedAlg != null && verifiedValue != null) {
+          uploadInfo.setChecksum(verifiedValue);
+          uploadInfo.setChecksumAlgorithm(verifiedAlg);
+          uploadStorageService.update(uploadInfo);
         }
       }
     }
@@ -192,7 +215,8 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
       UploadInfo uploadInfo,
       String uploadUri,
       String ownerKey,
-      UploadStorageService uploadStorageService)
+      UploadStorageService uploadStorageService,
+      Map<ChecksumAlgorithm, String> fileDigestCache)
       throws IOException, TusException {
 
     String requestedDigests = uploadInfo.getRequestedRepresentationDigests();
@@ -200,7 +224,13 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
       ChecksumAlgorithm preferredAlg = ChecksumAlgorithm.selectBestAlgorithm(requestedDigests);
       if (preferredAlg != null) {
         String calculatedValue =
-            calculateEntireFileDigest(uploadUri, ownerKey, preferredAlg, uploadStorageService);
+            getOrCalculateEntireFileDigest(
+                uploadInfo,
+                uploadUri,
+                ownerKey,
+                preferredAlg,
+                uploadStorageService,
+                fileDigestCache);
         if (calculatedValue != null) {
           servletResponse.setHeader(
               HttpHeader.REPR_DIGEST,
@@ -208,6 +238,32 @@ public class HttpDigestsPostPutPatchRequestHandler extends AbstractRequestHandle
         }
       }
     }
+  }
+
+  private String getOrCalculateEntireFileDigest(
+      UploadInfo uploadInfo,
+      String uploadUri,
+      String ownerKey,
+      ChecksumAlgorithm alg,
+      UploadStorageService uploadStorageService,
+      Map<ChecksumAlgorithm, String> fileDigestCache)
+      throws IOException, TusException {
+    if (fileDigestCache != null && fileDigestCache.containsKey(alg)) {
+      return fileDigestCache.get(alg);
+    }
+    if (uploadInfo != null
+        && alg == uploadInfo.getChecksumAlgorithm()
+        && StringUtils.isNotBlank(uploadInfo.getChecksum())) {
+      if (fileDigestCache != null) {
+        fileDigestCache.put(alg, uploadInfo.getChecksum());
+      }
+      return uploadInfo.getChecksum();
+    }
+    String digest = calculateEntireFileDigest(uploadUri, ownerKey, alg, uploadStorageService);
+    if (digest != null && fileDigestCache != null) {
+      fileDigestCache.put(alg, digest);
+    }
+    return digest;
   }
 
   private String calculateEntireFileDigest(

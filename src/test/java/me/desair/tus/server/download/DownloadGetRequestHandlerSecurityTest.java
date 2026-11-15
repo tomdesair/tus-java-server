@@ -64,4 +64,81 @@ public class DownloadGetRequestHandlerSecurityTest {
             "attachment; filename=\"testInjected: true.txt\";"
                 + " filename*=UTF-8''test%0D%0AInjected%3A%20true.txt%22"));
   }
+
+  @Test
+  public void testPathTraversalInFileName() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("upload-id-123"));
+    info.setLength(10L);
+    info.setOffset(10L);
+
+    // 1. Unix directory traversal path
+    info.setEncodedMetadata(
+        "filename " + Base64.getEncoder().encodeToString("../../../../etc/passwd".getBytes()));
+    when(uploadStorageService.getUploadInfo(anyString(), any())).thenReturn(info);
+    handler.process(HttpMethod.GET, tusRequest, tusResponse, uploadStorageService, null);
+    assertThat(
+        servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
+        is("attachment; filename=\"passwd\"; filename*=UTF-8''passwd"));
+
+    // 2. Windows directory traversal path
+    servletResponse = new MockHttpServletResponse();
+    tusResponse = new TusServletResponse(servletResponse);
+    info.setEncodedMetadata(
+        "filename " + Base64.getEncoder().encodeToString("..\\..\\malicious.bat".getBytes()));
+    handler.process(HttpMethod.GET, tusRequest, tusResponse, uploadStorageService, null);
+    assertThat(
+        servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
+        is("attachment; filename=\"malicious.bat\"; filename*=UTF-8''malicious.bat"));
+
+    // 3. Traversal sequence only falls back to upload ID
+    servletResponse = new MockHttpServletResponse();
+    tusResponse = new TusServletResponse(servletResponse);
+    info.setEncodedMetadata("filename " + Base64.getEncoder().encodeToString("../..".getBytes()));
+    handler.process(HttpMethod.GET, tusRequest, tusResponse, uploadStorageService, null);
+    assertThat(
+        servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
+        is("attachment; filename=\"upload-id-123\";" + " filename*=UTF-8''upload-id-123"));
+
+    // 4. Blank filename falls back to upload ID
+    servletResponse = new MockHttpServletResponse();
+    tusResponse = new TusServletResponse(servletResponse);
+    info.setEncodedMetadata("filename " + Base64.getEncoder().encodeToString("   ".getBytes()));
+    handler.process(HttpMethod.GET, tusRequest, tusResponse, uploadStorageService, null);
+    assertThat(
+        servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
+        is("attachment; filename=\"upload-id-123\";" + " filename*=UTF-8''upload-id-123"));
+
+    // 5. Null or blank filename falls back to upload ID or default "download"
+    servletResponse = new MockHttpServletResponse();
+    tusResponse = new TusServletResponse(servletResponse);
+    info.setId(new UploadId("fallback-id"));
+    info.setEncodedMetadata("filename");
+    handler.process(HttpMethod.GET, tusRequest, tusResponse, uploadStorageService, null);
+    assertThat(
+        servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
+        is("attachment; filename=\"fallback-id\"; filename*=UTF-8''fallback-id"));
+
+    servletResponse = new MockHttpServletResponse();
+    tusResponse = new TusServletResponse(servletResponse);
+    info.setId(null);
+    info.setEncodedMetadata("filename");
+    handler.process(HttpMethod.GET, tusRequest, tusResponse, uploadStorageService, null);
+    assertThat(
+        servletResponse.getHeader(HttpHeader.CONTENT_DISPOSITION),
+        is("attachment; filename=\"download\"; filename*=UTF-8''download"));
+  }
+
+  @Test
+  public void testXContentTypeOptionsHeader() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("123"));
+    info.setLength(10L);
+    info.setOffset(10L);
+    when(uploadStorageService.getUploadInfo(anyString(), any())).thenReturn(info);
+
+    handler.process(HttpMethod.GET, tusRequest, tusResponse, uploadStorageService, null);
+
+    assertThat(servletResponse.getHeader(HttpHeader.X_CONTENT_TYPE_OPTIONS), is("nosniff"));
+  }
 }

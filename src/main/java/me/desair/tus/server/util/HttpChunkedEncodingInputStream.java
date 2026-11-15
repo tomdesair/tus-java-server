@@ -1,6 +1,7 @@
 package me.desair.tus.server.util;
 
 import java.io.ByteArrayOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.Charset;
@@ -8,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +23,9 @@ import org.slf4j.LoggerFactory;
 public class HttpChunkedEncodingInputStream extends InputStream {
 
   private static final Logger log = LoggerFactory.getLogger(HttpChunkedEncodingInputStream.class);
+
+  public static final int MAX_LINE_LENGTH = 8192;
+  public static final int MAX_TRAILER_HEADERS = 64;
 
   /** The input stream that we're wrapping. */
   private InputStream in;
@@ -89,8 +94,17 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         return -1;
       }
     }
+    int b = in.read();
+    if (b == -1) {
+      eof = true;
+      throw new EOFException(
+          "Unexpected EOF while reading chunked stream: expected "
+              + chunkSize
+              + " bytes, got "
+              + pos);
+    }
     pos++;
-    return in.read();
+    return b;
   }
 
   /**
@@ -121,6 +135,14 @@ public class HttpChunkedEncodingInputStream extends InputStream {
     }
     int minLen = Math.min(len, chunkSize - pos);
     int count = in.read(b, off, minLen);
+    if (count == -1) {
+      eof = true;
+      throw new EOFException(
+          "Unexpected EOF while reading chunked stream: expected "
+              + chunkSize
+              + " bytes, got "
+              + pos);
+    }
     pos += count;
     return count;
   }
@@ -207,6 +229,10 @@ public class HttpChunkedEncodingInputStream extends InputStream {
         throw new IOException("Chunked stream ended unexpectedly");
       }
       state = state.process(in, baos, b);
+      if (baos.size() > MAX_LINE_LENGTH) {
+        throw new IOException(
+            "Chunk size line exceeds maximum allowed length of " + MAX_LINE_LENGTH + " bytes");
+      }
     }
 
     // parse data
@@ -261,7 +287,14 @@ public class HttpChunkedEncodingInputStream extends InputStream {
     String name = null;
     StringBuilder value = null;
     String line = readLine(is, charset);
-    while (org.apache.commons.lang3.StringUtils.isNotBlank(line)) {
+    int headerLines = 0;
+    while (StringUtils.isNotBlank(line)) {
+      headerLines++;
+      if (headerLines > MAX_TRAILER_HEADERS) {
+        throw new IOException(
+            "Chunked stream exceeds maximum allowed trailer header count of "
+                + MAX_TRAILER_HEADERS);
+      }
       // Parse the header name and value
       // Check for folded headers first
       // Detect LWS-char see HTTP/1.0 or HTTP/1.1 Section 2.2
@@ -329,6 +362,10 @@ public class HttpChunkedEncodingInputStream extends InputStream {
     int ch;
     while ((ch = inputStream.read()) >= 0) {
       buf.write(ch);
+      if (buf.size() > MAX_LINE_LENGTH) {
+        throw new IOException(
+            "Trailer header line exceeds maximum allowed length of " + MAX_LINE_LENGTH + " bytes");
+      }
       if (ch == '\n') { // be tolerant (RFC-2616 Section 19.3)
         break;
       }

@@ -31,17 +31,14 @@ public interface UploadLockingService {
   // Acquires an exclusive lock on an upload resource
   UploadLock lockUploadByUri(String requestUri) throws TusException, IOException;
 
-  // Checks if an upload is currently locked
-  boolean isLocked(UploadId id);
+  // Acquires an exclusive lock on an upload resource by UploadId
+  default UploadLock lockUpload(UploadId id) throws TusException, IOException { ... }
 
   // Cleans up stale or expired locks (fallback sweeper)
   void cleanupStaleLocks() throws IOException;
 
-  // Cleans up the lock file or object for a completed, terminated, or expired upload
-  default void cleanupLock(UploadId id) throws IOException {}
-
-  // Cleans up the lock file or object for a completed, terminated, or expired upload by URI
-  default void cleanupLock(String uploadUri) throws IOException {}
+  // Checks if an upload is currently locked
+  boolean isLocked(UploadId id);
 
   // Injects the UploadIdFactory instance used to parse upload IDs from request URIs
   void setIdFactory(UploadIdFactory idFactory);
@@ -49,36 +46,41 @@ public interface UploadLockingService {
   // Registers the active request input stream so it can be interrupted cleanly
   default void registerInputStream(String requestUri, InputStream inputStream) {}
 
+  // Unregisters the active request input stream after streaming completes or fails
+  default void unregisterInputStream(String requestUri) {}
+
   // Requests that any active lock for the URI be released
   default void requestLockRelease(String requestUri) {}
 
   // Closes resources, interrupts in-flight streams, and shuts down background daemon threads
   default void close() throws IOException {}
+
+  // Cleans up the lock file or object for a terminated or expired upload
+  default void cleanupLock(UploadId id) throws IOException {}
 }
 ```
 
 ### `UploadLock` Interface
 
 ```java
-public interface UploadLock extends Closeable {
+public interface UploadLock extends AutoCloseable {
 
   // Gets the request URI associated with this lock
   String getUploadUri();
 
   // Explicitly releases the lock
-  default void release() {
-    try {
-      close();
-    } catch (IOException ignored) {}
-  }
+  void release();
+
+  @Override
+  void close() throws IOException;
 }
 ```
 
 ### Request Flow, Lock Cleanup & Contention Resolution
 
 - **Stream Registration**: When a request starts streaming payload bytes, its input stream is wrapped in an `InterruptibleInputStream` and registered via `lockingService.registerInputStream(requestUri, inputStream)`.
-- **Automatic Lock Cleanup on Completion**: When an upload finishes (`offset == length`), `TusFileUploadService` automatically invokes `lockingService.cleanupLock(uploadId)` to remove the lock file/blob (`.lock`) and any stop signal file/blob (`.stop`).
-- **Automatic Lock Cleanup on Termination & Expiration**: When an upload is canceled via `DELETE` (204 No Content) or expired via `cleanupExpiredUploads()`, the associated lock file or blob is also automatically deleted via `lockingService.cleanupLock(uploadId)`. Actively held locks are defended and never deleted mid-stream.
+- **Lock Release on Request End**: Every request acquires an `UploadLock` via `try-with-resources` (`lock.close()`), automatically releasing the active lease or lock at the end of the request.
+- **Lock Cleanup on Termination & Expiration**: When an upload is canceled via `DELETE` (204 No Content) or expired via `cleanupExpiredUploads()`, the storage service invokes `lockingService.cleanupLock(uploadId)` to remove the associated `.lock` and `.stop` files/objects. Actively held locks are defended and never deleted mid-stream.
 - **Fallback Stale Lock Sweeper**: As a safety net, `cleanupStaleLocks()` periodically sweeps orphaned lock records (e.g. unleased Azure blobs older than 120s or stop signal markers older than 30s) left behind after hard node crashes or power outages.
 - **Release Request**: When a concurrent `HEAD` or `DELETE` request encounters an active lock, `TusFileUploadService` catches `UploadAlreadyLockedException` and calls `lockingService.requestLockRelease(requestUri)`.
 - **Stream Interruption**:

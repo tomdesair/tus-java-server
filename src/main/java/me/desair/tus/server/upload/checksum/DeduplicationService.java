@@ -77,7 +77,7 @@ public class DeduplicationService {
    * @throws IOException on storage I/O error
    */
   public UploadInfo deduplicate(UploadInfo uploadInfo, ChecksumKey key) throws IOException {
-    if (uploadInfo == null || key == null) {
+    if (uploadInfo == null || key == null || uploadInfo.getDuplicatesUploadId() != null) {
       return uploadInfo;
     }
 
@@ -273,7 +273,7 @@ public class DeduplicationService {
   private UploadInfo doJoinParentUnderLock(
       UploadInfo uploadInfo, ChecksumKey key, UploadId expectedParentId, boolean allowRetry)
       throws IOException {
-    // Under parent lock: B2 Check - re-read current parent from index
+    // Under parent lock: re-read current parent from index
     UploadId currentParent = checksumIndex.findParent(key);
     if (!Objects.equals(expectedParentId, currentParent)) {
       if (allowRetry && currentParent != null) {
@@ -285,9 +285,14 @@ public class DeduplicationService {
     UploadInfo parentInfo = storageService.getUploadInfo(expectedParentId);
     boolean parentTombstoned = (parentInfo == null) && checksumIndex.isParentDeleted(key);
 
-    // B3 Self-healing check: if parent is missing and not legitimately tombstoned,
-    // or if parent physical bytes are missing
-    if ((parentInfo == null && !parentTombstoned) || !storageService.dataExists(expectedParentId)) {
+    // Self-healing check: reject missing non-tombstoned parents, parents that are still in
+    // progress or themselves deduplicated children, or parents whose physical bytes are missing.
+    boolean invalidParentState =
+        (parentInfo == null && !parentTombstoned)
+            || (parentInfo != null
+                && (parentInfo.isUploadInProgress() || parentInfo.getDuplicatesUploadId() != null))
+            || !storageService.dataExists(expectedParentId);
+    if (invalidParentState) {
       log.warn(
           "Parent {} for checksum {} is invalid (exists={}, tombstoned={}, bytesExist={}). Purging index.",
           expectedParentId,
@@ -463,7 +468,7 @@ public class DeduplicationService {
 
   /** Handles removal of a parent upload from the index. */
   private boolean removeParentFromIndex(UploadId parentId, ChecksumKey key) throws IOException {
-    // B4 Check: Verify whether parentId is the registered parent in the checksum index
+    // Verify whether parentId is the registered parent in the checksum index
     UploadId indexedParent = checksumIndex.findParent(key);
     if (!Objects.equals(parentId, indexedParent)) {
       // Unindexed standalone upload (e.g. deduplication skipped due to lock contention)
@@ -494,7 +499,7 @@ public class DeduplicationService {
   /** Handles removal of a child duplicate upload from the index. */
   private boolean removeChildFromIndex(UploadId childId, UploadId parentId, ChecksumKey key)
       throws IOException {
-    // Step 1: B4 Check - if parentId is the registered parent in index, remove child marker
+    // Step 1: if parentId is the registered parent in index, remove child marker
     UploadId indexedParent = checksumIndex.findParent(key);
     if (Objects.equals(parentId, indexedParent)) {
       checksumIndex.removeChild(key, childId);

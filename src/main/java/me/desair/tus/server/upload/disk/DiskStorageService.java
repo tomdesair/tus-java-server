@@ -36,6 +36,7 @@ import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.upload.concatenation.VirtualConcatenationService;
 import me.desair.tus.server.util.UploadInfoJsonSerializer;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,6 +64,7 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
   private final DiskChecksumIndex checksumIndex;
   private DeduplicationService deduplicationService;
   private UploadLockingService uploadLockingService;
+  private boolean ownsUploadLockingService = true;
 
   public DiskStorageService(String storagePath) {
     super(storagePath + File.separator + UPLOAD_SUB_DIRECTORY);
@@ -164,10 +166,33 @@ public class DiskStorageService extends AbstractDiskBasedService implements Uplo
 
   @Override
   public void setUploadLockingService(UploadLockingService uploadLockingService) {
-    this.uploadLockingService =
+    UploadLockingService target =
         Objects.requireNonNull(uploadLockingService, "uploadLockingService must not be null");
+    // Only close the default internal DiskLockingService when replaced; externally managed
+    // locking services remain owned by the caller (e.g., TusFileUploadService).
+    if (this.ownsUploadLockingService
+        && this.uploadLockingService != null
+        && this.uploadLockingService != target) {
+      IOUtils.closeQuietly(this.uploadLockingService);
+    }
+    this.uploadLockingService = target;
+    this.ownsUploadLockingService = false;
     if (this.deduplicationService != null) {
-      this.deduplicationService.setUploadLockingService(uploadLockingService);
+      this.deduplicationService.setUploadLockingService(target);
+    }
+  }
+
+  @Override
+  protected void cleanupOnClose() throws IOException {
+    try {
+      super.cleanupOnClose();
+      if (this.ownsUploadLockingService && this.uploadLockingService != null) {
+        this.uploadLockingService.close();
+      }
+    } finally {
+      if (this.uploadConcatenationService != null) {
+        this.uploadConcatenationService.close();
+      }
     }
   }
 

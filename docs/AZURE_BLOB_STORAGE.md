@@ -111,8 +111,8 @@ TusFileUploadService tusService = new TusFileUploadService()
 
 During an in-progress upload, `AzureBlobLockingService` creates a target lock blob (`locks/<uploadId>.lock`) and holds a 30-second native Azure Blob Lease with automatic background renewal.
 
-1. **Automatic Cleanup on Completion**: Once an upload completes (`offset == length`), `TusFileUploadService` calls `cleanupLock(UploadId)` after releasing the lease, deleting the `.lock` blob and any `.stop` signal blob.
-2. **Automatic Cleanup on Termination & Expiration**: When an upload is canceled (`DELETE`) or purged via `cleanupExpiredUploads()`, the corresponding `.lock` and `.stop` blobs are deleted.
+1. **Cleanup on Termination & Expiration**: When an upload is canceled (`DELETE`) or purged via `cleanupExpiredUploads()`, the storage service calls `cleanupLock(UploadId)` so the corresponding `.lock` and `.stop` blobs are deleted.
+2. **Periodic Stale Lock Sweeping**: Any remaining `.stop` blobs older than 30s or un-leased `.lock` blobs from finished/abandoned uploads older than the stale lock threshold (default 120s) are cleaned up via `cleanupStaleLocks()`.
 3. **Lease Safety Guard**: Deleting an actively leased blob without providing the lease ID triggers HTTP 412 (`LeaseIdMissing`). `AzureBlobLockingService` inspects the blob's lease status and skips deleting blobs that are actively leased by concurrent requests.
 4. **Fallback Stale Lock Sweeper (`cleanupStaleLocks`)**: To prevent abandoned lock blobs after ungraceful pod termination or network partitions, `cleanupStaleLocks()` runs as a scheduled fallback. It sweeps unleased `.lock` blobs older than 120 seconds and `.stop` signal blobs older than 30 seconds. Actively leased blobs are never deleted.
 
@@ -120,7 +120,7 @@ During an in-progress upload, `AzureBlobLockingService` creates a target lock bl
 
 ## 4. Post-Upload Processing (`getAzureBlobName`)
 
-After an upload completes, downstream services can obtain the direct Azure blob name of the final object using `getAzureBlobName(uploadUri, ownerKey)`:
+After an upload completes, downstream services can obtain the direct Azure blob name of the final object using `getAzureBlobName(uploadUri)` or `getAzureBlobName(uploadUri, ownerKey)`:
 
 ```java
 import com.azure.storage.blob.BlobClient;
@@ -228,7 +228,7 @@ When a client resumes an interrupted transfer by sending a `HEAD` request (or ca
 | `AzureBlobLockingServiceTest` | Unit Test | Offline | < 1s | Pure offline unit tests for Azure locking service parameters, prefix normalization, URI parsing, and defensive handling. |
 | `AzureBlobUploadLockTest` | Unit Test | Offline | < 1s | Pure offline unit tests for Azure upload lock parameters, getters, and daemon executor lifecycle. |
 | `AzureBlobConcatenationServiceTest` | Unit Test | Offline | < 1s | Pure offline unit tests for Azure concatenation service parameters, prefix sanitization, guard clauses, and partial upload handling. |
-| `ITAzureBlobStorageService` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 3s | Live end-to-end storage integration test against Azurite emulator (Block Blob staging, `.part` buffer commits, truncations, deduplication, and expiration). |
+| `ITAzureBlobStorageService` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 3s | Live end-to-end storage integration test against Azurite emulator (Block Blob staging, block list commits, truncations, deduplication, and expiration). |
 | `ITAzureBlobLockingService` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 2s | Distributed locking, Azure Blob Leases, lease renewals, lock contention (409 Conflict), stream interruption, & stop signal integration tests. |
 | `ITAzureBlobConcatenationService` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 2s | Server-side zero-copy block concatenation (`stageBlockFromUrl`) integration tests. |
 | `ITAzureBlobRufhProtocol` | Integration | Azurite (Testcontainers / Podman or Docker) | ~ 3s | IETF RUFH protocol integration suite for Azure backend. |

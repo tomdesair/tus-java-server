@@ -3,6 +3,8 @@ package me.desair.tus.server;
 import io.minio.BucketExistsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
+import java.io.File;
+import java.util.Locale;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
 
@@ -22,47 +24,75 @@ public final class TestUtils {
    * @return True if Docker or Podman is available for Testcontainers, false otherwise
    */
   public static boolean isContainerRuntimeAvailable() {
+    // Configure Docker API version 1.44 when unspecified so Testcontainers works against
+    // Docker Engine 29+ on CI runners as well as Podman 4/5/6+.
+    if (System.getProperty("api.version") == null && System.getenv("DOCKER_API_VERSION") == null) {
+      System.setProperty("api.version", "1.44");
+    }
+
+    String userHome = System.getProperty("user.home", "");
+    String[] possiblePodmanSockets = {
+      "/run/podman/podman.sock",
+      userHome + "/.local/share/containers/podman/machine/podman-machine-default/podman.sock",
+      userHome + "/.local/share/containers/podman/machine/qemu/podman.sock",
+      System.getProperty("java.io.tmpdir", "/tmp") + "/podman/podman-machine-default-api.sock"
+    };
+
+    // Detect Podman socket before calling DockerClientFactory so we don't cache a client failure
+    // when /var/run/docker.sock is absent.
+    if (System.getProperty("DOCKER_HOST") == null
+        && System.getenv("DOCKER_HOST") == null
+        && !new File("/var/run/docker.sock").exists()) {
+      for (String socketPath : possiblePodmanSockets) {
+        if (new File(socketPath).exists()) {
+          System.setProperty("DOCKER_HOST", "unix://" + socketPath);
+          System.setProperty("TESTCONTAINERS_RYUK_DISABLED", "true");
+          break;
+        }
+      }
+    }
+
+    Throwable lastFailure = null;
     try {
       if (DockerClientFactory.instance().isDockerAvailable()) {
         return true;
       }
-    } catch (Throwable ignored) {
+    } catch (Throwable t) {
+      lastFailure = t;
     }
 
     try {
-      String userHome = System.getProperty("user.home", "");
-      String[] possibleSockets = {
-        "/var/run/docker.sock",
-        "/run/podman/podman.sock",
-        userHome + "/.local/share/containers/podman/machine/podman-machine-default/podman.sock",
-        userHome + "/.local/share/containers/podman/machine/qemu/podman.sock",
-        System.getProperty("java.io.tmpdir", "/tmp") + "/podman/podman-machine-default-api.sock"
-      };
-
-      for (String socketPath : possibleSockets) {
-        if (new java.io.File(socketPath).exists()) {
-          if (System.getProperty("DOCKER_HOST") == null) {
-            System.setProperty("DOCKER_HOST", "unix://" + socketPath);
-          }
-          System.setProperty("TESTCONTAINERS_RYUK_DISABLED", "true");
-          try {
-            if (DockerClientFactory.instance().isDockerAvailable()) {
-              return true;
-            }
-          } catch (Throwable ignored) {
-          }
-        }
-      }
-
       Process process = new ProcessBuilder("podman", "info").start();
       if (process.waitFor() == 0) {
         System.setProperty("TESTCONTAINERS_RYUK_DISABLED", "true");
-        return DockerClientFactory.instance().isDockerAvailable();
+        if (DockerClientFactory.instance().isDockerAvailable()) {
+          return true;
+        }
       }
-    } catch (Throwable ignored) {
+    } catch (Throwable t) {
+      if (lastFailure == null) {
+        lastFailure = t;
+      }
+    }
+
+    // Fail loudly on Linux CI runners instead of silently skipping containerized integration tests
+    // if the runner's Docker configuration changes in the future.
+    if (isLinuxCiEnvironment()) {
+      throw new IllegalStateException(
+          "Container runtime (Docker/Podman) is required on Linux CI runners but was not"
+              + " available.",
+          lastFailure);
     }
 
     return false;
+  }
+
+  private static boolean isLinuxCiEnvironment() {
+    boolean isCi =
+        Boolean.parseBoolean(System.getenv("CI"))
+            || Boolean.parseBoolean(System.getenv("GITHUB_ACTIONS"));
+    boolean isLinux = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("linux");
+    return isCi && isLinux;
   }
 
   /**

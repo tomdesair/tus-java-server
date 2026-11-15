@@ -1,5 +1,6 @@
 package me.desair.tus.server.upload;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import me.desair.tus.server.exception.TusException;
@@ -8,7 +9,7 @@ import me.desair.tus.server.exception.TusException;
  * Service interface that can lock a specific upload so that it cannot be modified by other
  * requests/threads.
  */
-public interface UploadLockingService {
+public interface UploadLockingService extends Closeable {
 
   /**
    * If the given URI represents a valid upload, lock that upload for processing.
@@ -69,6 +70,17 @@ public interface UploadLockingService {
   }
 
   /**
+   * Unregisters the active input stream associated with the given request URI once streaming has
+   * completed or failed, preventing stale stream references from lingering in memory or being
+   * repeatedly polled by background watchdog daemon threads across long service lifecycles.
+   *
+   * @param requestUri The request URI of the active request
+   */
+  default void unregisterInputStream(String requestUri) {
+    // No-op by default for backwards compatibility
+  }
+
+  /**
    * Request that the lock for the given request URI be released. This interrupts the active
    * request's input stream locally or signals other cluster replicas to interrupt their active
    * stream via a stop signal.
@@ -85,6 +97,7 @@ public interface UploadLockingService {
    *
    * @throws IOException If closing fails
    */
+  @Override
   default void close() throws IOException {
     // No-op by default for backwards compatibility
   }

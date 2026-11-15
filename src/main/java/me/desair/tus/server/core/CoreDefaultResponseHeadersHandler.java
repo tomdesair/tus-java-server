@@ -7,6 +7,7 @@ import me.desair.tus.server.TusFileUploadService;
 import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
+import org.apache.commons.lang3.Strings;
 
 /**
  * The Tus-Resumable header MUST be included in every request and response except for OPTIONS
@@ -34,8 +35,7 @@ public class CoreDefaultResponseHeadersHandler implements RequestHandler {
 
     String requestVersion = servletRequest.getHeader(HttpHeader.TUS_RESUMABLE);
     if (requestVersion != null
-        && !org.apache.commons.lang3.Strings.CS.equals(
-            requestVersion, TusFileUploadService.TUS_API_VERSION)) {
+        && !Strings.CS.equals(requestVersion, TusFileUploadService.TUS_API_VERSION)) {
       servletResponse.setHeader(HttpHeader.TUS_VERSION, TusFileUploadService.TUS_API_VERSION);
     }
   }

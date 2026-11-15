@@ -101,6 +101,9 @@ public class HttpHeader {
    */
   public static final String X_FORWARDED_FOR = "X-Forwarded-For";
 
+  /** The X-Content-Type-Options response header prevents MIME-type sniffing by browsers. */
+  public static final String X_CONTENT_TYPE_OPTIONS = "X-Content-Type-Options";
+
   /**
    * The Upload-Complete request and response header field conveys the completeness state in IETF
    * Resumable Uploads. Its value is a Structured Header Boolean (?1 or ?0).

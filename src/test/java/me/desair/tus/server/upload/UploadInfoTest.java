@@ -13,7 +13,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
+import java.util.Base64;
 import java.util.Stack;
 import java.util.UUID;
 import me.desair.tus.server.HttpHeader;
@@ -194,11 +196,26 @@ public class UploadInfoTest {
 
     assertThat(info.getFileName(), is("test.jpg"));
     assertThat(info.getFileMimeType(), is("image/jpeg"));
+
+    // Untrusted path traversal sequences in filename metadata must be stripped by getFileName()
+    info.setEncodedMetadata(
+        "filename "
+            + Base64.getEncoder()
+                .encodeToString("../../etc/passwd".getBytes(StandardCharsets.UTF_8)));
+    assertThat(info.getFileName(), is("passwd"));
+
+    // Traversal-only or directory metadata must safely fall back to the upload ID
+    info.setId(new UploadId("test-id"));
+    info.setEncodedMetadata(
+        "filename " + Base64.getEncoder().encodeToString("../..".getBytes(StandardCharsets.UTF_8)));
+    assertThat(info.getFileName(), is("test-id"));
   }
 
   @Test
   public void testGetNameAndTypeWithoutMetadata() throws Exception {
     UploadInfo info = new UploadInfo();
+    assertThat(info.getFileName(), is("download"));
+
     final UploadId id = new UploadId(UUID.randomUUID());
     info.setId(id);
 

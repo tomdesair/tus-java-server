@@ -93,4 +93,19 @@ public class ChecksumRequestHandlerTest {
 
     handler.process(HttpMethod.PATCH, servletRequest, null, uploadStorageService, null);
   }
+
+  @Test
+  public void testSkipsChecksumVerificationWhenStreamInterrupted() throws Exception {
+    // Interrupted streams must not trigger trailing-checksum mismatch errors on saved partial bytes
+    when(servletRequest.isStreamInterrupted()).thenReturn(true);
+    when(servletRequest.getHeader(HttpHeader.UPLOAD_CHECKSUM)).thenReturn("sha1 1234567890");
+    when(servletRequest.getCalculatedChecksum(ArgumentMatchers.any(ChecksumAlgorithm.class)))
+        .thenReturn("0000000000");
+    when(servletRequest.hasCalculatedChecksum()).thenReturn(true);
+
+    handler.process(HttpMethod.PATCH, servletRequest, null, uploadStorageService, null);
+
+    verify(servletRequest, times(1)).isStreamInterrupted();
+    verify(servletRequest, never()).getCalculatedChecksum(any(ChecksumAlgorithm.class));
+  }
 }

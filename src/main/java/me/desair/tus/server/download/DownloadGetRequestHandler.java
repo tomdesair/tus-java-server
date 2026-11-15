@@ -14,6 +14,7 @@ import me.desair.tus.server.upload.UploadStorageService;
 import me.desair.tus.server.util.AbstractRequestHandler;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
+import me.desair.tus.server.util.Utils;
 
 /** Send the uploaded bytes of finished uploads. */
 public class DownloadGetRequestHandler extends AbstractRequestHandler {
@@ -50,15 +51,20 @@ public class DownloadGetRequestHandler extends AbstractRequestHandler {
 
     servletResponse.setHeader(HttpHeader.CONTENT_LENGTH, Objects.toString(info.getLength()));
 
+    // info.getFileName() is pre-sanitized, but passing through Utils.sanitizeFileName ensures
+    // idempotent directory traversal protection before generating Content-Disposition headers
+    String sanitizedFileName = Utils.sanitizeFileName(info.getFileName(), info.getId());
     servletResponse.setHeader(
         HttpHeader.CONTENT_DISPOSITION,
         String.format(
             CONTENT_DISPOSITION_FORMAT,
-            info.getFileName().replace("\"", ""),
-            URLEncoder.encode(info.getFileName(), StandardCharsets.UTF_8.toString())
+            sanitizedFileName.replace("\"", ""),
+            URLEncoder.encode(sanitizedFileName, StandardCharsets.UTF_8.toString())
                 .replace("+", "%20")));
 
     servletResponse.setHeader(HttpHeader.CONTENT_TYPE, info.getFileMimeType());
+    // Prevent MIME-sniffing attacks by browsers when serving uploaded user content
+    servletResponse.setHeader(HttpHeader.X_CONTENT_TYPE_OPTIONS, "nosniff");
     servletResponse.setStatus(HttpServletResponse.SC_OK);
 
     uploadStorageService.copyUploadTo(info, servletResponse.getOutputStream());

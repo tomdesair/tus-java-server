@@ -4,6 +4,7 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -14,6 +15,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
+import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.upload.NoOpUploadLockingService;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
@@ -482,5 +484,138 @@ public class RufhAppendPatchRequestHandlerTest {
     verify(storageService, org.mockito.Mockito.atLeastOnce()).update(captor.capture());
     // The last update before returning must reset length back to null for deferred upload resume
     org.junit.Assert.assertNull(captor.getValue().getLength());
+
+    // Stream must be unregistered from locking service to clean up active input stream tracking
+    verify(lockingService).unregisterInputStream("/files/append-id");
+  }
+
+  @Test(expected = IOException.class)
+  public void testProcessUninterruptedIoExceptionWithDeferredLengthResetsLengthAndRethrows()
+      throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/append-uninterrupted-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "1000");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    request.setContent("hello world".getBytes());
+
+    UploadInfo initial = new UploadInfo();
+    initial.setId(new UploadId("append-uninterrupted-id"));
+    initial.setOffset(1000L);
+    initial.setLength(null); // Deferred length initially
+
+    when(storageService.getUploadInfo("/files/append-uninterrupted-id", "owner"))
+        .thenReturn(initial);
+
+    when(storageService.append(eq(initial), any(InputStream.class)))
+        .thenThrow(new IOException("Simulated network drop / connection reset"));
+
+    try {
+      handler.process(
+          HttpMethod.PATCH,
+          new TusServletRequest(request),
+          new TusServletResponse(response),
+          storageService,
+          lockingService,
+          "owner",
+          null);
+    } finally {
+      // Must reset length back to null so future append requests can resume
+      ArgumentCaptor<UploadInfo> captor = ArgumentCaptor.forClass(UploadInfo.class);
+      verify(storageService, org.mockito.Mockito.atLeastOnce()).update(captor.capture());
+      org.junit.Assert.assertNull(captor.getValue().getLength());
+
+      // Input stream must be cleanly unregistered even on failure
+      verify(lockingService).unregisterInputStream("/files/append-uninterrupted-id");
+    }
+  }
+
+  @Test
+  public void testProcessCompletingBelowMinSizeThrows() throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/min-size-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?1");
+    request.setContent("hello".getBytes());
+
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("min-size-id"));
+    info.setOffset(0L);
+    info.setLength(null);
+
+    UploadInfo appended = new UploadInfo();
+    appended.setId(new UploadId("min-size-id"));
+    appended.setOffset(5L);
+    appended.setLength(5L);
+
+    when(storageService.getUploadInfo("/files/min-size-id", "owner")).thenReturn(info);
+    when(storageService.getMinSize()).thenReturn(50L);
+    when(storageService.append(eq(info), any(InputStream.class))).thenReturn(appended);
+
+    assertThrows(
+        MinUploadLengthNotReachedException.class,
+        () ->
+            handler.process(
+                HttpMethod.PATCH,
+                new TusServletRequest(request),
+                new TusServletResponse(response),
+                storageService,
+                lockingService,
+                "owner",
+                null));
+  }
+
+  @Test
+  public void testProcessInterruptedPreservesExplicitUploadLengthAndMarksRequestInterrupted()
+      throws Exception {
+    request.setMethod("PATCH");
+    request.setRequestURI("/files/explicit-len-id");
+    request.addHeader(HttpHeader.CONTENT_TYPE, HttpHeader.CONTENT_TYPE_PARTIAL_UPLOAD);
+    request.addHeader(HttpHeader.UPLOAD_OFFSET, "10");
+    request.addHeader(HttpHeader.UPLOAD_LENGTH, "100");
+    request.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    request.setContent("partial".getBytes());
+
+    UploadInfo initial = new UploadInfo();
+    initial.setId(new UploadId("explicit-len-id"));
+    initial.setOffset(10L);
+    initial.setLength(null); // Initially deferred, explicitly supplied on this PATCH
+
+    UploadInfo refreshed = new UploadInfo();
+    refreshed.setId(new UploadId("explicit-len-id"));
+    refreshed.setOffset(14L);
+    refreshed.setLength(100L);
+
+    when(storageService.getUploadInfo("/files/explicit-len-id", "owner"))
+        .thenReturn(initial)
+        .thenReturn(refreshed);
+    when(storageService.append(eq(initial), any(InputStream.class)))
+        .thenAnswer(
+            inv -> {
+              Object s = inv.getArgument(1);
+              if (s instanceof InterruptibleInputStream) {
+                ((InterruptibleInputStream) s).interrupt();
+              }
+              throw new IOException("Interrupted by contention");
+            });
+
+    TusServletRequest tusRequest = new TusServletRequest(request);
+    handler.process(
+        HttpMethod.PATCH,
+        tusRequest,
+        new TusServletResponse(response),
+        storageService,
+        lockingService,
+        "owner",
+        null);
+
+    assertTrue(tusRequest.isStreamInterrupted());
+    assertThat(response.getStatus(), is(204));
+    assertThat(response.getHeader(HttpHeader.UPLOAD_OFFSET), is("14"));
+    // Explicitly provided Upload-Length must remain 100 and not be cleared back to null
+    ArgumentCaptor<UploadInfo> captor = ArgumentCaptor.forClass(UploadInfo.class);
+    verify(storageService, org.mockito.Mockito.times(1)).update(captor.capture());
+    assertThat(captor.getValue().getLength(), is(100L));
   }
 }

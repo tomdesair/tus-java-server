@@ -9,6 +9,7 @@ import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -34,6 +35,7 @@ public class TusServletRequest extends HttpServletRequestWrapper {
   private Map<String, List<String>> trailerHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
   private Set<String> processedBySet = new TreeSet<>();
   private Boolean hasContent = null;
+  private boolean streamInterrupted = false;
 
   /**
    * Constructs a request object wrapping the given request.
@@ -79,20 +81,20 @@ public class TusServletRequest extends HttpServletRequestWrapper {
       ChecksumAlgorithm checksumAlgorithm =
           ChecksumAlgorithm.forUploadChecksumHeader(getHeader(HttpHeader.UPLOAD_CHECKSUM));
 
-      java.util.Set<ChecksumAlgorithm> algorithms = new java.util.LinkedHashSet<>();
+      Set<ChecksumAlgorithm> algorithms = new LinkedHashSet<>();
+      if (checksumAlgorithm != null) {
+        algorithms.add(checksumAlgorithm);
+      }
+      algorithms.addAll(
+          ChecksumAlgorithm.parseDigestHeader(getHeader(HttpHeader.CONTENT_DIGEST)).keySet());
+      algorithms.addAll(
+          ChecksumAlgorithm.parseDigestHeader(getHeader(HttpHeader.WANT_CONTENT_DIGEST)).keySet());
 
-      if (isChunked) {
-        // Since the Checksum header can still come at the end, keep track of all checksums
+      // Only compute all 5 digest algorithms when Transfer-Encoding is chunked AND no explicit
+      // checksum or digest header was already provided in the initial request headers (meaning a
+      // trailing Upload-Checksum or Content-Digest header may arrive at the end of the stream).
+      if (isChunked && algorithms.isEmpty()) {
         algorithms.addAll(Arrays.asList(ChecksumAlgorithm.values()));
-      } else {
-        if (checksumAlgorithm != null) {
-          algorithms.add(checksumAlgorithm);
-        }
-        algorithms.addAll(
-            ChecksumAlgorithm.parseDigestHeader(getHeader(HttpHeader.CONTENT_DIGEST)).keySet());
-        algorithms.addAll(
-            ChecksumAlgorithm.parseDigestHeader(getHeader(HttpHeader.WANT_CONTENT_DIGEST))
-                .keySet());
       }
 
       for (ChecksumAlgorithm algorithm : algorithms) {
@@ -211,6 +213,26 @@ public class TusServletRequest extends HttpServletRequestWrapper {
 
   public void addProcessor(TusExtension processor) {
     processedBySet.add(processor.getName());
+  }
+
+  /**
+   * Returns true if the request payload stream was prematurely interrupted (e.g. due to lock
+   * contention or mid-stream truncation) after partial bytes were saved.
+   *
+   * @return true if the upload stream was interrupted before completion
+   */
+  public boolean isStreamInterrupted() {
+    return streamInterrupted;
+  }
+
+  /**
+   * Marks whether the request payload stream was prematurely interrupted after partial bytes were
+   * saved.
+   *
+   * @param streamInterrupted true if the upload stream was interrupted
+   */
+  public void setStreamInterrupted(boolean streamInterrupted) {
+    this.streamInterrupted = streamInterrupted;
   }
 
   private boolean hasChunkedTransferEncoding() {

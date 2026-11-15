@@ -99,6 +99,22 @@ public class AzureBlobLockingServiceTest {
   }
 
   @Test
+  public void testUnregisterInputStreamRemovesFromActiveStreams() {
+    ByteArrayInputStream bais = new ByteArrayInputStream("data".getBytes());
+    InterruptibleInputStream stream = new InterruptibleInputStream(bais);
+
+    lockingService.registerInputStream("/test/upload/88888", stream);
+    assertTrue(lockingService.activeStreams.containsKey("88888"));
+
+    lockingService.unregisterInputStream("/test/upload/88888");
+    assertFalse(lockingService.activeStreams.containsKey("88888"));
+
+    // Null or invalid URI handles gracefully without throwing
+    lockingService.unregisterInputStream(null);
+    lockingService.unregisterInputStream("invalid-uri");
+  }
+
+  @Test
   public void requestLockReleaseShouldDoNothingOnInvalidUri() {
     // KISS: verifying request release on invalid URI is no-op and does not throw
     lockingService.requestLockRelease("invalid-uri");

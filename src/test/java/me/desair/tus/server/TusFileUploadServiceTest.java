@@ -22,6 +22,8 @@ import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLock;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
+import me.desair.tus.server.upload.UploadType;
+import me.desair.tus.server.upload.cache.ThreadLocalCachedStorageAndLockingService;
 import me.desair.tus.server.util.TusServletRequest;
 import me.desair.tus.server.util.TusServletResponse;
 import org.junit.Test;
@@ -558,7 +560,8 @@ public class TusFileUploadServiceTest {
     request.setMethod("GET");
     org.junit.Assert.assertNull(service.getRawInterimResponse(request, "owner-123"));
 
-    // Test AUTO protocol service with TUS 1.0.0 request returns null for RUFH 104 interim response
+    // Test AUTO protocol service with valid TUS 1.0.0 request returns null (no 104 interim response
+    // for Tus 1.0.0)
     TusFileUploadService autoService =
         new TusFileUploadService()
             .withSupportedProtocolVersions(ProtocolVersion.AUTO)
@@ -568,11 +571,55 @@ public class TusFileUploadServiceTest {
     tus10Request.setMethod("POST");
     tus10Request.setRequestURI("/files");
     tus10Request.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    tus10Request.addHeader(HttpHeader.UPLOAD_LENGTH, "1000");
     org.junit.Assert.assertNull(autoService.getRawInterimResponse(tus10Request, "owner-123"));
 
     // Test null input
     org.junit.Assert.assertNull(
         service.getRawInterimResponse((jakarta.servlet.http.HttpServletRequest) null, "owner-123"));
+
+    // Test invalid creation request where upload length exceeds maxUploadSize: validation fails
+    // and returns null before any storage creation takes place (error response handled by main
+    // pipeline)
+    TusFileUploadService sizeLimitedService =
+        new TusFileUploadService()
+            .withSupportedProtocolVersions(ProtocolVersion.RUFH)
+            .withUploadUri("/files")
+            .withMaxUploadSize(100L);
+    org.springframework.mock.web.MockHttpServletRequest oversizedRequest =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    oversizedRequest.setMethod("POST");
+    oversizedRequest.setRequestURI("/files");
+    oversizedRequest.addHeader(HttpHeader.UPLOAD_LENGTH, "500");
+    oversizedRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    org.junit.Assert.assertNull(
+        sizeLimitedService.getRawInterimResponse(oversizedRequest, "owner-123"));
+
+    // Test path traversal attempt: validation fails and returns null
+    org.springframework.mock.web.MockHttpServletRequest traversalRequest =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    traversalRequest.setMethod("POST");
+    traversalRequest.setRequestURI("/files/../secret");
+    traversalRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    org.junit.Assert.assertNull(service.getRawInterimResponse(traversalRequest, "owner-123"));
+
+    // Test Tus 1.0.0 request with invalid metadata fails validation and returns null
+    org.springframework.mock.web.MockHttpServletRequest invalidTus10Request =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    invalidTus10Request.setMethod("POST");
+    invalidTus10Request.setRequestURI("/files");
+    invalidTus10Request.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    invalidTus10Request.addHeader(HttpHeader.UPLOAD_METADATA, "file\tname d29ybGQ=");
+    org.junit.Assert.assertNull(
+        autoService.getRawInterimResponse(invalidTus10Request, "owner-123"));
+
+    org.springframework.mock.web.MockHttpServletRequest unsupportedMethodRequest =
+        new org.springframework.mock.web.MockHttpServletRequest();
+    unsupportedMethodRequest.setMethod("CUSTOM");
+    unsupportedMethodRequest.setRequestURI("/files");
+    unsupportedMethodRequest.addHeader(HttpHeader.UPLOAD_COMPLETE, "?0");
+    org.junit.Assert.assertNull(
+        service.getRawInterimResponse(unsupportedMethodRequest, "owner-123"));
   }
 
   @Test
@@ -1070,5 +1117,138 @@ public class TusFileUploadServiceTest {
         ProtocolVersion.TUS_1_0_0);
 
     assertEquals(HttpServletResponse.SC_BAD_REQUEST, servletResponse.getStatus());
+  }
+
+  @Test
+  public void testWithUploadStorageServicePreservesBackendMaxAppendSizeUnlessConfigured()
+      throws Exception {
+    UploadStorageService storage1 = mock(UploadStorageService.class);
+    UploadStorageService storage2 = mock(UploadStorageService.class);
+    UploadLockingService locking1 = mock(UploadLockingService.class);
+    UploadLockingService locking2 = mock(UploadLockingService.class);
+
+    // Without withMaxAppendSize(), replacing storage must preserve the new backend default
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withThreadLocalCache(true)
+            .withUploadStorageService(storage1)
+            .withUploadLockingService(locking1);
+    verify(storage1, never()).setMaxAppendSize(any());
+
+    // Replacing wrapped services closes the old unwrapped delegates cleanly
+    service.withUploadStorageService(storage2).withUploadLockingService(locking2);
+    verify(storage1).close();
+    verify(locking1).close();
+    verify(storage2, never()).setMaxAppendSize(any());
+
+    // Once explicitly configured, subsequent storage replacements inherit the configured value
+    service.withMaxAppendSize(4096L);
+    UploadStorageService storage3 = mock(UploadStorageService.class);
+    service.withUploadStorageService(storage3);
+    verify(storage3).setMaxAppendSize(4096L);
+    verify(storage2).close();
+    org.junit.Assert.assertTrue(
+        service.getUploadStorageService() instanceof ThreadLocalCachedStorageAndLockingService);
+  }
+
+  @Test
+  public void testPartialUploadDoesNotTriggerCompletionListeners() throws Exception {
+    UploadLockingService mockLockingService = mock(UploadLockingService.class);
+    UploadLock mockLock = mock(UploadLock.class);
+    when(mockLockingService.lockUploadByUri(anyString())).thenReturn(mockLock);
+
+    UploadStorageService mockStorage = mock(UploadStorageService.class);
+    UUID uuid = UUID.randomUUID();
+    String uploadUri = "/files/upload/" + uuid;
+
+    UploadInfo partialInProgress = new UploadInfo();
+    partialInProgress.setId(new UploadId(uuid));
+    partialInProgress.setUploadType(UploadType.PARTIAL);
+    partialInProgress.setOffset(0L);
+    partialInProgress.setLength(5L);
+
+    UploadInfo partialCompleted = new UploadInfo();
+    partialCompleted.setId(new UploadId(uuid));
+    partialCompleted.setUploadType(UploadType.PARTIAL);
+    partialCompleted.setOffset(5L);
+    partialCompleted.setLength(5L);
+
+    when(mockStorage.getUploadInfo(uploadUri, "owner"))
+        .thenReturn(partialInProgress)
+        .thenReturn(partialInProgress)
+        .thenReturn(partialInProgress)
+        .thenReturn(partialInProgress)
+        .thenReturn(partialCompleted);
+    when(mockStorage.append(any(), any())).thenReturn(partialCompleted);
+
+    MockHttpServletRequest mockReq = new MockHttpServletRequest();
+    mockReq.setMethod("PATCH");
+    mockReq.setRequestURI(uploadUri);
+    mockReq.addHeader(HttpHeader.TUS_RESUMABLE, "1.0.0");
+    mockReq.addHeader(HttpHeader.CONTENT_TYPE, "application/offset+octet-stream");
+    mockReq.addHeader(HttpHeader.UPLOAD_OFFSET, "0");
+    mockReq.setContent(new byte[5]);
+
+    MockHttpServletResponse mockResp = new MockHttpServletResponse();
+    UploadCompletionListener listener = mock(UploadCompletionListener.class);
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadUri("/files/upload")
+            .withUploadLockingService(mockLockingService)
+            .withUploadStorageService(mockStorage)
+            .withUploadCompletionListener(listener);
+
+    service.process(mockReq, mockResp, "owner");
+
+    verify(listener, never()).onUploadComplete(any(), any());
+  }
+
+  @Test
+  public void testCloseStillClosesStorageWhenLockingCloseThrows() throws Exception {
+    UploadLockingService mockLocking = mock(UploadLockingService.class);
+    UploadStorageService mockStorage = mock(UploadStorageService.class);
+    doThrow(new IOException("locking failure")).when(mockLocking).close();
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadLockingService(mockLocking)
+            .withUploadStorageService(mockStorage);
+
+    try {
+      service.close();
+      fail("Expected IOException from locking close");
+    } catch (IOException expected) {
+      assertEquals("locking failure", expected.getMessage());
+    }
+    verify(mockStorage).close();
+  }
+
+  @Test
+  public void testCloseQuietlySwallowsReplacementCloseExceptionsAndClosesCachedService()
+      throws Exception {
+    UploadStorageService storage1 = mock(UploadStorageService.class);
+    UploadStorageService storage2 = mock(UploadStorageService.class);
+    UploadLockingService locking1 = mock(UploadLockingService.class);
+    UploadLockingService locking2 = mock(UploadLockingService.class);
+
+    doThrow(new IOException("Simulated storage close failure")).when(storage1).close();
+    doThrow(new IOException("Simulated locking close failure")).when(locking1).close();
+
+    TusFileUploadService service =
+        new TusFileUploadService()
+            .withUploadStorageService(storage1)
+            .withUploadLockingService(locking1);
+
+    service.withUploadStorageService(storage2);
+    verify(storage1).close();
+
+    service.withUploadLockingService(locking2);
+    verify(locking1).close();
+
+    service.withThreadLocalCache(true);
+    service.close();
+    verify(storage2).close();
+    verify(locking2).close();
   }
 }

@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import me.desair.tus.server.upload.UploadInfo;
@@ -111,7 +112,14 @@ public class S3ServerSideComposeHelper implements Closeable {
           base.setRegion(region);
         }
         prov = new StaticProvider(accessKey, secretKey, null);
-        client = new OkHttpClient();
+        // Server-side UploadPartCopy on multi-hundred-MB or multi-GB S3 parts regularly takes
+        // longer than OkHttp's default 10-second timeout. Configure generous cloud copy timeouts.
+        client =
+            new OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .writeTimeout(60, TimeUnit.SECONDS)
+                .readTimeout(120, TimeUnit.SECONDS)
+                .build();
 
         MinioAsyncClient.Builder asyncBuilder =
             MinioAsyncClient.builder().endpoint(endpoint).credentials(accessKey, secretKey);

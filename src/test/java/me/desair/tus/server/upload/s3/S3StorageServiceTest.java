@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -52,8 +53,10 @@ import java.util.concurrent.ThreadPoolExecutor;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.MaxAppendSizeExceededException;
+import me.desair.tus.server.exception.MinAppendSizeNotMetException;
 import me.desair.tus.server.exception.MinUploadLengthNotReachedException;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
@@ -2590,8 +2593,10 @@ public class S3StorageServiceTest {
                 (PutObjectArgs args) ->
                     args != null && "metadata/trunc-put-err.part.00001".equals(args.object())));
 
-    storageService.removeLastNumberOfBytes(info, 3L);
-    assertEquals(7L, info.getOffset().longValue());
+    IOException thrown =
+        assertThrows(IOException.class, () -> storageService.removeLastNumberOfBytes(info, 3L));
+    assertTrue(thrown.getMessage().contains("metadata/trunc-put-err.part.00001"));
+    assertEquals(10L, info.getOffset().longValue());
   }
 
   @Test
@@ -3121,6 +3126,41 @@ public class S3StorageServiceTest {
   }
 
   @Test
+  public void testGetOwnS3ObjectKeyShouldReturnChildKey() {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("child-s3-123"));
+    assertEquals("uploads/child-s3-123", storageService.getOwnS3ObjectKey(info));
+
+    // For deduplicated child uploads, getOwnS3ObjectKey MUST return the child's own object key
+    // (not parent's) to protect parent data from write and truncation operations
+    info.setDuplicatesUploadId(new UploadId("parent-s3-999"));
+    assertEquals("uploads/child-s3-123", storageService.getOwnS3ObjectKey(info));
+    assertNull(storageService.getOwnS3ObjectKey(null));
+  }
+
+  @Test
+  public void testCleanupExpiredUploadsSkipsRecentlyModifiedObjects() throws Exception {
+    storageService.setUploadExpirationPeriod(3600000L); // 1 hour
+
+    Item freshItem = mock(Item.class);
+    when(freshItem.objectName()).thenReturn("uploads/fresh-upload.info");
+    // Modified 5 minutes ago (newer than 1 hour expiration threshold)
+    when(freshItem.lastModified()).thenReturn(java.time.ZonedDateTime.now().minusMinutes(5));
+
+    Result<Item> result = new Result<>(freshItem);
+    when(minioClient.listObjects(any(ListObjectsArgs.class)))
+        .thenReturn(Collections.singletonList(result));
+
+    storageService.cleanupExpiredUploads(null);
+
+    // Should skip fetching the .info object because it was recently modified
+    verify(minioClient, never())
+        .getObject(
+            argThat(
+                (GetObjectArgs a) -> a != null && a.object().equals("uploads/fresh-upload.info")));
+  }
+
+  @Test
   public void testIsJsonSerializationEnabled() {
     assertTrue(storageService.isJsonSerializationEnabled());
   }
@@ -3401,6 +3441,73 @@ public class S3StorageServiceTest {
   @Test
   public void testGetUploadLockingServiceReturnsConfiguredInstance() {
     assertNotNull(storageService.getUploadLockingService());
+  }
+
+  @Test
+  public void testAppendMinAppendSizeNotMetDeletesNewPartsWithoutMutatingMetadataOrOffset()
+      throws Exception {
+    storageService.setMinAppendSize(100L);
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("s3-min-append"));
+    info.setOffset(0L);
+    info.setLength(1000L);
+
+    when(minioClient.getObject(
+            argThat(
+                (GetObjectArgs a) ->
+                    a != null && "metadata/s3-min-append.info".equals(a.object()))))
+        .thenReturn(mockGetObjectResponse(UploadInfoJsonSerializer.serialize(info).getBytes()));
+
+    assertThrows(
+        MinAppendSizeNotMetException.class,
+        () -> storageService.append(info, new ByteArrayInputStream(new byte[10])));
+
+    assertEquals(0L, info.getOffset().longValue());
+    assertTrue(info.getUploadPartKeys() == null || info.getUploadPartKeys().isEmpty());
+    // Newly uploaded temporary part object must be cleaned up and .info metadata must stay
+    // untouched
+    verify(minioClient)
+        .removeObject(argThat((RemoveObjectArgs a) -> a != null && a.object().contains(".part.")));
+    verify(minioClient, never())
+        .putObject(argThat((PutObjectArgs a) -> a != null && a.object().endsWith(".info")));
+  }
+
+  @Test
+  public void testSetS3ConditionalWritesSupportedForwardsToS3LockingService() {
+    S3LockingService mockS3Locking = mock(S3LockingService.class);
+    storageService.setUploadLockingService(mockS3Locking);
+
+    storageService.setS3ConditionalWritesSupported(false);
+    verify(mockS3Locking).withS3ConditionalWritesSupported(false);
+
+    storageService.withS3ConditionalWritesSupported(true);
+    verify(mockS3Locking).withS3ConditionalWritesSupported(true);
+  }
+
+  @Test
+  public void testCreateWithExpirationPresetPartsAndGetUploadUri() {
+    TimeBasedUploadIdFactory customFactory = new TimeBasedUploadIdFactory();
+    customFactory.setUploadUri("/custom/s3");
+    storageService.setIdFactory(customFactory);
+    storageService.setUploadExpirationPeriod(3600000L);
+
+    assertEquals("/custom/s3", storageService.getUploadUri());
+
+    UploadInfo info = new UploadInfo();
+    info.setLength(10L);
+    info.setOffset(2L);
+    info.setUploadPartKeys(new ArrayList<>(Arrays.asList("part-existing")));
+
+    UploadInfo created = null;
+    try {
+      created = storageService.create(info, "owner-exp");
+    } catch (Exception e) {
+      fail("Unexpected exception: " + e.getMessage());
+    }
+    assertNotNull(created);
+    assertNotNull(created.getExpirationTimestamp());
+    assertEquals(Long.valueOf(2L), created.getOffset());
+    assertEquals(1, created.getUploadPartKeys().size());
   }
 
   private GetObjectResponse mockGetObjectResponse(byte[] bytes) {

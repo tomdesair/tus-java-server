@@ -83,7 +83,7 @@ TusFileUploadService tusService = new TusFileUploadService()
 ```
 <objectPrefix>/<UploadId>                                    # Final completed data object
 <metadataPrefix>/<UploadId>.info                             # JSON-serialized UploadInfo metadata
-<metadataPrefix>/<UploadId>.part                             # Incomplete sub-5MB part buffer
+<metadataPrefix>/<UploadId>.part.<index>                     # Incomplete sub-5MB part buffers
 <checksumsPrefix>/<algorithm>/<hex_checksum>/parent          # Deduplication parent pointer object
 <checksumsPrefix>/<algorithm>/<hex_checksum>/parent-deleted  # Tombstone marker if parent deleted
 <checksumsPrefix>/<algorithm>/<hex_checksum>/children/<id>   # Active duplicate child reference
@@ -96,7 +96,7 @@ TusFileUploadService tusService = new TusFileUploadService()
 | Setting | Default Value | Description |
 |---------|---------------|-------------|
 | `objectPrefix` | `"uploads/"` | Key prefix for final completed file objects |
-| `metadataPrefix` | `"metadata/"` | Key prefix for `.info` JSON and `.part` buffers |
+| `metadataPrefix` | `"metadata/"` | Key prefix for `.info` JSON and `.part.<index>` buffers |
 | `checksumsPrefix` | `"checksums/"` | Key prefix for deduplication index objects |
 | `locksPrefix` | `"locks/"` | Key prefix for distributed lock lease objects |
 
@@ -201,7 +201,7 @@ S3 requires every part chunk of a multipart upload to be at least 5 MB (except t
   - **Slot 3 (Uploading)**: Actively uploading a chunk to S3 on a background daemon worker thread.
   - When the background thread pool is fully utilized, work seamlessly falls back to the client thread without blocking (`ThreadPoolExecutor.CallerRunsPolicy` on a `SynchronousQueue`), ensuring zero queuing overhead and immediate backpressure.
 - **Thread Pool Sizing**: Worker threads are managed via a shared executor, default 10 threads, configurable on `TusFileUploadService` via `.withCloudUploadThreadPoolSize(int)` or directly on `S3StorageService.setCloudUploadThreadPoolSize(int)`.
-- **Incomplete Parts & Stale Buffer Protection**: If a client upload stream ends before reaching 5 MB and the upload is not complete, the sub-5MB chunk is saved as a `<metadataPrefix>/<UploadId>.part` object in S3. On subsequent requests, an arithmetic budget guard ($\text{existingPartsTotalSize} + \text{size}(.part) == \text{length}$) verifies whether the `.part` represents a legitimate final part or an obsolete buffer from a previous attempt, preventing file corruption and size inflation.
+- **Incomplete Parts & Stale Buffer Protection**: If a client upload stream ends before reaching 5 MB and the upload is not complete, the sub-5MB chunk is saved as an indexed `<metadataPrefix>/<UploadId>.part.<index>` object in S3. On subsequent requests, an arithmetic budget guard ($\text{existingPartsTotalSize} + \text{size}(.part) == \text{length}$) verifies whether the `.part.*` buffers represent a legitimate continuation or obsolete buffers from a previous attempt, preventing file corruption and size inflation.
 - **Configurable Temp Directory**: The temporary buffer directory can be configured in the constructor or builder:
 
 ```java
@@ -427,7 +427,11 @@ When the test suite executes:
 | `LeaseDataJsonSerializerTest` | Unit test for lease data JSON serialization (`me.desair.tus.server.util`) | Mocked / JVM |
 | `S3StorageServiceTest` | Fast unit test for S3 storage logic | Mocked `MinioClient` |
 | `S3LockingServiceTest` | Fast unit test for S3 distributed locking | Mocked `MinioClient` |
+| `S3UploadLockTest` | Fast unit test for S3 upload lock lease renewal & release | Mocked `MinioClient` |
 | `S3ConcatenationServiceTest` | Fast unit test for S3 concatenation logic | Mocked `MinioClient` |
+| `S3ChecksumIndexTest` | Fast unit test for S3 checksum deduplication index | Mocked `MinioClient` |
+| `S3ServerSideComposeHelperTest` | Fast unit test for S3 server-side multipart composition | Mocked `MinioClient` |
+| `S3UtilsTest` | Fast unit test for S3 error classification & utilities | JVM |
 | `ITS3StorageService` | Integration test for S3 storage | Live RustFS Testcontainer |
 | `ITS3LockingService` | Integration test for S3 distributed locking & contention | Live RustFS Testcontainer |
 | `ITS3RufhProtocol` | IETF RUFH protocol integration suite for S3 backend | Live RustFS Testcontainer |
@@ -457,7 +461,7 @@ When the test suite executes:
 To automatically clean up abandoned partial uploads or lock files in case of sudden server crashes, configure S3 Lifecycle Rules on your bucket:
 
 - **Expire Incomplete Multipart Uploads**: Set rule to abort incomplete multipart uploads after 1–7 days.
-- **Expire `metadata/*.part` Objects**: Configure lifecycle expiration for objects under `metadata/` prefix matching `*.part` older than 7 days.
+- **Expire `metadata/*.part.*` Objects**: Configure lifecycle expiration for objects under `metadata/` prefix matching `*.part.*` older than 7 days.
 - **Expire `locks/*` Objects**: Configure lifecycle expiration for objects under `locks/` prefix older than 1 day.
 
 ### IAM Data Action Summary

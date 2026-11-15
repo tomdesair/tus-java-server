@@ -1,5 +1,6 @@
 package me.desair.tus.server.rufh.handler;
 
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.HttpProblemDetails;
@@ -46,7 +47,7 @@ public class RufhDeleteRequestHandler extends AbstractRequestHandler {
     }
 
     uploadStorageService.terminateUpload(uploadInfo);
-    servletResponse.setStatus(204);
+    servletResponse.setStatus(HttpServletResponse.SC_NO_CONTENT);
     return null;
   }
 }

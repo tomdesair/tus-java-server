@@ -13,7 +13,9 @@ import java.time.Duration;
 import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -29,6 +31,7 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.ProtocolVersion;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.upload.NoOpUploadLockingService;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UploadStorageService;
@@ -43,6 +46,8 @@ public class Utils {
 
   private static final Logger log = LoggerFactory.getLogger(Utils.class);
   private static final Pattern CHECKSUM_VALUE_PATTERN = Pattern.compile("^[a-zA-Z0-9+/=\\-_]+$");
+  private static final Map<String, Pattern> CREATION_URI_PATTERN_CACHE = new ConcurrentHashMap<>();
+  private static final int MAX_PATTERN_CACHE_SIZE = 64;
 
   private Utils() {
     // This is a utility class that only holds static utility methods
@@ -228,7 +233,6 @@ public class Utils {
   /**
    * Resolves the upload URI from the HTTP request and response context.
    *
-   * @param method The HttpMethod of the request
    * @param request The TusServletRequest
    * @param response The TusServletResponse
    * @return The upload URI string, or null if it cannot be determined
@@ -239,8 +243,16 @@ public class Utils {
             ? HttpMethod.getMethodIfSupported(request, EnumSet.allOf(HttpMethod.class))
             : null;
 
+    // Creation methods (POST, PUT, and RUFH creation via PATCH) allocate a new upload resource
+    // and publish its URI via the Location response header.
     if (HttpMethod.POST.equals(method) || HttpMethod.PUT.equals(method)) {
-      return response != null ? response.getHeader(HttpHeader.LOCATION) : null;
+      return response != null && StringUtils.isNotBlank(response.getHeader(HttpHeader.LOCATION))
+          ? response.getHeader(HttpHeader.LOCATION)
+          : null;
+    } else if (HttpMethod.PATCH.equals(method)
+        && response != null
+        && StringUtils.isNotBlank(response.getHeader(HttpHeader.LOCATION))) {
+      return response.getHeader(HttpHeader.LOCATION);
     } else if (request != null) {
       return request.getRequestURI();
     }
@@ -280,9 +292,9 @@ public class Utils {
         return ProtocolVersion.RUFH;
       }
       String method = request.getMethod();
-      if (HttpMethod.HEAD.name().equalsIgnoreCase(method)
-          || HttpMethod.GET.name().equalsIgnoreCase(method)
-          || HttpMethod.DELETE.name().equalsIgnoreCase(method)) {
+      if (Strings.CI.equals(HttpMethod.HEAD.name(), method)
+          || Strings.CI.equals(HttpMethod.GET.name(), method)
+          || Strings.CI.equals(HttpMethod.DELETE.name(), method)) {
         return ProtocolVersion.RUFH;
       }
     }
@@ -375,14 +387,26 @@ public class Utils {
       String normalizedBase =
           Strings.CS.endsWith(baseUri, "/") ? baseUri.substring(0, baseUri.length() - 1) : baseUri;
       String patternStr = "^" + normalizedBase + "/?$";
-      try {
-        return Pattern.compile(patternStr).matcher(requestUri).matches();
-      } catch (Exception e) {
-        log.debug("Invalid regex in upload URI pattern: {}", baseUri, e);
-        return false;
-      }
+      Pattern pattern = getPatternFromCache(patternStr);
+      return pattern != null && pattern.matcher(requestUri).matches();
     }
     return false;
+  }
+
+  private static Pattern getPatternFromCache(String patternStr) {
+    try {
+      Pattern pattern = CREATION_URI_PATTERN_CACHE.get(patternStr);
+      if (pattern == null) {
+        pattern = Pattern.compile(patternStr);
+        if (CREATION_URI_PATTERN_CACHE.size() < MAX_PATTERN_CACHE_SIZE) {
+          CREATION_URI_PATTERN_CACHE.put(patternStr, pattern);
+        }
+      }
+      return pattern;
+    } catch (Exception e) {
+      log.debug("Invalid regex in upload URI pattern: {}", patternStr, e);
+      return null;
+    }
   }
 
   /**
@@ -568,7 +592,7 @@ public class Utils {
    *
    * @param inputStream The InputStream to interrupt or close
    */
-  public static void interruptStream(java.io.InputStream inputStream) {
+  public static void interruptStream(InputStream inputStream) {
     if (inputStream == null) {
       return;
     }
@@ -793,5 +817,51 @@ public class Utils {
       result = result.substring(0, result.length() - 1);
     }
     return result + "/";
+  }
+
+  /**
+   * Sanitizes a client-supplied filename to prevent directory traversal and null-byte injection
+   * when serving downloads or persisting uploaded files.
+   *
+   * <p>Strips Unix ({@code /}) and Windows ({@code \}) directory prefixes, removes {@code ..}
+   * traversal sequences and null bytes ({@code \0}), and falls back to {@code "download"} when the
+   * resulting name is null or blank.
+   *
+   * @param fileName The raw filename string (may be null)
+   * @return A non-null, non-blank sanitized filename
+   */
+  public static String sanitizeFileName(String fileName) {
+    return sanitizeFileName(fileName, null);
+  }
+
+  /**
+   * Sanitizes a client-supplied filename to prevent directory traversal and null-byte injection
+   * when serving downloads or persisting uploaded files.
+   *
+   * <p>Strips Unix ({@code /}) and Windows ({@code \}) directory prefixes, removes {@code ..}
+   * traversal sequences and null bytes ({@code \0}), and falls back to the provided {@link
+   * UploadId} (or {@code "download"} if {@code uploadId} is {@code null}) when the resulting name
+   * is null or blank.
+   *
+   * @param fileName The raw filename string (may be null)
+   * @param uploadId Optional fallback upload ID if the filename is null, blank, or unsafe
+   * @return A non-null, non-blank sanitized filename
+   */
+  public static String sanitizeFileName(String fileName, UploadId uploadId) {
+    if (fileName == null || fileName.trim().isEmpty()) {
+      return uploadId != null ? uploadId.toString() : "download";
+    }
+    // Strip Unix and Windows directory segments so only the terminal filename remains
+    String sanitized = fileName.trim();
+    int lastSlash = Math.max(sanitized.lastIndexOf('/'), sanitized.lastIndexOf('\\'));
+    if (lastSlash >= 0) {
+      sanitized = sanitized.substring(lastSlash + 1).trim();
+    }
+    // Remove path traversal sequences and null bytes that could bypass filesystem or header checks
+    sanitized = sanitized.replace("..", "").replace("\0", "").trim();
+    if (sanitized.isEmpty() || ".".equals(sanitized)) {
+      return uploadId != null ? uploadId.toString() : "download";
+    }
+    return sanitized;
   }
 }

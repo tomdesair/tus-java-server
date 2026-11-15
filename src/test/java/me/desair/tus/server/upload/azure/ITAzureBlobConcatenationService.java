@@ -5,6 +5,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.azure.storage.blob.BlobContainerClient;
+import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.blob.specialized.BlockBlobClient;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -12,8 +14,10 @@ import java.util.Arrays;
 import java.util.List;
 import me.desair.tus.server.TestUtils;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadType;
+import org.apache.commons.io.IOUtils;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assume;
@@ -65,7 +69,7 @@ public class ITAzureBlobConcatenationService {
   @Test(expected = UploadNotFoundException.class)
   public void mergeShouldThrowWhenPartialUploadNotFound() throws Exception {
     UploadInfo finalInfo = new UploadInfo();
-    finalInfo.setId(new me.desair.tus.server.upload.UploadId("final-id"));
+    finalInfo.setId(new UploadId("final-id"));
     finalInfo.setConcatenationPartIds(Arrays.asList("/test/upload/non-existing"));
     finalInfo.setUploadType(UploadType.CONCATENATED);
 
@@ -116,9 +120,7 @@ public class ITAzureBlobConcatenationService {
 
     InputStream is = concatenationService.getConcatenatedBytes(createdFinal);
     assertNotNull(is);
-    assertEquals(
-        "hello-world",
-        org.apache.commons.io.IOUtils.toString(is, java.nio.charset.StandardCharsets.UTF_8));
+    assertEquals("hello-world", IOUtils.toString(is, StandardCharsets.UTF_8));
   }
 
   @Test(expected = UploadNotFoundException.class)
@@ -170,7 +172,7 @@ public class ITAzureBlobConcatenationService {
 
     InputStream is = concatenationService.getConcatenatedBytes(created);
     assertNotNull(is);
-    assertEquals("hello", org.apache.commons.io.IOUtils.toString(is, StandardCharsets.UTF_8));
+    assertEquals("hello", IOUtils.toString(is, StandardCharsets.UTF_8));
   }
 
   @Test
@@ -188,50 +190,9 @@ public class ITAzureBlobConcatenationService {
     AzureBlobConcatenationService fallbackService =
         new AzureBlobConcatenationService(containerClient, storageService) {
           @Override
-          void stageBlockFromUrl(
-              com.azure.storage.blob.specialized.BlockBlobClient client,
-              String blockId,
-              String sourceUrl) {
-            throw new com.azure.storage.blob.models.BlobStorageException(
-                "Simulated 403",
-                new com.azure.core.http.HttpResponse(null) {
-                  @Override
-                  public int getStatusCode() {
-                    return 403;
-                  }
-
-                  @Override
-                  public String getHeaderValue(String name) {
-                    return null;
-                  }
-
-                  @Override
-                  public com.azure.core.http.HttpHeaders getHeaders() {
-                    return new com.azure.core.http.HttpHeaders();
-                  }
-
-                  @Override
-                  public reactor.core.publisher.Flux<java.nio.ByteBuffer> getBody() {
-                    return reactor.core.publisher.Flux.empty();
-                  }
-
-                  @Override
-                  public reactor.core.publisher.Mono<byte[]> getBodyAsByteArray() {
-                    return reactor.core.publisher.Mono.empty();
-                  }
-
-                  @Override
-                  public reactor.core.publisher.Mono<String> getBodyAsString() {
-                    return reactor.core.publisher.Mono.empty();
-                  }
-
-                  @Override
-                  public reactor.core.publisher.Mono<String> getBodyAsString(
-                      java.nio.charset.Charset charset) {
-                    return reactor.core.publisher.Mono.empty();
-                  }
-                },
-                null);
+          void stageBlockFromUrl(BlockBlobClient client, String blockId, String sourceUrl) {
+            throw new BlobStorageException(
+                "Simulated 403", new InMemoryAzureHttpResponse(403), null);
           }
         };
 
@@ -241,7 +202,7 @@ public class ITAzureBlobConcatenationService {
     assertEquals(Long.valueOf(10L), createdFinal.getLength());
   }
 
-  @Test(expected = com.azure.storage.blob.models.BlobStorageException.class)
+  @Test(expected = BlobStorageException.class)
   public void mergeShouldRethrowUnexpectedBlobStorageException() throws Exception {
     UploadInfo part1Info = new UploadInfo();
     part1Info.setLength(10L);
@@ -256,50 +217,9 @@ public class ITAzureBlobConcatenationService {
     AzureBlobConcatenationService failingService =
         new AzureBlobConcatenationService(containerClient, storageService) {
           @Override
-          void stageBlockFromUrl(
-              com.azure.storage.blob.specialized.BlockBlobClient client,
-              String blockId,
-              String sourceUrl) {
-            throw new com.azure.storage.blob.models.BlobStorageException(
-                "Simulated 500 Server Error",
-                new com.azure.core.http.HttpResponse(null) {
-                  @Override
-                  public int getStatusCode() {
-                    return 500;
-                  }
-
-                  @Override
-                  public String getHeaderValue(String name) {
-                    return null;
-                  }
-
-                  @Override
-                  public com.azure.core.http.HttpHeaders getHeaders() {
-                    return new com.azure.core.http.HttpHeaders();
-                  }
-
-                  @Override
-                  public reactor.core.publisher.Flux<java.nio.ByteBuffer> getBody() {
-                    return reactor.core.publisher.Flux.empty();
-                  }
-
-                  @Override
-                  public reactor.core.publisher.Mono<byte[]> getBodyAsByteArray() {
-                    return reactor.core.publisher.Mono.empty();
-                  }
-
-                  @Override
-                  public reactor.core.publisher.Mono<String> getBodyAsString() {
-                    return reactor.core.publisher.Mono.empty();
-                  }
-
-                  @Override
-                  public reactor.core.publisher.Mono<String> getBodyAsString(
-                      java.nio.charset.Charset charset) {
-                    return reactor.core.publisher.Mono.empty();
-                  }
-                },
-                null);
+          void stageBlockFromUrl(BlockBlobClient client, String blockId, String sourceUrl) {
+            throw new BlobStorageException(
+                "Simulated 500 Server Error", new InMemoryAzureHttpResponse(500), null);
           }
         };
 

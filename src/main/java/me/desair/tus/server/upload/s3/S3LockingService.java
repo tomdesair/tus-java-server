@@ -27,6 +27,7 @@ import me.desair.tus.server.upload.UploadLockingService;
 import me.desair.tus.server.upload.UuidUploadIdFactory;
 import me.desair.tus.server.util.LeaseDataJsonSerializer;
 import me.desair.tus.server.util.Utils;
+import org.apache.commons.io.input.BoundedInputStream;
 import org.apache.commons.lang3.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -701,7 +702,12 @@ public class S3LockingService extends AbstractLeaseLockingService {
   }
 
   private boolean isMutexStale(String mutexKey) {
-    try (InputStream stream = S3Utils.getObjectInputStream(minioClient, bucket, mutexKey)) {
+    // Bound mutex reads to 64 KiB so a corrupted or oversized object never exhausts heap memory.
+    try (InputStream stream =
+        BoundedInputStream.builder()
+            .setInputStream(S3Utils.getObjectInputStream(minioClient, bucket, mutexKey))
+            .setMaxCount(64 * 1024L)
+            .get()) {
       byte[] bytes = stream.readAllBytes();
       long createdTime = Long.parseLong(new String(bytes, StandardCharsets.UTF_8).trim());
       return (System.currentTimeMillis() - createdTime) >= MUTEX_GRACE_PERIOD_MS;

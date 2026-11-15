@@ -2,10 +2,12 @@ package me.desair.tus.server.upload.s3;
 
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.SequenceInputStream;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -169,7 +171,7 @@ public class S3ConcatenationService extends AbstractConcatenationService {
     this.temporaryDirectory =
         temporaryDirectory != null
             ? temporaryDirectory
-            : java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"));
+            : Paths.get(System.getProperty("java.io.tmpdir"));
     this.minPartSize = minPartSize;
     this.s3ComposeHelper =
         s3ComposeHelper != null ? s3ComposeHelper : new S3ServerSideComposeHelper(this.minioClient);
@@ -238,7 +240,7 @@ public class S3ConcatenationService extends AbstractConcatenationService {
       return uploadStorageService.getUploadedBytes(uploadInfo.getId());
     }
 
-    return new java.io.ByteArrayInputStream(new byte[0]);
+    return new ByteArrayInputStream(new byte[0]);
   }
 
   private void mergeUsingServerSideCopy(

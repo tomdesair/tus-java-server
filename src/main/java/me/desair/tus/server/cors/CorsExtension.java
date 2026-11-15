@@ -1,6 +1,7 @@
 package me.desair.tus.server.cors;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.RequestHandler;
@@ -17,7 +18,7 @@ public class CorsExtension extends AbstractTusExtension {
 
   @Override
   public Collection<HttpMethod> getMinimalSupportedHttpMethods() {
-    return java.util.Collections.emptyList();
+    return Collections.emptyList();
   }
 
   @Override

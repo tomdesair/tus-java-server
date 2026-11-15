@@ -252,16 +252,15 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
       return false;
     }
     try {
-      if (Boolean.TRUE.equals(lockBlob.exists())) {
-        BlobProperties props = lockBlob.getProperties();
-        // Check lease state before deletion: if actively held by another thread or node,
-        // do not attempt deletion to avoid lease conflict errors.
-        if (props.getLeaseState() != null
-            && !Strings.CS.equals(props.getLeaseState().toString(), "leased")) {
-          lockBlob.deleteIfExists();
-          log.debug("Cleaned up Azure lock blob {}", lockBlob.getBlobName());
-          return true;
-        }
+      // Skip a separate exists() call: getProperties() throws BlobStorageException (404) if absent.
+      BlobProperties props = lockBlob.getProperties();
+      // Check lease state before deletion: if actively held by another thread or node,
+      // do not attempt deletion to avoid lease conflict errors.
+      if (props.getLeaseState() != null
+          && !Strings.CS.equals(props.getLeaseState().toString(), "leased")) {
+        lockBlob.deleteIfExists();
+        log.debug("Cleaned up Azure lock blob {}", lockBlob.getBlobName());
+        return true;
       }
     } catch (Exception e) {
       log.debug(
@@ -359,6 +358,16 @@ public class AzureBlobLockingService extends AbstractCloseableResourceService
     if (uploadId != null && inputStream instanceof InterruptibleInputStream) {
       activeStreams.put(
           uploadId.toString(), new WeakReference<>((InterruptibleInputStream) inputStream));
+    }
+  }
+
+  @Override
+  public void unregisterInputStream(String requestUri) {
+    UploadId uploadId = idFactory.readUploadId(requestUri);
+    if (uploadId != null) {
+      // Remove stream registration once transfer completes or fails so the background watchdog
+      // stops polling storage for stop signals on this upload ID.
+      activeStreams.remove(uploadId.toString());
     }
   }
 

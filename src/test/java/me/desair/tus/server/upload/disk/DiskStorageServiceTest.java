@@ -17,6 +17,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -43,6 +44,7 @@ import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
+import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
@@ -1521,5 +1523,30 @@ public class DiskStorageServiceTest {
     info.setOffset(10L);
 
     storageService.update(info);
+  }
+
+  @Test
+  public void testCloseClosesOwnedLockingAndConcatenationAndRespectsExternalLocking()
+      throws Exception {
+    Path tempDir = Files.createTempDirectory("disk-close-test");
+    try {
+      DiskStorageService ownedService = new DiskStorageService(tempDir.toString());
+      UploadConcatenationService mockConcat = mock(UploadConcatenationService.class);
+      ownedService.setUploadConcatenationService(mockConcat);
+      UploadLockingService internalLocking = ownedService.getUploadLockingService();
+
+      // Replacing the internally owned locking service must close it immediately
+      UploadLockingService externalLocking = mock(UploadLockingService.class);
+      ownedService.setUploadLockingService(externalLocking);
+      assertEquals(externalLocking, ownedService.getUploadLockingService());
+      assertNotSame(internalLocking, ownedService.getUploadLockingService());
+
+      // Closing DiskStorageService closes concatenation but must not close external locking
+      ownedService.close();
+      verify(mockConcat).close();
+      verify(externalLocking, never()).close();
+    } finally {
+      FileUtils.deleteQuietly(tempDir.toFile());
+    }
   }
 }

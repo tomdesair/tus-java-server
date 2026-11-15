@@ -65,17 +65,24 @@ public class RufhCreationValidator implements RequestValidator {
       }
     }
 
+    // Derive effective length from Upload-Length or from Content-Length on single-request
+    // Upload-Complete: ?1 creations so size bounds apply uniformly to both styles.
+    Long effectiveLength =
+        uploadLength != null
+            ? uploadLength
+            : (Boolean.TRUE.equals(uploadComplete) && contentLength >= 0 ? contentLength : null);
+
     long maxUploadSize = uploadStorageService.getMaxUploadSize();
-    if (maxUploadSize > 0 && uploadLength != null && uploadLength > maxUploadSize) {
+    if (maxUploadSize > 0 && effectiveLength != null && effectiveLength > maxUploadSize) {
       throw new MaxUploadLengthExceededException(
           "The requested upload length exceeds the maximum allowed size");
     }
 
     Long minSize = uploadStorageService.getMinSize();
-    if (minSize != null && minSize > 0 && uploadLength != null && uploadLength < minSize) {
+    if (minSize != null && minSize > 0 && effectiveLength != null && effectiveLength < minSize) {
       throw new MinUploadLengthNotReachedException(
           "The requested upload length ("
-              + uploadLength
+              + effectiveLength
               + ") is smaller than the minimum allowed size ("
               + minSize
               + ")");

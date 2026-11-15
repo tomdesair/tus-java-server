@@ -38,10 +38,11 @@ Locks are structured as a dedicated directory containing a JSON lease metadata f
 {
   "holderId": "pod-tus-backend-7d9c6-thread-14",
   "requestUri": "/files/upload/018f3b2a-7140-7e1d-8f92-5cb640d28362",
-  "storagePath": "/mnt/uploads/locks/018f3b2a-7140-7e1d-8f92-5cb640d28362.lock",
   "leaseDurationMs": 30000,
+  "acquiredAt": 1723401204567,
   "expiresAt": 1723401234567,
-  "acquiredAt": 1723401204567
+  "lockPath": "/mnt/uploads/locks/018f3b2a-7140-7e1d-8f92-5cb640d28362.lock",
+  "stopPath": "/mnt/uploads/locks/018f3b2a-7140-7e1d-8f92-5cb640d28362.stop"
 }
 ```
 

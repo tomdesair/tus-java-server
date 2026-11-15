@@ -3,7 +3,10 @@ package me.desair.tus.server.rufh.handler;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import me.desair.tus.server.HttpHeader;
@@ -11,6 +14,7 @@ import me.desair.tus.server.HttpMethod;
 import me.desair.tus.server.HttpProblemDetails;
 import me.desair.tus.server.exception.InconsistentUploadLengthException;
 import me.desair.tus.server.exception.UploadAlreadyCompletedException;
+import me.desair.tus.server.exception.UploadLengthExceededException;
 import me.desair.tus.server.exception.UploadOffsetMismatchException;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
@@ -141,6 +145,7 @@ public class RufhErrorHandlerTest {
 
     assertThat(response.getStatus(), is(400));
     assertThat(response.getContentAsString(), containsString("completed-upload"));
+    verify(storageService).terminateUpload(info);
   }
 
   @Test
@@ -355,5 +360,42 @@ public class RufhErrorHandlerTest {
     // problem is null, so response body should remain empty
     assertThat(problem, org.hamcrest.CoreMatchers.nullValue());
     assertThat(response.getContentAsString(), is(""));
+  }
+
+  @Test
+  public void testProcessLengthExceededTerminatesUploadAndIgnoresCleanupException()
+      throws Exception {
+    request.setRequestURI("/files/exceeded-id");
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("exceeded-id"));
+    info.setOffset(50L);
+    info.setLength(50L);
+    when(storageService.getUploadInfo("/files/exceeded-id", "owner")).thenReturn(info);
+    doThrow(new RuntimeException("Terminate failed")).when(storageService).terminateUpload(info);
+
+    HttpProblemDetails problem =
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            storageService,
+            null,
+            "owner",
+            new UploadLengthExceededException("Exceeded"));
+
+    assertNull(problem);
+    assertThat(response.getHeader(HttpHeader.UPLOAD_COMPLETE), is("?0"));
+    verify(storageService).terminateUpload(info);
+
+    // Null storageService guard
+    assertNull(
+        handler.process(
+            HttpMethod.PATCH,
+            new TusServletRequest(request),
+            new TusServletResponse(response),
+            null,
+            null,
+            "owner",
+            new UploadLengthExceededException("Exceeded")));
   }
 }

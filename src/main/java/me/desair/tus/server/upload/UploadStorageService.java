@@ -1,5 +1,6 @@
 package me.desair.tus.server.upload;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -9,6 +10,7 @@ import me.desair.tus.server.checksum.ChecksumAlgorithm;
 import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.exception.TusException;
 import me.desair.tus.server.exception.UploadNotFoundException;
+import me.desair.tus.server.upload.checksum.DeduplicationService;
 import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import me.desair.tus.server.util.Utils;
 import org.apache.commons.io.IOUtils;
@@ -35,8 +37,8 @@ import org.apache.commons.io.IOUtils;
  *       String)} retrieve metadata. {@link #getUploadedBytes(UploadId)} and {@link
  *       #copyUploadTo(UploadInfo, OutputStream)} stream committed data bytes.
  *   <li><b>Termination:</b> {@link #terminateUpload(UploadInfo)} is the authoritative method to
- *       free physical payload bytes, remove metadata, clean up locks, and coordinate deduplication
- *       index cleanup.
+ *       free physical payload bytes, remove metadata, and coordinate deduplication index cleanup.
+ *       Active locks are released automatically when the request's {@link UploadLock} closes.
  * </ul>
  *
  * <h2>2. Mandatory Locking Service Integration</h2>
@@ -44,8 +46,9 @@ import org.apache.commons.io.IOUtils;
  * <p>Concurrency control is mandatory across all storage backends. Every storage service receives
  * an {@link UploadLockingService} instance via {@link
  * #setUploadLockingService(UploadLockingService)} and exposes it via {@link
- * #getUploadLockingService()}. Implementations MUST retain this reference and delegate lock cleanup
- * during {@link #terminateUpload(UploadInfo)} and {@link #cleanupExpiredUploads()}.
+ * #getUploadLockingService()}. Implementations MUST retain this reference and clean up orphaned
+ * locks via {@link UploadLockingService#cleanupLock(UploadId)} during {@link
+ * #cleanupExpiredUploads()}.
  *
  * <h2>3. Checksum Deduplication Support</h2>
  *
@@ -54,11 +57,10 @@ import org.apache.commons.io.IOUtils;
  *
  * <ul>
  *   <li>{@link #deduplicate(UploadInfo, ChecksumKey)}: Coordinates cluster-safe deduplication when
- *       an upload completes, typically delegating to {@link
- *       me.desair.tus.server.upload.checksum.DeduplicationService}.
+ *       an upload completes, typically delegating to {@link DeduplicationService}.
  *   <li>{@link #dataExists(UploadId)}: Checks whether committed physical data exists in storage.
- *       Used by {@link me.desair.tus.server.upload.checksum.DeduplicationService} to self-heal
- *       stale checksum index entries when parent data has been deleted out-of-band.
+ *       Used by {@link DeduplicationService} to self-heal stale checksum index entries when parent
+ *       data has been deleted out-of-band.
  *   <li>{@link #deleteData(UploadId)}: Deletes physical committed data without deleting the
  *       upload's {@link UploadInfo} metadata record. Used to free storage for child duplicates
  *       linked to a parent, and to purge retained parent data when the last active child
@@ -71,7 +73,7 @@ import org.apache.commons.io.IOUtils;
  *       child-owned storage.
  * </ul>
  */
-public interface UploadStorageService {
+public interface UploadStorageService extends Closeable {
 
   /**
    * Method to retrieve the upload info by its upload URL.
@@ -392,13 +394,12 @@ public interface UploadStorageService {
    *
    * <p><b>Mandatory Locking Integration:</b> An {@link UploadLockingService} is mandatory across
    * all storage backends. Implementations MUST retain this reference and invoke {@link
-   * UploadLockingService#cleanupLock(UploadId)} during {@link #terminateUpload(UploadInfo)} and
-   * coordinate lock state during {@link #cleanupExpiredUploads()}.
+   * UploadLockingService#cleanupLock(UploadId)} during {@link #cleanupExpiredUploads()}.
    *
    * @param uploadLockingService the locking service instance (must not be {@code null})
    */
   default void setUploadLockingService(UploadLockingService uploadLockingService) {
-    java.util.Objects.requireNonNull(uploadLockingService, "uploadLockingService must not be null");
+    Objects.requireNonNull(uploadLockingService, "uploadLockingService must not be null");
   }
 
   /**
@@ -415,9 +416,9 @@ public interface UploadStorageService {
    *
    * <p><b>Critical for Deduplication:</b> Implementations supporting upload deduplication MUST
    * override this method to accurately verify that physical data bytes exist in storage. The {@link
-   * me.desair.tus.server.upload.checksum.DeduplicationService} invokes this check during parent
-   * lookup to self-heal stale checksum index entries when parent data has been deleted out-of-band
-   * (e.g., via storage lifecycle policies or manual deletion).
+   * DeduplicationService} invokes this check during parent lookup to self-heal stale checksum index
+   * entries when parent data has been deleted out-of-band (e.g., via storage lifecycle policies or
+   * manual deletion).
    *
    * <p>The default implementation returns {@code false} for backward compatibility. If not
    * overridden in a deduplication-enabled backend, parent uploads will be treated as missing,
@@ -554,6 +555,7 @@ public interface UploadStorageService {
    *
    * @throws IOException If closing fails
    */
+  @Override
   default void close() throws IOException {
     // No-op by default for backward compatibility
   }

@@ -2,8 +2,14 @@ package me.desair.tus.server.upload.cache;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -15,6 +21,7 @@ import java.io.OutputStream;
 import java.time.Duration;
 import java.util.UUID;
 import me.desair.tus.server.checksum.ChecksumAlgorithm;
+import me.desair.tus.server.checksum.ChecksumKey;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadIdFactory;
 import me.desair.tus.server.upload.UploadInfo;
@@ -133,12 +140,18 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
     when(mockLocking.lockUploadByUri("/files/1")).thenReturn(mockLock);
     when(mockIdFactory.readUploadId("/files/1")).thenReturn(id);
 
-    service.getUploadInfo(id);
+    // Pre-lock read populates the ThreadLocal cache
+    assertSame(info, service.getUploadInfo(id));
 
     UploadLock lock = service.lockUploadByUri("/files/1");
     assertNotNull(lock);
     lock.getUploadUri();
     verify(mockLock).getUploadUri();
+
+    // First read inside the lock must re-fetch from storage because pre-lock cache was evicted;
+    // second read inside the same lock hits the cache without calling mockStorage again.
+    assertSame(info, service.getUploadInfo(id));
+    assertSame(info, service.getUploadInfo(id));
 
     lock.release();
     verify(mockLock, times(1)).release();
@@ -146,8 +159,16 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
     lock.close();
     verify(mockLock, times(1)).close();
 
-    service.getUploadInfo(id);
-    verify(mockStorage, times(2)).getUploadInfo(id);
+    assertSame(info, service.getUploadInfo(id));
+    verify(mockStorage, times(3)).getUploadInfo(id);
+
+    // Acquiring a lock by UploadId must also evict any prior ThreadLocal cached entry
+    when(mockLocking.lockUpload(id)).thenReturn(mockLock);
+    try (UploadLock idLock = service.lockUpload(id)) {
+      assertNotNull(idLock);
+      assertSame(info, service.getUploadInfo(id));
+    }
+    verify(mockStorage, times(4)).getUploadInfo(id);
   }
 
   @Test
@@ -252,6 +273,9 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
     service.registerInputStream("/files/1", is);
     verify(mockLocking, times(1)).registerInputStream("/files/1", is);
 
+    service.unregisterInputStream("/files/1");
+    verify(mockLocking, times(1)).unregisterInputStream("/files/1");
+
     service.requestLockRelease("/files/1");
     verify(mockLocking, times(1)).requestLockRelease("/files/1");
 
@@ -279,5 +303,89 @@ public class ThreadLocalCachedStorageAndLockingServiceTest {
     UploadId id = new UploadId(UUID.randomUUID().toString());
     service.cleanupLock(id);
     verify(mockLocking, times(1)).cleanupLock(id);
+  }
+
+  @Test
+  public void testDelegateGettersReturnRawDelegates() throws IOException {
+    assertSame(mockStorage, service.getStorageServiceDelegate());
+    assertSame(mockLocking, service.getLockingServiceDelegate());
+
+    ThreadLocalCachedStorageAndLockingService noFactoryService =
+        new ThreadLocalCachedStorageAndLockingService(mockStorage, mockLocking);
+    UploadInfo info = new UploadInfo();
+    when(mockStorage.getUploadInfo("/files/no-factory", "owner")).thenReturn(info);
+    assertSame(info, noFactoryService.getUploadInfo("/files/no-factory", "owner"));
+  }
+
+  @Test
+  public void testCacheEvictedOnWriteExceptionsAndCloseGuaranteesBothDelegatesClosed()
+      throws Exception {
+    UploadId id = new UploadId(UUID.randomUUID().toString());
+    UploadInfo info = new UploadInfo();
+    info.setId(id);
+    info.setOffset(0L);
+    info.setLength(100L);
+
+    when(mockStorage.getUploadInfo(id)).thenReturn(info);
+    // Warm the cache once; subsequent write errors must evict it so the delegate is queried again
+    service.getUploadInfo(id);
+
+    doThrow(new IOException("update failed")).when(mockStorage).update(info);
+    assertThrows(IOException.class, () -> service.update(info));
+    service.getUploadInfo(id);
+
+    when(mockStorage.append(any(), any())).thenThrow(new IOException("append failed"));
+    assertThrows(
+        IOException.class, () -> service.append(info, new ByteArrayInputStream(new byte[1])));
+    service.getUploadInfo(id);
+
+    doThrow(new IOException("truncate failed")).when(mockStorage).removeLastNumberOfBytes(info, 1L);
+    assertThrows(IOException.class, () -> service.removeLastNumberOfBytes(info, 1L));
+    service.getUploadInfo(id);
+
+    when(mockStorage.deduplicate(any(), any())).thenThrow(new IOException("dedup failed"));
+    assertThrows(IOException.class, () -> service.deduplicate(info, null));
+    service.getUploadInfo(id);
+
+    // 1 initial load + 4 cache misses after each exception = 5 delegate reads
+    verify(mockStorage, times(5)).getUploadInfo(id);
+
+    doThrow(new IOException("locking close failed")).when(mockLocking).close();
+    assertThrows(IOException.class, () -> service.close());
+    verify(mockStorage, times(1)).close();
+  }
+
+  @Test
+  public void testJsonSerializationDeduplicateSetLockingAndNullDelegateLock() throws Exception {
+    service.setJsonSerializationEnabled(true);
+    verify(mockStorage, times(1)).setJsonSerializationEnabled(true);
+
+    when(mockStorage.isJsonSerializationEnabled()).thenReturn(true);
+    assertTrue(service.isJsonSerializationEnabled());
+
+    service.setUploadLockingService(mockLocking);
+    verify(mockStorage, times(1)).setUploadLockingService(mockLocking);
+
+    UploadId id = new UploadId(UUID.randomUUID().toString());
+    UploadInfo input = new UploadInfo();
+    input.setId(id);
+    UploadInfo deduped = new UploadInfo();
+    deduped.setId(id);
+    deduped.setDuplicatesUploadId(new UploadId(UUID.randomUUID().toString()));
+    ChecksumKey key = ChecksumKey.of("abcdef", ChecksumAlgorithm.SHA256);
+
+    when(mockStorage.deduplicate(input, key)).thenReturn(deduped).thenReturn(null);
+    assertSame(deduped, service.deduplicate(input, key));
+    // Non-null deduplication result must populate the ThreadLocal cache
+    assertSame(deduped, service.getUploadInfo(id));
+    verify(mockStorage, never()).getUploadInfo(id);
+
+    assertNull(service.deduplicate(input, key));
+
+    ThreadLocalCachedStorageAndLockingService.CachedLock nullDelegateLock =
+        service.new CachedLock(null);
+    assertNull(nullDelegateLock.getUploadUri());
+    nullDelegateLock.release();
+    nullDelegateLock.close();
   }
 }

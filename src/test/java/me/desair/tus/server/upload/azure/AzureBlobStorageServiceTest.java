@@ -7,8 +7,11 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.azure.storage.blob.BlobContainerClient;
@@ -32,6 +35,7 @@ import me.desair.tus.server.upload.TimeBasedUploadIdFactory;
 import me.desair.tus.server.upload.UploadId;
 import me.desair.tus.server.upload.UploadInfo;
 import me.desair.tus.server.upload.UploadLockingService;
+import me.desair.tus.server.upload.concatenation.UploadConcatenationService;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -131,6 +135,19 @@ public class AzureBlobStorageServiceTest {
 
     info.setDuplicatesUploadId(new UploadId("parent-999"));
     assertEquals("uploads/parent-999", storageService.getAzureBlobName(info));
+  }
+
+  @Test
+  public void getOwnAzureBlobNameShouldReturnChildBlobName() {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("12345"));
+    assertEquals("uploads/12345", storageService.getOwnAzureBlobName(info));
+
+    // For deduplicated child uploads, getOwnAzureBlobName MUST return the child's own blob name
+    // (not parent's) to protect parent blobs from write and truncation operations
+    info.setDuplicatesUploadId(new UploadId("parent-999"));
+    assertEquals("uploads/12345", storageService.getOwnAzureBlobName(info));
+    assertNull(storageService.getOwnAzureBlobName(null));
   }
 
   @Test
@@ -440,5 +457,23 @@ public class AzureBlobStorageServiceTest {
       assertTrue(e.getMessage().contains("Interrupted"));
       assertTrue(Thread.interrupted()); // clears interrupted flag
     }
+  }
+
+  @Test
+  public void testGetAzureBlobNameSingleArgAndCloseClosesConcatenationService() throws Exception {
+    UploadInfo info = new UploadInfo();
+    info.setId(new UploadId("az-single-arg"));
+    info.setOffset(5L);
+    info.setLength(5L);
+
+    AzureBlobStorageService spyService = spy(storageService);
+    UploadConcatenationService mockConcat = mock(UploadConcatenationService.class);
+    spyService.setUploadConcatenationService(mockConcat);
+    doReturn(info).when(spyService).getUploadInfo("/files/az-single-arg", null);
+
+    assertEquals("uploads/az-single-arg", spyService.getAzureBlobName("/files/az-single-arg"));
+
+    spyService.close();
+    verify(mockConcat).close();
   }
 }

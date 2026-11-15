@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,6 +27,7 @@ public class AbstractLeaseLockTest {
 
   private static class TestLeaseLock extends AbstractLeaseLock {
     private final AtomicInteger renewCount = new AtomicInteger(0);
+    private final AtomicInteger releaseCount = new AtomicInteger(0);
     private final AtomicBoolean released = new AtomicBoolean(false);
 
     public TestLeaseLock(
@@ -48,6 +50,7 @@ public class AbstractLeaseLockTest {
 
     @Override
     protected void releaseLockResource() {
+      releaseCount.incrementAndGet();
       released.set(true);
     }
   }
@@ -232,5 +235,28 @@ public class AbstractLeaseLockTest {
 
     assertTrue(stream.isInterrupted());
     verify(mockFuture).cancel(true);
+  }
+
+  @Test
+  public void testRenewLeaseNoOpAfterClose() {
+    ScheduledExecutorService mockExecutor = mock(ScheduledExecutorService.class);
+    ScheduledFuture mockFuture = mock(ScheduledFuture.class);
+    when(mockExecutor.scheduleWithFixedDelay(any(), anyLong(), anyLong(), any()))
+        .thenReturn(mockFuture);
+    UploadId uploadId = new UploadId("upload-closed");
+    LeaseData leaseData =
+        new LeaseData(
+            "holder-closed", "/files/upload-closed", 10000L, System.currentTimeMillis() + 10000L);
+
+    TestLeaseLock lock = new TestLeaseLock(leaseData, uploadId, null, mockExecutor);
+    lock.close();
+    // Second close and subsequent heartbeat renewal must both be harmless no-ops
+    lock.close();
+    lock.renewLease();
+
+    assertTrue(lock.released.get());
+    assertThat(lock.releaseCount.get(), is(1));
+    assertThat(lock.renewCount.get(), is(0));
+    verify(mockFuture, times(2)).cancel(true);
   }
 }

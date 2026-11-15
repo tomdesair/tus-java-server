@@ -144,7 +144,15 @@ public class RufhProtocolAppendTest {
       protocol.validate(
           HttpMethod.PATCH, request, storageService, lockingService, null, ProtocolVersion.RUFH);
     } catch (TusException expected) {
-      // Expected exception
+      protocol.handleError(
+          HttpMethod.PATCH,
+          new TusServletRequest(request, true),
+          new TusServletResponse(response),
+          storageService,
+          lockingService,
+          null,
+          ProtocolVersion.RUFH,
+          expected);
     }
 
     verify(storageService).terminateUpload(info);

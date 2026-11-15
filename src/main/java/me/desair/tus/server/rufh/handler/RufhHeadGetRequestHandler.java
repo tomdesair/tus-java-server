@@ -1,5 +1,6 @@
 package me.desair.tus.server.rufh.handler;
 
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import me.desair.tus.server.HttpHeader;
 import me.desair.tus.server.HttpMethod;
@@ -63,7 +64,7 @@ public class RufhHeadGetRequestHandler extends AbstractRequestHandler {
       return null;
     }
 
-    servletResponse.setStatus(204);
+    servletResponse.setStatus(HttpServletResponse.SC_NO_CONTENT);
     servletResponse.setHeader(HttpHeader.UPLOAD_OFFSET, String.valueOf(uploadInfo.getOffset()));
     servletResponse.setHeader(
         HttpHeader.UPLOAD_COMPLETE,
