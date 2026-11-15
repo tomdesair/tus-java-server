@@ -25,6 +25,7 @@ import io.minio.messages.DeleteResult;
 import io.minio.messages.ErrorResponse;
 import io.minio.messages.Item;
 import java.io.InputStream;
+import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -324,6 +325,22 @@ public class S3UtilsTest {
     when(errorResponse.code()).thenReturn("");
     ErrorResponseException ex = new ErrorResponseException(errorResponse, httpResponse, null);
     assertEquals(S3ErrorType.API_NOT_IMPLEMENTED, S3Utils.parseErrorResponse(ex));
+  }
+
+  @Test
+  public void testCalculateExpirationCutoff() {
+    assertNull(S3Utils.calculateExpirationCutoff(null));
+    assertNull(S3Utils.calculateExpirationCutoff(0L));
+    assertNull(S3Utils.calculateExpirationCutoff(-100L));
+
+    ZonedDateTime now = ZonedDateTime.now();
+    ZonedDateTime shortCutoff = S3Utils.calculateExpirationCutoff(1000L);
+    assertNotNull(shortCutoff);
+    assertTrue(shortCutoff.isAfter(now));
+
+    ZonedDateTime longCutoff = S3Utils.calculateExpirationCutoff(10_000L);
+    assertNotNull(longCutoff);
+    assertTrue(longCutoff.isBefore(ZonedDateTime.now()));
   }
 
   private ErrorResponseException createExceptionWithCode(String code) {
